@@ -1,0 +1,6 @@
+apsw
+appdirs
+colorlog
+sha3
+pycoin
+python-bitcoinlib
