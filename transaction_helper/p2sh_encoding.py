@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScript
 
-import config, script, exceptions
+import config
+import src.script as script
+import src.exceptions as exceptions
 
 
 def maximum_data_chunk_size(pubkeylength):

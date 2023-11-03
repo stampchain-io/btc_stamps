@@ -7,8 +7,10 @@ import time
 import sys
 
 import config
-import util
-import database
+import src.util as util
+import src.database as database
+
+''' this is the consensus hash for counterparty. needs to be updated for stamps'''
 
 CONSENSUS_HASH_SEED = 'We can only see a short distance ahead, but we can see plenty there that needs to be done.'
 

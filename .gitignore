@@ -3,3 +3,4 @@ server.db
 log.file
 transactions.db
 server_795985.db
+blockchain.db

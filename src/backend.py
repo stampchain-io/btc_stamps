@@ -14,11 +14,19 @@ import binascii
 import hashlib
 import signal
 import bitcoin.wallet
-import config, util, address
+import config
+import src.util as util
+import src.address as address
+import src.script as script
 
-READ_BUF_SIZE = 65536
-SOCKET_TIMEOUT = 5.0
-BACKEND_PING_TIME = 30.0
+
+import bitcoin as bitcoinlib
+from bitcoin.core import CBlock
+
+
+MEMPOOL_CACHE_INITIALIZED = False
+
+PRETX_CACHE = {}
 
 raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
@@ -30,7 +38,7 @@ class AddrIndexRsRPCError(Exception):
 
 def rpc_call(payload):
     """Calls to bitcoin core and returns the response"""
-    url = config.BACKEND_URL # defined in server.py
+    url = config.BACKEND_URL
     response = None
     TRIES = 12
 
@@ -152,8 +160,20 @@ def getblockcount():
 def getblockhash(blockcount):
     return rpc('getblockhash', [blockcount])
 
-def getblock(block_hash):
+def getblock(block_hash): # returns a hex string
     return rpc('getblock', [block_hash, False])
+
+def getcblock(block_hash):
+    # print('getblock', block_hash)
+    block_hex = getblock(block_hash)
+    return CBlock.deserialize(bytes.fromhex(block_hex))
+    # return CBlock.deserialize(util.unhexlify(block_hex)) # prior
+
+def cache_pretx(txid, rawtx):
+    PRETX_CACHE[binascii.hexlify(txid).decode('utf8')] = binascii.hexlify(rawtx).decode('utf8')
+
+def clear_pretx(txid):
+    del PRETX_CACHE[binascii.hexlify(txid).decode('utf8')]
 
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
     return getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing)[tx_hash]
@@ -176,6 +196,40 @@ def fee_per_kb(conf_target, mode, nblocks=None):
         return None
 
     return int(max(feeperkb['feerate'] * config.UNIT, config.DEFAULT_FEE_PER_KB_ESTIMATE_SMART))
+
+def deserialize(tx_hex):
+    return bitcoinlib.core.CTransaction.deserialize(binascii.unhexlify(tx_hex))
+
+def serialize(ctx):
+    return bitcoinlib.core.CTransaction.serialize(ctx)
+
+
+def is_valid(address):
+    try:
+        script.validate(address)
+        return True
+    except script.AddressError:
+        return False
+
+def get_txhash_list(block):
+    return [bitcoinlib.core.b2lx(ctx.GetHash()) for ctx in block.vtx]
+
+def get_tx_list(block):
+    raw_transactions = {}
+    tx_hash_list = []
+
+    for ctx in block.vtx:
+        if util.enabled('correct_segwit_txids'):
+            hsh = ctx.GetTxid()
+        else:
+            hsh = ctx.GetHash()
+        tx_hash = bitcoinlib.core.b2lx(hsh)
+        raw = ctx.serialize()
+
+        tx_hash_list.append(tx_hash)
+        raw_transactions[tx_hash] = bitcoinlib.core.b2x(raw)
+    # print("tx_hash_list: ", tx_hash_list) # debug
+    return (tx_hash_list, raw_transactions)
 
 def sendrawtransaction(tx_hex):
     return rpc('sendrawtransaction', [tx_hex])
@@ -260,3 +314,159 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
                 raise #already tried again, give up
 
     return result
+
+
+def _script_pubkey_to_hash(spk):
+    return hashlib.sha256(spk).digest()[::-1].hex()
+
+def _address_to_hash(addr):
+    script_pubkey = bitcoin.wallet.CBitcoinAddress(addr).to_scriptPubKey()
+    return _script_pubkey_to_hash(script_pubkey)
+
+# Returns an array of UTXOS from an address in the following format
+# {
+#   "txId": utxo_txid_hex,
+#   "vout": num,
+#   "height": num,
+#   "value": sats,
+#   "confirmations": num
+# }
+# [{"txId":"a0d12eb3716e2e70fd00525486ace0da2947f82d818b7be0285f16ff672cf237","vout":5,"height":647484,"value":30455293,"confirmations":2}]
+#
+def unpack_outpoint(outpoint):
+    txid, vout = outpoint.split(':')
+    return (txid, int(vout))
+
+def unpack_vout(outpoint, tx, block_count):
+    if tx is None:
+        return None
+
+    vout = tx["vout"][outpoint[1]]
+    height = -1
+    if "confirmations" in tx and tx["confirmations"] > 0:
+        height = block_count - tx["confirmations"] + 1
+    else:
+        tx["confirmations"] = 0
+
+    return {
+        "txId": tx["txid"],
+        "vout": outpoint[1],
+        "height": height,
+        "value": int(round(vout["value"] * config.UNIT)),
+        "confirmations": tx["confirmations"]
+    }
+
+# def get_unspent_txouts(source):
+#     ensure_addrindexrs_connected()
+
+#     block_count = getblockcount()
+#     result = _backend.send({
+#         "method": "blockchain.scripthash.get_utxos",
+#         "params": [_address_to_hash(source)]
+#     })
+
+#     if not(result is None) and "result" in result:
+#         result = result["result"]
+#         result = [unpack_outpoint(x) for x in result]
+#         # each item on the result array is like
+#         # {"tx_hash": hex_encoded_hash}
+#         batch = getrawtransaction_batch([x[0] for x in result], verbose=True, skip_missing=True)
+#         batch = [unpack_vout(outpoint, batch[outpoint[0]], block_count) for outpoint in result if outpoint[0] in batch]
+#         batch = [x for x in batch if x is not None]
+
+#         return batch
+#     else:
+#         return []
+
+# Returns transactions in the following format
+# {
+#  "blockhash": hexstring,
+#  "blocktime": num,
+#  "confirmations": num,
+#  "hash": hexstring,
+#  "height": num,
+#  "hex": hexstring,
+#  "locktime": num,
+#  "size": num,
+#  "time": num,
+#  "txid": hexstring,
+#  "version": num,
+#  "vsize": num,
+#  "weight": num,
+#  "vin": [
+#    {
+#      "txinwitness": array of hex_witness_program, // Only if it's a witness-containing tx
+#      "vout": num,
+#      "txid": hexstring,
+#      "sequence": num,
+#      "coinbase": X, // contents not important, this is only present if the tx is a coinbase
+#      "scriptSig": {
+#        "asm": asm_decompiled_program,
+#        "hex": hex_program
+#      }
+#    },...
+#  ],
+#  "vout": [
+#    {
+#       "n": num,
+#       "value": decimal,
+#       "scriptPubKey": {
+#           "type": string,
+#           "reqSigs": num,
+#           "hex": hexstring, // the program in hex
+#           "asm": string, // the decompiled program
+#           "addresses": [ ...list of found addresses on the program ]
+#       }
+#    }
+#  ]
+#
+# }
+# def search_raw_transactions(address, unconfirmed=True):
+#     ensure_addrindexrs_connected()
+
+#     hsh = _address_to_hash(address)
+#     txs = _backend.send({
+#         "method": "blockchain.scripthash.get_history",
+#         "params": [hsh]
+#     })["result"]
+
+#     batch = getrawtransaction_batch([x["tx_hash"] for x in txs], verbose=True)
+
+#     if not(unconfirmed):
+#         batch = [x for x in batch if x.height >= 0]
+
+#     return batch
+
+# Returns the number of blocks the backend is behind the node
+def getindexblocksbehind():
+    # Addrindexrs never "gets behind"
+    return 0
+
+
+class MempoolError(Exception):
+    pass
+
+def init_mempool_cache():
+    """prime the mempool cache, so that functioning is faster...
+    """
+    global MEMPOOL_CACHE_INITIALIZED
+    logger.debug('Initializing mempool cache...')
+    start = time.time()
+
+    mempool_txhash_list = getrawmempool()
+
+    #with this function, don't try to load in more than BACKEND_RAW_TRANSACTIONS_CACHE_SIZE entries
+    num_tx = min(len(mempool_txhash_list), config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+    mempool_tx = getrawtransaction_batch(mempool_txhash_list[:num_tx], skip_missing=True, verbose=True)
+
+    vin_txhash_list = []
+    max_remaining_num_tx = config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE - num_tx
+    if max_remaining_num_tx:
+        for txid in mempool_tx:
+            tx = mempool_tx[txid]
+            if not(tx is None):
+                vin_txhash_list += [vin['txid'] for vin in tx['vin']]
+        getrawtransaction_batch(vin_txhash_list[:max_remaining_num_tx], skip_missing=True, verbose=True)
+
+    MEMPOOL_CACHE_INITIALIZED = True
+    logger.info('Mempool cache initialized: {:.2f}s for {:,} transactions'.format(time.time() - start, num_tx + min(max_remaining_num_tx, len(vin_txhash_list))))

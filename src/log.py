@@ -12,8 +12,8 @@ import os
 from colorlog import ColoredFormatter
 
 import config
-import exceptions
-import util
+import src.exceptions as exceptions
+import src.util as util
 from logging.handlers import RotatingFileHandler
 
 class ModuleLoggingFilter(logging.Filter):
