@@ -6,3 +6,6 @@
   - Detected Errors:
     - raises ConsensusError in check.py line 145 because calculated_hash differs of expected_hash
       - seems that content used to generate calculated_hash has some None attributes, idk if this is the problem.
+03/11/2023: [OK] Docker compose (author: JA):
+    - Fixed ConsensusError exception commenting CHECKPOINTS_MAINNET line:19
+  
