@@ -120,7 +120,6 @@ def consensus_hash(db, field, previous_consensus_hash, content):
         consensus_hash_version = CONSENSUS_HASH_VERSION_MAINNET
 
     calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
-
     # Verify hash (if already in database) or save hash (if not).
     # NOTE: do not enforce this for messages_hashes, those are more informational (for now at least)
     found_hash = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (block_index,)))[0][field] or None

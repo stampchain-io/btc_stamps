@@ -19,18 +19,22 @@ import src.util as util
 
 
 logger = logging.getLogger(__name__)
-RPC_USER = os.environ.get("RPC_USER", 'rpc')
-RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
-RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
-RPC_PORT = os.environ.get("RPC_PORT",'8332')
-RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+RPC_USER = os.environ.get("RPC_USER")
+RPC_PASSWORD = os.environ.get("RPC_PASSWORD")
+#RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
+#RPC_PORT = os.environ.get("RPC_PORT",'8332')
+#RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+#RPC_CONNECTION = AuthServiceProxy(RPC_URL)
+
+RPC_TOKEN=os.environ.get("RPC_TOKEN")
+RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@restless-fittest-cloud.btc.discover.quiknode.pro/{RPC_TOKEN}"
+
 RPC_CONNECTION = AuthServiceProxy(RPC_URL)
-
-
 
 RAW_TRANSACTIONS_CACHE_SIZE = 20000
 RPC_BATCH_SIZE = 20     # A 1 MB block can hold about 4200 transactions.
 RPC_BATCH_NUM_WORKERS = 5 #20
+
 
 raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
