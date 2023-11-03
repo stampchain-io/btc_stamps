@@ -12,7 +12,9 @@ from bitcoin.core.key import CPubKey
 from bitcoin.bech32 import CBech32Data
 
 
-import util, config, exceptions
+import src.util as util
+import config
+import src.exceptions as exceptions
 
 b58_digits = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 

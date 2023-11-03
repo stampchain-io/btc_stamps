@@ -4,3 +4,7 @@ colorlog
 sha3
 pycoin
 python-bitcoinlib
+requests
+python-dateutil
+cachetools
+pymysql

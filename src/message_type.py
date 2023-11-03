@@ -3,7 +3,7 @@ logger = logging.getLogger(__name__)
 import struct
 
 import config
-import util
+import src.util as util
 
 def pack(message_type_id, block_index=None):
     # pack message ID into 1 byte if not zero
