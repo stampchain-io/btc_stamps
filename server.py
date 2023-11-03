@@ -116,26 +116,30 @@ def initialise(*args, **kwargs):
     return initialise_db()
 
 
-def initialise_config(database_file=None, log_file=None, api_log_file=None,
-                testnet=False, testcoin=False, regtest=False,
-                api_limit_rows=1000,
-                backend_name=None, backend_connect=None, backend_port=None,
-                backend_user=None, backend_password=None,
-                indexd_connect=None, indexd_port=None,
-                backend_ssl=False, backend_ssl_no_verify=False,
-                backend_poll_interval=None,
-                rpc_host=None, rpc_port=None,
-                rpc_user=None, rpc_password=None,
-                rpc_no_allow_cors=False,
-                force=False, verbose=False, console_logfilter=None,
-                requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
-                rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
-                check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
-                backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
-                utxo_locks_max_addresses=config.DEFAULT_UTXO_LOCKS_MAX_ADDRESSES,
-                utxo_locks_max_age=config.DEFAULT_UTXO_LOCKS_MAX_AGE,
-                estimate_fee_per_kb=None,
-                customnet=None, checkdb=False):
+def initialise_config(
+    database_file=None,
+    log_file=None,
+    api_log_file=None,
+    testnet=False, testcoin=False, regtest=False,
+    api_limit_rows=1000,
+    backend_name=None, backend_connect=None, backend_port=None,
+    backend_user=None, backend_password=None,
+    indexd_connect=None, indexd_port=None,
+    backend_ssl=False, backend_ssl_no_verify=False,
+    backend_poll_interval=None,
+    rpc_host=None, rpc_port=None,
+    rpc_user=None, rpc_password=None,
+    rpc_no_allow_cors=False,
+    force=False, verbose=False, console_logfilter=None,
+    requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
+    rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
+    check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
+    backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
+    utxo_locks_max_addresses=config.DEFAULT_UTXO_LOCKS_MAX_ADDRESSES,
+    utxo_locks_max_age=config.DEFAULT_UTXO_LOCKS_MAX_AGE,
+    estimate_fee_per_kb=None,
+    customnet=None, checkdb=False
+):
 
     # Data directory
     data_dir = appdirs.user_data_dir(appauthor=config.XCP_NAME, appname=config.APP_NAME, roaming=True)

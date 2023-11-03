@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:5.7
+    platform: linux/amd64
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: your_root_password
+      MYSQL_DATABASE: stamps
+      MYSQL_USER: your_user
+      MYSQL_PASSWORD: your_user_password
+    command: --bind-address=0.0.0.0
+    ports:
+      - "3306:3306"
+
+  app:
+    build: .
+    command:  dockerize -wait tcp://db:3306 -timeout 1m python3.9 start.py
+    volumes:
+      - .:/usr/src/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - RDS_HOSTNAME=db
+      - RDS_USER=your_user
+      - RDS_PASSWORD=your_user_password
+      - RDS_DATABASE=stamps
+      - RPC_USER=rpc
+      - RPC_PASSWORD=rpc
+      - RPC_TOKEN=your_quicknode_token
+volumes:
+  db_data:
