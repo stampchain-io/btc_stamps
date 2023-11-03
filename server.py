@@ -390,7 +390,7 @@ def initialise_config(database_file=None, log_file=None, api_log_file=None,
     if estimate_fee_per_kb is not None:
         config.ESTIMATE_FEE_PER_KB = estimate_fee_per_kb
 
-    logger.info('Running v{} of counterparty-lib.'.format(config.VERSION_STRING))
+    # logger.info('Running v{} of counterparty-lib.'.format(config.VERSION_STRING))
 
 
 
