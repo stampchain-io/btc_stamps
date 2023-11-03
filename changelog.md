@@ -8,4 +8,5 @@
       - seems that content used to generate calculated_hash has some None attributes, idk if this is the problem.
 03/11/2023: [OK] Docker compose (author: JA):
     - Fixed ConsensusError exception commenting CHECKPOINTS_MAINNET line:19
-  
+03/11/2023: [OK] Adminer (author: JA):
+    - Add Adminer to docker-compose.yml to be able to visualize data
