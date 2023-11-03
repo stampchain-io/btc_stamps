@@ -2,20 +2,19 @@ from binascii import Error as DecodeError
 import json
 import logging
 import binascii
-# import the function arc4_decrypt from the file arc4.py
-import arc4
 import sys
 import io
 from config import RPC_URL
 from config import decimal_default
 # assert 'RPC_URL' in globals(), "RPC_URL is not defined"
-from arc4 import arc4_decrypt
+from src.arc4 import arc4_decrypt
 from config import getrawtransaction
-# from config import getrawtransaction, getblockcount
-
+from PIL import Image
 
 from config import BURNKEYS, BYTE_LENGTH_PREFIX_SIZE, STAMP_PREFIX_HEX
 from src20 import check_format
+
+''' this is a one off test script to parse src-20 transactions manually '''
 
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)

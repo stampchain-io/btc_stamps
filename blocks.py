@@ -5,6 +5,7 @@ Sieve blockchain for Stamp transactions, and add them to the database.
 """
 
 import os
+import sys
 import time
 import binascii
 import struct
@@ -13,40 +14,30 @@ D = decimal.Decimal
 import logging
 logger = logging.getLogger(__name__)
 import collections
-import platform
 import apsw
-import csv
-import copy
 import http
-import json
 
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError, CScript, CScriptWitness, OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG
 from bitcoin.core import CBlock, x, CScript
 from bitcoin.wallet import CBitcoinAddress, P2WPKHBitcoinAddress, P2WSHBitcoinAddress, P2PKHBitcoinAddress, P2SHBitcoinAddress
 
-
 import config
-import exceptions, util, check, script, backend, log, database, message_type, arc4, src20
+import src.exceptions as exceptions 
+import src.util as util
+import check
+import src.script as script
+import src.backend as backend
+import src.log as log
+import src.database as database
+import src.message_type as message_type
+import src.arc4 as arc4
 
-import sys
-import os
-import MySQLdb as mysql
-
-# Add the kickstart directory to the Python path
-kickstart_dir = os.path.join(os.path.dirname(__file__), 'kickstart')
-sys.path.append(kickstart_dir)
-
-# Now we can import the modules from the kickstart directory
-from kickstart.blocks_parser import BlockchainParser, ChainstateParser
+import pymysql as mysql
 
 from transaction_helper import p2sh_encoding
-from kickstart.utils import ib2h
-from exceptions import DecodeError, BTCOnlyError
-
-
-CURR_DIR = os.path.dirname(os.path.realpath(__file__))
-
+from src.exceptions import DecodeError, BTCOnlyError
+import kickstart.utils as utils
 
 rds_host = os.environ.get('RDS_HOSTNAME')
 rds_user = os.environ.get('RDS_USER')
@@ -63,16 +54,14 @@ mysql_conn = mysql.connect(
 )
 
 
-
 def parse_tx(db, tx):
     """Parse the transaction, return True for success."""
     cursor = db.cursor()
-    print("inside parse tx function - return true if success") # DEBUG
     try:
         with db:
             # Only one source and one destination allowed for now.
 
-            # REMOVING THESE TO ADD ALL INTO TRANSACTIONS
+            # COMMENTING THESE TO ADD ALL INTO TRANSACTIONS TABLE
             # if len(tx['source'].split('-')) > 1:
             #     return
             # if tx['destination']:
@@ -83,7 +72,8 @@ def parse_tx(db, tx):
             if tx['data'] is not None:
                 try:
                     print(tx['data']) # DEBUG
-                    # need to check for compressed data here if we are dropping into srcx
+                    # TODO: check json string for src-20 transactions and populate StampTableVx directly
+                    # need to check for compressed data here if we are dropping into srcx directly
                     print("we found a stamp transaction here in parse_tx")
                     # import data into the srcx mysql table based upon the names of the json keys
                     # print(tx['data'])
@@ -159,7 +149,6 @@ def parse_tx(db, tx):
     #     print('got tx herror ')
     #     raise exceptions.ParseTransactionError("%s" % e)
     finally:
-        print("cursor close on parse tx")
         cursor.close()
 
 
@@ -178,7 +167,7 @@ def parse_block(db, block_index, block_time,
     util.BLOCK_LEDGER = []
     database.BLOCK_MESSAGES = []
     assert block_index == util.CURRENT_BLOCK_INDEX
-    print("block index", block_index) # DEBUG
+    # print("block index", block_index) # DEBUG
     # # Remove undolog records for any block older than we should be tracking
     # undolog_oldest_block_index = block_index - config.UNDOLOG_MAX_PAST_BLOCKS
     # first_undo_index = list(undolog_cursor.execute('''SELECT first_undo_index FROM undolog_block WHERE block_index == ?''',
@@ -197,23 +186,15 @@ def parse_block(db, block_index, block_time,
     #         VALUES(?,?)''', (block_index, 1,))
     # undolog_cursor.close()
 
-    # Expire orders, bets and rps.
-    # order.expire(db, block_index)
-    # bet.expire(db, block_index, block_time)
-    # rps.expire(db, block_index)
-
-    # Parse transactions from db, sorting them by type.
     cursor = db.cursor()
     cursor.execute('''SELECT * FROM transactions \
                       WHERE block_index=? ORDER BY tx_index''',
                    (block_index,))
-    print("got transactions from database")
     time.sleep(2)
     txlist = []
     for tx in list(cursor):
         # print("tx", tx) # DEBUG
         try:
-            print("attempting to parse tx from parse_block function") # DEBUG
             parse_tx(db, tx)
 
             # adding this block so we can add items that don't decode # was below in data field
@@ -222,7 +203,6 @@ def parse_block(db, block_index, block_time,
                 print("decoding data", data)
             else:
                 data = ''
-            print("data", data)
             
             txlist.append('{}{}{}{}{}{}'.format(tx['tx_hash'], tx['source'], tx['destination'],
                                                 tx['btc_amount'], tx['fee'],
@@ -235,7 +215,7 @@ def parse_block(db, block_index, block_time,
     cursor.close()
 
     # Calculate consensus hashes.
-    # Update these to check stamp transaction hashes to validate block
+    # TODO: need to update these functions to use MySQL - these appear to be part of the block reorg checks - needs to be done before deprecating sqlite 
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
     new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, database.BLOCK_MESSAGES)
@@ -673,7 +653,7 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
         prev_tx = block_parser.read_raw_transaction(prev_tx_hash[::-1])
         prev_ctx = backend.deserialize(prev_tx['__data__'])
     else:
-        prev_tx = backend.getrawtransaction(ib2h(prev_tx_hash))
+        prev_tx = backend.getrawtransaction(utils.ib2h(prev_tx_hash))
         # prev_tx = backend.getrawtransaction(prev_tx_hash[::-1])
         prev_ctx = backend.deserialize(prev_tx)
 
@@ -825,16 +805,6 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
 
     source, destination, btc_amount, fee, data, decoded_tx = get_tx_info(tx_hex, db=db) # type: ignore
-    # print("got source", source) # this is typically blank unless it was a CP transaction
-    # print("got destination", destination) # this is typically blank unless it was a CP transaction
-    # print("got btc_amount", btc_amount) # this is typically blank unless it was a CP transaction
-    # print("got fee", fee) # this is typically blank unless it was a CP transaction
-    # print("got data", data) # this is typically blank unless it was a CP transaction
-    # print("got decoded_tx", decoded_tx) # this is typically blank unless it was a CP transaction
-    # if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
-    #     print("received first stamp")
-    # if tx_hash == "e2aa459ebfe0ba3625c917143452678a3e80636489fe0ec8cc7e9651cfd4ddb2":
-    #     print("this is the problematic stamp in list_tx")
 
     # For mempool
     if block_hash == None:
@@ -870,7 +840,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                         )
         cursor.close() # this does not commit the transactions
 
-        logger.warning('Saving transaction to MySQL transactions: {}'.format(tx_hash))
+        logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
         mysql_cursor = mysql_conn.cursor()
         mysql_cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
@@ -1048,7 +1018,6 @@ def follow(db):
                         raise Exception("SQLite and MySQL Blocks are not the same.")
 
 
-
                     # Compare.
                     assert type(mysql_db_parent) == str
                     assert type(backend_parent) == str
@@ -1063,8 +1032,7 @@ def follow(db):
                     # Record reorganisation.
                     logger.warning('Blockchain reorganisation at block {}.'.format(current_index))
                     logger.warning(db, block_index, 'reorg', None, {'block_index': current_index})
-                    # throw an exception that reorg happened and is not yet supported
-                    raise Exception("Reorg happened, not yet supported", block_index)
+                    raise Exception("Reorg happened, not yet supported please clear transactions, blocks, StampTableVx >=", block_index)
                 
                     # Rollback the DB.
                     reparse(db, block_index=current_index-1, quiet=True)
@@ -1139,9 +1107,6 @@ def follow(db):
                 for tx_hash in txhash_list:
                     if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
                         print("found first stamp in block follow db")
-                    if tx_hash == "e2aa459ebfe0ba3625c917143452678a3e80636489fe0ec8cc7e9651cfd4ddb2":
-                        print("this is the problematic stamp")
-                        # sys.exit()
                     tx_hex = raw_transactions[tx_hash]
                     # print(tx_hex)
                     tx_index = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex)
@@ -1154,7 +1119,6 @@ def follow(db):
                     sys.exit()
 
                 # Parse the transactions in the block.
-                print("got here and going to parse_block")
                 new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
 
             # When newly caught up, check for conservation of assets.

@@ -4,7 +4,7 @@ import struct
 
 import bitcoin
 import config
-import script
+import src.script as script
 
 def address_scriptpubkey(address):
     try:

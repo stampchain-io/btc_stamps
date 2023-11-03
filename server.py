@@ -17,8 +17,15 @@ import bitcoin as bitcoinlib
 import logging
 from urllib.parse import quote_plus as urlencode
 
-import log
-import config, util, exceptions, blocks, check, backend, database, script
+import src.log as log
+import config
+import src.util as util
+import src.exceptions as exceptions
+import blocks
+import check
+import src.backend as backend
+import src.database as database
+import src.script as script
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger

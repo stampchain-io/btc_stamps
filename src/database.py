@@ -6,9 +6,9 @@ import collections
 import copy
 
 import config
-import util
-import exceptions
-import log
+import src.util as util
+import src.exceptions as exceptions
+import src.log as log
 
 BLOCK_MESSAGES = []
 

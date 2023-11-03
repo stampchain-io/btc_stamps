@@ -21,7 +21,7 @@ from bitcoin.core.script import CScript
 from bitcoin.wallet import P2PKHBitcoinAddress, P2SHBitcoinAddress
 import cachetools
 
-import config, exceptions, util, backend, script, arc4
+import config, exceptions, src.util as util, backend, script, arc4
 
 import p2sh_encoding
 from bitcoin.bech32 import CBech32Data

@@ -15,9 +15,7 @@ import collections
 import binascii
 import hashlib
 import threading
-import util
-
-
+import src.util as util
 
 
 logger = logging.getLogger(__name__)
@@ -28,12 +26,6 @@ RPC_PORT = os.environ.get("RPC_PORT",'8332')
 RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 RPC_CONNECTION = AuthServiceProxy(RPC_URL)
 
-
-# RPC_TOKEN = '94c84a27439d2148c3d7b521a3ea638a6cb9469b'
-# RPC_URL = f"https://thrilling-dimensional-research.quiknode.pro/{RPC_TOKEN}/"
-# assert 'RPC_URL' in globals(), "RPC_URL is not defined"
-# RPC_CONNECTION = AuthServiceProxy(RPC_URL)
-# print(RPC_CONNECTION.getblockcount())
 
 
 RAW_TRANSACTIONS_CACHE_SIZE = 20000
