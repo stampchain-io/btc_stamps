@@ -349,7 +349,7 @@ def initialise(db):
             data LONGTEXT,
             supported BIT DEFAULT 1,
             FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-        )
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ''')
 
     # Check if the block_index_idx index exists
