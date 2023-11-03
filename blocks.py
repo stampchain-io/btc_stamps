@@ -239,7 +239,7 @@ def initialise(db):
             block_hash NVARCHAR(64),
             block_time INT,
             previous_block_hash VARCHAR(64) UNIQUE,
-            difficulty INT,
+            difficulty FLOAT,
             ledger_hash TEXT,
             txlist_hash TEXT,
             messages_hash TEXT,
@@ -841,6 +841,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
         cursor.close() # this does not commit the transactions
 
         logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
+        
         mysql_cursor = mysql_conn.cursor()
         mysql_cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
@@ -1080,7 +1081,8 @@ def follow(db):
                                     block_hash,
                                     block_time,
                                     previous_block_hash,
-                                    cblock.difficulty)
+                                    cblock.difficulty
+                                    )
                               )
                 # Saving block into mysql table
                 block_query = '''INSERT INTO blocks(
