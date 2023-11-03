@@ -3,15 +3,24 @@
 Bitcoin Stamps Primary Indexer - SRC-20, Glyphs, etc.
 
 
-- This current version is saving BTC transactions to both a local server.db file (equivalent to counterparty.db) and a MySQL database
+- This current version is saving BTC transactions to both a local server.db file (equivalent to counterparty.db) and a MySQL database (AWS RDS is referenced, but can be local)
 - More work needs to be done to remove the dependence on the local sqlite db. This was for verification to make sure commits were happening to both DB's in the same manner to handle block reorgs
 - It is currently saving ALL BTC transactions for potential other uses, however this may be trimmed to only stamp/src-20 related transactions
 - We are saving all transactions so that multi-sourced data from CP and direct from BTC (SRC-20) can be ordered - maintaining stamp numbering
 - In the event of a block reorg execution is stopped. this needs to be updated to delete from the stamptablev4, blocks, and transactions table for the block >= the reorg
-- Currently the SRC-20 transactions directly on BTC are saved to the transactions table, and then parsed through other functions which number the stamps, and merge with CP transactions in StampTableV4
+- SRC-20 transactionsare saved to the transactions table, and then parsed through other functions not in this repo which number the stamps, and merge with CP transactions in StampTableV4
 - This is not intended to parse CP transactions, however this is possible with some work.
 
-This is executed via the start.py
+This is executed via the `start.py`
+
+Indexer exection: 
+
+```
+## execute in your favorite virtualenv
+
+pip install -r requirements.txt 
+python3 start.py 
+```
 
 These env vars must be set for the MySQL server connection - currently in blocks.py (TODO: move to config.py)
 
