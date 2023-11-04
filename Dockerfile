@@ -2,11 +2,17 @@
 FROM python:3.9.8
 
 #Instala dockerize
-ENV DOCKERIZE_VERSION v0.6.1
-RUN wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz \
-    && tar -C /usr/local/bin -xzvf dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz \
-    && rm dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
-RUN echo $PATH
+ENV DOCKERIZE_VERSION v0.7.0
+RUN ARCH= && \
+    case "$(uname -m)" in \
+        x86_64) ARCH='amd64' ;; \
+        arm64) ARCH='arm64' ;; \
+        aarch64) ARCH='arm64' ;; \
+        *) echo "unsupported architecture"; exit 1 ;; \
+    esac && \
+    wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-$ARCH-$DOCKERIZE_VERSION.tar.gz \
+    && tar -C /usr/local/bin -xzvf dockerize-linux-$ARCH-$DOCKERIZE_VERSION.tar.gz \
+    && rm dockerize-linux-$ARCH-$DOCKERIZE_VERSION.tar.gz
 
 ENV PATH="/usr/local/bin:${PATH}"
 

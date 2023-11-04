@@ -10,3 +10,8 @@
     - Fixed ConsensusError exception commenting CHECKPOINTS_MAINNET line:19
 03/11/2023: [OK] Adminer (author: JA):
     - Add Adminer to docker-compose.yml to be able to visualize data
+04/11/2023: [OK] Makefile (author: JA):
+    - Add Makefile to handle differents architectures with recipes up, down, and clean
+    - Add rule to detect ARCH in Dockerfile and install right Dockerize
+    - Add Platform in docker-compose for handle differents architectures for mysql
+    -[WIP] Testing if works in Raspberry PI 3

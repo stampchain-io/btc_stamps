@@ -1,4 +1,4 @@
-USE `stamps`;
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
   `block_index` int DEFAULT NULL,
