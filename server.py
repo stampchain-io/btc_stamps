@@ -4,6 +4,7 @@ import decimal
 import pprint
 import sys
 import apsw
+import pymysql as mysql
 import time
 import dateutil.parser
 import calendar
@@ -88,27 +89,6 @@ signal.signal(signal.SIGINT, sigterm_handler)
 # Lock database access by opening a socket.
 class LockingError(Exception):
     pass
-def get_lock():
-    logger.info('Acquiring lock.')
-
-    # Cross‐platform.
-    if os.name == 'nt' or platform.system() == 'Darwin':    # Windows or OS X
-        # Not database‐specific.
-        socket_family = socket.AF_INET
-        socket_address = ('localhost', 8999)
-        error = 'Another copy of server is currently running.'
-    else:
-        socket_family = socket.AF_UNIX
-        socket_address = '\0' + config.DATABASE
-        error = 'Another copy of server is currently writing to database {}'.format(config.DATABASE)
-
-    lock_socket = socket.socket(socket_family, socket.SOCK_DGRAM)
-    try:
-        lock_socket.bind(socket_address)
-    except socket.error:
-        raise LockingError(error)
-    logger.debug('Lock acquired.')
-
 
 
 def initialise(*args, **kwargs):
@@ -117,7 +97,6 @@ def initialise(*args, **kwargs):
 
 
 def initialise_config(
-    database_file=None,
     log_file=None,
     api_log_file=None,
     testnet=False, testcoin=False, regtest=False,
@@ -147,7 +126,6 @@ def initialise_config(
         os.makedirs(data_dir, mode=0o755)
 
     print("data_dir: {}".format(data_dir))
-    print("database_file: {}".format(database_file))
     print("log_file: {}".format(log_file))
 
     # testnet
@@ -189,13 +167,6 @@ def initialise_config(
     if config.TESTCOIN:
         network += '.testcoin'
 
-    # Database
-    if database_file:
-        config.DATABASE = database_file
-    else:
-        filename = '{}{}.db'.format(config.APP_NAME, network)
-        config.DATABASE = os.path.join(data_dir, filename)
-
     if checkdb:
         config.CHECKDB = True
     else:
@@ -219,7 +190,6 @@ def initialise_config(
     log.set_up(log.ROOT_LOGGER, verbose=verbose, logfile=config.LOG, console_logfilter=console_logfilter)
     if config.LOG:
         logger.debug('Writing server log to file: `{}`'.format(config.LOG))
-
 
     # Log unhandled errors.
     def handle_exception(exc_type, exc_value, exc_traceback):
@@ -397,20 +367,25 @@ def initialise_config(
     # logger.info('Running v{} of counterparty-lib.'.format(config.VERSION_STRING))
 
 
-
 def initialise_db():
     print("initialise_db")
     if config.FORCE:
         logger.warning('THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.')
 
-    # Lock
-    if not config.FORCE:
-        get_lock()
+    rds_host = os.environ.get('RDS_HOSTNAME')
+    rds_user = os.environ.get('RDS_USER')
+    rds_password = os.environ.get('RDS_PASSWORD')
+    rds_database = os.environ.get('RDS_DATABASE')
 
     # Database
-    logger.info('Connecting to database (SQLite %s).' % apsw.apswversion())
-    db = database.get_connection(read_only=False,foreign_keys=config.CHECKDB,integrity_check=config.CHECKDB)
-
+    logger.info('Connecting to database (MySQL).')
+    db = mysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        port=3306,
+        database=rds_database
+    )
     util.CURRENT_BLOCK_INDEX = blocks.last_db_index(db)
 
     return db
