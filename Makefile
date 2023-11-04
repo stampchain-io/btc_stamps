@@ -16,11 +16,14 @@ endif
 up:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker-compose up --build
+	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
 
 down:
-	@docker-compose down -v
+	@docker compose down -v
 
-clean:
+clean: down
+	@rm server.db
+
+fclean:
 	@rm server.db 
 	@docker system prune -a -f
