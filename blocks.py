@@ -708,6 +708,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     # if source and (data or destination == config.UNSPENDABLE or decoded_tx):
     if True: # we are writing all trx to the transactions table
         logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
+        cursor = db.cursor()
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (tx_index,

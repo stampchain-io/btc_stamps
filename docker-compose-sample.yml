@@ -42,6 +42,7 @@ services:
       - RDS_DATABASE=btc_stamps
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
-      - RPC_TOKEN=
+      - RPC_TOKEN= # Optional if using quicknode
+      - QUICKNODE_URL= # Optional if using quicknode
 volumes:
   db_data:

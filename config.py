@@ -19,15 +19,18 @@ import src.util as util
 
 
 logger = logging.getLogger(__name__)
-RPC_USER = os.environ.get("RPC_USER")
-RPC_PASSWORD = os.environ.get("RPC_PASSWORD")
-#RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
-#RPC_PORT = os.environ.get("RPC_PORT",'8332')
-#RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
-#RPC_CONNECTION = AuthServiceProxy(RPC_URL)
 
-RPC_TOKEN=os.environ.get("RPC_TOKEN")
-RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@restless-fittest-cloud.btc.discover.quiknode.pro/{RPC_TOKEN}"
+RPC_USER = os.environ.get("RPC_USER", 'rpc')
+RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
+RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
+RPC_PORT = os.environ.get("RPC_PORT",'8332')
+# Define for QUicknode or remote nodes which use a token
+QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None) # restless-fittest-cloud.btc.discover.quiknode.pro
+RPC_TOKEN = os.environ.get("RPC_TOKEN", None) # for quicknode
+if QUICKNODE_URL and RPC_TOKEN:
+    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{QUICKNODE_URL}/{RPC_TOKEN}"
+else:
+    RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 
 RPC_CONNECTION = AuthServiceProxy(RPC_URL)
 
@@ -39,7 +42,6 @@ RPC_BATCH_NUM_WORKERS = 5 #20
 raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
 
-
 STAMP_PREFIX_HEX = "7374616d703a" # (lowercase stamp:)
 
 STAMP_GENESIS_BLOCK = 793068 # block height of first stamp transaction
@@ -48,8 +50,6 @@ BYTE_LENGTH_PREFIX_SIZE = 2 # 2 bytes for byte length prefix after block 790370
 
 TESTNET = None
 REGTEST = None
-
-STAMP_PREFIX = "7374616d703a" # (lowercase stamp:) 
 
 BURNKEYS = [
     "022222222222222222222222222222222222222222222222222222222222222222",
