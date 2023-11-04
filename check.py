@@ -93,6 +93,7 @@ CHECKPOINTS_REGTEST = {
 class ConsensusError(Exception):
     pass
 
+#CHANGED TO MYSQL
 def consensus_hash(db, field, previous_consensus_hash, content):
     cursor = db.cursor()
     block_index = util.CURRENT_BLOCK_INDEX
@@ -105,7 +106,12 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     # Get previous hash.
     if not previous_consensus_hash:
         try:
-            previous_consensus_hash = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (block_index - 1,)))[0][field]
+            cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index - 1,))
+            results = cursor.fetchall()
+            if results:
+                previous_consensus_hash = results[0][field]
+            else:
+                previous_consensus_hash = None
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
@@ -122,7 +128,12 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
     # Verify hash (if already in database) or save hash (if not).
     # NOTE: do not enforce this for messages_hashes, those are more informational (for now at least)
-    found_hash = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (block_index,)))[0][field] or None
+    cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index,))
+    results = cursor.fetchall()
+    if results:
+        found_hash = results[0][field]
+    else:
+        found_hash = None
     if found_hash and field != 'messages_hash':
         # Check against existing value.
         if calculated_hash != found_hash:
@@ -130,7 +141,7 @@ def consensus_hash(db, field, previous_consensus_hash, content):
                 field, block_index, calculated_hash, found_hash))
     else:
         # Save new hash.
-        cursor.execute('''UPDATE blocks SET {} = ? WHERE block_index = ?'''.format(field), (calculated_hash, block_index))
+        cursor.execute('''UPDATE blocks SET {} = %s WHERE block_index = %s'''.format(field), (calculated_hash, block_index))
 
     # Check against checkpoints.
     if config.TESTNET:

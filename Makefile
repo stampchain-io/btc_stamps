@@ -22,8 +22,10 @@ down:
 	@docker compose down -v
 
 clean: down
-	@rm server.db log.file
+	@rm server.db log.file || true
 
 fclean:
 	@rm server.db 
 	@docker system prune -a -f
+
+redo: clean up
