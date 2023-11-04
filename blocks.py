@@ -1057,6 +1057,7 @@ def follow(db):
             #     sys.exit()
             # print(block)
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
+            
 
             block_time = cblock.nTime
             print(block_time)
@@ -1084,14 +1085,20 @@ def follow(db):
                                     cblock.difficulty
                                     )
                               )
+                # Parse the transactions in the block.
+                new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
                 # Saving block into mysql table
                 block_query = '''INSERT INTO blocks(
                                     block_index,
                                     block_hash,
                                     block_time,
                                     previous_block_hash,
-                                    difficulty) VALUES(%s,%s,%s,%s,%s)'''
-                args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty))
+                                    difficulty,
+                                    ledger_hash,
+                                    txlist_hash,
+                                    messages_hash
+                                    ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)'''
+                args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty), new_ledger_hash, new_txlist_hash, new_messages_hash)
 
                 try: 
                     block_cursor.execute("START TRANSACTION")
@@ -1120,8 +1127,7 @@ def follow(db):
                     block_cursor.execute("ROLLBACK")
                     sys.exit()
 
-                # Parse the transactions in the block.
-                new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
+                
 
             # When newly caught up, check for conservation of assets.
             # if block_index == block_count:

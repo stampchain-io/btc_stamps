@@ -15,3 +15,6 @@
     - Add rule to detect ARCH in Dockerfile and install right Dockerize
     - Add Platform in docker-compose for handle differents architectures for mysql
     -[WIP] Testing if works in Raspberry PI 3
+04/11/2023: [OK] Add txlist_hash ledger_hash and messages_hash to blocks insert in blocks.py
+            [OK] Add clean and fclean recipes to Makefile
+
