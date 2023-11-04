@@ -22,7 +22,7 @@ down:
 	@docker compose down -v
 
 clean: down
-	@rm server.db
+	@rm server.db log.file
 
 fclean:
 	@rm server.db 
