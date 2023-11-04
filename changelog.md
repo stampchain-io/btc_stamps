@@ -17,4 +17,7 @@
     -[WIP] Testing if works in Raspberry PI 3
 04/11/2023: [OK] Add txlist_hash ledger_hash and messages_hash to blocks insert in blocks.py
             [OK] Add clean and fclean recipes to Makefile
-
+04/11/2023: [WIP] config.py, blocks.py (author: moonblink)
+    - added cursor = db.cursor() to reopen db connection on new block
+    - updated config.py to handle both local node and quiknode conn, needs changes to docker-compose and local vars
+    - untested changes
