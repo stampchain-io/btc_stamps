@@ -28,4 +28,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Comando para ejecutar la aplicación
-CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "1m", "python3.9", "start.py"]
+CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "180s", "python3.9", "start.py"]

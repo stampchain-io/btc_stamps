@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: mysql:5.7
+    image: mysql:latest
     platform: ${DOCKER_PLATFORM}
     volumes:
       - db_data:/var/lib/mysql
@@ -10,10 +10,10 @@ services:
       - ./table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: your_root_password
+      MYSQL_ROOT_PASSWORD: 
       MYSQL_DATABASE: btc_stamps
-      MYSQL_USER: your_user
-      MYSQL_PASSWORD: your_user_password
+      MYSQL_USER: 
+      MYSQL_PASSWORD: 
     command: --bind-address=0.0.0.0
     ports:
       - "3306:3306"
@@ -23,6 +23,8 @@ services:
     restart: always
     ports:
       - "8080:8080"
+    volumes:
+      - db_data:/var/www/html/data
 
   app:
     build: .
@@ -35,11 +37,11 @@ services:
       - db
     environment:
       - RDS_HOSTNAME=db
-      - RDS_USER=your_user
-      - RDS_PASSWORD=your_user_password
+      - RDS_USER=
+      - RDS_PASSWORD=
       - RDS_DATABASE=btc_stamps
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
-      - RPC_TOKEN=your_quicknode_token
+      - RPC_TOKEN=
 volumes:
   db_data:
