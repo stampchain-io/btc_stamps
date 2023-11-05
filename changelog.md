@@ -27,3 +27,7 @@
   - add db.ping(reconnect=True) to test connection and reconnect if connection was lost.
   - add field_position = {'ledger_hash': 5, 'txlist_hash': 6, 'messages_hash': 7}
   - REMOVED SQLITE 🚀🚀🚀🚀
+- 05/11/2023: [OK] config.py, blocks.py, check.py (author: JA):
+  - add BLOCK_FIELDS_POSITION and TXS_FIELDS_POSITION to avoid tuple access with string error
+  - modified consensus_check to use this
+  - [TODO] change access for TXs with this new method to improve readibility
