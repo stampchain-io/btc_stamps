@@ -3,7 +3,6 @@ import os
 import decimal
 import pprint
 import sys
-import apsw
 import pymysql as mysql
 import time
 import dateutil.parser
