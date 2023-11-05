@@ -25,7 +25,7 @@ RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
 RPC_PORT = os.environ.get("RPC_PORT",'8332')
 # Define for QUicknode or remote nodes which use a token
-QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None) # restless-fittest-cloud.btc.discover.quiknode.pro
+QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None) #restless-fittest-cloud.btc.discover.quiknode.pro
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None) # for quicknode
 if QUICKNODE_URL and RPC_TOKEN:
     RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{QUICKNODE_URL}/{RPC_TOKEN}"
@@ -58,6 +58,30 @@ BURNKEYS = [
     "030303030303030303030303030303030303030303030303030303030303030302",
     "030303030303030303030303030303030303030303030303030303030303030303"
 ]
+
+BLOCK_FIELDS_POSITION = {
+    'block_index':0,
+    'block_hash':1,
+    'block_time': 2,
+    'previous_block_hash':3,
+    'difficulty':4,
+    'ledger_hash': 5,
+    'txlist_hash': 6,
+    'messages_hash': 7
+}
+
+TXS_FIELDS_POSITION={
+    'tx_index':0,
+    'tx_hash':1,
+    'block_index':2,
+    'block_hash':3,
+    'block_time':4,
+    'source':5,
+    'destination':6,
+    'btc_amount':7,
+    'fee':8,
+    'data':9
+}
 
 
 TICK_PATTERN_LIST = {
