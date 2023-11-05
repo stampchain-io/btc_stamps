@@ -40,6 +40,7 @@ services:
       - RDS_USER=
       - RDS_PASSWORD=
       - RDS_DATABASE=btc_stamps
+      - QUICKNODE_URL=restless-fittest-cloud.btc.discover.quiknode.pro
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
       - RPC_TOKEN= # Optional if using quicknode
