@@ -1,10 +1,10 @@
-import apsw
 import logging
 logger = logging.getLogger(__name__)
 import time
 import collections
 import copy
-
+import os
+import pymysql as mysql
 import config
 import src.util as util
 import src.exceptions as exceptions
@@ -80,98 +80,45 @@ def exectracer(cursor, sql, bindings):
 
 # MySQL Version of get_connection
 
-# import mysql.connector
-
-# class DatabaseIntegrityError(exceptions.DatabaseError):
-#     pass
-
-# def get_connection(read_only=True, foreign_keys=True, integrity_check=True):
-#     """Connects to the MySQL database, returning a db `Connection` object"""
-#     logger.debug('Creating connection to `{}`.'.format(config.DATABASE))
-
-#     db = mysql.connector.connect(
-#         host='your-mysql-hostname',
-#         user='your-username',
-#         password='your-password',
-#         database='your-database-name'
-#     )
-#     cursor = db.cursor()
-
-#     # For integrity, security.
-#     if foreign_keys and not read_only:
-#         logger.info('Checking database foreign keys...')
-#         cursor.execute('''SET FOREIGN_KEY_CHECKS=1''')
-#         rows = list(cursor.execute('''SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_TYPE = 'FOREIGN KEY' AND CONSTRAINT_SCHEMA = DATABASE()'''))
-#         if rows and rows[0][0] > 0:
-#             raise exceptions.DatabaseError('Foreign key check failed.')
-#         logger.info('Foreign key check completed.')
-
-#     if integrity_check:
-#         logger.info('Checking database integrity...')
-#         cursor.execute('''CHECK TABLES''')
-#         rows = cursor.fetchall()
-#         if rows and rows[0][3] != 'OK':
-#             raise exceptions.DatabaseError('Integrity check failed.')
-#         logger.info('Integrity check completed.')
-
-#     db.setrowtrace(rowtracer)
-#     # db.setexectrace(exectracer)
-
-#     cursor.close()
-#     return db
-
 class DatabaseIntegrityError(exceptions.DatabaseError):
-    pass
+     pass
 def get_connection(read_only=True, foreign_keys=True, integrity_check=True):
-    """Connects to the SQLite database, returning a db `Connection` object"""
+    """Connects to the MySQL database, returning a db `Connection` object"""
     logger.debug('Creating connection to `{}`.'.format(config.DATABASE))
+    rds_host = os.environ.get('RDS_HOSTNAME')
+    rds_user = os.environ.get('RDS_USER')
+    rds_password = os.environ.get('RDS_PASSWORD')
+    rds_database = os.environ.get('RDS_DATABASE')
 
-    if read_only:
-        db = apsw.Connection(config.DATABASE, flags=apsw.SQLITE_OPEN_READONLY)
-    else:
-        db = apsw.Connection(config.DATABASE)
+    # Database
+    logger.info('Connecting to database (MySQL).')
+    db = mysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        port=3306,
+        database=rds_database
+    )
+
     cursor = db.cursor()
 
     # For integrity, security.
     if foreign_keys and not read_only:
         logger.info('Checking database foreign keys...')
-        cursor.execute('''PRAGMA foreign_keys = ON''')
-        cursor.execute('''PRAGMA defer_foreign_keys = ON''')
-        rows = list(cursor.execute('''PRAGMA foreign_key_check'''))
-        if rows:
-            for row in rows:
-                logger.debug('Foreign Key Error: {}'.format(row))
+        cursor.execute('''SET FOREIGN_KEY_CHECKS=1''')
+        rows = list(cursor.execute('''SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_TYPE = 'FOREIGN KEY' AND CONSTRAINT_SCHEMA = DATABASE()'''))
+        if rows and rows[0][0] > 0:
             raise exceptions.DatabaseError('Foreign key check failed.')
-
-        # So that writers don’t block readers.
-        cursor.execute('''PRAGMA journal_mode = WAL''')
         logger.info('Foreign key check completed.')
-
-    # Make case sensitive the `LIKE` operator.
-    # For insensitive queries use 'UPPER(fieldname) LIKE value.upper()''
-    cursor.execute('''PRAGMA case_sensitive_like = ON''')
-
     if integrity_check:
         logger.info('Checking database integrity...')
-        integral = False
-        for i in range(10): # DUPE
-            try:
-                cursor.execute('''PRAGMA integrity_check''')
-                rows = cursor.fetchall()
-                if not (len(rows) == 1 and rows[0][0] == 'ok'):
-                    raise exceptions.DatabaseError('Integrity check failed.')
-                integral = True
-                break
-            except DatabaseIntegrityError:
-                time.sleep(1)
-                continue
-        if not integral:
-            raise exceptions.DatabaseError('Could not perform integrity check.')
+        cursor.execute('''CHECK TABLES''')
+        rows = cursor.fetchall()
+        if rows and rows[0][3] != 'OK':
+            raise exceptions.DatabaseError('Integrity check failed.')
         logger.info('Integrity check completed.')
-
     db.setrowtrace(rowtracer)
     # db.setexectrace(exectracer)
-
     cursor.close()
     return db
 

@@ -1,5 +1,5 @@
 # Usa una imagen base oficial de Python 3.9
-FROM python:3.9.8
+FROM python:3.10
 
 #Instala dockerize
 ENV DOCKERIZE_VERSION v0.7.0
