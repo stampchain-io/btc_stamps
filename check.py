@@ -95,6 +95,8 @@ class ConsensusError(Exception):
 
 #CHANGED TO MYSQL
 def consensus_hash(db, field, previous_consensus_hash, content):
+    field_position = {'ledger_hash': 5, 'txlist_hash': 6, 'messages_hash': 7}
+    
     cursor = db.cursor()
     block_index = util.CURRENT_BLOCK_INDEX
 
@@ -109,7 +111,7 @@ def consensus_hash(db, field, previous_consensus_hash, content):
             cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index - 1,))
             results = cursor.fetchall()
             if results:
-                previous_consensus_hash = results[0][field]
+                previous_consensus_hash = results[0][field_position[field]]
             else:
                 previous_consensus_hash = None
         except IndexError:

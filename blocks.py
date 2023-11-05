@@ -154,12 +154,13 @@ def parse_block(db, block_index, block_time,
 
 
     cursor = db.cursor()
+    db.ping(reconnect=True)
     cursor.execute('''SELECT * FROM transactions \
                       WHERE block_index=%s ORDER BY tx_index''',
                    (block_index,))
     txes = cursor.fetchall()
-    logger.warning("TX LENGTH: {}".format(len(txes)))
-    time.sleep(4)
+    logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
+    time.sleep(2)
     txlist = []
     for tx in txes:
         # print("tx", tx) # DEBUG
@@ -188,7 +189,6 @@ def parse_block(db, block_index, block_time,
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
     new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, database.BLOCK_MESSAGES)
-
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
@@ -708,7 +708,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     # if source and (data or destination == config.UNSPENDABLE or decoded_tx):
     if True: # we are writing all trx to the transactions table
         logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
-        cursor = db.cursor()
+        #cursor = db.cursor()
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (tx_index,
