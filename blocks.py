@@ -732,6 +732,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
 #CHANGED TO MYSQL
 def last_db_index(db):
+    field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
     
     try:
@@ -739,8 +740,7 @@ def last_db_index(db):
         cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)''')
         blocks = cursor.fetchall()
         try:
-            last_index = blocks[0]['block_index']
-            #last_index = blocks[0][0]
+            last_index = blocks[0][field_position['block_index']]
         except IndexError:
             last_index = 0
     except  mysql.Error:
