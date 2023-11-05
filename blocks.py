@@ -14,7 +14,6 @@ D = decimal.Decimal
 import logging
 logger = logging.getLogger(__name__)
 import collections
-import apsw
 import http
 
 import bitcoin as bitcoinlib

@@ -31,3 +31,4 @@
   - add BLOCK_FIELDS_POSITION and TXS_FIELDS_POSITION to avoid tuple access with string error
   - modified consensus_check to use this
   - [TODO] change access for TXs with this new method to improve readibility
+- 05/11/2023: [OK] Remove dependencie apsw that was for sqlite and update python version

@@ -1,4 +1,3 @@
-apsw
 appdirs
 colorlog
 sha3
