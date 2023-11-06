@@ -28,7 +28,6 @@ clean: down-hard
 	@rm server.db log.file || true
 
 fclean: clean
-	@rm server.db 
 	@docker system prune -a -f
 
 redo: clean up
