@@ -10,10 +10,12 @@ services:
       - ./table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: 
+      MYSQL_ROOT_PASSWORD:
       MYSQL_DATABASE: btc_stamps
-      MYSQL_USER: 
+      MYSQL_USER:
       MYSQL_PASSWORD: 
+      GRAFANA_USER:
+      GRAFANA_PASSWORD: 
     command: --bind-address=0.0.0.0
     ports:
       - "3306:3306"
@@ -23,12 +25,22 @@ services:
     restart: always
     ports:
       - "8080:8080"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - db
+    ports:
+      - "3333:3000"
     volumes:
-      - db_data:/var/www/html/data
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=
+      - GF_USERS_ALLOW_SIGN_UP=false
 
   app:
     build: .
-    command:  dockerize -wait tcp://db:3306 -timeout 5m python3.9 start.py
+    command:  dockerize -wait tcp://db:3306 -timeout 5m python3 start.py
     volumes:
       - .:/usr/src/app
     ports:
@@ -40,10 +52,10 @@ services:
       - RDS_USER=
       - RDS_PASSWORD=
       - RDS_DATABASE=btc_stamps
-      - QUICKNODE_URL=restless-fittest-cloud.btc.discover.quiknode.pro
+      - QUICKNODE_URL= #Optional to Quicknode users
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
-      - RPC_TOKEN= # Optional if using quicknode
-      - QUICKNODE_URL= # Optional if using quicknode
+      - RPC_TOKEN= #Optional to Quicknode users
 volumes:
   db_data:
+  grafana_data:
