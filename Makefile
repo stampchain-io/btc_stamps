@@ -19,12 +19,15 @@ up:
 	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
 
 down:
+	@docker compose down
+
+down-hard:
 	@docker compose down -v
 
-clean: down
+clean: down-hard
 	@rm server.db log.file || true
 
-fclean:
+fclean: clean
 	@rm server.db 
 	@docker system prune -a -f
 
