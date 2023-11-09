@@ -38,7 +38,7 @@ class AddrIndexRsRPCError(Exception):
 
 def rpc_call(payload):
     """Calls to bitcoin core and returns the response"""
-    url = config.BACKEND_URL
+    url = config.RPC_URL
     response = None
     TRIES = 12
 

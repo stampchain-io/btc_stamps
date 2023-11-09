@@ -3,7 +3,7 @@ import os
 import decimal
 import pprint
 import sys
-import apsw
+import pymysql as mysql
 import time
 import dateutil.parser
 import calendar
@@ -88,27 +88,6 @@ signal.signal(signal.SIGINT, sigterm_handler)
 # Lock database access by opening a socket.
 class LockingError(Exception):
     pass
-def get_lock():
-    logger.info('Acquiring lock.')
-
-    # Cross‐platform.
-    if os.name == 'nt' or platform.system() == 'Darwin':    # Windows or OS X
-        # Not database‐specific.
-        socket_family = socket.AF_INET
-        socket_address = ('localhost', 8999)
-        error = 'Another copy of server is currently running.'
-    else:
-        socket_family = socket.AF_UNIX
-        socket_address = '\0' + config.DATABASE
-        error = 'Another copy of server is currently writing to database {}'.format(config.DATABASE)
-
-    lock_socket = socket.socket(socket_family, socket.SOCK_DGRAM)
-    try:
-        lock_socket.bind(socket_address)
-    except socket.error:
-        raise LockingError(error)
-    logger.debug('Lock acquired.')
-
 
 
 def initialise(*args, **kwargs):
@@ -116,26 +95,29 @@ def initialise(*args, **kwargs):
     return initialise_db()
 
 
-def initialise_config(database_file=None, log_file=None, api_log_file=None,
-                testnet=False, testcoin=False, regtest=False,
-                api_limit_rows=1000,
-                backend_name=None, backend_connect=None, backend_port=None,
-                backend_user=None, backend_password=None,
-                indexd_connect=None, indexd_port=None,
-                backend_ssl=False, backend_ssl_no_verify=False,
-                backend_poll_interval=None,
-                rpc_host=None, rpc_port=None,
-                rpc_user=None, rpc_password=None,
-                rpc_no_allow_cors=False,
-                force=False, verbose=False, console_logfilter=None,
-                requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
-                rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
-                check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
-                backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
-                utxo_locks_max_addresses=config.DEFAULT_UTXO_LOCKS_MAX_ADDRESSES,
-                utxo_locks_max_age=config.DEFAULT_UTXO_LOCKS_MAX_AGE,
-                estimate_fee_per_kb=None,
-                customnet=None, checkdb=False):
+def initialise_config(
+    log_file=None,
+    api_log_file=None,
+    testnet=False, testcoin=False, regtest=False,
+    api_limit_rows=1000,
+    backend_name=None, backend_connect=None, backend_port=None,
+    backend_user=None, backend_password=None,
+    indexd_connect=None, indexd_port=None,
+    backend_ssl=False, backend_ssl_no_verify=False,
+    backend_poll_interval=None,
+    rpc_host=None, rpc_port=None,
+    rpc_user=None, rpc_password=None,
+    rpc_no_allow_cors=False,
+    force=False, verbose=False, console_logfilter=None,
+    requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
+    rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
+    check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
+    backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
+    utxo_locks_max_addresses=config.DEFAULT_UTXO_LOCKS_MAX_ADDRESSES,
+    utxo_locks_max_age=config.DEFAULT_UTXO_LOCKS_MAX_AGE,
+    estimate_fee_per_kb=None,
+    customnet=None, checkdb=False
+):
 
     # Data directory
     data_dir = appdirs.user_data_dir(appauthor=config.XCP_NAME, appname=config.APP_NAME, roaming=True)
@@ -143,7 +125,6 @@ def initialise_config(database_file=None, log_file=None, api_log_file=None,
         os.makedirs(data_dir, mode=0o755)
 
     print("data_dir: {}".format(data_dir))
-    print("database_file: {}".format(database_file))
     print("log_file: {}".format(log_file))
 
     # testnet
@@ -185,13 +166,6 @@ def initialise_config(database_file=None, log_file=None, api_log_file=None,
     if config.TESTCOIN:
         network += '.testcoin'
 
-    # Database
-    if database_file:
-        config.DATABASE = database_file
-    else:
-        filename = '{}{}.db'.format(config.APP_NAME, network)
-        config.DATABASE = os.path.join(data_dir, filename)
-
     if checkdb:
         config.CHECKDB = True
     else:
@@ -215,7 +189,6 @@ def initialise_config(database_file=None, log_file=None, api_log_file=None,
     log.set_up(log.ROOT_LOGGER, verbose=verbose, logfile=config.LOG, console_logfilter=console_logfilter)
     if config.LOG:
         logger.debug('Writing server log to file: `{}`'.format(config.LOG))
-
 
     # Log unhandled errors.
     def handle_exception(exc_type, exc_value, exc_traceback):
@@ -393,20 +366,25 @@ def initialise_config(database_file=None, log_file=None, api_log_file=None,
     # logger.info('Running v{} of counterparty-lib.'.format(config.VERSION_STRING))
 
 
-
 def initialise_db():
     print("initialise_db")
     if config.FORCE:
         logger.warning('THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.')
 
-    # Lock
-    if not config.FORCE:
-        get_lock()
+    rds_host = os.environ.get('RDS_HOSTNAME')
+    rds_user = os.environ.get('RDS_USER')
+    rds_password = os.environ.get('RDS_PASSWORD')
+    rds_database = os.environ.get('RDS_DATABASE')
 
     # Database
-    logger.info('Connecting to database (SQLite %s).' % apsw.apswversion())
-    db = database.get_connection(read_only=False,foreign_keys=config.CHECKDB,integrity_check=config.CHECKDB)
-
+    logger.info('Connecting to database (MySQL).')
+    db = mysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        port=3306,
+        database=rds_database
+    )
     util.CURRENT_BLOCK_INDEX = blocks.last_db_index(db)
 
     return db

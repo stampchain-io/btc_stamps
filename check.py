@@ -16,7 +16,7 @@ CONSENSUS_HASH_SEED = 'We can only see a short distance ahead, but we can see pl
 
 CONSENSUS_HASH_VERSION_MAINNET = 2
 CHECKPOINTS_MAINNET = {
-    config.BLOCK_FIRST_MAINNET: {'ledger_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7', 'txlist_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7'},
+    779650 : {'ledger_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7', 'txlist_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7'},
     # 280000: {'ledger_hash': '265719e2770d5a6994f6fe49839069183cd842ee14f56c2b870e56641e8a8725', 'txlist_hash': 'a59b33b4633649db4f14586af47e258ed9b8884dbb7aa308fb1f49a653ee60f4'},
     # 290000: {'ledger_hash': '4612ed7034474b4ff1727eb0e216d533ebe7ac755fb015e0f9a170c063f3e84c', 'txlist_hash': 'c15423c849fd360d38cbd6c6c3ea37a07fece723da92353f3056facc2676d9e7'},
     # 300000: {'ledger_hash': '9a3dd4949780404d61e5ca1929f94a43f08eb0fa19ccb4b5d6a61cafd7943199', 'txlist_hash': 'efa02dbdcc4158a598e3b476ece5ba9cc8d26f3abc8ac3777ac6dde0f0afc7e6'},
@@ -93,7 +93,10 @@ CHECKPOINTS_REGTEST = {
 class ConsensusError(Exception):
     pass
 
+#CHANGED TO MYSQL
 def consensus_hash(db, field, previous_consensus_hash, content):
+    field_position = config.BLOCK_FIELDS_POSITION
+    
     cursor = db.cursor()
     block_index = util.CURRENT_BLOCK_INDEX
 
@@ -105,7 +108,12 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     # Get previous hash.
     if not previous_consensus_hash:
         try:
-            previous_consensus_hash = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (block_index - 1,)))[0][field]
+            cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index - 1,))
+            results = cursor.fetchall()
+            if results:
+                previous_consensus_hash = results[0][field_position[field]]
+            else:
+                previous_consensus_hash = None
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
@@ -120,10 +128,14 @@ def consensus_hash(db, field, previous_consensus_hash, content):
         consensus_hash_version = CONSENSUS_HASH_VERSION_MAINNET
 
     calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
-
     # Verify hash (if already in database) or save hash (if not).
     # NOTE: do not enforce this for messages_hashes, those are more informational (for now at least)
-    found_hash = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (block_index,)))[0][field] or None
+    cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index,))
+    results = cursor.fetchall()
+    if results:
+        found_hash = results[0][field]
+    else:
+        found_hash = None
     if found_hash and field != 'messages_hash':
         # Check against existing value.
         if calculated_hash != found_hash:
@@ -131,7 +143,7 @@ def consensus_hash(db, field, previous_consensus_hash, content):
                 field, block_index, calculated_hash, found_hash))
     else:
         # Save new hash.
-        cursor.execute('''UPDATE blocks SET {} = ? WHERE block_index = ?'''.format(field), (calculated_hash, block_index))
+        cursor.execute('''UPDATE blocks SET {} = %s WHERE block_index = %s'''.format(field), (calculated_hash, block_index))
 
     # Check against checkpoints.
     if config.TESTNET:
