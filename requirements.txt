@@ -1,10 +1,14 @@
-apsw
 appdirs
 colorlog
 sha3
 pycoin
 python-bitcoinlib
+python-bitcoinrpc
+regex
+pycryptodome
 requests
 python-dateutil
 cachetools
 pymysql
+python-docx
+cryptography

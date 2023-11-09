@@ -14,7 +14,6 @@ D = decimal.Decimal
 import logging
 logger = logging.getLogger(__name__)
 import collections
-import apsw
 import http
 
 import bitcoin as bitcoinlib
@@ -39,21 +38,7 @@ from transaction_helper import p2sh_encoding
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
 
-rds_host = os.environ.get('RDS_HOSTNAME')
-rds_user = os.environ.get('RDS_USER')
-rds_password = os.environ.get('RDS_PASSWORD')
-rds_database = os.environ.get('RDS_DATABASE')
-
-# Connect to the MySQL database for writing directly into MySQL
-mysql_conn = mysql.connect(
-    host=rds_host,
-    user=rds_user,
-    password=rds_password,
-    port=3306,
-    database=rds_database
-)
-
-
+#CHANGED TO MYSQL
 def parse_tx(db, tx):
     """Parse the transaction, return True for success."""
     cursor = db.cursor()
@@ -152,6 +137,7 @@ def parse_tx(db, tx):
         cursor.close()
 
 
+#CHANGED TO MYSQL
 def parse_block(db, block_index, block_time,
                 previous_ledger_hash=None, ledger_hash=None,
                 previous_txlist_hash=None, txlist_hash=None,
@@ -159,40 +145,23 @@ def parse_block(db, block_index, block_time,
     """Parse the block, return hash of new ledger, txlist and messages.
     The unused arguments `ledger_hash` and `txlist_hash` are for the test suite.
     """
-    # undolog_cursor = db.cursor()
-    # #remove the row tracer and exec tracer on this cursor, so we don't utilize them with undolog operations...
-    # undolog_cursor.setexectrace(None)
-    # undolog_cursor.setrowtrace(None)
+    
 
     util.BLOCK_LEDGER = []
     database.BLOCK_MESSAGES = []
     assert block_index == util.CURRENT_BLOCK_INDEX
-    # print("block index", block_index) # DEBUG
-    # # Remove undolog records for any block older than we should be tracking
-    # undolog_oldest_block_index = block_index - config.UNDOLOG_MAX_PAST_BLOCKS
-    # first_undo_index = list(undolog_cursor.execute('''SELECT first_undo_index FROM undolog_block WHERE block_index == ?''',
-    #     (undolog_oldest_block_index,)))
-    # if len(first_undo_index) == 1 and first_undo_index[0] is not None:
-    #     undolog_cursor.execute('''DELETE FROM undolog WHERE undo_index < ?''', (first_undo_index[0][0],))
-    # undolog_cursor.execute('''DELETE FROM undolog_block WHERE block_index < ?''',
-    #     (undolog_oldest_block_index,))
 
-    # # Set undolog barrier for this block
-    # if block_index != config.BLOCK_FIRST:
-    #     undolog_cursor.execute('''INSERT OR REPLACE INTO undolog_block(block_index, first_undo_index)
-    #         SELECT ?, seq+1 FROM SQLITE_SEQUENCE WHERE name='undolog' ''', (block_index,))
-    # else:
-    #     undolog_cursor.execute('''INSERT OR REPLACE INTO undolog_block(block_index, first_undo_index)
-    #         VALUES(?,?)''', (block_index, 1,))
-    # undolog_cursor.close()
 
     cursor = db.cursor()
+    db.ping(reconnect=True)
     cursor.execute('''SELECT * FROM transactions \
-                      WHERE block_index=? ORDER BY tx_index''',
+                      WHERE block_index=%s ORDER BY tx_index''',
                    (block_index,))
+    txes = cursor.fetchall()
+    logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
     time.sleep(2)
     txlist = []
-    for tx in list(cursor):
+    for tx in txes:
         # print("tx", tx) # DEBUG
         try:
             parse_tx(db, tx)
@@ -219,27 +188,25 @@ def parse_block(db, block_index, block_time,
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
     new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, database.BLOCK_MESSAGES)
-
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
-def initialise(db):
+def initialise(db): #CHANGED TO MYSQL
     # print(db) # DEBUG
     """Initialise data, create and populate the database."""
     cursor = db.cursor() # for sqlite3
-    mysql_cursor = mysql_conn.cursor()
 
 
 
     # MySQL Blocks table
     # Create the blocks table
-    mysql_cursor.execute('''
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS blocks (
             block_index INT,
             block_hash NVARCHAR(64),
             block_time INT,
             previous_block_hash VARCHAR(64) UNIQUE,
-            difficulty INT,
+            difficulty FLOAT,
             ledger_hash TEXT,
             txlist_hash TEXT,
             messages_hash TEXT,
@@ -248,30 +215,30 @@ def initialise(db):
             UNIQUE (previous_block_hash),
             INDEX block_index_idx (block_index),
             INDEX index_hash_idx (block_index, block_hash)
-        )
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
     ''')
  
     # Check if the block_index_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM blocks WHERE Key_name = 'block_index_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the block_index_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''
+        cursor.execute('''
             CREATE INDEX block_index_idx ON blocks (block_index)
         ''')
 
     # Check if the index_hash_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM blocks WHERE Key_name = 'index_hash_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the index_hash_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''
+        cursor.execute('''
             CREATE INDEX index_hash_idx ON blocks (block_index, block_hash)
         ''')
 
@@ -281,61 +248,22 @@ def initialise(db):
     # ''')
     # column_names = [row[0] for row in mysql_cursor.fetchall()]
 
-    mysql_cursor.execute('''
+    cursor.execute('''
         SELECT MIN(block_index)
         FROM blocks
     ''')
-    block_index = mysql_cursor.fetchone()[0]
+    block_index = cursor.fetchone()[0]
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
         raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
 
 
-    # SQLite Blocks
-    cursor.execute('''CREATE TABLE IF NOT EXISTS blocks(
-                      block_index INTEGER UNIQUE,
-                      block_hash TEXT UNIQUE,
-                      block_time INTEGER,
-                      previous_block_hash TEXT UNIQUE,
-                      difficulty FLOAT,
-                      PRIMARY KEY (block_index, block_hash))
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      block_index_idx ON blocks (block_index)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      index_hash_idx ON blocks (block_index, block_hash)
-                   ''')
-
-    # SQLite can’t do `ALTER TABLE IF COLUMN NOT EXISTS`.
-    columns = [column['name'] for column in cursor.execute('''PRAGMA table_info(blocks)''')]
-    if 'ledger_hash' not in columns:
-        cursor.execute('''ALTER TABLE blocks ADD COLUMN ledger_hash TEXT''')
-    if 'txlist_hash' not in columns:
-        cursor.execute('''ALTER TABLE blocks ADD COLUMN txlist_hash TEXT''')
-    if 'messages_hash' not in columns:
-        cursor.execute('''ALTER TABLE blocks ADD COLUMN messages_hash TEXT''')
-    if 'previous_block_hash' not in columns:
-        cursor.execute('''ALTER TABLE blocks ADD COLUMN previous_block_hash TEXT''')
-    if 'difficulty' not in columns:
-        cursor.execute('''ALTER TABLE blocks ADD COLUMN difficulty TEXT''')
-
-    # Check that first block in DB is BLOCK_FIRST.
-    cursor.execute('''SELECT * from blocks ORDER BY block_index''')
-    blocks = list(cursor)
-    if len(blocks):
-        if blocks[0]['block_index'] != config.BLOCK_FIRST:
-            raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
-
-
-
-
-
+    
     # Transactions
 
     # MySQL Version
     # Create the transactions table if it does not exist
-    mysql_cursor.execute('''
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS transactions (
             tx_index INT PRIMARY KEY,
             tx_hash NVARCHAR(64) UNIQUE,
@@ -349,101 +277,64 @@ def initialise(db):
             data LONGTEXT,
             supported BIT DEFAULT 1,
             FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-        )
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ''')
 
     # Check if the block_index_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM transactions WHERE Key_name = 'block_index_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the block_index_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''CREATE INDEX block_index_idx ON transactions (block_index)''')
+        cursor.execute('''CREATE INDEX block_index_idx ON transactions (block_index)''')
 
     # Check if the tx_index_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM transactions WHERE Key_name = 'tx_index_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the tx_index_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''CREATE INDEX tx_index_idx ON transactions (tx_index)''')
+        cursor.execute('''CREATE INDEX tx_index_idx ON transactions (tx_index)''')
 
     # Check if the tx_hash_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM transactions WHERE Key_name = 'tx_hash_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the tx_hash_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''CREATE INDEX tx_hash_idx ON transactions (tx_hash)''')
+        cursor.execute('''CREATE INDEX tx_hash_idx ON transactions (tx_hash)''')
 
     # Check if the index_index_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM transactions WHERE Key_name = 'index_index_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the index_index_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)''')
+        cursor.execute('''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)''')
 
     # Check if the index_hash_index_idx index exists
-    mysql_cursor.execute('''
+    cursor.execute('''
         SHOW INDEX FROM transactions WHERE Key_name = 'index_hash_index_idx'
     ''')
-    result = mysql_cursor.fetchone()
+    result = cursor.fetchone()
 
     # Create the index_hash_index_idx index if it does not exist
     if not result:
-        mysql_cursor.execute('''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)''')
+        cursor.execute('''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)''')
 
-    mysql_cursor.execute('''DELETE FROM blocks WHERE block_index < {}'''.format(config.BLOCK_FIRST))
-    mysql_cursor.execute('''DELETE FROM transactions WHERE block_index < {}'''.format(config.BLOCK_FIRST))
-
-
-    ## SQLite Transactions 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS transactions(
-                      tx_index INTEGER UNIQUE,
-                      tx_hash TEXT UNIQUE,
-                      block_index INTEGER,
-                      block_hash TEXT,
-                      block_time INTEGER,
-                      source TEXT,
-                      destination TEXT,
-                      btc_amount INTEGER,
-                      fee INTEGER,
-                      data BLOB,
-                      supported BOOL DEFAULT 1,
-                      FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash),
-                      PRIMARY KEY (tx_index, tx_hash, block_index))
-                    ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      block_index_idx ON transactions (block_index)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      tx_index_idx ON transactions (tx_index)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      tx_hash_idx ON transactions (tx_hash)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      index_index_idx ON transactions (block_index, tx_index)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)
-                   ''')
-
-    # Purge database of blocks, transactions from before BLOCK_FIRST.
-    cursor.execute('''DELETE FROM blocks WHERE block_index < ?''', (config.BLOCK_FIRST,))
-    cursor.execute('''DELETE FROM transactions WHERE block_index < ?''', (config.BLOCK_FIRST,))
+    cursor.execute('''DELETE FROM blocks WHERE block_index < {}'''.format(config.BLOCK_FIRST))
+    cursor.execute('''DELETE FROM transactions WHERE block_index < {}'''.format(config.BLOCK_FIRST))
 
 
-    # src20.initialise(db)
+    
 
 
     # # Mempool messages
@@ -458,7 +349,6 @@ def initialise(db):
     #               ''')
 
     cursor.close()
-    mysql_cursor.close()
 
 def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None):
     """Get the transaction info. Returns normalized None data for DecodeError and BTCOnlyError."""
@@ -789,14 +679,15 @@ def reparse(db, block_index=None, quiet=False):
     if not block_index:
         database.vacuum(db)
 
+#CHANGED TO MYSQL
 def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None):
     assert type(tx_hash) == str
     cursor = db.cursor()
 
     # Edge case: confirmed tx_hash also in mempool
     # Leaving this for now on the sqlite table only since we aren't doing mempool on prod yet
-    cursor.execute('''SELECT * FROM transactions WHERE tx_hash = ?''', (tx_hash,))
-    transactions = list(cursor)
+    cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,))
+    transactions = cursor.fetchall()
     if transactions:
         return tx_index
 
@@ -815,34 +706,9 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     # if source and (data or destination == config.UNSPENDABLE or decoded_tx):
     if True: # we are writing all trx to the transactions table
-        logger.info('Saving transaction to sqlite transactions: {}'.format(tx_hash))
-        cursor.execute('''INSERT INTO transactions(
-                            tx_index,
-                            tx_hash,
-                            block_index,
-                            block_hash,
-                            block_time,
-                            source,
-                            destination,
-                            btc_amount,
-                            fee,
-                            data) VALUES(?,?,?,?,?,?,?,?,?,?)''',
-                            (tx_index,
-                                tx_hash,
-                                block_index,
-                                block_hash,
-                                block_time,
-                                source,
-                                destination,
-                                btc_amount,
-                                fee,
-                                data)
-                        )
-        cursor.close() # this does not commit the transactions
-
         logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
-        mysql_cursor = mysql_conn.cursor()
-        mysql_cursor.execute(
+        #cursor = db.cursor()
+        cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (tx_index,
                 tx_hash,
@@ -863,69 +729,40 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     return tx_index
 
 
+#CHANGED TO MYSQL
 def last_db_index(db):
+    field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
-    mysql_cursor = mysql_conn.cursor()
     
     try:
         # Get the last block index from the SQLite database.
-        blocks = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)'''))
+        cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)''')
+        blocks = cursor.fetchall()
         try:
-            sqlite_last_index = blocks[0]['block_index']
+            last_index = blocks[0][field_position['block_index']]
         except IndexError:
-            sqlite_last_index = 0
-    except apsw.SQLError:
-        sqlite_last_index = 0
+            last_index = 0
+    except  mysql.Error:
+        last_index = 0
     finally:
         cursor.close()
-    
-    try:
-        # Get the last block index from the MySQL database.
-        mysql_cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)''')
-        mysql_blocks = mysql_cursor.fetchall()
-        mysql_last_index = mysql_blocks[0][0]
-    except mysql.Error:
-        mysql_last_index = 0
-    finally:
-        mysql_cursor.close()
-    
-    if sqlite_last_index != mysql_last_index:
-        raise Exception('SQLite and MySQL databases are out of sync. SQLite: {}, MySQL: {}'.format(sqlite_last_index, mysql_last_index))
-    else:
-        logger.info('SQLite and MySQL databases are in sync. Last block index: {}'.format(sqlite_last_index))
-
-    # Compare the results and return the last block index.
-    
-    return mysql_last_index
+    return last_index
 
 
+#CHANGED TO MYSQL
 def get_next_tx_index(db):
     """Return index of next transaction."""
     cursor = db.cursor()
-    mysql_cursor = mysql_conn.cursor()
 
-    txes = list(cursor.execute('''SELECT * FROM transactions WHERE tx_index = (SELECT MAX(tx_index) from transactions)'''))
+    cursor.execute('''SELECT tx_index FROM transactions WHERE tx_index = (SELECT MAX(tx_index) from transactions)''')
+    txes = cursor.fetchall()
     if txes:
         assert len(txes) == 1
-        tx_index = txes[0]['tx_index'] + 1
+        tx_index = txes[0][0] + 1
     else:
         tx_index = 0
 
-    # Get the last transaction index from the MySQL database.
-    mysql_cursor.execute('''SELECT tx_index FROM transactions WHERE tx_index = (SELECT MAX(tx_index) from transactions)''')
-    mysql_txes = mysql_cursor.fetchall()
-    if mysql_txes:
-        assert len(mysql_txes) == 1
-        mysql_tx_index = mysql_txes[0][0] + 1
-    else:
-        mysql_tx_index = 0
-
     cursor.close()
-    mysql_cursor.close()
-
-    # Compare the results and raise an exception if they do not match.
-    if tx_index != mysql_tx_index:
-        raise Exception('SQLite and MySQL databases are out of sync. SQLite: {}, MySQL: {}'.format(tx_index, mysql_tx_index))
 
     return tx_index
 
@@ -933,8 +770,8 @@ def get_next_tx_index(db):
 class MempoolError(Exception):
     pass
 
-
-def follow(db):
+#CHANGED TO MYSQL
+def follow(db): 
     # Check software version.
     # check.software_version()
 
@@ -960,7 +797,6 @@ def follow(db):
     not_supported_sorted = collections.deque()
     # ^ Entries in form of (block_index, tx_hash), oldest first. Allows for easy removal of past, unncessary entries
     cursor = db.cursor()
-    mysql_cursor = mysql_conn.cursor()
 
     # a reorg can happen without the block count increasing, or even for that
     # matter, with the block count decreasing. This should only delay
@@ -997,31 +833,19 @@ def follow(db):
                     current_cblock = backend.getcblock(current_hash)    # rpc call to the node
                     backend_parent = bitcoinlib.core.b2lx(current_cblock.hashPrevBlock)
 
-                    # DB parent hash.
-                    blocks = list(cursor.execute('''SELECT * FROM blocks
-                                                    WHERE block_index = ?''', (current_index - 1,)))
-                    if len(blocks) != 1:  # For empty DB.
-                        break
-                    db_parent = blocks[0]['block_hash']
-
                     test_query = '''SELECT * FROM blocks WHERE block_index = %s'''
-                    mysql_cursor.execute(test_query, (current_index - 1,))
-                    mysql_blocks = mysql_cursor.fetchall()
-                    columns = [desc[0] for desc in mysql_cursor.description]
-                    mysql_blocks_dict = [dict(zip(columns, row)) for row in mysql_blocks]
-                    if len(mysql_blocks_dict) != 1:  # For empty DB.
+                    cursor.execute(test_query, (current_index - 1,))
+                    blocks = cursor.fetchall()
+                    columns = [desc[0] for desc in cursor.description]
+                    blocks_dict = [dict(zip(columns, row)) for row in blocks]
+                    if len(blocks_dict) != 1:  # For empty DB.
                         break
-                    mysql_db_parent = mysql_blocks_dict[0]['block_hash']
-
-                    # If the results are not the same, raise an exception
-                    if db_parent != mysql_db_parent:
-                        raise Exception("SQLite and MySQL Blocks are not the same.")
-
+                    db_parent = blocks_dict[0]['block_hash']
 
                     # Compare.
-                    assert type(mysql_db_parent) == str
+                    assert type(db_parent) == str
                     assert type(backend_parent) == str
-                    if mysql_db_parent == backend_parent:
+                    if db_parent == backend_parent:
                         break
                     else:
                         current_index -= 1
@@ -1056,6 +880,7 @@ def follow(db):
             #     sys.exit()
             # print(block)
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
+            
 
             block_time = cblock.nTime
             print(block_time)
@@ -1065,33 +890,27 @@ def follow(db):
             # print("txhash_list: ", txhash_list)
 
             # Use a single connection object for both SQLite and MySQL databases
-            with db, mysql_conn.cursor() as block_cursor:
+            with db, db.cursor() as block_cursor:
                 util.CURRENT_BLOCK_INDEX = block_index
 
                 # List the block.
-                logger.warning('Inserting Sqlite Block: {}'.format(block_index))
-                cursor.execute('''INSERT INTO blocks(
-                                    block_index,
-                                    block_hash,
-                                    block_time,
-                                    previous_block_hash,
-                                    difficulty) VALUES(?,?,?,?,?)''',
-                                    (block_index,
-                                    block_hash,
-                                    block_time,
-                                    previous_block_hash,
-                                    cblock.difficulty)
-                              )
+                logger.warning('Inserting MySQL Block: {}'.format(block_index))
+                # Parse the transactions in the block.
+                new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
                 # Saving block into mysql table
                 block_query = '''INSERT INTO blocks(
                                     block_index,
                                     block_hash,
                                     block_time,
                                     previous_block_hash,
-                                    difficulty) VALUES(%s,%s,%s,%s,%s)'''
-                args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty))
+                                    difficulty,
+                                    ledger_hash,
+                                    txlist_hash,
+                                    messages_hash
+                                    ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)'''
+                args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty), new_ledger_hash, new_txlist_hash, new_messages_hash)
 
-                try: 
+                try:
                     block_cursor.execute("START TRANSACTION")
                     block_cursor.execute(block_query, args)
                 except mysql.IntegrityError:
@@ -1118,8 +937,7 @@ def follow(db):
                     block_cursor.execute("ROLLBACK")
                     sys.exit()
 
-                # Parse the transactions in the block.
-                new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
+                
 
             # When newly caught up, check for conservation of assets.
             # if block_index == block_count:

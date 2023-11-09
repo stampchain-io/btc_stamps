@@ -1,0 +1,35 @@
+- 03/11/2023: [WIP] Docker compose (author: JA):
+  - Add Dockerfile and docker-compose.yml
+  - Add more dependencies to requirements.txt
+  - Change BACKEND_URL to RPC_URL to work wih quicknode in backend.py
+  - Change BLOCK schema in SQLite and MySQL for difficulty to FLOAT in blocks.py
+  - Detected Errors:
+    - raises ConsensusError in check.py line 145 because calculated_hash differs of expected_hash
+    - seems that content used to generate calculated_hash has some None attributes, idk if this is the problem.
+- 03/11/2023: [OK] Docker compose (author: JA):
+  -Fixed ConsensusError exception commenting CHECKPOINTS_MAINNET line:19
+- 03/11/2023: [OK] Adminer (author: JA):
+  - Add Adminer to docker-compose.yml to be able to visualize data.
+- 04/11/2023: [OK] Makefile (author: JA):
+  - Add Makefile to handle differents architectures with recipes up, down, and clean.
+  - Add rule to detect ARCH in Dockerfile and install right Dockerize.
+  - Add Platform in docker-compose for handle differents architectures for mysql.
+    -[WIP] Testing if works in Raspberry PI 3
+- 04/11/2023: (author: JA)
+  - [OK] Add txlist_hash ledger_hash and messages_hash to blocks insert in blocks.py
+  - [OK] Add clean and fclean recipes to Makefile
+- 04/11/2023: [WIP] config.py, blocks.py (author: moonblink)
+  - added cursor = db.cursor() to reopen db connection on new block.
+  - updated config.py to handle both local node and quiknode conn, needs changes to docker-compose and local vars.
+  - untested changes.
+- 04/11/2023: [OK] blocks.py, check.py (author: JA):
+  - removed cursor = db.cursor() as it was not the real problem.
+  - add db.ping(reconnect=True) to test connection and reconnect if connection was lost.
+  - add field_position = {'ledger_hash': 5, 'txlist_hash': 6, 'messages_hash': 7}
+  - REMOVED SQLITE 🚀🚀🚀🚀
+- 05/11/2023: [OK] config.py, blocks.py, check.py (author: JA):
+  - add BLOCK_FIELDS_POSITION and TXS_FIELDS_POSITION to avoid tuple access with string error
+  - modified consensus_check to use this
+  - [TODO] change access for TXs with this new method to improve readibility
+- 05/11/2023: [OK] Remove dependencie apsw that was for sqlite and update python version
+- 06/11/2023: [OK] Add Grafana service

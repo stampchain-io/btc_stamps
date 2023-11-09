@@ -19,21 +19,27 @@ import src.util as util
 
 
 logger = logging.getLogger(__name__)
+
 RPC_USER = os.environ.get("RPC_USER", 'rpc')
 RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
 RPC_PORT = os.environ.get("RPC_PORT",'8332')
-RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+# Define for QUicknode or remote nodes which use a token
+QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None) #restless-fittest-cloud.btc.discover.quiknode.pro
+RPC_TOKEN = os.environ.get("RPC_TOKEN", None) # for quicknode
+if QUICKNODE_URL and RPC_TOKEN:
+    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{QUICKNODE_URL}/{RPC_TOKEN}"
+else:
+    RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+
 RPC_CONNECTION = AuthServiceProxy(RPC_URL)
-
-
 
 RAW_TRANSACTIONS_CACHE_SIZE = 20000
 RPC_BATCH_SIZE = 20     # A 1 MB block can hold about 4200 transactions.
 RPC_BATCH_NUM_WORKERS = 5 #20
 
-raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
+raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
 
 STAMP_PREFIX_HEX = "7374616d703a" # (lowercase stamp:)
@@ -45,8 +51,6 @@ BYTE_LENGTH_PREFIX_SIZE = 2 # 2 bytes for byte length prefix after block 790370
 TESTNET = None
 REGTEST = None
 
-STAMP_PREFIX = "7374616d703a" # (lowercase stamp:) 
-
 BURNKEYS = [
     "022222222222222222222222222222222222222222222222222222222222222222",
     "033333333333333333333333333333333333333333333333333333333333333333",
@@ -54,6 +58,30 @@ BURNKEYS = [
     "030303030303030303030303030303030303030303030303030303030303030302",
     "030303030303030303030303030303030303030303030303030303030303030303"
 ]
+
+BLOCK_FIELDS_POSITION = {
+    'block_index':0,
+    'block_hash':1,
+    'block_time': 2,
+    'previous_block_hash':3,
+    'difficulty':4,
+    'ledger_hash': 5,
+    'txlist_hash': 6,
+    'messages_hash': 7
+}
+
+TXS_FIELDS_POSITION={
+    'tx_index':0,
+    'tx_hash':1,
+    'block_index':2,
+    'block_hash':3,
+    'block_time':4,
+    'source':5,
+    'destination':6,
+    'btc_amount':7,
+    'fee':8,
+    'data':9
+}
 
 
 TICK_PATTERN_LIST = {
