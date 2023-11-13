@@ -33,7 +33,7 @@ def get_issuances_by_block(block_index):
     
     logger.warning("Result: {}".format( result))
     
-    return dict(result)
+    return result
 
 def get_stamp_issuances(issuances):
     stamp_issuances = []
