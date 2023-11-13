@@ -709,10 +709,9 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     # if source and (data or destination == config.UNSPENDABLE or decoded_tx):
     if True: # we are writing all trx to the transactions table
-        #logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
-        #cursor = db.cursor()
         if stamp_issuance != None:
             data = str(stamp_issuance)
+        logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (tx_index,
@@ -838,8 +837,6 @@ def follow(db):
             issuances = get_issuances_by_block(current_index)
             stamp_issuances = get_stamp_issuances(issuances)
             
-            logger.warning("STAMP ISSUANCES: {}".format(stamp_issuances))
-            
             # Backwards check for incorrect blocks due to chain reorganisation, and stop when a common parent is found.
             if block_count - block_index < 100: # Undolog only saves last 100 blocks, if there's a reorg deeper than that manual reparse should be done
                 requires_rollback = False
@@ -945,8 +942,6 @@ def follow(db):
                 # List the transactions in the block.
                 for tx_hash in txhash_list:
                     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
-                    logger.warning('ISSUANCE FOR TX:{}\n{}'.format(tx_hash, stamp_issuance))
-                    
                     if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
                         print("found first stamp in block follow db")
                     tx_hex = raw_transactions[tx_hash]
