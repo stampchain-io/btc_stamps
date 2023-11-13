@@ -54,7 +54,8 @@ def get_stamp_issuances(issuances):
                 "description": issuance["description"],
                 "reset": issuance["reset"],
                 "status": issuance["status"],
-                "asset_longname": issuance["asset_longname"]
+                "asset_longname": issuance["asset_longname"],
+                "tx_hash": issuance["tx_hash"],
             }
             stamp_issuances.append(filtered_issuance)
     return stamp_issuances
