@@ -711,6 +711,9 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if True: # we are writing all trx to the transactions table
         if stamp_issuance != None:
             data = str(stamp_issuance)
+            source = stamp_issuanceº['source']
+            destination = stamp_issuance['issuer']
+            
         logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
@@ -776,7 +779,11 @@ def purgue_old_block_tx_db(db, block_index):
     db.ping(reconnect=True)
     last_block_to_keep = block_index - config.BLOCKS_TO_KEEP
     cursor.execute('''DELETE FROM transactions WHERE block_index < %s AND data IS NULL''', (last_block_to_keep,))
-    cursor.execute('''DELETE FROM blocks WHERE block_index < %s''', (last_block_to_keep,))
+    cursor.execute('''
+        DELETE FROM blocks 
+        WHERE block_index < %s 
+        AND block_index NOT IN (SELECT DISTINCT block_index FROM transactions)
+    ''', (last_block_to_keep,))
     cursor.close()
 
 class MempoolError(Exception):
