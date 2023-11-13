@@ -775,6 +775,8 @@ def get_next_tx_index(db):
 
 def purgue_old_block_tx_db(db, block_index):
     """Purgue old block transactions from the database."""
+    if config.BLOCKS_TO_KEEP == 0:
+        return
     cursor = db.cursor()
     db.ping(reconnect=True)
     last_block_to_keep = block_index - config.BLOCKS_TO_KEEP

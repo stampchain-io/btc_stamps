@@ -25,7 +25,8 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia el código fuente de la aplicación en el contenedor
-COPY . .
+COPY src kickstart transaction_helper ./
+COPY *.py ./
 
 # Comando para ejecutar la aplicación
 CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "180s", "python3.9", "start.py"]

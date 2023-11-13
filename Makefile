@@ -18,6 +18,12 @@ up:
 	@echo "Using platform: $(DOCKER_PLATFORM)"
 	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
 
+dev:
+	@echo "Using arch: $(ARCH)"
+	@echo "Using platform: $(DOCKER_PLATFORM)"
+	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d app db adminer
+	@docker compose logs -f app db
+
 down:
 	@docker compose down
 
@@ -25,9 +31,12 @@ down-hard:
 	@docker compose down -v
 
 clean: down-hard
-	@rm server.db log.file || true
+	@rm -rf log.file || true
 
 fclean: clean
 	@docker system prune -a -f
+
+logs:
+	@docker compose logs -f app
 
 redo: clean up
