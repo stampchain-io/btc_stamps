@@ -44,7 +44,19 @@ def get_stamp_issuances(issuances):
     stamp_issuances = []
     for issuance in issuances:
         if issuance["description"].lower().startswith("stamp:"):
-            stamp_issuances.append(issuance)
+            filtered_issuance = {
+                "cp_id": issuance["asset"],  # Renombrar 'asset' a 'cp_id'
+                "quantity": issuance["quantity"],
+                "divisible": issuance["divisible"],
+                "source": issuance["source"],
+                "issuer": issuance["issuer"],
+                "transfer": issuance["transfer"],
+                "description": issuance["description"],
+                "reset": issuance["reset"],
+                "status": issuance["status"],
+                "asset_longname": issuance["asset_longname"]
+            }
+            stamp_issuances.append(filtered_issuance)
     return stamp_issuances
 
 def filter_issuances_by_tx_hash(issuances, tx_hash):
