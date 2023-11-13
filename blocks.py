@@ -427,6 +427,7 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
             new_destination, new_data = decode_checkmultisig(ctx, chunk)
             logger.warning("new_destination: {}".format(new_destination))
             logger.warning("new_data: {}".format(new_data))
+            
         except:
             raise DecodeError('unrecognised output type')
         
@@ -438,7 +439,8 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
         if new_data is not None:
             data += new_data
             destinations = (str(new_destination))
-
+        logger.warning("destinations: {}".format(destinations))
+        logger.warning("data: {}".format(data))
         # btc_amount += output_value
         # btc_amount += output_value
 
