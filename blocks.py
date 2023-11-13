@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 import collections
 import http
-from xcprequest import get_issuances_by_block, get_stamp_issuances
+from xcprequest import get_issuances_by_block, get_stamp_issuances, filter_issuances_by_tx_hash
 
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError, CScript, CScriptWitness, OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG
@@ -783,9 +783,6 @@ def purgue_old_block_tx_db(db, block_index):
 class MempoolError(Exception):
     pass
 
-def filter_issuances_by_tx_hash(issuances, tx_hash):
-    return [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
-
 
 #CHANGED TO MYSQL
 def follow(db): 
@@ -950,12 +947,11 @@ def follow(db):
                     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
                     logger.warning('ISSUANCE FOR TX:{}\n{}'.format(tx_hash, stamp_issuance))
                     
-                    
                     if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
                         print("found first stamp in block follow db")
                     tx_hex = raw_transactions[tx_hash]
                     # print(tx_hex)
-                    tx_index = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex)
+                    tx_index = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
                     # print("tx_index", tx_index) # this is the index from the db of prior tx
                 try:  # this should make the mysql transactions atomic  
                     block_cursor.execute("COMMIT")
