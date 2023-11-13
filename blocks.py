@@ -15,6 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 import collections
 import http
+from xcprequests import get_issuances_by_block, get_stamp_issuances
 
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError, CScript, CScriptWitness, OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG
@@ -768,6 +769,13 @@ def get_next_tx_index(db):
 
     return tx_index
 
+def purgue_old_block_tx_db(db, block_index):
+    """Purgue old block transactions from the database."""
+    cursor = db.cursor()
+    last_block_to_keep = block_index - config.BLOCKS_TO_KEEP
+    cursor.execute('''DELETE FROM transactions WHERE block_index < %s''', (last_block_to_keep))
+    cursor.execute('''DELETE FROM blocks WHERE block_index < %s''', (last_block_to_keep))
+    cursor.close()
 
 class MempoolError(Exception):
     pass
@@ -821,7 +829,13 @@ def follow(db):
         if block_index <= block_count:
             print("block_count: ", block_count)
 
+            purgue_old_block_tx_db(db, block_index)
             current_index = block_index
+            issuances = get_issuances_by_block(current_index)
+            stamp_issuances = get_stamp_issuances(issuances)
+            
+            logger.warning("STAMP ISSUANCES: {}".format(stamp_issuances))
+            
             # Backwards check for incorrect blocks due to chain reorganisation, and stop when a common parent is found.
             if block_count - block_index < 100: # Undolog only saves last 100 blocks, if there's a reorg deeper than that manual reparse should be done
                 requires_rollback = False
