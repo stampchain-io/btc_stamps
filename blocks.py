@@ -773,8 +773,8 @@ def purgue_old_block_tx_db(db, block_index):
     """Purgue old block transactions from the database."""
     cursor = db.cursor()
     last_block_to_keep = block_index - config.BLOCKS_TO_KEEP
-    cursor.execute('''DELETE FROM transactions WHERE block_index < %s AND data IS NULL''', (last_block_to_keep))
-    cursor.execute('''DELETE FROM blocks WHERE block_index < %s''', (last_block_to_keep))
+    cursor.execute('''DELETE FROM transactions WHERE block_index < %s AND data IS NULL''', (last_block_to_keep,))
+    cursor.execute('''DELETE FROM blocks WHERE block_index < %s''', (last_block_to_keep,))
     cursor.close()
 
 class MempoolError(Exception):
