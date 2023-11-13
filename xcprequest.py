@@ -27,7 +27,8 @@ def get_issuances_by_block(block_index):
     payload = creat_payload("get_issuances", {"filters": { "field": "block_index", "op" : "==", "value" : block_index }})
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
-    logger.warning("Response: {}".format( response.text))
+    logger.warning("Response: {}".format( response))
+    
     return response.text
 
 def get_stamp_issuances(issuances):
