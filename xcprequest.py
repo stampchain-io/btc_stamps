@@ -28,12 +28,7 @@ def get_issuances_by_block(block_index):
     logger.warning("Payload: {}".format( payload))
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
-    
-    result = json.loads(response.text)["result"]
-    
-    logger.warning("Result: {}".format( result))
-    
-    return result
+    return json.loads(response.text)["result"]
 
 def get_stamp_issuances(issuances):
     stamp_issuances = []
@@ -44,4 +39,4 @@ def get_stamp_issuances(issuances):
 
 def filter_issuances_by_tx_hash(issuances, tx_hash):
     filtered_issuances = [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
-    return filtered_issuances if filtered_issuances else None
+    return filtered_issuances[0] if filtered_issuances else None
