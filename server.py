@@ -280,9 +280,11 @@ def initialise_config(
 
     # Encoding
     if config.TESTCOIN:
-        config.PREFIX = b'XX'                   # 2 bytes (possibly accidentally created)
+        config.PREFIX = b'XX'
+        config.CP_PREFIX = b'CNTRPRTY'
     else:
-        config.PREFIX = b'stamp:'             # 8 bytes
+        config.PREFIX = b'stamp:' 
+        config.CP_PREFIX = b'CNTRPRTY'
 
     # (more) Testnet
     if config.TESTNET:

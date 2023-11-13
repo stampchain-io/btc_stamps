@@ -373,92 +373,6 @@ def _get_tx_info(tx_hex, block_parser=None, block_index=None, p2sh_is_segwit=Fal
         pass
         # return get_tx_info1(tx_hex, block_index, block_parser=block_parser)
 
-
-def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
-    return get_tx_info2(tx_hex, block_parser=block_parser, p2sh_support=True, p2sh_is_segwit=p2sh_is_segwit)
-
-def arc4_decrypt(cyphertext, ctx):
-    '''Un‐obfuscate. Initialise key once per attempt.'''
-    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    return key.decrypt(cyphertext)
-
-
-def arc4_decrypt_chunk(cyphertext, key):
-    '''Un‐obfuscate. Initialise key once per attempt.'''
-    # This  is modified  for stamps since in parse_stamp we were getting the key and then converting to a byte string in 2 steps. 
-    return key.decrypt(cyphertext)
-
-def get_opreturn(asm):
-    if len(asm) == 2 and asm[0] == 'OP_RETURN':
-        pubkeyhash = asm[1]
-        if type(pubkeyhash) == bytes:
-            return pubkeyhash
-    raise DecodeError('invalid OP_RETURN')
-
-def decode_scripthash(asm):
-    destination = script.base58_check_encode(binascii.hexlify(asm[1]).decode('utf-8'), config.P2SH_ADDRESSVERSION)
-
-    return destination, None
-
-def decode_checksig(asm, ctx):
-    pubkeyhash = script.get_checksig(asm)
-    chunk = arc4_decrypt(pubkeyhash, ctx)
-    if chunk[1:len(config.PREFIX) + 1] == config.PREFIX:        # Data
-        # Padding byte in each output (instead of just in the last one) so that encoding methods may be mixed. Also, it’s just not very much data.
-        chunk_length = chunk[0]
-        chunk = chunk[1:chunk_length + 1]
-        destination, data = None, chunk[len(config.PREFIX):]
-    else:                                                       # Destination
-        pubkeyhash = binascii.hexlify(pubkeyhash).decode('utf-8')
-        destination, data = script.base58_check_encode(pubkeyhash, config.ADDRESSVERSION), None
-
-    return destination, data
-
-def decode_checkmultisig(ctx, chunk):
-    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    chunk = arc4_decrypt_chunk(chunk, key) # this is a different method since we are stripping the nonce/sign beforehand
-    if chunk[2:2+len(config.PREFIX)] == config.PREFIX:
-        chunk_length = chunk[:2].hex() # the expected length of the string from the first 2 bytes
-        data = chunk[len(config.PREFIX) + 2:].rstrip(b'\x00')
-        data_length = len(chunk[2:].rstrip(b'\x00'))
-        print("data_length: ", data_length, "chunk_length: ", int(chunk_length, 16))
-        if data_length != int(chunk_length, 16):
-            raise DecodeError('invalid data length')
-        
-        # destination = CBitcoinAddress.from_scriptPubKey(ctx.vout[0].scriptPubKey) # this was not decoding all address types
-
-        script_pubkey = ctx.vout[0].scriptPubKey
-        print("script_pubkey: ", script_pubkey)
-        destination = None
-
-        try:
-            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey)
-        except Exception:
-            pass
-        if destination is None:
-            try:
-                destination = decode_p2w(script_pubkey)[0]
-            except Exception:
-                pass
-        if destination is None:
-            try:
-                destination = CBitcoinAddress.from_taproot_scriptPubKey(script_pubkey)
-            except Exception:
-                pass
-        if destination is None:
-            raise DecodeError('unknown address type')
-
-        return destination, data
-    else:
-        return None, data
-
-def decode_p2w(script_pubkey): # This is used for stamps
-    try:
-        bech32 = bitcoinlib.bech32.CBech32Data.from_bytes(0, script_pubkey[2:22])
-        return str(bech32), None
-    except TypeError as e:
-        raise DecodeError('bech32 decoding error')
-
 def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=False):
     """Get multisig transaction info.
     The destinations, if they exists, always comes before the data output; the
@@ -490,6 +404,13 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
             asm = script.get_asm(vout.scriptPubKey)
         except CScriptInvalidError as e:
             raise DecodeError(e)
+
+        if 'OP_RETURN' in asm: # this is the data output
+            print("found OP_RETURN")
+            op_return_data = extract_op_return_data(asm)
+            if op_return_data.startswith(config.CP_PREFIX):
+                print("found CP_PREFIX")
+                
 
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
             try:
@@ -574,6 +495,95 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
 
     print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
     return source, destinations, btc_amount, round(fee), data, None
+
+def extract_op_return_data(asm):
+    if len(asm) == 2 and asm[0] == 'OP_RETURN':
+        return asm[1]
+    return b''
+
+def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
+    return get_tx_info2(tx_hex, block_parser=block_parser, p2sh_support=True, p2sh_is_segwit=p2sh_is_segwit)
+
+def arc4_decrypt(cyphertext, ctx):
+    '''Un‐obfuscate. Initialise key once per attempt.'''
+    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
+    return key.decrypt(cyphertext)
+
+def arc4_decrypt_chunk(cyphertext, key):
+    '''Un‐obfuscate. Initialise key once per attempt.'''
+    # This  is modified  for stamps since in parse_stamp we were getting the key and then converting to a byte string in 2 steps. 
+    return key.decrypt(cyphertext)
+
+def get_opreturn(asm):
+    if len(asm) == 2 and asm[0] == 'OP_RETURN':
+        pubkeyhash = asm[1]
+        if type(pubkeyhash) == bytes:
+            return pubkeyhash
+    raise DecodeError('invalid OP_RETURN')
+
+def decode_scripthash(asm):
+    destination = script.base58_check_encode(binascii.hexlify(asm[1]).decode('utf-8'), config.P2SH_ADDRESSVERSION)
+
+    return destination, None
+
+def decode_checksig(asm, ctx):
+    pubkeyhash = script.get_checksig(asm)
+    chunk = arc4_decrypt(pubkeyhash, ctx)
+    if chunk[1:len(config.PREFIX) + 1] == config.PREFIX:        # Data
+        # Padding byte in each output (instead of just in the last one) so that encoding methods may be mixed. Also, it’s just not very much data.
+        chunk_length = chunk[0]
+        chunk = chunk[1:chunk_length + 1]
+        destination, data = None, chunk[len(config.PREFIX):]
+    else:                                                       # Destination
+        pubkeyhash = binascii.hexlify(pubkeyhash).decode('utf-8')
+        destination, data = script.base58_check_encode(pubkeyhash, config.ADDRESSVERSION), None
+
+    return destination, data
+
+def decode_checkmultisig(ctx, chunk):
+    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
+    chunk = arc4_decrypt_chunk(chunk, key) # this is a different method since we are stripping the nonce/sign beforehand
+    if chunk[2:2+len(config.PREFIX)] == config.PREFIX:
+        chunk_length = chunk[:2].hex() # the expected length of the string from the first 2 bytes
+        data = chunk[len(config.PREFIX) + 2:].rstrip(b'\x00')
+        data_length = len(chunk[2:].rstrip(b'\x00'))
+        print("data_length: ", data_length, "chunk_length: ", int(chunk_length, 16))
+        if data_length != int(chunk_length, 16):
+            raise DecodeError('invalid data length')
+        
+        # destination = CBitcoinAddress.from_scriptPubKey(ctx.vout[0].scriptPubKey) # this was not decoding all address types
+
+        script_pubkey = ctx.vout[0].scriptPubKey
+        print("script_pubkey: ", script_pubkey)
+        destination = None
+
+        try:
+            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey)
+        except Exception:
+            pass
+        if destination is None:
+            try:
+                destination = decode_p2w(script_pubkey)[0]
+            except Exception:
+                pass
+        if destination is None:
+            try:
+                destination = CBitcoinAddress.from_taproot_scriptPubKey(script_pubkey)
+            except Exception:
+                pass
+        if destination is None:
+            raise DecodeError('unknown address type')
+
+        return destination, data
+    else:
+        return None, data
+
+def decode_p2w(script_pubkey): # This is used for stamps
+    try:
+        bech32 = bitcoinlib.bech32.CBech32Data.from_bytes(0, script_pubkey[2:22])
+        return str(bech32), None
+    except TypeError:
+        raise DecodeError('bech32 decoding error')
 
 def reinitialise(db, block_index=None):
     ''' Not yet implemented for stamps need to swap to mysql and figure out what tables to drop! '''
