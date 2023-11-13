@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 import collections
 import http
-from xcprequests import get_issuances_by_block, get_stamp_issuances
+from xcprequest import get_issuances_by_block, get_stamp_issuances
 
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError, CScript, CScriptWitness, OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG
