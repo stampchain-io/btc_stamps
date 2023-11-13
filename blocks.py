@@ -402,7 +402,7 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
         # Ignore transactions with invalid script.
         try:
             asm = script.get_asm(vout.scriptPubKey)
-            logger.warning("asm: ", asm)
+            logger.warning("asm: {}".format(asm))
         except CScriptInvalidError as e:
             raise DecodeError(e)
 
