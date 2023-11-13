@@ -402,14 +402,15 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
         # Ignore transactions with invalid script.
         try:
             asm = script.get_asm(vout.scriptPubKey)
+            logger.warning("asm: ", asm)
         except CScriptInvalidError as e:
             raise DecodeError(e)
 
         if 'OP_RETURN' in asm: # this is the data output
-            print("found OP_RETURN")
+            logger.warning("found OP_RETURN")
             op_return_data = extract_op_return_data(asm)
             if op_return_data.startswith(config.CP_PREFIX):
-                print("found CP_PREFIX")
+                logger.warning("found CP_PREFIX")
                 
 
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
