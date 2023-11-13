@@ -38,7 +38,7 @@ def get_issuances_by_block(block_index):
 def get_stamp_issuances(issuances):
     stamp_issuances = []
     for issuance in issuances:
-        if issuance["description"].tolowercase().startswith("stamp:"):
+        if issuance["description"].lower().startswith("stamp:"):
             stamp_issuances.append(issuance)
     return stamp_issuances
 
