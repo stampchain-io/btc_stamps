@@ -2,6 +2,7 @@
 import json
 import config
 import logging
+logger = logging.getLogger(__name__)
 import requests
 from requests.auth import HTTPBasicAuth
 
