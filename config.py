@@ -24,6 +24,11 @@ RPC_USER = os.environ.get("RPC_USER", 'rpc')
 RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
 RPC_PORT = os.environ.get("RPC_PORT",'8332')
+
+CP_RPC_URL = os.environ.get("CP_RPC_URL", "http://public.coindaddy.io:4001")
+CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
+CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
+
 # Define for QUicknode or remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None) #restless-fittest-cloud.btc.discover.quiknode.pro
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None) # for quicknode
@@ -304,6 +309,7 @@ BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
 BACKEND_RPC_BATCH_NUM_WORKERS = 6
 
 UNDOLOG_MAX_PAST_BLOCKS = 100 #the number of past blocks that we store undolog history
+BLOCKS_TO_KEEP = 100
 
 DEFAULT_UTXO_LOCKS_MAX_ADDRESSES = 1000
 DEFAULT_UTXO_LOCKS_MAX_AGE = 3.0 #in seconds
