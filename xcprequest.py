@@ -1,4 +1,4 @@
-
+import time
 import json
 import config
 import requests
@@ -21,7 +21,20 @@ def create_payload(method, params):
 
 # counterparty public node: https://public.coindaddy.io:4000/api/b
 
+def get_block_count():
+    payload = create_payload("get_running_info", {})
+    headers = {'content-type': 'application/json'}
+    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
+    return json.loads(response.text)["result"]["last_block"]["block_index"]
+
 def get_issuances_by_block(block_index):
+    while True:
+        block_count = get_block_count()
+        if block_index <= block_count:
+            break
+        else:
+            print("Waiting for block {} to be parsed...".format(block_index))
+            time.sleep(100)
     payload = create_payload("get_issuances", {"filters": { "field": "block_index", "op" : "==", "value" : block_index }})
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
