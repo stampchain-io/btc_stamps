@@ -28,9 +28,12 @@ def get_issuances_by_block(block_index):
     logger.warning("Payload: {}".format( payload))
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
-    logger.warning("Response: {}".format(json.loads(response.text.result)))
     
-    return dict(json.loads(response.text.result))
+    result = json.loads(response.text)["result"]
+    
+    logger.warning("Result: {}".format( result))
+    
+    return dict(result)
 
 def get_stamp_issuances(issuances):
     stamp_issuances = []
