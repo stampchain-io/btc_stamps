@@ -772,6 +772,7 @@ def get_next_tx_index(db):
 def purgue_old_block_tx_db(db, block_index):
     """Purgue old block transactions from the database."""
     cursor = db.cursor()
+    cursor.ping(reconnect=True)
     last_block_to_keep = block_index - config.BLOCKS_TO_KEEP
     cursor.execute('''DELETE FROM transactions WHERE block_index < %s AND data IS NULL''', (last_block_to_keep,))
     cursor.execute('''DELETE FROM blocks WHERE block_index < %s''', (last_block_to_keep,))
