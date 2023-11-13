@@ -411,7 +411,6 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
                 pubkeys, signatures_required = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
                 # this will return pubkeys for CP transactions that have burnkeys in multisig output
                 pubkeys_compiled += pubkeys
-                logger.warning("pubkeys_compiled: {}".format(pubkeys_compiled))
                 # print("pubkeys compiled: ", pubkeys_compiled)
                 # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
             except:
