@@ -28,7 +28,7 @@ def get_issuances_by_block(block_index):
     logger.warning("Payload: {}".format( payload))
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
-    logger.warning("Response: {}".format(response.text))
+    logger.warning("Response: {}".format(response.text.result))
     
     return dict(response.text)
 
