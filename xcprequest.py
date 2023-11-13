@@ -42,3 +42,6 @@ def get_stamp_issuances(issuances):
             stamp_issuances.append(issuance)
     return stamp_issuances
 
+def filter_issuances_by_tx_hash(issuances, tx_hash):
+    filtered_issuances = [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
+    return filtered_issuances if filtered_issuances else None
