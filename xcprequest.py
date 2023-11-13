@@ -1,8 +1,6 @@
 
 import json
 import config
-import logging
-logger = logging.getLogger(__name__)
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -25,7 +23,6 @@ def create_payload(method, params):
 
 def get_issuances_by_block(block_index):
     payload = create_payload("get_issuances", {"filters": { "field": "block_index", "op" : "==", "value" : block_index }})
-    logger.warning("Payload: {}".format( payload))
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth)
     return json.loads(response.text)["result"]
