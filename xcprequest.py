@@ -4,10 +4,10 @@ import config
 import logging
 logger = logging.getLogger(__name__)
 import requests
-from requests.auth import HTTPBasicAuth
+from requests.auth import HTTPSBasicAuth
 
 url = config.CP_RPC_URL + "/api" # "http://public.coindaddy.io:4000/api/"
-auth = HTTPBasicAuth(config.CP_RPC_USER, config.CP_RPC_PASSWORD)
+auth = HTTPSBasicAuth(config.CP_RPC_USER, config.CP_RPC_PASSWORD)
 
 base_payload = {
   "method": "",
