@@ -25,7 +25,7 @@ RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
 RPC_PORT = os.environ.get("RPC_PORT",'8332')
 
-CP_RPC_URL = os.environ.get("CP_RPC_URL", "http://public.coindaddy.io:4001")
+CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001")
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
 
