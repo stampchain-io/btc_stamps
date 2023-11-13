@@ -5,7 +5,7 @@ services:
     image: mysql:latest
     platform: ${DOCKER_PLATFORM}
     volumes:
-      - db_data:/var/lib/mysql
+      - $PWD/db_data:/var/lib/mysql
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
       - ./table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
     restart: always
@@ -56,6 +56,7 @@ services:
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
       - RPC_TOKEN= #Optional to Quicknode users
+      - BLOCKS_TO_KEEP= #Optional to purgue txs and blocks from db
 volumes:
   db_data:
   grafana_data:
