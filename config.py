@@ -28,7 +28,7 @@ RPC_PORT = os.environ.get("RPC_PORT",'8332')
 CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001")
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
-BLOCKS_TO_KEEP = os.environ.get("BLOCKS_TO_KEEP", 0)
+BLOCKS_TO_KEEP = int(os.environ.get("BLOCKS_TO_KEEP", 0))
 
 
 # Define for QUicknode or remote nodes which use a token
