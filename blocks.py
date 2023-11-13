@@ -406,19 +406,13 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
         except CScriptInvalidError as e:
             raise DecodeError(e)
 
-        if 'OP_RETURN' in asm: # this is the data output
-            logger.warning("found OP_RETURN")
-            op_return_data = extract_op_return_data(asm)
-            if op_return_data.startswith(config.CP_PREFIX):
-                logger.warning("found CP_PREFIX")
-                
-
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
             try:
                 
                 pubkeys, signatures_required = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
                 # this will return pubkeys for CP transactions that have burnkeys in multisig output
                 pubkeys_compiled += pubkeys
+                logger.warning("pubkeys_compiled: {}".format(pubkeys_compiled))
                 # print("pubkeys compiled: ", pubkeys_compiled)
                 # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
             except:
@@ -496,11 +490,6 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
 
     print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
     return source, destinations, btc_amount, round(fee), data, None
-
-def extract_op_return_data(asm):
-    if len(asm) == 2 and asm[0] == 'OP_RETURN':
-        return asm[1]
-    return b''
 
 def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
     return get_tx_info2(tx_hex, block_parser=block_parser, p2sh_support=True, p2sh_is_segwit=p2sh_is_segwit)
