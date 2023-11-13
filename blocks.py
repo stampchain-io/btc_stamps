@@ -683,7 +683,7 @@ def reparse(db, block_index=None, quiet=False):
         database.vacuum(db)
 
 #CHANGED TO MYSQL
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None):
+def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) == str
     cursor = db.cursor()
 
@@ -711,6 +711,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if True: # we are writing all trx to the transactions table
         #logger.warning('Saving to MySQL transactions: {}'.format(tx_hash))
         #cursor = db.cursor()
+        if stamp_issuance != None:
+            data = str(stamp_issuance)
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (tx_index,
@@ -780,6 +782,10 @@ def purgue_old_block_tx_db(db, block_index):
 
 class MempoolError(Exception):
     pass
+
+def filter_issuances_by_tx_hash(issuances, tx_hash):
+    return [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
+
 
 #CHANGED TO MYSQL
 def follow(db): 
@@ -941,6 +947,10 @@ def follow(db):
 
                 # List the transactions in the block.
                 for tx_hash in txhash_list:
+                    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
+                    logger.warning('ISSUANCE FOR TX:{}\n{}'.format(tx_hash, stamp_issuance))
+                    
+                    
                     if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
                         print("found first stamp in block follow db")
                     tx_hex = raw_transactions[tx_hash]
