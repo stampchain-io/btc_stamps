@@ -33,6 +33,7 @@ import src.database as database
 import src.arc4 as arc4
 
 import pymysql as mysql
+from dateime import datetime
 
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
@@ -1034,7 +1035,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "stamp_mimetype": None,  # TODO: add stamp_mimetype
                 "stamp_url": None,  # TODO: add stamp_url
                 "supply": stamp.get('quantity'),
-                "timestamp": stamp_tx[tx_fields['block_time']],
+                "timestamp": datetime.utcfromtimestamp(
+                    stamp_tx[tx_fields['block_time']]
+                ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": stamp.get('tx_hash'),
                 "tx_index": tx_index,
                 "src_data": 'p' in stamp and
