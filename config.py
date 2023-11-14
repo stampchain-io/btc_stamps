@@ -53,6 +53,11 @@ STAMP_PREFIX_HEX = "7374616d703a" # (lowercase stamp:)
 
 STAMP_GENESIS_BLOCK = 793068 # block height of first stamp transaction
 
+CP_STAMP_GENESIS_BLOCK = 779652 # block height of first stamp transaction on counterparty
+
+CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
+CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
+
 BYTE_LENGTH_PREFIX_SIZE = 2 # 2 bytes for byte length prefix after block 790370
 
 TESTNET = None
@@ -65,6 +70,39 @@ BURNKEYS = [
     "030303030303030303030303030303030303030303030303030303030303030302",
     "030303030303030303030303030303030303030303030303030303030303030303"
 ]
+
+# TODO: These will be used as part of the check AFTER we decode the base64 and save the image to disk
+MIME_TYPES = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "gif": "image/gif",
+    "svg": "image/svg+xml",
+    "tif": "image/tiff",
+    "jfif": "image/jpeg",
+    "jpe": "image/jpeg",
+    "pbm": "image/x-portable-bitmap",
+    "pgm": "image/x-portable-graymap",
+    "ppm": "image/x-portable-pixmap",
+    "pnm": "image/x-portable-anymap",
+    "apng": "image/apng",
+    "bmp": "image/bmp",
+    "webp": "image/webp",
+    "heif": "image/heif",
+    "heic": "image/heic",
+    "avif": "image/avif",
+    "ico": "image/x-icon",
+    "tiff": "image/tiff",
+    "svgz": "image/svg+xml",
+    "wmf": "image/wmf",
+    "emf": "image/emf",
+    "pcx": "image/pcx",
+    "djvu": "image/vnd.djvu",
+    "djv": "image/vnd.djvu",
+    "html": "text/html"
+    # "eps": "image/eps",
+    # "pdf": "application/pdf"
+}
 
 BLOCK_FIELDS_POSITION = {
     'block_index': 0,
