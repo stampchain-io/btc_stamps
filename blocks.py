@@ -1002,10 +1002,7 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, tx_index, tx_hash):
-    if stamp.get('cpid'):
-        return stamp.get('cpid')
-    else:
-        return create_base62_hash(tx_hash, str(tx_index), 20)
+    return stamp.get('cpid', create_base62_hash(tx_hash, str(tx_index), 20))
 
 
 def clean_and_load_json(json_string):
