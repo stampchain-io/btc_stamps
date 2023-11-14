@@ -88,7 +88,7 @@ def get_stamp_issuances(issuances):
                 "status": issuance["status"],
                 "asset_longname": issuance["asset_longname"] if "asset_longname" in issuance else "",
                 "tx_hash": issuance["tx_hash"],
-                "msg_index": issuance["msg_index"],
+                "message_index": issuance["msg_index"],
                 "stamp_mimetype": stamp_mimetype
             }
             stamp_issuances.append(json.loads(json.dumps(filtered_issuance)))

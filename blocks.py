@@ -1041,7 +1041,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                     stamp_tx[tx_fields['block_time']]
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": stamp.get('tx_hash'),
-                "message_index": stamp.get('message_index'),
                 "tx_index": tx_index,
                 "src_data": 'p' in stamp and
                             (stamp.get('p') == 'src-20' or stamp.get('p') == 'src-721')
