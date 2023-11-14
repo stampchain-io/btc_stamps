@@ -1012,7 +1012,7 @@ def clean_and_load_json(json_string):
     json_string = json_string.replace('"', '\\"')
     json_string = json_string.replace("'", '"')
     json_string = json_string.replace("None", "null")
-    return json.loads(json.dumps(json_string))
+    return json.dumps(json_string)
 
 
 def parse_stamps_to_stamp_table(db, stamps):
@@ -1028,7 +1028,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "stamp": None,
                 "block_index": block_index,
                 "cpid": get_cpid(stamp, tx_index),
-                "asset_longname": stamp.get('asset_longname'),
+                "asset_longname": stamp.get('asset_longname', ""),
                 "creator": stamp.get('issuer') or stamp_tx[tx_fields['source']],
                 "divisible": stamp.get('divisible'),
                 "keyburn": None,  # TODO: add keyburn
