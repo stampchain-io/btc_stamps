@@ -1008,12 +1008,13 @@ def get_cpid(stamp, tx_index):
 
 
 def parse_stamps_to_stamp_table(db, stamps):
+    tx_fields = config.TXS_FIELDS_POSITION
     logger.warning("parse_stamps_to_stamp_table: {}".format(stamps))
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            stamp = json.load(stamp_tx['data'])
-            tx_index = stamp_tx['tx_index']
+            stamp = json.load(stamp_tx[tx_fields['data']])
+            tx_index = stamp_tx[tx_fields['tx_index']]
             parsed_stamp = {
                 "stamp": None,
                 "block_index": stamp['block_index'],
