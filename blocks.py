@@ -1026,6 +1026,9 @@ def parse_stamps_to_stamp_table(db, stamps):
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
             tx_index = stamp_tx[tx_fields['tx_index']]
             block_index = stamp_tx[tx_fields['block_index']]
+            logger.warning("stamp: {}".format(stamp))
+            ident = 'p' in stamp and (stamp.get('p') == 'src-20' or stamp.get('p') == 'src-721') and stamp.get('p').upper() or 'STAMP'
+            logger.warning("ident: {}".format(ident))
             parsed = {
                 "stamp": None,
                 "block_index": block_index,
