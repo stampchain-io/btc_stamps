@@ -90,7 +90,7 @@ def get_stamp_issuances(issuances):
                 "msg_index": issuance["msg_index"],
                 "stamp_mimetype": stamp_mimetype
             }
-            stamp_issuances.append(json.dumps(filtered_issuance))
+            stamp_issuances.append(json.loads(json.dumps(filtered_issuance)))
     return stamp_issuances
 
 
