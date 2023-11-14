@@ -64,7 +64,7 @@ def get_issuances_by_block(block_index):
 def get_stamp_issuances(issuances):
     stamp_issuances = []
     for issuance in issuances:
-        description = json.loads(issuance)["description"]
+        description = issuance["description"]
         if description is not None and description.lower().find("stamp:") != -1:
             stamp_search = description[description.lower().find("stamp:") + 6:]
             stamp_search = stamp_search.strip()
