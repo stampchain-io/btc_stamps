@@ -33,7 +33,7 @@ import src.database as database
 import src.arc4 as arc4
 
 import pymysql as mysql
-from dateime import datetime
+from datetime import datetime
 
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
