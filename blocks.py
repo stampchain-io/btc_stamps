@@ -1009,10 +1009,12 @@ def get_cpid(stamp, tx_index):
 
 
 def clean_and_load_json(json_string):
-    json_string = json_string.replace('"', '\\"')
-    json_string = json_string.replace("'", '"')
-    json_string = json_string.replace("None", "null")
-    return json.loads(json_string)
+    try:
+        return json.loads(json_string)
+    except json.JSONDecodeError:
+        json_string = json_string.replace("'", '"')
+        json_string = json_string.replace("None", "null")
+        return json.loads(json_string)
 
 
 def parse_stamps_to_stamp_table(db, stamps):
