@@ -1012,7 +1012,7 @@ def clean_and_load_json(json_string):
     json_string = json_string.replace('"', '\\"')
     json_string = json_string.replace("'", '"')
     json_string = json_string.replace("None", "null")
-    return json.loads(json_string)
+    return json.loads(json.dumps(json_string))
 
 
 def parse_stamps_to_stamp_table(db, stamps):
