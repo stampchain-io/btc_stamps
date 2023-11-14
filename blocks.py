@@ -1048,7 +1048,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             }
             logger.warning("parsed: {}".format(parsed))
             cursor.execute('''
-                           INSERT INTO StampTablev4(
+                           INSERT INTO StampTableV4(
                                 stamp, block_index, cpid, creator, divisible,
                                 keyburn, locked, message_index, stamp_base64,
                                 stamp_mimetype, stamp_url, supply, timestamp,
