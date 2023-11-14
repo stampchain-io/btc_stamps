@@ -67,27 +67,27 @@ BURNKEYS = [
 ]
 
 BLOCK_FIELDS_POSITION = {
-    'block_index':0,
-    'block_hash':1,
+    'block_index': 0,
+    'block_hash': 1,
     'block_time': 2,
-    'previous_block_hash':3,
-    'difficulty':4,
+    'previous_block_hash': 3,
+    'difficulty': 4,
     'ledger_hash': 5,
     'txlist_hash': 6,
     'messages_hash': 7
 }
 
-TXS_FIELDS_POSITION={
-    'tx_index':0,
-    'tx_hash':1,
-    'block_index':2,
-    'block_hash':3,
-    'block_time':4,
-    'source':5,
-    'destination':6,
-    'btc_amount':7,
-    'fee':8,
-    'data':9
+TXS_FIELDS_POSITION = {
+    'tx_index': 0,
+    'tx_hash': 1,
+    'block_index': 2,
+    'block_hash': 3,
+    'block_time': 4,
+    'source': 5,
+    'destination': 6,
+    'btc_amount': 7,
+    'fee': 8,
+    'data': 9
 }
 
 
