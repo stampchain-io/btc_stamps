@@ -1001,8 +1001,8 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, tx_index):
-    if stamp.get('cp_id'):
-        return stamp.get('cp_id')
+    if stamp.get('cpid'):
+        return stamp.get('cpid')
     else:
         return create_base62_hash(stamp.get('tx_hash'), str(tx_index), 20)
 
