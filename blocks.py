@@ -1001,10 +1001,10 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, tx_index):
-    if stamp['cp_id']:
-        return stamp['cp_id']
+    if stamp.get('cp_id'):
+        return stamp.get('cp_id')
     else:
-        return create_base62_hash(stamp['tx_hash'], tx_index, 20)
+        return create_base62_hash(stamp.get('tx_hash'), tx_index, 20)
 
 
 def parse_stamps_to_stamp_table(db, stamps):
