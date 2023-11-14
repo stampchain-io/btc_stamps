@@ -1008,19 +1008,20 @@ def get_cpid(stamp, tx_index):
         return create_base62_hash(stamp.get('tx_hash'), str(tx_index), 20)
 
 
+def clean_and_load_json(json_string):
+    json_string = json_string.replace('"', '\\"')
+    json_string = json_string.replace("'", '"')
+    json_string = json_string.replace("None", "null")
+    return json.loads(json_string)
+
+
 def parse_stamps_to_stamp_table(db, stamps):
     tx_fields = config.TXS_FIELDS_POSITION
     logger.warning("parse_stamps_to_stamp_table: {}".format(stamps))
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            json_string = stamp_tx[tx_fields['data']]
-            json_string = json_string.replace('"', '\\"')
-            json_string = json_string.replace("'", '"')
-            json_string = json_string.replace("None", "null")
-            logger.warning("\n\njson_string: {}\n\n".format(json_string))
-            stamp = json.loads(json_string)
-            logger.warning("\n\nDATA TO LOAD: {}\n\n".format(stamp))
+            stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
             tx_index = stamp_tx[tx_fields['tx_index']]
             block_index = stamp_tx[tx_fields['block_index']]
             parsed = {
