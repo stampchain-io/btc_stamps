@@ -1018,33 +1018,31 @@ def parse_stamps_to_stamp_table(db, stamps):
             json_string = json_string.replace("'", '"')
             json_string = json_string.replace("None", "null")
             logger.warning("\n\njson_string: {}\n\n".format(json_string))
-            
             stamp = json.loads(json_string)
-            
             logger.warning("\n\nDATA TO LOAD: {}\n\n".format(stamp))
             tx_index = stamp_tx[tx_fields['tx_index']]
             parsed_stamp = {
                 "stamp": None,
-                "block_index": stamp['block_index'],
+                "block_index": stamp.get('block_index'),
                 "cpid": get_cpid(stamp, tx_index),
-                "creator": stamp['issuer'],
-                "divisible": stamp['divisible'],
+                "creator": stamp.get('issuer')),
+                "divisible": stamp.get('divisible'),
                 "keyburn": None,  # TODO: add keyburn
-                "locked": stamp['locked'],
-                "message_index": stamp['msg_index'],
-                "stamp_base64": stamp['description'],
+                "locked": stamp.get('locked'),
+                "message_index": stamp.get('message_index'),
+                "stamp_base64": stamp.get('description'),
                 "stamp_mimetype": None,  # TODO: add stamp_mimetype
                 "stamp_url": None,  # TODO: add stamp_url
-                "supply": stamp['quantity'],
+                "supply": stamp.get('quantity'),
                 "timestamp": stamp_tx['block_time'],
-                "tx_hash": stamp['tx_hash'],
+                "tx_hash": stamp.get('tx_hash'),
                 "tx_index": tx_index,
                 "src_data": 'p' in stamp and
-                            (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
+                            (stamp.get('p') == 'src-20' or stamp.get('p') == 'src-721')
                             and stamp or None,
                 "ident": 'p' in stamp and
-                            (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
-                            and stamp['p'].toupper() or 'STAMP',
+                            (stamp.get('p') == 'src-20' or stamp.get('p') == 'src-721')
+                            and stamp.get('p').toupper() or 'STAMP',
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
             }
