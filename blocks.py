@@ -3,7 +3,7 @@ Initialise database.
 
 Sieve blockchain for Stamp transactions, and add them to the database.
 """
-
+import hashlib
 import sys
 import time
 import binascii
@@ -12,6 +12,7 @@ import decimal
 import logging
 import collections
 import http
+import json
 from xcprequest import (
                         get_issuances_by_block,
                         get_stamp_issuances,
@@ -930,7 +931,7 @@ def follow(db):
                 for tx_hash in txhash_list:
                     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
                     if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
-                        print("found first stamp in block follow db")
+                        print("found first src stamp in block follow db")
                     tx_hex = raw_transactions[tx_hash]
                     tx_index = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
                 try:
@@ -945,7 +946,110 @@ def follow(db):
                 new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
                 (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
 
+            update_stamp_table(db, block_index)
             block_count = backend.getblockcount()
             block_index += 1
+
+
+def update_stamp_table(db, block_index):
+    db.ping(reconnect=True)
+    cursor = db.cursor()
+    # get all the stamps that were issued in this block
+    stamps_without_validation = get_stamps_without_validation(db, block_index)
+    parse_stamps_to_stamp_table(db, stamps_without_validation)
+
+
+def get_stamps_without_validation(db, block_index):
+    cursor = db.cursor()
+    stamps = cursor.execute('''
+                            SELECT * FROM transactions
+                            WHERE block_index = %s
+                            AND data IS NOT NULL
+                            ''',
+                            (block_index,))
+    logger.warning("stamps: {}".format(stamps))
+    return stamps
+
+
+def base62_encode(num):
+    characters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    base = len(characters)
+    if num == 0:
+        return characters[0]
+    result = []
+    while num:
+        num, rem = divmod(num, base)
+        result.append(characters[rem])
+    return ''.join(reversed(result))
+
+
+def create_base62_hash(str1, str2, length=20):
+    if not 12 <= length <= 20:
+        raise ValueError("Length must be between 12 and 20 characters")
+    
+    combined_str = str1 + "|" + str2
+    hash_bytes = hashlib.sha256(combined_str.encode()).digest()
+
+    # Convert hash bytes to a large integer
+    hash_int = int.from_bytes(hash_bytes, byteorder='big')
+
+    # Encode the integer in base62
+    base62_hash = base62_encode(hash_int)
+
+    # Truncate and return the hash
+    return base62_hash[:length]
+
+
+def get_cpid(stamp, tx_index):
+    if stamp['cp_id']:
+        return stamp['cp_id']
+    else:
+        return create_base62_hash(stamp['tx_hash'], tx_index, 20)
+
+
+def parse_stamps_to_stamp_table(db, stamps):
+    with db:
+        cursor = db.cursor()
+        for stamp_tx in stamps:
+            stamp = json.load(stamp_tx['data'])
+            tx_index = stamp_tx['tx_index']
+            parsed_stamp = {
+                "stamp": None,
+                "block_index": stamp['block_index'],
+                "cpid": get_cpid(stamp, tx_index),
+                "creator": stamp['issuer'],
+                "divisible": stamp['divisible'],
+                "keyburn": None,  # TODO: add keyburn
+                "locked": stamp['locked'],
+                "message_index": stamp['msg_index'],
+                "stamp_base64": stamp['description'],
+                "stamp_mimetype": None,  # TODO: add stamp_mimetype
+                "stamp_url": None,  # TODO: add stamp_url
+                "supply": stamp['quantity'],
+                "timestamp": stamp_tx['block_time'],
+                "tx_hash": stamp['tx_hash'],
+                "tx_index": tx_index,
+                "src_data": 'p' in stamp and
+                            (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
+                            and stamp or None,
+                "ident": 'p' in stamp and
+                            (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
+                            and stamp['p'].toupper() or 'STAMP',
+                "creator_name": None,  # TODO: add creator_name
+                "stamp_gen": None,  # TODO: add stamp_gen,
+            }
+            logger.warning("parsed_stamp: {}".format(parsed_stamp))
+            cursor.execute('''
+                           INSERT INTO StampTablev4(
+                                stamp, block_index, cpid, creator, divisible,
+                                keyburn, locked, message_index, stamp_base64,
+                                stamp_mimetype, stamp_url, supply, timestamp,
+                                tx_hash, tx_index, src_data, ident,
+                                creator_name, stamp_gen
+                                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                                %s,%s,%s,%s,%s,%s,%s)
+                           )
+                           ''')
+        cursor.execute("COMMIT")
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
