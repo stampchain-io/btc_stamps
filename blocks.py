@@ -1056,7 +1056,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 creator_name, stamp_gen
                                 ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                                 %s,%s,%s,%s,%s,%s,%s)
-                           )
                            ''', (
                                 parsed['stamp'], parsed['block_index'],
                                 parsed['cpid'], parsed['creator'],
