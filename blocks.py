@@ -1008,48 +1008,49 @@ def get_cpid(stamp, tx_index):
 
 
 def parse_stamps_to_stamp_table(db, stamps):
-    with db:
-        cursor = db.cursor()
-        for stamp_tx in stamps:
-            stamp = json.load(stamp_tx['data'])
-            tx_index = stamp_tx['tx_index']
-            parsed_stamp = {
-                "stamp": None,
-                "block_index": stamp['block_index'],
-                "cpid": get_cpid(stamp, tx_index),
-                "creator": stamp['issuer'],
-                "divisible": stamp['divisible'],
-                "keyburn": None,  # TODO: add keyburn
-                "locked": stamp['locked'],
-                "message_index": stamp['msg_index'],
-                "stamp_base64": stamp['description'],
-                "stamp_mimetype": None,  # TODO: add stamp_mimetype
-                "stamp_url": None,  # TODO: add stamp_url
-                "supply": stamp['quantity'],
-                "timestamp": stamp_tx['block_time'],
-                "tx_hash": stamp['tx_hash'],
-                "tx_index": tx_index,
-                "src_data": 'p' in stamp and
-                            (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
-                            and stamp or None,
-                "ident": 'p' in stamp and
-                            (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
-                            and stamp['p'].toupper() or 'STAMP',
-                "creator_name": None,  # TODO: add creator_name
-                "stamp_gen": None,  # TODO: add stamp_gen,
-            }
-            logger.warning("parsed_stamp: {}".format(parsed_stamp))
-            cursor.execute('''
-                           INSERT INTO StampTablev4(
-                                stamp, block_index, cpid, creator, divisible,
-                                keyburn, locked, message_index, stamp_base64,
-                                stamp_mimetype, stamp_url, supply, timestamp,
-                                tx_hash, tx_index, src_data, ident,
-                                creator_name, stamp_gen
-                                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                %s,%s,%s,%s,%s,%s,%s)
-                           )
-                           ''')
-        cursor.execute("COMMIT")
+    logger.warning("parse_stamps_to_stamp_table: {}".format(stamps))
+    # with db:
+    #     cursor = db.cursor()
+    #     for stamp_tx in stamps:
+    #         stamp = json.load(stamp_tx['data'])
+    #         tx_index = stamp_tx['tx_index']
+    #         parsed_stamp = {
+    #             "stamp": None,
+    #             "block_index": stamp['block_index'],
+    #             "cpid": get_cpid(stamp, tx_index),
+    #             "creator": stamp['issuer'],
+    #             "divisible": stamp['divisible'],
+    #             "keyburn": None,  # TODO: add keyburn
+    #             "locked": stamp['locked'],
+    #             "message_index": stamp['msg_index'],
+    #             "stamp_base64": stamp['description'],
+    #             "stamp_mimetype": None,  # TODO: add stamp_mimetype
+    #             "stamp_url": None,  # TODO: add stamp_url
+    #             "supply": stamp['quantity'],
+    #             "timestamp": stamp_tx['block_time'],
+    #             "tx_hash": stamp['tx_hash'],
+    #             "tx_index": tx_index,
+    #             "src_data": 'p' in stamp and
+    #                         (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
+    #                         and stamp or None,
+    #             "ident": 'p' in stamp and
+    #                         (stamp['p'] == 'src-20' or stamp['p'] == 'src-721')
+    #                         and stamp['p'].toupper() or 'STAMP',
+    #             "creator_name": None,  # TODO: add creator_name
+    #             "stamp_gen": None,  # TODO: add stamp_gen,
+    #         }
+    #         logger.warning("parsed_stamp: {}".format(parsed_stamp))
+    #         cursor.execute('''
+    #                        INSERT INTO StampTablev4(
+    #                             stamp, block_index, cpid, creator, divisible,
+    #                             keyburn, locked, message_index, stamp_base64,
+    #                             stamp_mimetype, stamp_url, supply, timestamp,
+    #                             tx_hash, tx_index, src_data, ident,
+    #                             creator_name, stamp_gen
+    #                             ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+    #                             %s,%s,%s,%s,%s,%s,%s)
+    #                        )
+    #                        ''')
+    #     cursor.execute("COMMIT")
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
