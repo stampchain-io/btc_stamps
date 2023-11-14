@@ -1021,7 +1021,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             stamp = json.loads(json_string)
             logger.warning("\n\nDATA TO LOAD: {}\n\n".format(stamp))
             tx_index = stamp_tx[tx_fields['tx_index']]
-            parsed_stamp = {
+            parsed = {
                 "stamp": None,
                 "block_index": stamp.get('block_index'),
                 "cpid": get_cpid(stamp, tx_index),
@@ -1046,7 +1046,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
             }
-            logger.warning("parsed_stamp: {}".format(parsed_stamp))
+            logger.warning("parsed: {}".format(parsed))
             cursor.execute('''
                            INSERT INTO StampTablev4(
                                 stamp, block_index, cpid, creator, divisible,
@@ -1057,6 +1057,17 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                                 %s,%s,%s,%s,%s,%s,%s)
                            )
-                           ''')
+                           ''', (
+                                parsed['stamp'], parsed['block_index'],
+                                parsed['cpid'], parsed['creator'],
+                                parsed['divisible'], parsed['keyburn'],
+                                parsed['locked'], parsed['message_index'],
+                                parsed['stamp_base64'],
+                                parsed['stamp_mimetype'], parsed['stamp_url'],
+                                parsed['supply'], parsed['timestamp'],
+                                parsed['tx_hash'], parsed['tx_index'],
+                                parsed['src_data'], parsed['ident'],
+                                parsed['creator_name'], parsed['stamp_gen']
+                           ))
         cursor.execute("COMMIT")
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
