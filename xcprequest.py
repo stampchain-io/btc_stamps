@@ -64,7 +64,17 @@ def get_issuances_by_block(block_index):
 def get_stamp_issuances(issuances):
     stamp_issuances = []
     for issuance in issuances:
-        if issuance["description"].lower().startswith("stamp:"):
+        description = json.loads(issuance)["description"]
+        if description is not None and description.lower().find("stamp:") != -1:
+            stamp_search = description[description.lower().find("stamp:") + 6:]
+            stamp_search = stamp_search.strip()
+            if ";" in stamp_search:
+                stamp_mimetype, stamp_base64 = stamp_search.split(";", 1)
+                stamp_base64 = stamp_base64.strip() if len(stamp_base64) > 1 else None
+            else:
+                stamp_mimetype = ""
+                stamp_base64 = stamp_search.strip() if len(stamp_search) > 1 else None
+
             filtered_issuance = {
                 "cp_id": issuance["asset"],  # Renombrar 'asset' a 'cp_id'
                 "quantity": issuance["quantity"],
@@ -78,6 +88,7 @@ def get_stamp_issuances(issuances):
                 "asset_longname": issuance["asset_longname"],
                 "tx_hash": issuance["tx_hash"],
                 "msg_index": issuance["msg_index"],
+                "stamp_mimetype": stamp_mimetype
             }
             stamp_issuances.append(filtered_issuance)
     return stamp_issuances
