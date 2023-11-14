@@ -76,7 +76,7 @@ def get_stamp_issuances(issuances):
                 stamp_base64 = stamp_search.strip() if len(stamp_search) > 1 else None
 
             filtered_issuance = {
-                "cp_id": issuance["asset"],  # Renombrar 'asset' a 'cp_id'
+                "cpid": issuance["asset"],  # Renombrar 'asset' a 'cp_id'
                 "quantity": issuance["quantity"],
                 "divisible": issuance["divisible"],
                 "source": issuance["source"],
