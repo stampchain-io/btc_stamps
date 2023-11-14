@@ -1034,7 +1034,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "stamp_mimetype": None,  # TODO: add stamp_mimetype
                 "stamp_url": None,  # TODO: add stamp_url
                 "supply": stamp.get('quantity'),
-                "timestamp": stamp_tx['block_time'],
+                "timestamp": stamp_tx[tx_fields['block_time']],
                 "tx_hash": stamp.get('tx_hash'),
                 "tx_index": tx_index,
                 "src_data": 'p' in stamp and
