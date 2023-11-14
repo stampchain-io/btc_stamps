@@ -1022,9 +1022,10 @@ def parse_stamps_to_stamp_table(db, stamps):
             stamp = json.loads(json_string)
             logger.warning("\n\nDATA TO LOAD: {}\n\n".format(stamp))
             tx_index = stamp_tx[tx_fields['tx_index']]
+            block_index = stamp_tx[tx_fields['block_index']]
             parsed = {
                 "stamp": None,
-                "block_index": stamp.get('block_index'),
+                "block_index": block_index,
                 "cpid": get_cpid(stamp, tx_index),
                 "creator": stamp.get('issuer'),
                 "divisible": stamp.get('divisible'),
@@ -1052,8 +1053,9 @@ def parse_stamps_to_stamp_table(db, stamps):
             logger.warning("parsed: {}".format(parsed))
             cursor.execute('''
                            INSERT INTO StampTableV4(
-                                stamp, block_index, cpid, creator, divisible,
-                                keyburn, locked, message_index, stamp_base64,
+                                stamp, block_index, cpid, asset_longname,
+                                creator, divisible, keyburn, locked,
+                                message_index, stamp_base64,
                                 stamp_mimetype, stamp_url, supply, timestamp,
                                 tx_hash, tx_index, src_data, ident,
                                 creator_name, stamp_gen
@@ -1061,7 +1063,8 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 %s,%s,%s,%s,%s,%s,%s)
                            ''', (
                                 parsed['stamp'], parsed['block_index'],
-                                parsed['cpid'], parsed['creator'],
+                                parsed['cpid'], parsed['asset_longname'],
+                                parsed['creator'],
                                 parsed['divisible'], parsed['keyburn'],
                                 parsed['locked'], parsed['message_index'],
                                 parsed['stamp_base64'],

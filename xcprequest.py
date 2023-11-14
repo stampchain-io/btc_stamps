@@ -79,6 +79,7 @@ def get_stamp_issuances(issuances):
                 "cpid": issuance["asset"],  # Renombrar 'asset' a 'cp_id'
                 "quantity": issuance["quantity"],
                 "divisible": issuance["divisible"],
+                "locked": issuance["locked"],
                 "source": issuance["source"],
                 "issuer": issuance["issuer"],
                 "transfer": issuance["transfer"],

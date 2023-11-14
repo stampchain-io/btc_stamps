@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
   `block_index` int DEFAULT NULL,
   `cpid` varchar(255) DEFAULT NULL,
+  `asset_longname` varchar(255) DEFAULT NULL,
   `creator` varchar(255) DEFAULT NULL,
   `divisible` tinyint(1) DEFAULT NULL,
   `keyburn` tinyint(1) DEFAULT NULL,
