@@ -1013,7 +1013,10 @@ def parse_stamps_to_stamp_table(db, stamps):
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            stamp = json.loads(stamp_tx[tx_fields['data']])
+            json_string = stamp_tx[tx_fields['data']]
+            json_string = json_string.replace('"', '\\"')
+            json_string = json_string.replace("'", '"')
+            stamp = json.loads(json_string)
             logger.warning("\n\nDATA TO LOAD: {}\n\n".format(stamp))
             tx_index = stamp_tx[tx_fields['tx_index']]
             parsed_stamp = {
