@@ -1061,7 +1061,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 tx_hash, tx_index, src_data, ident,
                                 creator_name, stamp_gen
                                 ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                %s,%s,%s,%s,%s,%s,%s)
+                                %s,%s,%s,%s,%s,%s,%s,%s)
                            ''', (
                                 parsed['stamp'], parsed['block_index'],
                                 parsed['cpid'], parsed['asset_longname'],
