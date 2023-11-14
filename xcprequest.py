@@ -85,7 +85,7 @@ def get_stamp_issuances(issuances):
                 "description": issuance["description"],
                 "reset": issuance["reset"],
                 "status": issuance["status"],
-                "asset_longname": issuance["asset_longname"],
+                "asset_longname": issuance["asset_longname"] if "asset_longname" in issuance else "",
                 "tx_hash": issuance["tx_hash"],
                 "msg_index": issuance["msg_index"],
                 "stamp_mimetype": stamp_mimetype

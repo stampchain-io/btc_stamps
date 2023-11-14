@@ -941,12 +941,12 @@ def follow(db):
                     block_cursor.execute("ROLLBACK")
                     sys.exit()
 
+            update_stamp_table(db, block_index)
+
             logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
                 new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
                 (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
-
-            update_stamp_table(db, block_index)
             block_count = backend.getblockcount()
             block_index += 1
 
