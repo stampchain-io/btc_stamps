@@ -1029,7 +1029,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "block_index": block_index,
                 "cpid": get_cpid(stamp, tx_index),
                 "asset_longname": stamp.get('asset_longname'),
-                "creator": stamp.get('issuer'),
+                "creator": stamp.get('issuer') or stamp_tx[tx_fields['source']],
                 "divisible": stamp.get('divisible'),
                 "keyburn": None,  # TODO: add keyburn
                 "locked": stamp.get('locked'),
