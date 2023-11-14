@@ -1016,6 +1016,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             json_string = stamp_tx[tx_fields['data']]
             json_string = json_string.replace('"', '\\"')
             json_string = json_string.replace("'", '"')
+            json_string = json_string.replace("None", "null")
             logger.warning("\n\njson_string: {}\n\n".format(json_string))
             
             stamp = json.loads(json_string)
