@@ -79,10 +79,6 @@ def create_base62_hash(str1, str2, length=20):
     return base62_hash[:length]
 
 
-def get_cpid(stamp, block_index, tx_hash):
-    return stamp.get('cpid', create_base62_hash(tx_hash, str(block_index), 20))
-
-
 def clean_and_load_json(json_string):
     try:
         return json.loads(json_string)
@@ -124,7 +120,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             parsed = {
                 "stamp": None,
                 "block_index": block_index,
-                "cpid": get_cpid(stamp, block_index, tx_hash),
+                "cpid": stamp.get('cpid', stamp_hash),
                 "asset_longname": stamp.get('asset_longname'),
                 "creator": stamp.get('issuer', stamp_tx[tx_fields['source']]),
                 "divisible": stamp.get('divisible'),
