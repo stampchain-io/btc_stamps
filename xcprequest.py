@@ -69,7 +69,7 @@ def get_issuances_by_block(block_index):
             time.sleep(100)
     while True:
         try:
-            get_issuances(
+            return get_issuances(
                 params={
                     "filters": {
                         "field": "block_index",
