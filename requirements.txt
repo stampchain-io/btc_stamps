@@ -12,3 +12,5 @@ cachetools
 pymysql
 python-docx
 cryptography
+pybase64
+python-magic
