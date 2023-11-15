@@ -952,6 +952,10 @@ def follow(db):
                 (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
             block_count = backend.getblockcount()
             block_index += 1
+        else:
+            logger.warning(
+                "waiting for new block..."
+            )
 
 
 def update_stamp_table(db, block_index):
