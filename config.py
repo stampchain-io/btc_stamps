@@ -112,7 +112,8 @@ BLOCK_FIELDS_POSITION = {
     'difficulty': 4,
     'ledger_hash': 5,
     'txlist_hash': 6,
-    'messages_hash': 7
+    'messages_hash': 7,
+    'indexed': 8
 }
 
 TXS_FIELDS_POSITION = {

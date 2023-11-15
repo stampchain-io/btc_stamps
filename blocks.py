@@ -23,6 +23,7 @@ import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.core import CBlock
 from bitcoin.wallet import CBitcoinAddress
+import pymysql as mysql
 
 import config
 import src.exceptions as exceptions
@@ -32,9 +33,8 @@ import src.script as script
 import src.backend as backend
 import src.database as database
 import src.arc4 as arc4
+from stamp import update_stamp_table, is_prev_block_parsed
 
-import pymysql as mysql
-from datetime import datetime
 
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
@@ -196,30 +196,8 @@ def parse_block(db, block_index, block_time,
 def initialise(db):  # CHANGED TO MYSQL
     # print(db) # DEBUG
     """Initialise data, create and populate the database."""
-    cursor = db.cursor() # for sqlite3
+    cursor = db.cursor()  # for sqlite3
 
-
-
-    # MySQL Blocks table
-    # Create the blocks table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS blocks (
-            block_index INT,
-            block_hash NVARCHAR(64),
-            block_time INT,
-            previous_block_hash VARCHAR(64) UNIQUE,
-            difficulty FLOAT,
-            ledger_hash TEXT,
-            txlist_hash TEXT,
-            messages_hash TEXT,
-            PRIMARY KEY (block_index, block_hash),
-            UNIQUE (block_hash),
-            UNIQUE (previous_block_hash),
-            INDEX block_index_idx (block_index),
-            INDEX index_hash_idx (block_index, block_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    ''')
- 
     # Check if the block_index_idx index exists
     cursor.execute('''
         SHOW INDEX FROM blocks WHERE Key_name = 'block_index_idx'
@@ -244,12 +222,6 @@ def initialise(db):  # CHANGED TO MYSQL
             CREATE INDEX index_hash_idx ON blocks (block_index, block_hash)
         ''')
 
-
-    # mysql_cursor.execute('''
-    #     SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'blocks'
-    # ''')
-    # column_names = [row[0] for row in mysql_cursor.fetchall()]
-
     cursor.execute('''
         SELECT MIN(block_index)
         FROM blocks
@@ -257,30 +229,10 @@ def initialise(db):  # CHANGED TO MYSQL
     block_index = cursor.fetchone()[0]
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
-        raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
-
-
-    
-    # Transactions
-
-    # MySQL Version
-    # Create the transactions table if it does not exist
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            tx_index INT PRIMARY KEY,
-            tx_hash NVARCHAR(64) UNIQUE,
-            block_index INT,
-            block_hash NVARCHAR(64),
-            block_time INT,
-            source NVARCHAR(64),
-            destination NVARCHAR(64),
-            btc_amount BIGINT,
-            fee BIGINT,
-            data LONGTEXT,
-            supported BIT DEFAULT 1,
-            FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ''')
+        raise exceptions.DatabaseError(
+            'First block in database is not block {}.'
+            .format(config.BLOCK_FIRST)
+        )
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -290,7 +242,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the block_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX block_index_idx ON transactions (block_index)''')
+        cursor.execute(
+            '''CREATE INDEX block_index_idx ON transactions (block_index)'''
+        )
 
     # Check if the tx_index_idx index exists
     cursor.execute('''
@@ -300,7 +254,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the tx_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX tx_index_idx ON transactions (tx_index)''')
+        cursor.execute(
+            '''CREATE INDEX tx_index_idx ON transactions (tx_index)'''
+        )
 
     # Check if the tx_hash_idx index exists
     cursor.execute('''
@@ -310,7 +266,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the tx_hash_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX tx_hash_idx ON transactions (tx_hash)''')
+        cursor.execute(
+            '''CREATE INDEX tx_hash_idx ON transactions (tx_hash)'''
+        )
 
     # Check if the index_index_idx index exists
     cursor.execute('''
@@ -320,7 +278,12 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the index_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)''')
+        cursor.execute(
+            '''
+            CREATE INDEX index_index_idx
+            ON transactions (block_index, tx_index)
+            '''
+        )
 
     # Check if the index_hash_index_idx index exists
     cursor.execute('''
@@ -330,25 +293,21 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the index_hash_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)''')
+        cursor.execute(
+            '''
+            CREATE INDEX index_hash_index_idx
+            ON transactions (tx_index, tx_hash, block_index)
+            '''
+        )
 
-    cursor.execute('''DELETE FROM blocks WHERE block_index < {}'''.format(config.BLOCK_FIRST))
-    cursor.execute('''DELETE FROM transactions WHERE block_index < {}'''.format(config.BLOCK_FIRST))
-
-
-    
-
-
-    # # Mempool messages
-    # # NOTE: `status`, 'block_index` are removed from bindings.
-    # cursor.execute('''DROP TABLE IF EXISTS mempool''')
-    # cursor.execute('''CREATE TABLE mempool(
-    #                   tx_hash TEXT,
-    #                   command TEXT,
-    #                   category TEXT,
-    #                   bindings TEXT,
-    #                   timestamp INTEGER)
-    #               ''')
+    cursor.execute(
+        '''DELETE FROM blocks WHERE block_index < {}'''
+        .format(config.BLOCK_FIRST)
+    )
+    cursor.execute(
+        '''DELETE FROM transactions WHERE block_index < {}'''
+        .format(config.BLOCK_FIRST)
+    )
 
     cursor.close()
 
@@ -719,11 +678,10 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     # if source and (data or destination == config.UNSPENDABLE or decoded_tx):
     if True: # we are writing all trx to the transactions table
-        if stamp_issuance != None:
+        if stamp_issuance is not None:
             data = str(stamp_issuance)
-            source = stamp_issuance['source']
-            destination = stamp_issuance['issuer']
-
+            source = str(stamp_issuance['source'])
+            destination = str(stamp_issuance['issuer'])
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
@@ -732,8 +690,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 block_index,
                 block_hash,
                 block_time,
-                source,
-                destination,
+                str(source),
+                str(destination),
                 btc_amount,
                 fee,
                 data)
@@ -842,6 +800,11 @@ def follow(db):
                 continue
             else:
                 raise e
+        #  check if last block index was full indexed and if not delete it
+        #  and set block_index to block_index - 1
+        if (block_index != config.BLOCK_FIRST and
+                not is_prev_block_parsed(db, block_index)):
+            block_index -= 1
 
         # Get new blocks.
         if block_index <= block_count:
@@ -948,7 +911,6 @@ def follow(db):
                     sys.exit()
 
             update_stamp_table(db, block_index)
-
             logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
                 new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
