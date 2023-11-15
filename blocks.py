@@ -32,7 +32,7 @@ import src.script as script
 import src.backend as backend
 import src.database as database
 import src.arc4 as arc4
-from stamp import update_stamp_table
+from stamp import update_stamp_table, is_prev_block_parsed
 
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -758,42 +758,6 @@ def purgue_old_block_tx_db(db, block_index):
 
 class MempoolError(Exception):
     pass
-
-
-def purgue_block_db(db, block_index):
-    """Purgue block transactions from the database."""
-    cursor = db.cursor()
-    db.ping(reconnect=True)
-    cursor.execute('''
-                   DELETE FROM transactions
-                   WHERE block_index = %s
-                   ''', (block_index,))
-    cursor.execute('''
-                    DELETE FROM blocks
-                    WHERE block_index = %s
-                    ''', (block_index,))
-    cursor.execute('''
-                   DELETE FROM StampTableV4
-                   WHERE block_index = %s
-                    ''', (block_index,))
-    cursor.execute("COMMIT")
-    cursor.close()
-
-
-def is_prev_block_parsed(db, block_index):
-    block_fields = util.BLOCK_FIELDS_POSITION
-    db.ping(reconnect=True)
-    cursor = db.cursor()
-    cursor.execute('''
-                   SELECT * FROM blocks
-                   WHERE block_index = %s
-                   ''', (block_index - 1,))
-    block = cursor.fetchone()
-    if block[block_fields['indexed']] == 1:
-        return True
-    else:
-        purgue_block_db(db, block_index - 1)
-        return False
 
 
 def follow(db): 

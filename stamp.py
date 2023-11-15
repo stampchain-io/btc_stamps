@@ -3,10 +3,47 @@ import json
 import base64
 from datetime import datetime
 import hashlib
+import util
 
 import config
 
 logger = logging.getLogger(__name__)
+
+
+def purgue_block_db(db, block_index):
+    """Purgue block transactions from the database."""
+    cursor = db.cursor()
+    db.ping(reconnect=True)
+    cursor.execute('''
+                   DELETE FROM transactions
+                   WHERE block_index = %s
+                   ''', (block_index,))
+    cursor.execute('''
+                    DELETE FROM blocks
+                    WHERE block_index = %s
+                    ''', (block_index,))
+    cursor.execute('''
+                   DELETE FROM StampTableV4
+                   WHERE block_index = %s
+                    ''', (block_index,))
+    cursor.execute("COMMIT")
+    cursor.close()
+
+
+def is_prev_block_parsed(db, block_index):
+    block_fields = util.BLOCK_FIELDS_POSITION
+    db.ping(reconnect=True)
+    cursor = db.cursor()
+    cursor.execute('''
+                   SELECT * FROM blocks
+                   WHERE block_index = %s
+                   ''', (block_index - 1,))
+    block = cursor.fetchone()
+    if block[block_fields['indexed']] == 1:
+        return True
+    else:
+        purgue_block_db(db, block_index - 1)
+        return False
 
 
 def get_stamps_without_validation(db, block_index):
