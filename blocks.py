@@ -193,29 +193,7 @@ def parse_block(db, block_index, block_time,
 def initialise(db):  # CHANGED TO MYSQL
     # print(db) # DEBUG
     """Initialise data, create and populate the database."""
-    cursor = db.cursor() # for sqlite3
-
-
-
-    # MySQL Blocks table
-    # Create the blocks table
-    # cursor.execute('''
-    #     CREATE TABLE IF NOT EXISTS blocks (
-    #         block_index INT,
-    #         block_hash NVARCHAR(64),
-    #         block_time INT,
-    #         previous_block_hash VARCHAR(64) UNIQUE,
-    #         difficulty FLOAT,
-    #         ledger_hash TEXT,
-    #         txlist_hash TEXT,
-    #         messages_hash TEXT,
-    #         PRIMARY KEY (block_index, block_hash),
-    #         UNIQUE (block_hash),
-    #         UNIQUE (previous_block_hash),
-    #         INDEX block_index_idx (block_index),
-    #         INDEX index_hash_idx (block_index, block_hash)
-    #     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    # ''')
+    cursor = db.cursor()  # for sqlite3
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -241,12 +219,6 @@ def initialise(db):  # CHANGED TO MYSQL
             CREATE INDEX index_hash_idx ON blocks (block_index, block_hash)
         ''')
 
-
-    # mysql_cursor.execute('''
-    #     SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'blocks'
-    # ''')
-    # column_names = [row[0] for row in mysql_cursor.fetchall()]
-
     cursor.execute('''
         SELECT MIN(block_index)
         FROM blocks
@@ -258,25 +230,6 @@ def initialise(db):  # CHANGED TO MYSQL
             'First block in database is not block {}.'
             .format(config.BLOCK_FIRST)
         )
-    # Transactions
-    # MySQL Version
-    # Create the transactions table if it does not exist
-    # cursor.execute('''
-    #     CREATE TABLE IF NOT EXISTS transactions (
-    #         tx_index INT PRIMARY KEY,
-    #         tx_hash NVARCHAR(64) UNIQUE,
-    #         block_index INT,
-    #         block_hash NVARCHAR(64),
-    #         block_time INT,
-    #         source NVARCHAR(64),
-    #         destination NVARCHAR(64),
-    #         btc_amount BIGINT,
-    #         fee BIGINT,
-    #         data LONGTEXT,
-    #         supported BIT DEFAULT 1,
-    #         FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-    #     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    # ''')
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -352,17 +305,6 @@ def initialise(db):  # CHANGED TO MYSQL
         '''DELETE FROM transactions WHERE block_index < {}'''
         .format(config.BLOCK_FIRST)
     )
-
-    # # Mempool messages
-    # # NOTE: `status`, 'block_index` are removed from bindings.
-    # cursor.execute('''DROP TABLE IF EXISTS mempool''')
-    # cursor.execute('''CREATE TABLE mempool(
-    #                   tx_hash TEXT,
-    #                   command TEXT,
-    #                   category TEXT,
-    #                   bindings TEXT,
-    #                   timestamp INTEGER)
-    #               ''')
 
     cursor.close()
 
