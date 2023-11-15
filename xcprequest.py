@@ -94,23 +94,31 @@ def get_issuances_by_block(block_index):
             )
             time.sleep(10)
 
+def parse_base64_from_description(description):
+    if description is not None and description.lower().find("stamp:") != -1:
+        stamp_search = description[description.lower().find("stamp:") + 6:]
+        stamp_search = stamp_search.strip()
+        if ";" in stamp_search:
+            stamp_mimetype, stamp_base64 = stamp_search.split(";", 1)
+            stamp_base64 = stamp_base64.strip() if len(stamp_base64) > 1 else None
+        else:
+            stamp_mimetype = ""
+            stamp_base64 = stamp_search.strip() if len(stamp_search) > 1 else None
+        return stamp_base64, stamp_mimetype
+    else:
+        return None, None
+
 
 def get_stamp_issuances(issuances):
     stamp_issuances = []
     for issuance in issuances:
         description = issuance["description"]
-        if description is not None and description.lower().find("stamp:") != -1:
-            stamp_search = description[description.lower().find("stamp:") + 6:]
-            stamp_search = stamp_search.strip()
-            if ";" in stamp_search:
-                stamp_mimetype, stamp_base64 = stamp_search.split(";", 1)
-                stamp_base64 = stamp_base64.strip() if len(stamp_base64) > 1 else None
-            else:
-                stamp_mimetype = ""
-                stamp_base64 = stamp_search.strip() if len(stamp_search) > 1 else None
+        if description is not None:
+            stamp_base64, stamp_mimetype = parse_base64_from_description(description)
 
             filtered_issuance = {
-                "cpid": issuance["asset"],  # Renombrar 'asset' a 'cp_id'
+                # we are not adding the base64 string to the json string in issuances, this is parsed when going to StampTable
+                "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
                 "quantity": issuance["quantity"],
                 "divisible": issuance["divisible"],
                 "locked": issuance["locked"],

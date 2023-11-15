@@ -58,6 +58,8 @@ CP_STAMP_GENESIS_BLOCK = 779652 # block height of first stamp transaction on cou
 CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
 CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 
+BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN files
+
 BYTE_LENGTH_PREFIX_SIZE = 2 # 2 bytes for byte length prefix after block 790370
 
 TESTNET = None
