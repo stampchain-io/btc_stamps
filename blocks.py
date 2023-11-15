@@ -199,24 +199,24 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # MySQL Blocks table
     # Create the blocks table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS blocks (
-            block_index INT,
-            block_hash NVARCHAR(64),
-            block_time INT,
-            previous_block_hash VARCHAR(64) UNIQUE,
-            difficulty FLOAT,
-            ledger_hash TEXT,
-            txlist_hash TEXT,
-            messages_hash TEXT,
-            PRIMARY KEY (block_index, block_hash),
-            UNIQUE (block_hash),
-            UNIQUE (previous_block_hash),
-            INDEX block_index_idx (block_index),
-            INDEX index_hash_idx (block_index, block_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    ''')
- 
+    # cursor.execute('''
+    #     CREATE TABLE IF NOT EXISTS blocks (
+    #         block_index INT,
+    #         block_hash NVARCHAR(64),
+    #         block_time INT,
+    #         previous_block_hash VARCHAR(64) UNIQUE,
+    #         difficulty FLOAT,
+    #         ledger_hash TEXT,
+    #         txlist_hash TEXT,
+    #         messages_hash TEXT,
+    #         PRIMARY KEY (block_index, block_hash),
+    #         UNIQUE (block_hash),
+    #         UNIQUE (previous_block_hash),
+    #         INDEX block_index_idx (block_index),
+    #         INDEX index_hash_idx (block_index, block_hash)
+    #     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    # ''')
+
     # Check if the block_index_idx index exists
     cursor.execute('''
         SHOW INDEX FROM blocks WHERE Key_name = 'block_index_idx'
@@ -254,30 +254,29 @@ def initialise(db):  # CHANGED TO MYSQL
     block_index = cursor.fetchone()[0]
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
-        raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
-
-
-    
+        raise exceptions.DatabaseError(
+            'First block in database is not block {}.'
+            .format(config.BLOCK_FIRST)
+        )
     # Transactions
-
     # MySQL Version
     # Create the transactions table if it does not exist
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            tx_index INT PRIMARY KEY,
-            tx_hash NVARCHAR(64) UNIQUE,
-            block_index INT,
-            block_hash NVARCHAR(64),
-            block_time INT,
-            source NVARCHAR(64),
-            destination NVARCHAR(64),
-            btc_amount BIGINT,
-            fee BIGINT,
-            data LONGTEXT,
-            supported BIT DEFAULT 1,
-            FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ''')
+    # cursor.execute('''
+    #     CREATE TABLE IF NOT EXISTS transactions (
+    #         tx_index INT PRIMARY KEY,
+    #         tx_hash NVARCHAR(64) UNIQUE,
+    #         block_index INT,
+    #         block_hash NVARCHAR(64),
+    #         block_time INT,
+    #         source NVARCHAR(64),
+    #         destination NVARCHAR(64),
+    #         btc_amount BIGINT,
+    #         fee BIGINT,
+    #         data LONGTEXT,
+    #         supported BIT DEFAULT 1,
+    #         FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
+    #     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    # ''')
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -287,7 +286,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the block_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX block_index_idx ON transactions (block_index)''')
+        cursor.execute(
+            '''CREATE INDEX block_index_idx ON transactions (block_index)'''
+        )
 
     # Check if the tx_index_idx index exists
     cursor.execute('''
@@ -297,7 +298,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the tx_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX tx_index_idx ON transactions (tx_index)''')
+        cursor.execute(
+            '''CREATE INDEX tx_index_idx ON transactions (tx_index)'''
+        )
 
     # Check if the tx_hash_idx index exists
     cursor.execute('''
@@ -307,7 +310,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the tx_hash_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX tx_hash_idx ON transactions (tx_hash)''')
+        cursor.execute(
+            '''CREATE INDEX tx_hash_idx ON transactions (tx_hash)'''
+        )
 
     # Check if the index_index_idx index exists
     cursor.execute('''
@@ -317,7 +322,12 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the index_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)''')
+        cursor.execute(
+            '''
+            CREATE INDEX index_index_idx
+            ON transactions (block_index, tx_index)
+            '''
+        )
 
     # Check if the index_hash_index_idx index exists
     cursor.execute('''
@@ -327,14 +337,21 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the index_hash_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)''')
+        cursor.execute(
+            '''
+            CREATE INDEX index_hash_index_idx
+            ON transactions (tx_index, tx_hash, block_index)
+            '''
+        )
 
-    cursor.execute('''DELETE FROM blocks WHERE block_index < {}'''.format(config.BLOCK_FIRST))
-    cursor.execute('''DELETE FROM transactions WHERE block_index < {}'''.format(config.BLOCK_FIRST))
-
-
-    
-
+    cursor.execute(
+        '''DELETE FROM blocks WHERE block_index < {}'''
+        .format(config.BLOCK_FIRST)
+    )
+    cursor.execute(
+        '''DELETE FROM transactions WHERE block_index < {}'''
+        .format(config.BLOCK_FIRST)
+    )
 
     # # Mempool messages
     # # NOTE: `status`, 'block_index` are removed from bindings.

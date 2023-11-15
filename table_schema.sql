@@ -1,4 +1,36 @@
 USE `btc_stamps`;
+
+CREATE TABLE IF NOT EXISTS blocks (
+  `block_index` INT,
+  `block_hash` NVARCHAR(64),
+  `block_time` INT,
+  `previous_block_hash` VARCHAR(64) UNIQUE,
+  `difficulty` FLOAT,
+  `ledger_hash` TEXT,
+  `txlist_hash` TEXT,
+  `messages_hash` TEXT,
+  PRIMARY KEY (block_index, block_hash),
+  UNIQUE (block_hash),
+  UNIQUE (previous_block_hash),
+  INDEX block_index_idx (block_index),
+  INDEX index_hash_idx (block_index, block_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS transactions (
+  `tx_index` INT PRIMARY KEY,
+  `tx_hash` NVARCHAR(64) UNIQUE,
+  `block_index` INT,
+  `block_hash` NVARCHAR(64),
+  `block_time` INT,
+  `source` NVARCHAR(64),
+  `destination` NVARCHAR(64),
+  `btc_amount` BIGINT,
+  `fee` BIGINT,
+  `data` LONGTEXT,
+  `supported` BIT DEFAULT 1,
+  FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
   `block_index` int DEFAULT NULL,
