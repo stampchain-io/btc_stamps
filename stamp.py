@@ -138,7 +138,7 @@ def update_parsed_block(block_index, db):
     db.ping(reconnect=True)
     cursor = db.cursor()
     cursor.execute('''
-                    UPDATE blocks SET parsed = 1
+                    UPDATE blocks SET indexed = 1
                     WHERE block_index = %s
                     ''', (block_index,))
     cursor.execute("COMMIT")
