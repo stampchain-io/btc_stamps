@@ -3,7 +3,6 @@ import json
 import base64
 from datetime import datetime
 import hashlib
-import util
 
 import config
 
@@ -31,7 +30,7 @@ def purgue_block_db(db, block_index):
 
 
 def is_prev_block_parsed(db, block_index):
-    block_fields = util.BLOCK_FIELDS_POSITION
+    block_fields = config.BLOCK_FIELDS_POSITION
     db.ping(reconnect=True)
     cursor = db.cursor()
     cursor.execute('''
