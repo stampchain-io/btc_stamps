@@ -688,8 +688,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 block_index,
                 block_hash,
                 block_time,
-                source,
-                destination,
+                str(source),
+                str(destination),
                 btc_amount,
                 fee,
                 data)
