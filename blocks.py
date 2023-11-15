@@ -1063,7 +1063,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
-                "src_data": get_src_data(stamp),
+                "src_data": json.dumps(get_src_data(stamp)),
                 "ident": ident,
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
