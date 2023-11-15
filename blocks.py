@@ -1042,7 +1042,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             block_index = stamp_tx[tx_fields['block_index']]
             logger.warning("stamp: {}".format(stamp))
-            ident = 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
+            ident = src_data is not None and 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
             logger.warning("ident: {}".format(ident))
             parsed = {
                 "stamp": None,
