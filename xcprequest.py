@@ -3,6 +3,10 @@ import json
 import config
 import requests
 from requests.auth import HTTPBasicAuth
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 url = config.CP_RPC_URL + "/api/rest"  # "http://public.coindaddy.io:4001"
 auth = HTTPBasicAuth(config.CP_RPC_USER, config.CP_RPC_PASSWORD)
@@ -54,12 +58,12 @@ def get_issuances_by_block(block_index):
             if block_index <= block_count:
                 break
             else:
-                print(
+                logger.warning(
                     "Waiting for block {} to be parsed...".format(block_index)
                 )
                 time.sleep(100)
         except Exception as e:
-            print(
+            logger.warning(
                 "Error getting block count: {}\nSleeping to retry...".format(e)
             )
             time.sleep(100)
@@ -75,7 +79,9 @@ def get_issuances_by_block(block_index):
                 }
             )
         except Exception as e:
-            print("Error getting issuances: {}\n Sleeping to retry...".format(e))
+            logger.warning(
+                "Error getting issuances: {}\n Sleeping to retry...".format(e)
+            )
             time.sleep(100)
 
 

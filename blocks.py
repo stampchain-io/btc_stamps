@@ -43,6 +43,7 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 # CHANGED TO MYSQL
 
+
 def parse_tx(db, tx):
     """Parse the transaction, return True for success."""
     cursor = db.cursor()
@@ -188,7 +189,7 @@ def parse_block(db, block_index, block_time,
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
-def initialise(db): #CHANGED TO MYSQL
+def initialise(db):  # CHANGED TO MYSQL
     # print(db) # DEBUG
     """Initialise data, create and populate the database."""
     cursor = db.cursor() # for sqlite3
