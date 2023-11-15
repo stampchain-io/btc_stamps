@@ -38,6 +38,7 @@ from datetime import datetime
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
 
+import base64
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -1012,6 +1013,23 @@ def clean_and_load_json(json_string):
         return json.loads(json_string)
 
 
+def decode_base64_json(base64_string):
+    try:
+        decoded_data = base64.b64decode(base64_string)
+        json_string = decoded_data.decode('utf-8')
+        return json.loads(json_string)
+    except Exception as e:
+        print(f"Error decoding json: {e}")
+        return None
+
+
+def get_src_data(stamp):
+    if 'p' in stamp and stamp.get('p') == 'src-20':
+        return json.dumps(stamp)
+    else:
+        return decode_base64_json(stamp.get('description').split(':')[1])
+
+
 def parse_stamps_to_stamp_table(db, stamps):
     tx_fields = config.TXS_FIELDS_POSITION
     logger.warning("parse_stamps_to_stamp_table: {}".format(stamps))
@@ -1019,11 +1037,12 @@ def parse_stamps_to_stamp_table(db, stamps):
         cursor = db.cursor()
         for stamp_tx in stamps:
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
+            src_data = get_src_data(stamp)
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             block_index = stamp_tx[tx_fields['block_index']]
             logger.warning("stamp: {}".format(stamp))
-            ident = 'p' in stamp and (stamp.get('p') == 'src-20' or stamp.get('p') == 'src-721') and stamp.get('p').upper() or 'STAMP'
+            ident = 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
             logger.warning("ident: {}".format(ident))
             parsed = {
                 "stamp": None,
@@ -1044,9 +1063,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
-                "src_data": 'p' in stamp and
-                            stamp.get('p') == 'src-20'
-                            and json.dumps(stamp) or None,
+                "src_data": get_src_data(stamp),
                 "ident": ident,
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
