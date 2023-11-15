@@ -52,11 +52,12 @@ services:
       - RDS_USER=
       - RDS_PASSWORD=
       - RDS_DATABASE=btc_stamps
-      - QUICKNODE_URL= #Optional to Quicknode users
+      - QUICKNODE_URL= # Optional to Quicknode users
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
-      - RPC_TOKEN= #Optional to Quicknode users
-      - BLOCKS_TO_KEEP= #Optional to purgue txs and blocks from db
+      - RPC_TOKEN= # Optional to Quicknode users
+      - BLOCKS_TO_KEEP= # Optional to purgue txs and blocks from db
+      - BACKEND_POLL_INTERVAL= # Optional to change the interval of the backend polling default 0.5 secs
 volumes:
   db_data:
   grafana_data:
