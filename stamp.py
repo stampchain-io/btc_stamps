@@ -119,6 +119,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             block_index = stamp_tx[tx_fields['block_index']]
+            stamp_hash = create_base62_hash(tx_hash, str(tx_index), 20)
             ident = src_data is not None and 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
             parsed = {
                 "stamp": None,
@@ -143,6 +144,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "ident": ident,
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
+                "stamp_hash": stamp_hash,
             }
             cursor.execute('''
                            INSERT INTO StampTableV4(
@@ -151,9 +153,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 message_index, stamp_base64,
                                 stamp_mimetype, stamp_url, supply, timestamp,
                                 tx_hash, tx_index, src_data, ident,
-                                creator_name, stamp_gen
+                                creator_name, stamp_gen, stamp_hash
                                 ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                %s,%s,%s,%s,%s,%s,%s,%s)
+                                %s,%s,%s,%s,%s,%s,%s,%s,%s)
                            ''', (
                                 parsed['stamp'], parsed['block_index'],
                                 parsed['cpid'], parsed['asset_longname'],
@@ -165,7 +167,8 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 parsed['supply'], parsed['timestamp'],
                                 parsed['tx_hash'], parsed['tx_index'],
                                 parsed['src_data'], parsed['ident'],
-                                parsed['creator_name'], parsed['stamp_gen']
+                                parsed['creator_name'], parsed['stamp_gen'],
+                                parsed['stamp_hash'],
                            ))
         cursor.execute("COMMIT")
 
