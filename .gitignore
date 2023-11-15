@@ -1,10 +1,6 @@
 __pycache__/
-server.db
 log.file
-transactions.db
-server_795985.db
-blockchain.db
 docker-compose.yml
 db
 */.DS_Store
-
+.env
