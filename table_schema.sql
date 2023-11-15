@@ -1,5 +1,4 @@
 USE `btc_stamps`;
-
 CREATE TABLE IF NOT EXISTS blocks (
   `block_index` INT,
   `block_hash` NVARCHAR(64),
@@ -9,13 +8,14 @@ CREATE TABLE IF NOT EXISTS blocks (
   `ledger_hash` TEXT,
   `txlist_hash` TEXT,
   `messages_hash` TEXT,
-  PRIMARY KEY (block_index, block_hash),
-  UNIQUE (block_hash),
-  UNIQUE (previous_block_hash),
-  INDEX block_index_idx (block_index),
-  INDEX index_hash_idx (block_index, block_hash)
+  PRIMARY KEY (`block_index`, `block_hash`),
+  UNIQUE (`block_hash`),
+  UNIQUE (`previous_block_hash`),
+  INDEX `block_index_idx` (`block_index`),
+  INDEX `index_hash_idx` (`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS transactions (
   `tx_index` INT PRIMARY KEY,
   `tx_hash` NVARCHAR(64) UNIQUE,
@@ -28,9 +28,10 @@ CREATE TABLE IF NOT EXISTS transactions (
   `fee` BIGINT,
   `data` LONGTEXT,
   `supported` BIT DEFAULT 1,
-  FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
   `block_index` int DEFAULT NULL,
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   KEY `cpid_index` (`cpid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `dispensers` (
   `tx_index` int DEFAULT NULL,
   `tx_hash` varchar(255) NOT NULL,
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
   CONSTRAINT `dispensers_ibfk_1` FOREIGN KEY (`asset`) REFERENCES `StampTableV4` (`cpid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `srcx` (
   `tx_hash` varchar(255) NOT NULL,
   `tx_index` int DEFAULT NULL,
@@ -95,7 +98,7 @@ CREATE TABLE IF NOT EXISTS `srcx` (
   PRIMARY KEY (`tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `srcbackground` (
   `tick` varchar(16) NOT NULL,
   `base64` mediumtext,
@@ -106,6 +109,7 @@ CREATE TABLE IF NOT EXISTS `srcbackground` (
   PRIMARY KEY (`tick`,`p`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `cp_wallet` (
   `address` varchar(255) DEFAULT NULL,
   `cpid` varchar(255) DEFAULT NULL,
@@ -113,6 +117,7 @@ CREATE TABLE IF NOT EXISTS `cp_wallet` (
   KEY `index_name` (`address`,`cpid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `creator` (
   `address` varchar(255) NOT NULL,
   `creator` varchar(255) DEFAULT NULL,
