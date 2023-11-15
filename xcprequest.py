@@ -62,18 +62,18 @@ def get_issuances_by_block(block_index):
     while block_count is None:
         try:
             block_count = get_block_count()
-            if block_index <= block_count:
+            if block_count is not None and block_index <= block_count:
                 break
             else:
                 logger.warning(
                     "Waiting for block {} to be parsed...".format(block_index)
                 )
-                time.sleep(100)
+                time.sleep(10)
         except Exception as e:
             logger.warning(
                 "Error getting block count: {}\nSleeping to retry...".format(e)
             )
-            time.sleep(100)
+            time.sleep(10)
     issuances = None
     while issuances is None:
         try:
@@ -93,7 +93,7 @@ def get_issuances_by_block(block_index):
             logger.warning(
                 "Error getting issuances: {}\n Sleeping to retry...".format(e)
             )
-            time.sleep(100)
+            time.sleep(10)
 
 
 def get_stamp_issuances(issuances):
