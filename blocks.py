@@ -954,8 +954,6 @@ def follow(db):
 
 def update_stamp_table(db, block_index):
     db.ping(reconnect=True)
-    cursor = db.cursor()
-    # get all the stamps that were issued in this block
     stamps_without_validation = get_stamps_without_validation(db, block_index)
     parse_stamps_to_stamp_table(db, stamps_without_validation)
 
@@ -987,7 +985,6 @@ def base62_encode(num):
 def create_base62_hash(str1, str2, length=20):
     if not 12 <= length <= 20:
         raise ValueError("Length must be between 12 and 20 characters")
-    
     combined_str = str1 + "|" + str2
     hash_bytes = hashlib.sha256(combined_str.encode()).digest()
 
