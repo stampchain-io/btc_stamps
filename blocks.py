@@ -720,8 +720,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = stamp_issuance['source']
             destination = stamp_issuance['issuer']
-            
-        logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
+
+        # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (tx_index,
@@ -989,14 +989,8 @@ def create_base62_hash(str1, str2, length=20):
         raise ValueError("Length must be between 12 and 20 characters")
     combined_str = str1 + "|" + str2
     hash_bytes = hashlib.sha256(combined_str.encode()).digest()
-
-    # Convert hash bytes to a large integer
     hash_int = int.from_bytes(hash_bytes, byteorder='big')
-
-    # Encode the integer in base62
     base62_hash = base62_encode(hash_int)
-
-    # Truncate and return the hash
     return base62_hash[:length]
 
 
@@ -1030,10 +1024,8 @@ def get_src_data(stamp):
         return decode_base64_json(stamp.get('description').split(':')[1])
 
 
-
 def parse_stamps_to_stamp_table(db, stamps):
     tx_fields = config.TXS_FIELDS_POSITION
-    logger.warning("parse_stamps_to_stamp_table: {}".format(stamps))
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
@@ -1042,9 +1034,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             block_index = stamp_tx[tx_fields['block_index']]
-            logger.warning("stamp: {}".format(stamp))
             ident = src_data is not None and 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
-            logger.warning("ident: {}".format(ident))
             parsed = {
                 "stamp": None,
                 "block_index": block_index,
@@ -1069,7 +1059,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
             }
-            logger.warning("parsed: {}".format(parsed))
             cursor.execute('''
                            INSERT INTO StampTableV4(
                                 stamp, block_index, cpid, asset_longname,
