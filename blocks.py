@@ -1025,9 +1025,10 @@ def decode_base64_json(base64_string):
 
 def get_src_data(stamp):
     if 'p' in stamp and stamp.get('p') == 'src-20':
-        return json.dumps(stamp)
+        return stamp
     else:
         return decode_base64_json(stamp.get('description').split(':')[1])
+
 
 
 def parse_stamps_to_stamp_table(db, stamps):
