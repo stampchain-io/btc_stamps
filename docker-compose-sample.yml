@@ -52,11 +52,11 @@ services:
       - RDS_USER=
       - RDS_PASSWORD=
       - RDS_DATABASE=btc_stamps
-      - QUICKNODE_URL= #Optional to Quicknode users
+      - QUICKNODE_URL= #Optional - only for Quicknode users do not include https://
       - RPC_USER=rpc
       - RPC_PASSWORD=rpc
-      - RPC_TOKEN= #Optional to Quicknode users
-      - BLOCKS_TO_KEEP= #Optional to purgue txs and blocks from db
+      - RPC_TOKEN= #Optional - only for Quicknode users
+      - BLOCKS_TO_KEEP=0 #Optional to purge historic txs from db - keep all with 0
 volumes:
   db_data:
   grafana_data:

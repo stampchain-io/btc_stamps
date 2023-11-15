@@ -13,6 +13,7 @@ import logging
 import collections
 import http
 import json
+import subprocess
 from xcprequest import (
                         get_issuances_by_block,
                         get_stamp_issuances,
@@ -37,8 +38,10 @@ from datetime import datetime
 
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
+from xcprequest import parse_base64_from_description
 
 import base64
+import pybase64
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -778,8 +781,8 @@ def get_next_tx_index(db):
     return tx_index
 
 
-def purgue_old_block_tx_db(db, block_index):
-    """Purgue old block transactions from the database."""
+def purge_old_block_tx_db(db, block_index):
+    """purge old block transactions from the database."""
     if config.BLOCKS_TO_KEEP == 0:
         return
     cursor = db.cursor()
@@ -844,7 +847,7 @@ def follow(db):
         if block_index <= block_count:
             print("block_count: ", block_count)
 
-            purgue_old_block_tx_db(db, block_index)
+            purge_old_block_tx_db(db, block_index)
             current_index = block_index
             issuances = get_issuances_by_block(current_index)
             stamp_issuances = get_stamp_issuances(issuances)
@@ -983,7 +986,7 @@ def base62_encode(num):
         result.append(characters[rem])
     return ''.join(reversed(result))
 
-
+# TODO: add the field to the StampTable for the base62 hash / aka stamp_hash
 def create_base62_hash(str1, str2, length=20):
     if not 12 <= length <= 20:
         raise ValueError("Length must be between 12 and 20 characters")
@@ -995,7 +998,8 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, tx_index, tx_hash):
-    return stamp.get('cpid', create_base62_hash(tx_hash, str(tx_index), 20))
+    cpid = stamp.get('cpid')
+    return cpid, create_base62_hash(tx_hash, str(tx_index), 20)
 
 
 def clean_and_load_json(json_string):
@@ -1006,6 +1010,44 @@ def clean_and_load_json(json_string):
         json_string = json_string.replace("None", "null")
         return json.loads(json_string)
 
+def decode_base64_with_repair(base64_string):
+    ''' original function which attemts to add padding to "fix" the base64 string. This was resulting in invalid/corrupted images. '''
+    try:
+        missing_padding = len(base64_string) % 4
+        if missing_padding:
+            base64_string += '=' * (4 - missing_padding)
+
+        image_data = base64.b64decode(base64_string)
+        return image_data
+
+    except Exception as e:
+        print(f"EXCLUSION: Invalid base64 image string: {e}")
+        # print(base64_string)
+        return None
+
+
+def decode_base64(base64_string, block_index):
+    ''' validation on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
+    try:
+        image_data = base64.b64decode(base64_string)
+        return image_data
+    except Exception as e1:
+        try:
+            image_data = pybase64.b64decode(base64_string)
+            return image_data
+        except Exception as e2:
+            try:
+                # If decoding with pybase64 fails, try decoding with the base64 command line tool with and without newlines for the json strings
+                command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
+                if not base64_string.endswith('\n'):
+                    command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
+                image_data = subprocess.check_output(command, shell=True)
+                return image_data
+            except Exception as e3:
+                # If all decoding attempts fail, print an error message and return None
+                print(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
+                # print(base64_string)
+                return None
 
 def decode_base64_json(base64_string):
     try:
@@ -1016,12 +1058,59 @@ def decode_base64_json(base64_string):
         print(f"Error decoding json: {e}")
         return None
 
+def decode_base64_with_repair(base64_string):
+    ''' original function which attemts to add padding to "fix" the base64 string. This was resulting in invalid/corrupted images. '''
+    try:
+        missing_padding = len(base64_string) % 4
+        if missing_padding:
+            base64_string += '=' * (4 - missing_padding)
 
-def get_src_data(stamp):
+        image_data = base64.b64decode(base64_string)
+        return image_data
+
+    except Exception as e:
+        print(f"EXCLUSION: Invalid base64 image string: {e}")
+        # print(base64_string)
+        return None
+
+
+def decode_base64(base64_string, block_index):
+    ''' validation on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
+    if block_index >= 784550:
+        decode_base64_with_repair(base64_string)
+        return
+    try:
+        image_data = base64.b64decode(base64_string)
+        return image_data
+    except Exception as e1:
+        try:
+            image_data = pybase64.b64decode(base64_string)
+            return image_data
+        except Exception as e2:
+            try:
+                # If decoding with pybase64 fails, try decoding with the base64 command line tool with and without newlines for the json strings
+                command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
+                if not base64_string.endswith('\n'):
+                    command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
+                image_data = subprocess.check_output(command, shell=True)
+                return image_data
+            except Exception as e3:
+                # If all decoding attempts fail, print an error message and return None
+                print(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
+                # print(base64_string)
+                return None
+
+def get_src_or_img_data(stamp, block_index):
     if 'p' in stamp and stamp.get('p') == 'src-20':
         return stamp
+    elif 'p' in stamp and stamp.get('p') == 'src-721':
+        #TODO: add src-721 decoding and details here
+        return stamp
     else:
-        return decode_base64_json(stamp.get('description').split(':')[1])
+        stamp_description = stamp.get('description')
+        base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
+        return decode_base64(base64_string, block_index)
+        # return decode_base64_json(stamp.get('description').split(':')[1])
 
 
 def parse_stamps_to_stamp_table(db, stamps):
@@ -1029,23 +1118,32 @@ def parse_stamps_to_stamp_table(db, stamps):
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
-            src_data = get_src_data(stamp)
+            stamp_base64 = None
+            block_index = stamp_tx[tx_fields['block_index']]
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
-            block_index = stamp_tx[tx_fields['block_index']]
-            ident = src_data is not None and 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
+            stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
+            src_data = get_src_or_img_data(stamp, block_index)
+            # if src_data is a json string, then it is a src-20 stamp, otherwise it is an image stamp
+            if type(src_data) == dict:
+                ident = src_data is not None and 'p' in src_data and (src_data.get('p') == 'src-20' or src_data.get('p') == 'src-721') and src_data.get('p').upper() or 'STAMP'
+            else:
+                stamp_base64 = src_data
+                ident = 'STAMP'
+                src_data is None
+            cpid, stamp_hash =  get_cpid(stamp, tx_index, tx_hash)
+            
             parsed = {
                 "stamp": None,
                 "block_index": block_index,
-                "cpid": get_cpid(stamp, tx_index, tx_hash),
+                "cpid": cpid if cpid is not None else stamp_hash,
                 "asset_longname": stamp.get('asset_longname'),
                 "creator": stamp.get('issuer', stamp_tx[tx_fields['source']]),
                 "divisible": stamp.get('divisible'),
-                "keyburn": None,  # TODO: add keyburn
+                "keyburn": None,  # TODO: add keyburn -- should check while we are parsing through the transactions
                 "locked": stamp.get('locked'),
                 "message_index": stamp.get('message_index'),
-                "stamp_base64": stamp.get('description'),
+                "stamp_base64": stamp_base64,
                 "stamp_mimetype": None,  # TODO: add stamp_mimetype
                 "stamp_url": None,  # TODO: add stamp_url
                 "supply": stamp.get('quantity'),
@@ -1054,10 +1152,11 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
-                "src_data": json.dumps(get_src_data(stamp)),
+                "src_data": json.dumps(src_data),
                 "ident": ident,
                 "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
+                # "stamp_hash": stamp_hash #TODO: add when the colum is in the db
             }
             cursor.execute('''
                            INSERT INTO StampTableV4(
@@ -1083,4 +1182,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 parsed['creator_name'], parsed['stamp_gen']
                            ))
         cursor.execute("COMMIT")
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+
+        #TODO: write to block table here stating that all stamps in the block have been written to the stamp table
+
