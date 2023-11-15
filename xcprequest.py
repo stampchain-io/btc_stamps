@@ -25,15 +25,21 @@ def create_payload(method, params):
 
 
 def get_block_count():
-    payload = create_payload("get_running_info", {})
-    headers = {'content-type': 'application/json'}
-    response = requests.post(
-        url,
-        data=json.dumps(payload),
-        headers=headers,
-        auth=auth
-    )
-    return json.loads(response.text)["result"]["last_block"]["block_index"]
+    try:
+        payload = create_payload("get_running_info", {})
+        headers = {'content-type': 'application/json'}
+        response = requests.post(
+            url,
+            data=json.dumps(payload),
+            headers=headers,
+            auth=auth
+        )
+        return json.loads(response.text)["result"]["last_block"]["block_index"]
+    except Exception as e:
+        logger.warning(
+            "Error getting block count: {}".format(e)
+        )
+        return None
 
 
 def get_issuances(params={}):
@@ -52,7 +58,8 @@ def get_issuances(params={}):
 
 
 def get_issuances_by_block(block_index):
-    while True:
+    block_count = None
+    while block_count is None:
         try:
             block_count = get_block_count()
             if block_index <= block_count:
@@ -67,9 +74,10 @@ def get_issuances_by_block(block_index):
                 "Error getting block count: {}\nSleeping to retry...".format(e)
             )
             time.sleep(100)
-    while True:
+    issuances = None
+    while issuances is None:
         try:
-            return get_issuances(
+            issuances = get_issuances(
                 params={
                     "filters": {
                         "field": "block_index",
@@ -78,6 +86,9 @@ def get_issuances_by_block(block_index):
                     }
                 }
             )
+            logger.warning("Issuances:\n{}\n".format(issuances))
+            if issuances is not None:
+                return issuances
         except Exception as e:
             logger.warning(
                 "Error getting issuances: {}\n Sleeping to retry...".format(e)
