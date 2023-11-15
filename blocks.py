@@ -424,8 +424,8 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
             chunk += pubkey[1:-1]       # Skip sign byte and nonce byte. ( this does the concatenation as well)
         try:
             new_destination, new_data = decode_checkmultisig(ctx, chunk)
-            logger.warning("new_destination: {}".format(new_destination))
-            logger.warning("new_data: {}".format(new_data))
+            # logger.warning("new_destination: {}".format(new_destination))
+            # logger.warning("new_data: {}".format(new_data))
         except:
             raise DecodeError('unrecognised output type')
         # print("new_destination: ", str(new_destination))
@@ -968,7 +968,7 @@ def get_stamps_without_validation(db, block_index):
                     AND data IS NOT NULL
                     ''', (block_index,))
     stamps = cursor.fetchall()
-    logger.warning("stamps: {}".format(stamps))
+    # logger.warning("stamps: {}".format(stamps))
     return stamps
 
 

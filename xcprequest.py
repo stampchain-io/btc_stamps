@@ -86,7 +86,6 @@ def get_issuances_by_block(block_index):
                     }
                 }
             )
-            logger.warning("Issuances:\n{}\n".format(issuances))
             if issuances is not None:
                 return issuances
         except Exception as e:
