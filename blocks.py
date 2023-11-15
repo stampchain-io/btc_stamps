@@ -676,8 +676,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if True: # we are writing all trx to the transactions table
         if stamp_issuance != None:
             data = str(stamp_issuance)
-            source = stamp_issuance['source']
-            destination = stamp_issuance['issuer']
+            source = str(stamp_issuance['source'])
+            destination = str(stamp_issuance['issuer'])
         logger.warning("SOURCE: {}".format(source))
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
