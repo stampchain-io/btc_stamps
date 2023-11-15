@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS blocks (
   `ledger_hash` TEXT,
   `txlist_hash` TEXT,
   `messages_hash` TEXT,
-  `parsed` tinyint(1) DEFAULT NULL,
+  `indexed` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`block_index`, `block_hash`),
   UNIQUE (`block_hash`),
   UNIQUE (`previous_block_hash`),
