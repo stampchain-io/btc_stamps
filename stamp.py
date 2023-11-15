@@ -135,6 +135,7 @@ def parse_stamps_to_stamp_table(db, stamps):
 
 
 def update_parsed_block(block_index, db):
+    db.ping(reconnect=True)
     cursor = db.cursor()
     cursor.execute('''
                     UPDATE blocks SET parsed = 1
