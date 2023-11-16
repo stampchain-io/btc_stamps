@@ -358,7 +358,6 @@ def get_tx_info2(
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
     key_burn = check_burnkeys_in_multisig(ctx)
-    logger.warning(f"KEY BURN: {key_burn}")
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
        
@@ -645,7 +644,7 @@ def reparse(db, block_index=None, quiet=False):
 
 
 def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
-    assert type(tx_hash) == str
+    assert type(tx_hash) is str
     cursor = db.cursor()
 
     # Edge case: confirmed tx_hash also in mempool
@@ -674,7 +673,6 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (
@@ -926,9 +924,3 @@ def follow(db):
                 (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
             block_count = backend.getblockcount()
             block_index += 1
-
-
-
-
-
-
