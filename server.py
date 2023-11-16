@@ -145,7 +145,7 @@ def initialise_config(
     else:
         config.REGTEST = False
 
-    if customnet != None and len(customnet) > 0:
+    if customnet is not None and len(customnet) > 0:
         config.CUSTOMNET = True
         config.REGTEST = True # Custom nets are regtests with different parameters
     else:
@@ -259,7 +259,9 @@ def initialise_config(
     if backend_poll_interval:
         config.BACKEND_POLL_INTERVAL = backend_poll_interval
     else:
-        config.BACKEND_POLL_INTERVAL = 0.5
+        config.BACKEND_POLL_INTERVAL = float(
+            os.environ.get('BACKEND_POLL_INTERVAL', "0.5")
+        )
 
     # Construct backend URL.
     config.BACKEND_URL = config.BACKEND_USER + ':' + config.BACKEND_PASSWORD + '@' + config.BACKEND_CONNECT + ':' + str(config.BACKEND_PORT)
