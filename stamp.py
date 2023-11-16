@@ -300,14 +300,13 @@ def parse_stamps_to_stamp_table(db, stamps):
                 else:
                     svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
                     file_suffix = 'svg'
- 
 
             file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-             # if file_suffix in ["plain", "octet-stream", "js", "css", "x-empty", "json"]: # these are not btc_stamps
+            # if file_suffix in ["plain", "octet-stream", "js", "css", "x-empty", "json"]: # these are not btc_stamps
             filename = f"{tx_hash}.{file_suffix}"
-            
-            if not stamp_mimetype and file_suffix in MIME_TYPES:
-                stamp_mimetype = MIME_TYPES[file_suffix]
+
+            if not stamp_mimetype and file_suffix in config.MIME_TYPES:
+                stamp_mimetype = config.MIME_TYPES[file_suffix]
 
             parsed = {
                 "stamp": None,
