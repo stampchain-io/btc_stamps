@@ -255,8 +255,8 @@ def is_json_string(s):
 
 
 def check_src_data(src_data, block_index):
-    if type(src_data) is bytes:
-        src_data = src_data.decode('utf-8')
+    # if type(src_data) is bytes:
+    #    src_data = src_data.decode('utf-8')
     if (
         (type(src_data) is str and is_json_string(src_data))
         or isinstance(src_data, dict)
