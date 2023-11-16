@@ -262,7 +262,7 @@ def check_src_data(src_data, block_index):
         # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
         if isinstance(src_data, str):
             src_data = json.loads(src_data)
-            src_data = {k.lower(): v for k, v in json.loads(src_data).items()}
+            src_data = {k.lower(): v for k, v in src_data.items()}
         ident = False
         if src_data and src_data.get('p') and src_data.get('p').upper() in ['SRC-721', 'SRC-20']:
             ident = src_data['p'].upper()
