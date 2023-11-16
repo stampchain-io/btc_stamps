@@ -266,7 +266,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
             if type(src_data) is bytes:
                 src_data = src_data.decode('utf-8')
-                
+
             if type(src_data) is str and is_json_string(src_data):
                 # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
                 if isinstance(json.loads(src_data), dict):
@@ -279,6 +279,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                     ident = 'UNKNOWN'
                     continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
             else:
+                logger.warning(
+                    f"src_data is not a json string is {type(src_data)}: {src_data}"
+                )
                 # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
                 stamp_base64 = src_data
                 ident = 'STAMP'
