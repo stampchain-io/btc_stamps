@@ -658,7 +658,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
 
-    source, destination, btc_amount, fee, data, decoded_tx, key_burn = get_tx_info(tx_hex, db=db) # type: ignore
+    source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
 
     # For mempool
     if block_hash == None:
@@ -686,7 +686,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 btc_amount,
                 fee,
                 data,
-                key_burn
+                keyburn
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
             (
                 tx_index,
@@ -699,7 +699,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 btc_amount,
                 fee,
                 data,
-                key_burn,
+                keyburn,
             )
         )
         return tx_index + 1

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   `fee` BIGINT,
   `data` LONGTEXT,
   `supported` BIT DEFAULT 1,
-  `key_burn` tinyint(1) DEFAULT 0,
+  `keyburn` tinyint(1) DEFAULT 0,
   FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
