@@ -252,6 +252,48 @@ def is_json_string(s):
         return False
 
 
+def check_src_data(src_data):
+    if type(src_data) is bytes:
+        src_data = src_data.decode('utf-8')
+    if (
+        (type(src_data) is str and is_json_string(src_data))
+        or isinstance(src_data, dict)
+    ):
+        # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
+        if isinstance(src_data, str):
+            src_data = json.loads(src_data)
+            src_data = {k.lower(): v for k, v in json.loads(src_data).items()}
+        ident = False
+        if src_data and src_data.get('p') and src_data.get('p').upper() in ['SRC-721', 'SRC-20']:
+            ident = src_data['p'].upper()
+            file_suffix = 'json'
+        else:
+            ident = 'UNKNOWN'
+            continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
+    else:
+        logger.warning(
+            f"src_data is not a json string is {type(src_data)}: {src_data}"
+        )
+        # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
+        stamp_base64 = src_data
+        ident = 'STAMP'
+        src_data is None
+        try:
+            file_suffix = get_file_suffix(stamp_base64, block_index)
+            print(f"file_suffix: {file_suffix}") #DEBUG
+        except Exception as e:
+            print(f"Error: {e}")
+            raise
+        try: 
+            pass
+            # TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
+            # decoded_tx = get_decoded_tx_with_retries(tx_hash)
+        except:
+            print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
+            raise
+    return ident, src_data, file_suffix
+
+
 def parse_stamps_to_stamp_table(db, stamps):
     tx_fields = config.TXS_FIELDS_POSITION
     with db:
@@ -264,50 +306,10 @@ def parse_stamps_to_stamp_table(db, stamps):
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
-            if type(src_data) is bytes:
-                src_data = src_data.decode('utf-8')
 
-            if (
-                (type(src_data) is str and is_json_string(src_data))
-                or isinstance(src_data, dict)
-            ):
-                # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
-                if isinstance(src_data, str):
-                    src_data = json.loads(src_data)
-                    src_data = { k.lower(): v for k, v in json.loads(src_data).items() }
-                ident = False
-                if src_data and src_data.get('p') and src_data.get('p').upper() in ['SRC-721', 'SRC-20']:
-                    ident = src_data['p'].upper()
-                    file_suffix = 'json'
-                else:
-                    ident = 'UNKNOWN'
-                    continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
-            else:
-                logger.warning(
-                    f"src_data is not a json string is {type(src_data)}: {src_data}"
-                )
-                # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
-                stamp_base64 = src_data
-                ident = 'STAMP'
-                src_data is None
-                try:
-                    file_suffix = get_file_suffix(stamp_base64, block_index)
-                    print(f"file_suffix: {file_suffix}") #DEBUG
-                except Exception as e:
-                    print(f"Error: {e}")
-                    raise
-                try: 
-                    pass
-                    # TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
-                    # decoded_tx = get_decoded_tx_with_retries(tx_hash)
-                except:
-                    print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
-                    raise
-            
-            # TODO: more validation if this is a valid btc_stamp
-           
             # need to check keyburn for src-721 or they are not valid
-
+            ident, src_data, file_suffix = check_src_data(src_data)
+            # TODO: more validation if this is a valid btc_stamp
             if ident == 'SRC-721':
                 op_val = src_data.get("op", None).upper()
                 if 'symbol' in src_data:
