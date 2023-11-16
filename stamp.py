@@ -11,6 +11,7 @@ import config
 from xcprequest import parse_base64_from_description
 from bitcoin.core.script import CScript, OP_RETURN
 from src721 import create_src721_mint_svg, get_src721_svg_string
+import src.script as script
 
 logger = logging.getLogger(__name__)
 
@@ -235,8 +236,7 @@ def is_only_op_return(transaction):
 
 def check_burnkeys_in_multisig(transaction):
     for vout in transaction.vout:
-        script_pub_key = vout["scriptPubKey"]
-        asm = script_pub_key["asm"]
+        asm = script.get_asm(vout.scriptPubKey)
         if "OP_CHECKMULTISIG" in asm:
             for burnkey in config.BURNKEYS:
                 if burnkey in asm:
