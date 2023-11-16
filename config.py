@@ -2,19 +2,10 @@ import os
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 import decimal
 import regex
-import sqlite3
 import time
 import math
-import requests
-from requests.exceptions import Timeout, ReadTimeout, ConnectionError
 import concurrent.futures
 import logging
-import json
-import concurrent.futures
-import collections
-import binascii
-import hashlib
-import threading
 import src.util as util
 
 
@@ -23,7 +14,7 @@ logger = logging.getLogger(__name__)
 RPC_USER = os.environ.get("RPC_USER", 'rpc')
 RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
-RPC_PORT = os.environ.get("RPC_PORT",'8332')
+RPC_PORT = os.environ.get("RPC_PORT", '8332')
 
 CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001")
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
@@ -32,8 +23,8 @@ BLOCKS_TO_KEEP = int(os.environ.get("BLOCKS_TO_KEEP", 0))
 
 
 # Define for QUicknode or remote nodes which use a token
-QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None) #restless-fittest-cloud.btc.discover.quiknode.pro
-RPC_TOKEN = os.environ.get("RPC_TOKEN", None) # for quicknode
+QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
+RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 if QUICKNODE_URL and RPC_TOKEN:
     RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{QUICKNODE_URL}/{RPC_TOKEN}"
 else:
@@ -43,7 +34,7 @@ RPC_CONNECTION = AuthServiceProxy(RPC_URL)
 
 RAW_TRANSACTIONS_CACHE_SIZE = 20000
 RPC_BATCH_SIZE = 20     # A 1 MB block can hold about 4200 transactions.
-RPC_BATCH_NUM_WORKERS = 5 #20
+RPC_BATCH_NUM_WORKERS = 5  # 20
 
 
 raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
@@ -128,7 +119,9 @@ TXS_FIELDS_POSITION = {
     'destination': 6,
     'btc_amount': 7,
     'fee': 8,
-    'data': 9
+    'data': 9,
+    'supported': 10,
+    'key_burn': 11,
 }
 
 
