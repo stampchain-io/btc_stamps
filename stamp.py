@@ -267,8 +267,10 @@ def parse_stamps_to_stamp_table(db, stamps):
             if type(src_data) is bytes:
                 src_data = src_data.decode('utf-8')
 
-            if (type(src_data) is str and is_json_string(src_data)) or
-                isinstance(src_data, dict):
+            if (
+                (type(src_data) is str and is_json_string(src_data))
+                or isinstance(src_data, dict)
+            ):
                 # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
                 if isinstance(src_data, str):
                     src_data = json.loads(src_data)
