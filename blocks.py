@@ -37,7 +37,8 @@ from stamp import (
     update_stamp_table,
     is_prev_block_parsed,
     decode_base64,
-    purge_block_db
+    purge_block_db,
+    check_burnkeys_in_multisig,
 )
 
 
@@ -203,23 +204,23 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # MySQL Blocks table
     # Create the blocks table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS blocks (
-            block_index INT,
-            block_hash NVARCHAR(64),
-            block_time INT,
-            previous_block_hash VARCHAR(64) UNIQUE,
-            difficulty FLOAT,
-            ledger_hash TEXT,
-            txlist_hash TEXT,
-            messages_hash TEXT,
-            PRIMARY KEY (block_index, block_hash),
-            UNIQUE (block_hash),
-            UNIQUE (previous_block_hash),
-            INDEX block_index_idx (block_index),
-            INDEX index_hash_idx (block_index, block_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    ''')
+    #  cursor.execute('''
+    #      CREATE TABLE IF NOT EXISTS blocks (
+    #          block_index INT,
+    #          block_hash NVARCHAR(64),
+    #          block_time INT,
+    #          previous_block_hash VARCHAR(64) UNIQUE,
+    #          difficulty FLOAT,
+    #          ledger_hash TEXT,
+    #          txlist_hash TEXT,
+    #          messages_hash TEXT,
+    #          PRIMARY KEY (block_index, block_hash),
+    #          UNIQUE (block_hash),
+    #          UNIQUE (previous_block_hash),
+    #          INDEX block_index_idx (block_index),
+    #          INDEX index_hash_idx (block_index, block_hash)
+    #      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    #  ''')
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -263,22 +264,22 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # MySQL Version
     # Create the transactions table if it does not exist
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            tx_index INT PRIMARY KEY,
-            tx_hash NVARCHAR(64) UNIQUE,
-            block_index INT,
-            block_hash NVARCHAR(64),
-            block_time INT,
-            source NVARCHAR(64),
-            destination NVARCHAR(64),
-            btc_amount BIGINT,
-            fee BIGINT,
-            data LONGTEXT,
-            supported BIT DEFAULT 1,
-            FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ''')
+    #  cursor.execute('''
+    #      CREATE TABLE IF NOT EXISTS transactions (
+    #          tx_index INT PRIMARY KEY,
+    #          tx_hash NVARCHAR(64) UNIQUE,
+    #          block_index INT,
+    #          block_hash NVARCHAR(64),
+    #          block_time INT,
+    #          source NVARCHAR(64),
+    #          destination NVARCHAR(64),
+    #          btc_amount BIGINT,
+    #          fee BIGINT,
+    #          data LONGTEXT,
+    #          supported BIT DEFAULT 1,
+    #          FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
+    #      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    #  ''')
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -288,7 +289,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the block_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX block_index_idx ON transactions (block_index)''')
+        cursor.execute(
+            '''CREATE INDEX block_index_idx ON transactions (block_index)'''
+        )
 
     # Check if the tx_index_idx index exists
     cursor.execute('''
@@ -298,7 +301,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the tx_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX tx_index_idx ON transactions (tx_index)''')
+        cursor.execute(
+            '''CREATE INDEX tx_index_idx ON transactions (tx_index)'''
+        )
 
     # Check if the tx_hash_idx index exists
     cursor.execute('''
@@ -308,7 +313,9 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the tx_hash_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX tx_hash_idx ON transactions (tx_hash)''')
+        cursor.execute(
+            '''CREATE INDEX tx_hash_idx ON transactions (tx_hash)'''
+        )
 
     # Check if the index_index_idx index exists
     cursor.execute('''
@@ -319,7 +326,8 @@ def initialise(db):  # CHANGED TO MYSQL
     # Create the index_index_idx index if it does not exist
     if not result:
         cursor.execute(
-            '''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)''')
+            '''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)'''
+        )
 
     # Check if the index_hash_index_idx index exists
     cursor.execute('''
@@ -329,17 +337,26 @@ def initialise(db):  # CHANGED TO MYSQL
 
     # Create the index_hash_index_idx index if it does not exist
     if not result:
-        cursor.execute('''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)''')
+        cursor.execute(
+            '''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)'''
+        )
 
-    cursor.execute('''DELETE FROM blocks WHERE block_index < {}'''.format(config.BLOCK_FIRST))
+    cursor.execute(
+        '''DELETE FROM blocks WHERE block_index < {}'''
+        .format(config.BLOCK_FIRST)
+    )
 
-    cursor.execute('''DELETE FROM transactions WHERE block_index < {}'''.format(config.BLOCK_FIRST))
+    cursor.execute(
+        '''DELETE FROM transactions WHERE block_index < {}'''
+        .format(config.BLOCK_FIRST)
+    )
 
     cursor.close()
 
 
 def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None):
-    """Get the transaction info. Returns normalized None data for DecodeError and BTCOnlyError."""
+    """Get the transaction info.
+        Returns normalized None data for DecodeError and BTCOnlyError."""
     try:
         return _get_tx_info(tx_hex, block_parser, block_index)
     except DecodeError as e:
@@ -350,19 +367,23 @@ def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None):
 
 
 def _get_tx_info(tx_hex, block_parser=None, block_index=None, p2sh_is_segwit=False):
-    """Get the transaction info. Calls one of two subfunctions depending on signature type."""
+    """
+    Get the transaction info.
+    Calls one of two subfunctions depending on signature type.
+    """
     if not block_index:
         block_index = util.CURRENT_BLOCK_INDEX
-    if util.enabled('p2sh_addresses', block_index=block_index):   # Protocol change.
-        return  get_tx_info3(tx_hex, block_parser=block_parser, p2sh_is_segwit=p2sh_is_segwit)
-    elif util.enabled('multisig_addresses', block_index=block_index):   # Protocol change.
+    if util.enabled('p2sh_addresses', block_index=block_index):
+        return get_tx_info3(
+            tx_hex, block_parser=block_parser, p2sh_is_segwit=p2sh_is_segwit
+        )
+    elif util.enabled('multisig_addresses', block_index=block_index):
         return get_tx_info2(tx_hex, block_parser=block_parser)
-    else:
-        pass
-        # return get_tx_info1(tx_hex, block_index, block_parser=block_parser)
 
 
-def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=False):
+def get_tx_info2(
+    tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=False
+):
     """Get multisig transaction info.
     The destinations, if they exists, always comes before the data output; the
     change, if it exists, always comes after.
@@ -407,27 +428,17 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
 
     if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
         chunk = b''
-        # print("pubkeys_compiled: ", pubkeys_compiled, "\n")
         for pubkey in pubkeys_compiled:
             chunk += pubkey[1:-1]       # Skip sign byte and nonce byte. ( this does the concatenation as well)
         try:
             new_destination, new_data = decode_checkmultisig(ctx, chunk)
-            # logger.warning("new_destination: {}".format(new_destination))
-            # logger.warning("new_data: {}".format(new_data))
         except:
             raise DecodeError('unrecognised output type')
-        # print("new_destination: ", str(new_destination))
-        # print("new_data: ", new_data, "\n")
-        # assert not (new_destination and new_data) # this checks if both are not present..?
-        assert new_destination != None and new_data != None 
+        assert new_destination is not None and new_data is not None
         
         if new_data is not None:
             data += new_data
             destinations = (str(new_destination))
-        # logger.warning("destinations: {}".format(destinations))
-        # logger.warning("data: {}".format(data))
-        # btc_amount += output_value
-        # btc_amount += output_value
 
     # Get source
     source = None
@@ -474,10 +485,8 @@ def get_tx_info2(tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=F
             pass
     if source is None:
         raise DecodeError('unknown source address type')
-
-
     print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
-    return source, destinations, btc_amount, round(fee), data, None
+    return source, destinations, btc_amount, round(fee), data, ctx
 
 
 def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
@@ -485,13 +494,13 @@ def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
 
 
 def arc4_decrypt(cyphertext, ctx):
-    '''Un‐obfuscate. Initialise key once per attempt.'''
+    '''Un-obfuscate. Initialise key once per attempt.'''
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
     return key.decrypt(cyphertext)
 
 
 def arc4_decrypt_chunk(cyphertext, key):
-    '''Un‐obfuscate. Initialise key once per attempt.'''
+    '''Un-obfuscate. Initialise key once per attempt.'''
     # This  is modified  for stamps since in parse_stamp we were getting the key and then converting to a byte string in 2 steps. 
     return key.decrypt(cyphertext)
 
@@ -499,7 +508,7 @@ def arc4_decrypt_chunk(cyphertext, key):
 def get_opreturn(asm):
     if len(asm) == 2 and asm[0] == 'OP_RETURN':
         pubkeyhash = asm[1]
-        if type(pubkeyhash) == bytes:
+        if type(pubkeyhash) is bytes:
             return pubkeyhash
     raise DecodeError('invalid OP_RETURN')
 
@@ -535,7 +544,7 @@ def decode_checkmultisig(ctx, chunk):
         print("data_length: ", data_length, "chunk_length: ", int(chunk_length, 16))
         if data_length != int(chunk_length, 16):
             raise DecodeError('invalid data length')
-        
+
         # destination = CBitcoinAddress.from_scriptPubKey(ctx.vout[0].scriptPubKey) # this was not decoding all address types
 
         script_pubkey = ctx.vout[0].scriptPubKey
@@ -564,7 +573,7 @@ def decode_checkmultisig(ctx, chunk):
         return None, data
 
 
-def decode_p2w(script_pubkey): # This is used for stamps
+def decode_p2w(script_pubkey):  # This is used for stamps
     try:
         bech32 = bitcoinlib.bech32.CBech32Data.from_bytes(0, script_pubkey[2:22])
         return str(bech32), None
@@ -708,10 +717,12 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
+        burn_key = check_burnkeys_in_multisig(decoded_tx)
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
-            'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
-            (tx_index,
+            'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data, burn_key) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+            (
+                tx_index,
                 tx_hash,
                 block_index,
                 block_hash,
@@ -720,7 +731,9 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 str(destination),
                 btc_amount,
                 fee,
-                data)
+                data,
+                burn_key,
+            )
         )
         return tx_index + 1
     else:
