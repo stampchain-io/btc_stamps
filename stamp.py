@@ -252,7 +252,7 @@ def is_json_string(s):
         return False
 
 
-def check_src_data(src_data):
+def check_src_data(src_data, block_index):
     if type(src_data) is bytes:
         src_data = src_data.decode('utf-8')
     if (
@@ -269,7 +269,7 @@ def check_src_data(src_data):
             file_suffix = 'json'
         else:
             ident = 'UNKNOWN'
-            continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
+            # continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
     else:
         logger.warning(
             f"src_data is not a json string is {type(src_data)}: {src_data}"
@@ -280,17 +280,17 @@ def check_src_data(src_data):
         src_data is None
         try:
             file_suffix = get_file_suffix(stamp_base64, block_index)
-            print(f"file_suffix: {file_suffix}") #DEBUG
+            print(f"file_suffix: {file_suffix}")  # DEBUG
         except Exception as e:
             print(f"Error: {e}")
             raise
-        try: 
-            pass
-            # TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
-            # decoded_tx = get_decoded_tx_with_retries(tx_hash)
-        except:
-            print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
-            raise
+        # try:
+        #     pass
+        #     # TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
+        #     # decoded_tx = get_decoded_tx_with_retries(tx_hash)
+        # except:
+        #     print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
+        #     raise
     return ident, src_data, file_suffix
 
 
@@ -308,7 +308,10 @@ def parse_stamps_to_stamp_table(db, stamps):
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
 
             # need to check keyburn for src-721 or they are not valid
-            ident, src_data, file_suffix = check_src_data(src_data)
+            (
+                ident, src_data, file_suffix
+            ) = check_src_data(src_data, block_index)
+
             # TODO: more validation if this is a valid btc_stamp
             if ident == 'SRC-721':
                 op_val = src_data.get("op", None).upper()
@@ -320,7 +323,10 @@ def parse_stamps_to_stamp_table(db, stamps):
                 elif op_val == "DEPLOY":
                     deploy_description = src_data.get("description", None)
                     deploy_name = src_data.get("name", None)
-                    svg_output = get_src721_svg_string(deploy_name, deploy_description)
+                    svg_output = get_src721_svg_string(
+                        deploy_name,
+                        deploy_description
+                    )
                     file_suffix = 'svg'
                 else:
                     svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
