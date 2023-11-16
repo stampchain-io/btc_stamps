@@ -372,7 +372,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
-                "src_data": json.dumps(src_data),
+                "src_data": src_data,
                 "stamp_gen": None,  # TODO: add stamp_gen,
                 "stamp_hash": stamp_hash,
             }
