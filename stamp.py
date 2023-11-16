@@ -307,6 +307,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
 
+            logger.warning("SRC_DATA BEFORE CHECK: {}".format(src_data))
             # need to check keyburn for src-721 or they are not valid
             (
                 ident, src_data, file_suffix
