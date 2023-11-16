@@ -673,9 +673,9 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
         key_burn = 0
-        logger.warning(f"decoded_tx: {decoded_tx}")
         if decoded_tx is not None:
             key_burn = check_burnkeys_in_multisig(decoded_tx)
+        logger.warning(f"KEY BURN: {key_burn}")
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (
