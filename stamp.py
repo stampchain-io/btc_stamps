@@ -240,8 +240,8 @@ def check_burnkeys_in_multisig(transaction):
         if "OP_CHECKMULTISIG" in asm:
             for burnkey in config.BURNKEYS:
                 if burnkey in asm:
-                    return True
-    return False
+                    return 1
+    return None
 
 
 def is_json_string(s):
