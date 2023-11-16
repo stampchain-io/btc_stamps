@@ -3,6 +3,12 @@ import textwrap
 
 ## Initial copy of SRC-721 related functions
 
+def sort_keys(key):
+    priority_keys = ["p", "op", "tick"]
+    if key in priority_keys:
+        return priority_keys.index(key)
+    return len(priority_keys)
+
 
 def query_tokens_custom(token, mysql_conn):
     # TODO: Populate the srcbackground image table - either through a stampchain API call, or a bootstrap file
