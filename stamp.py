@@ -234,7 +234,7 @@ def is_only_op_return(transaction):
 
 
 def check_burnkeys_in_multisig(transaction):
-    for vout in transaction["vout"]:
+    for vout in transaction.vout:
         script_pub_key = vout["scriptPubKey"]
         asm = script_pub_key["asm"]
         if "OP_CHECKMULTISIG" in asm:
