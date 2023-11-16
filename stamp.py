@@ -76,14 +76,14 @@ def get_stamps_without_validation(db, block_index):
 
 
 def base62_encode(num):
-    characters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    base = len(characters)
+    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    base = len(chars)
     if num == 0:
-        return characters[0]
+        return chars[0]
     result = []
     while num:
         num, rem = divmod(num, base)
-        result.append(characters[rem])
+        result.append(chars[rem])
     return ''.join(reversed(result))
 
 
@@ -97,9 +97,9 @@ def create_base62_hash(str1, str2, length=20):
     return base62_hash[:length]
 
 
-def get_cpid(stamp, tx_index, tx_hash):
+def get_cpid(stamp, block_index, tx_hash):
     cpid = stamp.get('cpid')
-    return cpid, create_base62_hash(tx_hash, str(tx_index), 20)
+    return cpid, create_base62_hash(tx_hash, str(block_index), 20)
 
 
 def clean_and_load_json(json_string):
@@ -120,8 +120,10 @@ def decode_base64_json(base64_string):
         print(f"Error decoding json: {e}")
         return None
 
+
 def decode_base64_with_repair(base64_string):
-    ''' original function which attemts to add padding to "fix" the base64 string. This was resulting in invalid/corrupted images. '''
+    ''' original function which attemts to add padding to "fix" the base64.
+    This was resulting in invalid/corrupted images. '''
     try:
         missing_padding = len(base64_string) % 4
         if missing_padding:
@@ -222,12 +224,14 @@ def is_op_return(hex_pk_script):
 
     return False
 
+
 def is_only_op_return(transaction):
     for outp in transaction['vout']:
         if 'scriptPubKey' in outp and not is_op_return(outp['scriptPubKey']['hex']):
             return False
 
     return True
+
 
 def check_burnkeys_in_multisig(transaction):
     for vout in transaction["vout"]:
@@ -239,12 +243,14 @@ def check_burnkeys_in_multisig(transaction):
                     return True
     return False
 
+
 def is_json_string(s):
     try:
         json.loads(s)
         return True
     except json.JSONDecodeError:
         return False
+
 
 def parse_stamps_to_stamp_table(db, stamps):
     tx_fields = config.TXS_FIELDS_POSITION
@@ -257,12 +263,12 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
-            cpid, stamp_hash =  get_cpid(stamp, tx_index, tx_hash)
-            if type(src_data) == bytes:
+            cpid, stamp_hash =  get_cpid(stamp, block_index, tx_hash)
+            if type(src_data) is bytes:
                 src_data = src_data.decode('utf-8')
                 
-            if type(src_data) == str and is_json_string(src_data):
-                #TODO: add invalidation for src-20 on CP after block CP_SRC20_BLOCK_END
+            if type(src_data) is str and is_json_string(src_data):
+                # TODO: add invalidation for src-20 on CP after block CP_SRC20_BLOCK_END
                 if isinstance(json.loads(src_data), dict):
                     src_data = {k.lower(): v for k, v in json.loads(src_data).items()}
                 ident = False
@@ -271,7 +277,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                     file_suffix = 'json'
                 else:
                     ident = 'UNKNOWN'
-                    continue #TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
+                    continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
             else:
                 # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
                 stamp_base64 = src_data
@@ -285,13 +291,13 @@ def parse_stamps_to_stamp_table(db, stamps):
                     raise
                 try: 
                     pass
-                    #TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
+                    # TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
                     # decoded_tx = get_decoded_tx_with_retries(tx_hash)
                 except:
                     print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
                     raise
             
-            #TODO: more validation if this is a valid btc_stamp
+            # TODO: more validation if this is a valid btc_stamp
            
             # need to check keyburn for src-721 or they are not valid
 
