@@ -15,21 +15,33 @@ from src721 import create_src721_mint_svg, get_src721_svg_string
 logger = logging.getLogger(__name__)
 
 
-def purgue_block_db(db, block_index):
-    """Purgue block transactions from the database."""
-    cursor = db.cursor()
+def purge_block_db(db, block_index):
+    """Purge block transactions from the database."""
     db.ping(reconnect=True)
+    cursor = db.cursor()
+    logger.warning(
+        "Purging txs from database after block: {}"
+        .format(block_index)
+    )
     cursor.execute('''
                    DELETE FROM transactions
-                   WHERE block_index = %s
+                   WHERE block_index >= %s
                    ''', (block_index,))
+    logger.warning(
+        "Purging blocks from database after block: {}"
+        .format(block_index)
+    )
     cursor.execute('''
                     DELETE FROM blocks
-                    WHERE block_index = %s
+                    WHERE block_index >= %s
                     ''', (block_index,))
+    logger.warning(
+        "Purging stamps from database after block: {}"
+        .format(block_index)
+    )
     cursor.execute('''
                    DELETE FROM StampTableV4
-                   WHERE block_index = %s
+                   WHERE block_index >= %s
                     ''', (block_index,))
     cursor.execute("COMMIT")
     cursor.close()
@@ -47,7 +59,7 @@ def is_prev_block_parsed(db, block_index):
     if block[block_fields['indexed']] == 1:
         return True
     else:
-        purgue_block_db(db, block_index - 1)
+        purge_block_db(db, block_index - 1)
         return False
 
 
@@ -320,7 +332,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "tx_index": tx_index,
                 "src_data": json.dumps(src_data),
                 "stamp_gen": None,  # TODO: add stamp_gen,
-                "stamp_hash": stamp_hash #TODO: add do db below when the colum is in the db
+                "stamp_hash": stamp_hash,
             }
             cursor.execute('''
                            INSERT INTO StampTableV4(
@@ -329,9 +341,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 message_index, stamp_base64,
                                 stamp_mimetype, stamp_url, supply, timestamp,
                                 tx_hash, tx_index, src_data, ident,
-                                creator_name, stamp_gen
+                                creator_name, stamp_gen, stamp_hash
                                 ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                %s,%s,%s,%s,%s,%s,%s,%s)
+                                %s,%s,%s,%s,%s,%s,%s,%s,%s)
                            ''', (
                                 parsed['stamp'], parsed['block_index'],
                                 parsed['cpid'], parsed['asset_longname'],
@@ -343,7 +355,8 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 parsed['supply'], parsed['timestamp'],
                                 parsed['tx_hash'], parsed['tx_index'],
                                 parsed['src_data'], parsed['ident'],
-                                parsed['creator_name'], parsed['stamp_gen']
+                                parsed['creator_name'], parsed['stamp_gen'],
+                                parsed['stamp_hash'],
                            ))
         cursor.execute("COMMIT")
 

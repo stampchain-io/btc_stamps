@@ -37,7 +37,9 @@ from stamp import (
     update_stamp_table,
     is_prev_block_parsed,
     decode_base64,
+    purge_block_db
 )
+
 
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
@@ -841,11 +843,13 @@ def follow(db):
 
                     logger.debug('Checking that block {} is not an orphan.'.format(current_index))
                     # Backend parent hash.
-                    current_hash = backend.getblockhash(current_index) # rpc call to the node
+                    current_hash = backend.getblockhash(current_index)  # rpc call to the node
                     current_cblock = backend.getcblock(current_hash)    # rpc call to the node
                     backend_parent = bitcoinlib.core.b2lx(current_cblock.hashPrevBlock)
 
-                    test_query = '''SELECT * FROM blocks WHERE block_index = %s'''
+                    test_query = '''
+                    SELECT * FROM blocks WHERE block_index = %s
+                    '''
                     cursor.execute(test_query, (current_index - 1,))
                     blocks = cursor.fetchall()
                     columns = [desc[0] for desc in cursor.description]
@@ -855,8 +859,8 @@ def follow(db):
                     db_parent = blocks_dict[0]['block_hash']
 
                     # Compare.
-                    assert type(db_parent) == str
-                    assert type(backend_parent) == str
+                    assert type(db_parent) is str
+                    assert type(backend_parent) is str
                     if db_parent == backend_parent:
                         break
                     else:
@@ -866,14 +870,18 @@ def follow(db):
                 # Rollback for reorganisation.
                 if requires_rollback:
                     # Record reorganisation.
-                    logger.warning('Blockchain reorganisation at block {}.'.format(current_index))
-                    logger.warning(db, block_index, 'reorg', None, {'block_index': current_index})
-                    raise Exception("Reorg happened, not yet supported please clear transactions, blocks, StampTableVx >=", block_index)
-                
-                    # Rollback the DB.
-                    reparse(db, block_index=current_index-1, quiet=True)
-                    block_index = current_index
-                    tx_index = get_next_tx_index(db)
+                    logger.warning(
+                        'Blockchain reorganisation at block {}.'
+                        .format(current_index)
+                    )
+                    current_index -= 1
+                    logger.warning(
+                        'Rolling back to block {} to avoid problems.'
+                        .format(current_index)
+                    )
+                    # Rollback.
+                    purge_block_db(db, current_index)
+                    requires_rollback = False
                     continue
 
             # check.software_version()
