@@ -357,6 +357,8 @@ def get_tx_info2(
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
+    key_burn = check_burnkeys_in_multisig(ctx)
+    logger.warning(f"KEY BURN: {key_burn}")
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
        
@@ -441,7 +443,7 @@ def get_tx_info2(
     if source is None:
         raise DecodeError('unknown source address type')
     print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
-    return source, destinations, btc_amount, round(fee), data, ctx
+    return source, destinations, btc_amount, round(fee), data, ctx, key_burn
 
 
 def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
@@ -657,7 +659,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
 
-    source, destination, btc_amount, fee, data, decoded_tx = get_tx_info(tx_hex, db=db) # type: ignore
+    source, destination, btc_amount, fee, data, decoded_tx, key_burn = get_tx_info(tx_hex, db=db) # type: ignore
 
     # For mempool
     if block_hash == None:
@@ -672,10 +674,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        key_burn = 0
-        if decoded_tx is not None:
-            key_burn = check_burnkeys_in_multisig(decoded_tx)
-        logger.warning(f"KEY BURN: {key_burn}")
+        
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (

@@ -239,6 +239,8 @@ def check_burnkeys_in_multisig(transaction):
         asm = script.get_asm(vout.scriptPubKey)
         if "OP_CHECKMULTISIG" in asm:
             for burnkey in config.BURNKEYS:
+                logger.warning(f"burnkey: {burnkey}")
+                logger.warning(f"asm: {asm}")
                 if burnkey in asm:
                     return 1
     return None
