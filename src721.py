@@ -21,6 +21,51 @@ def query_tokens_custom(token, mysql_conn):
         print(f"Error querying database: {e}")
         return None, 'white', '30px'
 
+def fetch_src721_subasset_base64(asset_name, json_list):
+    # check if stamp_base64 is already in the json_list for thc cpid
+    collection_sub_asset_base64 = None
+    collection_sub_asset_base64 = next((item for item in json_list if item["asset"] == asset_name), None)
+    if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
+        return collection_sub_asset_base64["stamp_base64"]
+    else:
+        try:
+            with mysql_conn.cursor() as cursor:
+                # this assumes the collection asset is already commited to the db... 
+                sql = f"SELECT stamp_base64 FROM StampTableV4 WHERE cpid = %s"
+                cursor.execute(sql, (asset_name,))
+                result = cursor.fetchone()
+                if result:
+                    return result[0]  # Return the first column of the result (which should be the base64 string)
+                else:
+                    # return None
+                    raise Exception(f"Failed to fetch asset src-721 base64 {asset_name} from database")
+        except Exception as e:
+            raise e
+        finally:
+            cursor.close()
+
+def fetch_src721_collection(tmp_collection_object, json_list):
+    # this adds the tx-img key to the collection object
+    output_object = copy.deepcopy(tmp_collection_object)
+    
+    for i in range(10):
+        key = f"t{i}"
+        if key in output_object:
+            img_key = f"{key}-img"
+            output_object[img_key] = []
+            for j, asset_name in enumerate(output_object[key]):
+                # print(f"--- Loading t[{i}][{j}]")
+                try:
+                    # this assumes the image base64 is already in the db
+                    img_data = fetch_src721_subasset_base64(asset_name, json_list)
+                    # if img_data:
+                    output_object[img_key].append(img_data)
+                except Exception as e:
+                    raise Exception(f"Unable to load t{i}[{j}] {e}")
+    
+    # print("output_object collection with base64", output_object)
+    return output_object
+
 def get_src721_svg_string(src721_title, src721_desc):
     custom_background_result, text_color, font_size = query_tokens_custom('SRC721', mysql_conn)
     # print(f"SRC-721: {asset}, {tx_hash}, {tick_value}, {p_val}, {text_color}, {font_size}")
@@ -61,3 +106,48 @@ def get_src721_svg_string(src721_title, src721_desc):
         </foreignObject><title>{src721_title}</title><desc>{src721_desc} - provided by stampchain.io</desc>
         </svg>"""
     return svg_output
+
+def create_src721_mint_svg(src_data, db):
+    tick_value = src_data.get('tick', None).upper() if src_data.get('tick') else None
+    collection_asset_item = None
+    collection_asset = src_data.get('c') # this is the CPID of the collection / parent asset
+    if collection_asset:
+        ## FIXME: This is problematic if the collection asset is in the same block because the additional items will not show up in the src_data as in the current indexer
+        # get the collection asset from the existing src_data if in the same block 
+        # collection_asset_dict = next((item for item in dict(src_data) if item.get("asset") == collection_asset), None)
+        # if collection_asset_dict:
+            # collection_asset_item = collection_asset_dict.get("src_data", None)
+        if collection_asset_item is None:
+            # print("collection asset item is not in the src_data - fetching from db") #DEBUG
+            try:
+                cursor = db.cursor()
+                db.ping(reconnect=True)
+                cursor.execute(f"SELECT src_data FROM StampTableV4 WHERE cpid = %s", (collection_asset,))
+                result = cursor.fetchone() # pull the deploy details this one has no src_data when it should A12314949010946956252
+                if result[0]:
+                    collection_asset_item = result[0] # Return the first column of the result
+                    print("got collection asset item from db", collection_asset_item)
+                else: 
+                    collection_asset_item = None
+                    print(f"Failed to fetch deploy src_data for asset {asset} from database")
+                    # raise Exception(f"Failed to fetch deploy src_data for asset {asset} from database")
+            except Exception as e:
+                raise e
+        print("collection_asset_item", collection_asset_item)
+        if collection_asset_item is None or collection_asset_item == 'null':
+            # print("this is a mint without a v2 collection asset reference") #DEBUG
+            svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+        elif collection_asset_item:
+            try:
+                src_collection_data = convert_to_dict(collection_asset_item)
+                src_collection_data = fetch_src721_collection(src_collection_data, src_data)
+                svg_output = build_src721_stacked_svg(src_data, src_collection_data)
+            except Exception as e:
+                print(f"ERROR: processing SRC-721 data: {e}")
+                raise
+        else:
+            # print("this is a mint without a v2 collection asset reference") #DEBUG
+            svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+    else:
+        print("this is a mint without a collection asset reference") #DEBUG
+        svg_output = get_src721_svg_string("SRC-721", "stampchain.io")

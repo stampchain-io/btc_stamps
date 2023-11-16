@@ -5,10 +5,12 @@ import pybase64
 from datetime import datetime
 import hashlib
 import magic
+import subprocess
 
 import config
 from xcprequest import parse_base64_from_description
 from bitcoin.core.script import CScript, OP_RETURN
+from src721 import create_src721_mint_svg, get_src721_svg_string
 
 logger = logging.getLogger(__name__)
 
@@ -147,15 +149,20 @@ def decode_base64(base64_string, block_index):
 
 
 def get_src_or_img_data(stamp, block_index):
-    if 'p' in stamp and stamp.get('p').upper() == 'SRC-20':
-        return stamp
-    elif 'p' in stamp and stamp.get('p').upper() == 'SRC-721':
-        #TODO: add src-721 decoding and details here
-        return stamp
+    # if this is src-20 on bitcoin we have already decoded the string in the transaction table
+    stamp_mimetype = None
+    if 'description' not in stamp:
+        if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
+            return stamp
+        elif 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-721':
+            #TODO: add src-721 decoding and details here
+            return stamp
     else:
         stamp_description = stamp.get('description')
         base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
-        return decode_base64(base64_string, block_index)
+        # if decoded base64 string is src-721 or src-20 return the json
+
+        return decode_base64(base64_string, block_index), stamp_mimetype
         # return decode_base64_json(stamp.get('description').split(':')[1])
 
 def check_custom_suffix(bytestring_img_data):
@@ -166,6 +173,7 @@ def check_custom_suffix(bytestring_img_data):
            return None
        
 def get_file_suffix(bytestring_img_data, block_index):
+    print(block_index, config.BMN_BLOCKSTART)
     if block_index > config.BMN_BLOCKSTART:
         if check_custom_suffix(bytestring_img_data):
             return 'bmn'
@@ -209,6 +217,13 @@ def check_burnkeys_in_multisig(transaction):
                     return True
     return False
 
+def is_json_string(s):
+    try:
+        json.loads(s)
+        return True
+    except json.JSONDecodeError:
+        return False
+
 def parse_stamps_to_stamp_table(db, stamps):
     tx_fields = config.TXS_FIELDS_POSITION
     with db:
@@ -219,12 +234,24 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
-            src_data = get_src_or_img_data(stamp, block_index)
-            # if src_data is a json string, then it is a src-20 stamp, otherwise it is an image stamp
-            if type(src_data) == dict:
-                ident = src_data is not None and 'p' in src_data and (src_data.get('p').upper() == 'SRC-20' or src_data.get('p') == 'SRC-721') and 'STAMP'
+            src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
+            cpid, stamp_hash =  get_cpid(stamp, tx_index, tx_hash)
+            if type(src_data) == bytes:
+                src_data = src_data.decode('utf-8')
+                
+            if type(src_data) == str and is_json_string(src_data):
+                #TODO: add invalidation for src-20 on CP after block CP_SRC20_BLOCK_END
+                if isinstance(json.loads(src_data), dict):
+                    src_data = {k.lower(): v for k, v in json.loads(src_data).items()}
+                ident = False
+                if src_data and src_data.get('p') and src_data.get('p').upper() in ['SRC-721', 'SRC-20']:
+                    ident = src_data['p'].upper()
+                    file_suffix = 'json'
+                else:
+                    ident = 'UNKNOWN'
+                    continue #TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
             else:
-                # we are assuming if the src_data does not decode to a dict it's a base64 string perhaps add more checks
+                # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
                 stamp_base64 = src_data
                 ident = 'STAMP'
                 src_data is None
@@ -241,20 +268,49 @@ def parse_stamps_to_stamp_table(db, stamps):
                 except:
                     print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
                     raise
-            cpid, stamp_hash =  get_cpid(stamp, tx_index, tx_hash)
             
+            #TODO: more validation if this is a valid btc_stamp
+           
+            # need to check keyburn for src-721 or they are not valid
+
+            if ident == 'SRC-721':
+                op_val = src_data.get("op", None).upper()
+                if 'symbol' in src_data:
+                    src_data['tick'] = src_data.pop('symbol')
+                if op_val == "MINT":
+                    svg_output = create_src721_mint_svg(src_data, db)
+                    file_suffix = 'svg'
+                elif op_val == "DEPLOY":
+                    deploy_description = src_data.get("description", None)
+                    deploy_name = src_data.get("name", None)
+                    svg_output = get_src721_svg_string(deploy_name, deploy_description)
+                    file_suffix = 'svg'
+                else:
+                    svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+                    file_suffix = 'svg'
+ 
+
+            file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
+             # if file_suffix in ["plain", "octet-stream", "js", "css", "x-empty", "json"]: # these are not btc_stamps
+            filename = f"{tx_hash}.{file_suffix}"
+            
+            if not stamp_mimetype and file_suffix in MIME_TYPES:
+                stamp_mimetype = MIME_TYPES[file_suffix]
+
             parsed = {
                 "stamp": None,
                 "block_index": block_index,
                 "cpid": cpid if cpid is not None else stamp_hash,
+                "creator_name": None,  # TODO: add creator_name
                 "asset_longname": stamp.get('asset_longname'),
                 "creator": stamp.get('issuer', stamp_tx[tx_fields['source']]),
                 "divisible": stamp.get('divisible'),
+                "ident": ident,
                 "keyburn": None,  # TODO: add keyburn -- should check while we are parsing through the transactions
                 "locked": stamp.get('locked'),
                 "message_index": stamp.get('message_index'),
                 "stamp_base64": stamp_base64,
-                "stamp_mimetype": None,  # TODO: add stamp_mimetype
+                "stamp_mimetype": stamp_mimetype,
                 "stamp_url": None,  # TODO: add stamp_url
                 "supply": stamp.get('quantity'),
                 "timestamp": datetime.utcfromtimestamp(
@@ -263,10 +319,8 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
                 "src_data": json.dumps(src_data),
-                "ident": ident,
-                "creator_name": None,  # TODO: add creator_name
                 "stamp_gen": None,  # TODO: add stamp_gen,
-                # "stamp_hash": stamp_hash #TODO: add when the colum is in the db
+                "stamp_hash": stamp_hash #TODO: add do db below when the colum is in the db
             }
             cursor.execute('''
                            INSERT INTO StampTableV4(
