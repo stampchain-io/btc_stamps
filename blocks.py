@@ -3,7 +3,7 @@ Initialise database.
 
 Sieve blockchain for Stamp transactions, and add them to the database.
 """
-import hashlib
+
 import sys
 import time
 import binascii
@@ -12,18 +12,12 @@ import decimal
 import logging
 import collections
 import http
-import json
-import subprocess
-from xcprequest import (
-                        get_issuances_by_block,
-                        get_stamp_issuances,
-                        filter_issuances_by_tx_hash
-                        )
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.core import CBlock
 from bitcoin.wallet import CBitcoinAddress
 import pymysql as mysql
+
 
 import config
 import src.exceptions as exceptions
@@ -33,10 +27,14 @@ import src.script as script
 import src.backend as backend
 import src.database as database
 import src.arc4 as arc4
+from xcprequest import (
+    get_issuances_by_block,
+    get_stamp_issuances,
+    filter_issuances_by_tx_hash
+)
 from stamp import (
     update_stamp_table,
     is_prev_block_parsed,
-    decode_base64,
     purge_block_db,
     check_burnkeys_in_multisig,
 )
@@ -44,8 +42,6 @@ from stamp import (
 
 from src.exceptions import DecodeError, BTCOnlyError
 import kickstart.utils as utils
-
-import magic
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -676,7 +672,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        key_burn = check_burnkeys_in_multisig(decoded_tx)
+        if decoded_tx is not None:
+            key_burn = check_burnkeys_in_multisig(decoded_tx)
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (
