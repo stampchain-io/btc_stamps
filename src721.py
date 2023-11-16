@@ -1,10 +1,10 @@
-
 import textwrap
 import logging
 
 logger = logging.getLogger(__name__)
 
-## Initial copy of SRC-721 related functions
+#  Initial copy of SRC-721 related functions
+
 
 def sort_keys(key):
     priority_keys = ["p", "op", "tick"]
@@ -17,7 +17,14 @@ def query_tokens_custom(token, mysql_conn):
     # TODO: Populate the srcbackground image table - either through a stampchain API call, or a bootstrap file
     try:
         with mysql_conn.cursor() as cursor:
-            cursor.execute("SELECT base64, text_color, font_size FROM srcbackground WHERE tick = %s", (token.upper(),))
+            cursor.execute(
+                '''
+                    SELECT base64, text_color, font_size
+                    FROM srcbackground
+                    WHERE tick = %s
+                ''',
+                (token.upper(),)
+            )
             result = cursor.fetchone()
             if result:
                 base64 = result[0]
@@ -29,6 +36,7 @@ def query_tokens_custom(token, mysql_conn):
     except Exception as e:
         print(f"Error querying database: {e}")
         return None, 'white', '30px'
+
 
 def fetch_src721_subasset_base64(asset_name, json_list):
     # check if stamp_base64 is already in the json_list for thc cpid
@@ -53,6 +61,7 @@ def fetch_src721_subasset_base64(asset_name, json_list):
         finally:
             cursor.close()
 
+
 def fetch_src721_collection(tmp_collection_object, json_list):
     # this adds the tx-img key to the collection object
     output_object = copy.deepcopy(tmp_collection_object)
@@ -75,14 +84,25 @@ def fetch_src721_collection(tmp_collection_object, json_list):
     # print("output_object collection with base64", output_object)
     return output_object
 
-def get_src721_svg_string(src721_title, src721_desc):
-    custom_background_result, text_color, font_size = query_tokens_custom('SRC721', mysql_conn)
+
+def get_src721_svg_string(src721_title, src721_desc, db):
+    custom_background_result, text_color, font_size = query_tokens_custom(
+        'SRC721',
+        db
+    )
     # print(f"SRC-721: {asset}, {tx_hash}, {tick_value}, {p_val}, {text_color}, {font_size}")
-    svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
+    svg_output = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
         <foreignObject font-size="{font_size}" width="100%" height="100%">
-        <p xmlns="http://www.w3.org/1999/xhtml" style="background-image: url(data:{custom_background_result});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;"><pre></pre></p>
-        </foreignObject><title>{src721_title}</title><desc>{src721_desc} - provided by stampchain.io</desc>
-        </svg>"""
+            <p xmlns="http://www.w3.org/1999/xhtml"
+                style="background-image: url(data:{custom_background_result});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;">
+                <pre></pre>
+            </p>
+        </foreignObject>
+        <title>{src721_title}</title>
+        <desc>{src721_desc} - provided by stampchain.io</desc>
+    </svg>
+    """
     return svg_output
 
 
@@ -106,15 +126,6 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     
     return textwrap.dedent(svg)
 
-def get_src721_svg_string(src721_title, src721_desc):
-    custom_background_result, text_color, font_size = query_tokens_custom('SRC721', mysql_conn)
-    # print(f"SRC-721: {asset}, {tx_hash}, {tick_value}, {p_val}, {text_color}, {font_size}")
-    svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
-        <foreignObject font-size="{font_size}" width="100%" height="100%">
-        <p xmlns="http://www.w3.org/1999/xhtml" style="background-image: url(data:{custom_background_result});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;"><pre></pre></p>
-        </foreignObject><title>{src721_title}</title><desc>{src721_desc} - provided by stampchain.io</desc>
-        </svg>"""
-    return svg_output
 
 def create_src721_mint_svg(src_data, db):
     tick_value = src_data.get('tick', None).upper() if src_data.get('tick') else None

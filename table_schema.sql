@@ -61,6 +61,17 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 USE `btc_stamps`;
+CREATE TABLE IF NOT EXISTS `srcbackground` (
+  `tick` varchar(16) NOT NULL,
+  `base64` mediumtext,
+  `font_size` varchar(8) DEFAULT NULL,
+  `text_color` varchar(16) DEFAULT NULL,
+  `unicode` varchar(16) DEFAULT NULL,
+  `p` varchar(16) NOT NULL,
+  PRIMARY KEY (`tick`,`p`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `dispensers` (
   `tx_index` int DEFAULT NULL,
   `tx_hash` varchar(255) NOT NULL,
@@ -101,16 +112,6 @@ CREATE TABLE IF NOT EXISTS `srcx` (
   PRIMARY KEY (`tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-USE `btc_stamps`;
-CREATE TABLE IF NOT EXISTS `srcbackground` (
-  `tick` varchar(16) NOT NULL,
-  `base64` mediumtext,
-  `font_size` varchar(8) DEFAULT NULL,
-  `text_color` varchar(16) DEFAULT NULL,
-  `unicode` varchar(16) DEFAULT NULL,
-  `p` varchar(16) NOT NULL,
-  PRIMARY KEY (`tick`,`p`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `cp_wallet` (
