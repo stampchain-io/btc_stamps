@@ -843,12 +843,12 @@ def follow(db):
 
                 # Rollback for reorganisation.
                 if requires_rollback:
-                    current_index -= 1
                     # Record reorganisation.
                     logger.warning(
                         'Blockchain reorganisation at block {}.'
                         .format(current_index)
                     )
+                    current_index -= 1
                     logger.warning(
                         'Rolling back to block {} to avoid problems.'
                         .format(current_index)
