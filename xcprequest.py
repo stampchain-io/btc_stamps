@@ -113,8 +113,14 @@ def get_stamp_issuances(issuances):
     stamp_issuances = []
     for issuance in issuances:
         description = issuance["description"]
-        if description is not None:
-            stamp_base64, stamp_mimetype = parse_base64_from_description(description)
+        if (
+            description is not None and
+            description.tolower().find("stamp:") != -1
+        ):
+            (
+                stamp_base64,
+                stamp_mimetype
+            ) = parse_base64_from_description(description)
 
             filtered_issuance = {
                 # we are not adding the base64 string to the json string in issuances, this is parsed when going to StampTable
