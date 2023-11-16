@@ -329,11 +329,16 @@ def parse_stamps_to_stamp_table(db, stamps):
                     deploy_name = src_data.get("name", None)
                     svg_output = get_src721_svg_string(
                         deploy_name,
-                        deploy_description
+                        deploy_description,
+                        db
                     )
                     file_suffix = 'svg'
                 else:
-                    svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+                    svg_output = get_src721_svg_string(
+                        "SRC-721",
+                        "stampchain.io",
+                        db
+                    )
                     file_suffix = 'svg'
 
             file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix

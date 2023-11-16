@@ -134,15 +134,11 @@ TICK_PATTERN_LIST = {
 #     n = max(1, n)
 #     return [l[i:i + n] for i in range(0, len(l), n)]
 
+
 def decimal_default(obj):
     if isinstance(obj, decimal.Decimal):
         return float(obj)
     raise TypeError
-
-# def get_db_connection():
-#     conn = sqlite3.connect('blockchain.db')
-#     return conn
-
 
 
 def bitcoin_rpc_call(method, *params):
@@ -182,10 +178,7 @@ def bitcoin_rpc_batch(request_list):
     return [response for chunk in responses for response in chunk]
 
 
-
-
-
-### THIS IS FOR PARSE STAMP
+# THIS IS FOR PARSE STAMP
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
     """Returns the raw transaction for a given transaction hash **verbose=False is the hex only"""
     if skip_missing and tx_hash not in getrawtransaction_batch([tx_hash], skip_missing=True):
@@ -197,7 +190,8 @@ def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
 
     return response['hex'] if not verbose else response
 
-## THIS IS FOR PARSE STAMP
+
+# THIS IS FOR PARSE STAMP
 def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False):
     """Returns the raw transactions for a list of transaction hashes"""
     txhash_dict = {}
@@ -219,10 +213,6 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False):
             txhash_dict[tx_hash] = response['hex'] if not verbose else response
 
     return txhash_dict
-
-# def bitcoin_getblock(blockhash):
-#     """Returns information about a Bitcoin block"""
-#     return bitcoin_rpc_call('getblock', blockhash)
 
 
 UNIT = 100000000        # The same across assets.
@@ -301,7 +291,7 @@ BLOCK_FIRST_MAINNET_TESTCOIN = 278270
 BURN_START_MAINNET_TESTCOIN = 278310
 BURN_END_MAINNET_TESTCOIN = 2500000     # A long time.
 
-BLOCK_FIRST_MAINNET = 795072  # 796000  # 790249  # 779650
+BLOCK_FIRST_MAINNET = 791243  # 796000  # 790249  # 779650
 BLOCK_FIRST_MAINNET_HASH = '000000000000000000058ea4f7bf747a78475f137fd8ff5f22b8db1f6dc1a8c2'
 # FIRST MAINNET BLOCK WITH BTCSTAMPS: 793487 TX 50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1
 BURN_START_MAINNET = 278310
@@ -344,17 +334,17 @@ DEFAULT_CHECK_ASSET_CONSERVATION = True
 BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
 BACKEND_RPC_BATCH_NUM_WORKERS = 6
 
-UNDOLOG_MAX_PAST_BLOCKS = 100 #the number of past blocks that we store undolog history
+UNDOLOG_MAX_PAST_BLOCKS = 100  # the number of past blocks that we store undolog history
 
 DEFAULT_UTXO_LOCKS_MAX_ADDRESSES = 1000
-DEFAULT_UTXO_LOCKS_MAX_AGE = 3.0 #in seconds
+DEFAULT_UTXO_LOCKS_MAX_AGE = 3.0  # in seconds
 
 ADDRESS_OPTION_REQUIRE_MEMO = 1
-ADDRESS_OPTION_MAX_VALUE = ADDRESS_OPTION_REQUIRE_MEMO # Or list of all the address options
+ADDRESS_OPTION_MAX_VALUE = ADDRESS_OPTION_REQUIRE_MEMO  # Or list of all the address options
 OLD_STYLE_API = True
 
 API_LIMIT_ROWS = 1000
 
 MPMA_LIMIT = 1000
 
-MEMPOOL_TXCOUNT_UPDATE_LIMIT=60000
+MEMPOOL_TXCOUNT_UPDATE_LIMIT = 60000
