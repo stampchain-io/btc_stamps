@@ -241,8 +241,9 @@ def check_burnkeys_in_multisig(transaction):
             for burnkey in config.BURNKEYS:
                 logger.warning(f"burnkey: {burnkey}")
                 logger.warning(f"asm: {asm}")
-                if burnkey in asm:
-                    return 1
+                for item in asm:
+                    if item.hex() == burnkey:
+                        return 1
     return None
 
 
