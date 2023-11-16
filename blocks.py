@@ -379,7 +379,7 @@ def get_tx_info2(
                 # print("pubkeys compiled: ", pubkeys_compiled)
                 # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
             except:
-                print("ctx: ", ctx)
+                # print("ctx: ", ctx)
                 raise DecodeError('unrecognised output type')
 
     if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
@@ -423,7 +423,7 @@ def get_tx_info2(
     prev_vout_script_pubkey = prev_vout.scriptPubKey
 
     # Decode the address associated with the output.
-    print("prev_vout.scriptPubKey: ", prev_vout_script_pubkey, "\n")
+    # print("prev_vout.scriptPubKey: ", prev_vout_script_pubkey, "\n")
     # Decode the address associated with the output.
     try:
         source = str(CBitcoinAddress.from_scriptPubKey(prev_vout_script_pubkey)) #needed to add srt here or we get P2SHAddress('address') output - this is handled differently than destinations
@@ -441,7 +441,7 @@ def get_tx_info2(
             pass
     if source is None:
         raise DecodeError('unknown source address type')
-    print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
+    # print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
     return source, destinations, btc_amount, round(fee), data, ctx, key_burn
 
 
@@ -497,14 +497,14 @@ def decode_checkmultisig(ctx, chunk):
         chunk_length = chunk[:2].hex() # the expected length of the string from the first 2 bytes
         data = chunk[len(config.PREFIX) + 2:].rstrip(b'\x00')
         data_length = len(chunk[2:].rstrip(b'\x00'))
-        print("data_length: ", data_length, "chunk_length: ", int(chunk_length, 16))
+        # print("data_length: ", data_length, "chunk_length: ", int(chunk_length, 16))
         if data_length != int(chunk_length, 16):
             raise DecodeError('invalid data length')
 
         # destination = CBitcoinAddress.from_scriptPubKey(ctx.vout[0].scriptPubKey) # this was not decoding all address types
 
         script_pubkey = ctx.vout[0].scriptPubKey
-        print("script_pubkey: ", script_pubkey)
+        # print("script_pubkey: ", script_pubkey)
         destination = None
 
         try:
