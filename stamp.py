@@ -13,14 +13,26 @@ def purgue_block_db(db, block_index):
     """Purgue block transactions from the database."""
     db.ping(reconnect=True)
     cursor = db.cursor()
+    logger.warning(
+        "Purging txs from database after block: {}"
+        .format(block_index)
+    )
     cursor.execute('''
                    DELETE FROM transactions
                    WHERE block_index >= %s
                    ''', (block_index,))
+    logger.warning(
+        "Purging blocks from database after block: {}"
+        .format(block_index)
+    )
     cursor.execute('''
                     DELETE FROM blocks
                     WHERE block_index >= %s
                     ''', (block_index,))
+    logger.warning(
+        "Purging stamps from database after block: {}"
+        .format(block_index)
+    )
     cursor.execute('''
                    DELETE FROM StampTableV4
                    WHERE block_index >= %s
