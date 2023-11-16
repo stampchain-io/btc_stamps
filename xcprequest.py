@@ -115,7 +115,7 @@ def get_stamp_issuances(issuances):
         description = issuance["description"]
         if (
             description is not None and
-            description.tolower().find("stamp:") != -1
+            description.lower().find("stamp:") != -1
         ):
             (
                 stamp_base64,
