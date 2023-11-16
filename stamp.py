@@ -255,8 +255,11 @@ def is_json_string(s):
 
 
 def check_src_data(src_data, block_index):
-    # if type(src_data) is bytes:
-    #    src_data = src_data.decode('utf-8')
+    if type(src_data) is bytes:
+        try:
+            src_data = src_data.decode('utf-8')
+        except Exception as e:
+            print(f"src_data is not a bytestring: {e}")
     if (
         (type(src_data) is str and is_json_string(src_data))
         or isinstance(src_data, dict)
@@ -369,13 +372,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
-                "src_data": (
-                    is_json_string(str(src_data)) and json.dumps(src_data)
-                    or file_suffix == 'json' and json.dumps(
-                        json.loads(src_data)
-                    )
-                    or None
-                ),
+                "src_data": json.dumps(src_data),
                 "stamp_gen": None,  # TODO: add stamp_gen,
                 "stamp_hash": stamp_hash,
             }
