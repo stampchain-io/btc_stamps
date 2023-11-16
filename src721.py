@@ -1,5 +1,8 @@
 
 import textwrap
+import logging
+
+logger = logging.getLogger(__name__)
 
 ## Initial copy of SRC-721 related functions
 
@@ -126,10 +129,11 @@ def create_src721_mint_svg(src_data, db):
         if collection_asset_item is None:
             # print("collection asset item is not in the src_data - fetching from db") #DEBUG
             try:
-                cursor = db.cursor()
                 db.ping(reconnect=True)
+                cursor = db.cursor()
                 cursor.execute(f"SELECT src_data FROM StampTableV4 WHERE cpid = %s", (collection_asset,))
                 result = cursor.fetchone() # pull the deploy details this one has no src_data when it should A12314949010946956252
+                logger.warning(f"result: {result}")
                 if result[0]:
                     collection_asset_item = result[0] # Return the first column of the result
                     print("got collection asset item from db", collection_asset_item)
