@@ -137,7 +137,8 @@ def decode_base64_with_repair(base64_string):
 
 
 def decode_base64(base64_string, block_index):
-    ''' validation on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
+    ''' validation on and after block 784550 - this will result in
+    more invalid base64 strings since don't attempt repair of padding '''
     try:
         image_data = base64.b64decode(base64_string)
         return image_data
@@ -147,43 +148,51 @@ def decode_base64(base64_string, block_index):
             return image_data
         except Exception as e2:
             try:
-                # If decoding with pybase64 fails, try decoding with the base64 command line tool with and without newlines for the json strings
+                # If decoding with pybase64 fails,
+                # try decoding with the base64 command line tool with
+                # and without newlines for the json strings
                 command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
                 if not base64_string.endswith('\n'):
                     command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
                 image_data = subprocess.check_output(command, shell=True)
                 return image_data
             except Exception as e3:
-                # If all decoding attempts fail, print an error message and return None
+                # If all decoding attempts fail,
+                # print an error message and return None
                 print(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
                 # print(base64_string)
                 return None
 
 
 def get_src_or_img_data(stamp, block_index):
-    # if this is src-20 on bitcoin we have already decoded the string in the transaction table
+    # if this is src-20 on bitcoin we have already decoded
+    # the string in the transaction table
     stamp_mimetype = None
     if 'description' not in stamp:
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
             return stamp
         elif 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-721':
-            #TODO: add src-721 decoding and details here
+            # TODO: add src-721 decoding and details here
             return stamp
     else:
         stamp_description = stamp.get('description')
-        base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
+        base64_string, stamp_mimetype = parse_base64_from_description(
+            stamp_description
+        )
         # if decoded base64 string is src-721 or src-20 return the json
-
-        return decode_base64(base64_string, block_index), stamp_mimetype
+        decoded_base64 = decode_base64(base64_string, block_index)
+        return decoded_base64, stamp_mimetype
         # return decode_base64_json(stamp.get('description').split(':')[1])
 
+
 def check_custom_suffix(bytestring_img_data):
-       ''' for items that aren't part of the magic module that we want to include '''
-       if bytestring_img_data[:3] == b'BMN':
-           return True
-       else:
-           return None
-       
+    ''' for items that aren't part of the magic module that we want to include '''
+    if bytestring_img_data[:3] == b'BMN':
+        return True
+    else:
+        return None
+
+
 def get_file_suffix(bytestring_img_data, block_index):
     print(block_index, config.BMN_BLOCKSTART)
     if block_index > config.BMN_BLOCKSTART:
@@ -199,6 +208,7 @@ def get_file_suffix(bytestring_img_data, block_index):
         else:
             file_type = magic.from_buffer(bytestring_img_data, mime=True)
         return file_type.split('/')[-1]
+
 
 def is_op_return(hex_pk_script):
     pk_script = bytes.fromhex(hex_pk_script)
