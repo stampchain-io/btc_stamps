@@ -308,6 +308,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
 
             logger.warning("SRC_DATA BEFORE CHECK: {}".format(src_data))
+            logger.warning("TX_HASH BEFORE CHECK: {}".format(tx_hash))
             # need to check keyburn for src-721 or they are not valid
             (
                 ident, src_data, file_suffix
