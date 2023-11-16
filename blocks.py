@@ -202,26 +202,6 @@ def initialise(db):  # CHANGED TO MYSQL
     """Initialise data, create and populate the database."""
     cursor = db.cursor() 
 
-    # MySQL Blocks table
-    # Create the blocks table
-    #  cursor.execute('''
-    #      CREATE TABLE IF NOT EXISTS blocks (
-    #          block_index INT,
-    #          block_hash NVARCHAR(64),
-    #          block_time INT,
-    #          previous_block_hash VARCHAR(64) UNIQUE,
-    #          difficulty FLOAT,
-    #          ledger_hash TEXT,
-    #          txlist_hash TEXT,
-    #          messages_hash TEXT,
-    #          PRIMARY KEY (block_index, block_hash),
-    #          UNIQUE (block_hash),
-    #          UNIQUE (previous_block_hash),
-    #          INDEX block_index_idx (block_index),
-    #          INDEX index_hash_idx (block_index, block_hash)
-    #      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    #  ''')
-
     # Check if the block_index_idx index exists
     cursor.execute('''
         SHOW INDEX FROM blocks WHERE Key_name = 'block_index_idx'
@@ -259,27 +239,6 @@ def initialise(db):  # CHANGED TO MYSQL
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
         raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
-
-    # Transactions
-
-    # MySQL Version
-    # Create the transactions table if it does not exist
-    #  cursor.execute('''
-    #      CREATE TABLE IF NOT EXISTS transactions (
-    #          tx_index INT PRIMARY KEY,
-    #          tx_hash NVARCHAR(64) UNIQUE,
-    #          block_index INT,
-    #          block_hash NVARCHAR(64),
-    #          block_time INT,
-    #          source NVARCHAR(64),
-    #          destination NVARCHAR(64),
-    #          btc_amount BIGINT,
-    #          fee BIGINT,
-    #          data LONGTEXT,
-    #          supported BIT DEFAULT 1,
-    #          FOREIGN KEY (block_index, block_hash) REFERENCES blocks(block_index, block_hash)
-    #      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    #  ''')
 
     # Check if the block_index_idx index exists
     cursor.execute('''
@@ -717,10 +676,22 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        burn_key = check_burnkeys_in_multisig(decoded_tx)
+        key_burn = check_burnkeys_in_multisig(decoded_tx)
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
-            'INSERT INTO transactions (tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data, burn_key) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+            '''INSERT INTO transactions (
+                tx_index,
+                tx_hash,
+                block_index,
+                block_hash,
+                block_time,
+                source,
+                destination,
+                btc_amount,
+                fee,
+                data,
+                key_burn
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
             (
                 tx_index,
                 tx_hash,
@@ -732,7 +703,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 btc_amount,
                 fee,
                 data,
-                burn_key,
+                key_burn,
             )
         )
         return tx_index + 1
