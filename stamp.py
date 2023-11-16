@@ -172,10 +172,10 @@ def get_src_or_img_data(stamp, block_index):
     stamp_mimetype = None
     if 'description' not in stamp:
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
-            return stamp
+            return stamp, None
         elif 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-721':
             # TODO: add src-721 decoding and details here
-            return stamp
+            return stamp, None
     else:
         stamp_description = stamp.get('description')
         base64_string, stamp_mimetype = parse_base64_from_description(
@@ -263,12 +263,12 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
-            cpid, stamp_hash =  get_cpid(stamp, block_index, tx_hash)
+            cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
             if type(src_data) is bytes:
                 src_data = src_data.decode('utf-8')
                 
             if type(src_data) is str and is_json_string(src_data):
-                # TODO: add invalidation for src-20 on CP after block CP_SRC20_BLOCK_END
+                # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
                 if isinstance(json.loads(src_data), dict):
                     src_data = {k.lower(): v for k, v in json.loads(src_data).items()}
                 ident = False
