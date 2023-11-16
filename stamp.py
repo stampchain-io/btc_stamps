@@ -11,19 +11,19 @@ logger = logging.getLogger(__name__)
 
 def purgue_block_db(db, block_index):
     """Purgue block transactions from the database."""
-    cursor = db.cursor()
     db.ping(reconnect=True)
+    cursor = db.cursor()
     cursor.execute('''
                    DELETE FROM transactions
-                   WHERE block_index = %s
+                   WHERE block_index >= %s
                    ''', (block_index,))
     cursor.execute('''
                     DELETE FROM blocks
-                    WHERE block_index = %s
+                    WHERE block_index >= %s
                     ''', (block_index,))
     cursor.execute('''
                    DELETE FROM StampTableV4
-                   WHERE block_index = %s
+                   WHERE block_index >= %s
                     ''', (block_index,))
     cursor.execute("COMMIT")
     cursor.close()
