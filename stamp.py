@@ -427,7 +427,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "stamp_hash": stamp_hash,
                 "is_btc_stamp": is_btc_stamp,
             }
-            cursor.execute('''
+            cursor.execute(f'''
                           INSERT INTO {config.STAMP_TABLE}(
                                 stamp, block_index, cpid, asset_longname,
                                 creator, divisible, keyburn, locked,
