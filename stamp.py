@@ -310,7 +310,11 @@ def parse_stamps_to_stamp_table(db, stamps):
             ) = check_src_data(src_data, block_index)
 
             valid_cp_src20 = (
-                ident == 'SRC-20' and block_index < config.CP_SRC20_BLOCK_END
+                ident == 'SRC-20' and cpid and
+                block_index < config.CP_SRC20_BLOCK_END
+            ) or (
+                ident == 'SRC-20' and not cpid
+                and block_index >= config.CP_SRC20_BLOCK_END
             )
             valid_src721 = (
                 ident == 'SRC-721' and keyburn == 1
