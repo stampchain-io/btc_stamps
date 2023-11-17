@@ -21,7 +21,6 @@ CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
 BLOCKS_TO_KEEP = int(os.environ.get("BLOCKS_TO_KEEP", 0))
 
-
 # Define for QUicknode or remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
@@ -39,6 +38,9 @@ RPC_BATCH_NUM_WORKERS = 5  # 20
 
 raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
+DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
+SUPPORTED_SUB_PROTOCOLS = ['SRC-721', 'SRC-20']
+INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'json']
 
 STAMP_PREFIX_HEX = "7374616d703a" # (lowercase stamp:)
 

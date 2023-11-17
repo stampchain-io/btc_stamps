@@ -58,6 +58,7 @@ services:
       - RPC_TOKEN= # Optional - only for Quicknode users
       - BLOCKS_TO_KEEP=0 # Optional to purgue historic txs from db - keep all with 0
       - BACKEND_POLL_INTERVAL= # Optional to change the interval of the backend polling default 0.5 secs
+      - DOMAINNAME= # Optional to prepend the stamp_url value ie https://stampchain.io
 volumes:
   db_data:
   grafana_data:
