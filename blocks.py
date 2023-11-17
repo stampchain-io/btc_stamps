@@ -315,10 +315,10 @@ def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None):
     try:
         return _get_tx_info(tx_hex, block_parser, block_index)
     except DecodeError as e:
-        return b'', None, None, None, None, None
+        return b'', None, None, None, None, None, None
     except BTCOnlyError as e:
         # # NOTE: For debugging, logger.debug('Could not decode: ' + str(e))
-        return b'', None, None, None, None, None
+        return b'', None, None, None, None, None, None
 
 
 def _get_tx_info(tx_hex, block_parser=None, block_index=None, p2sh_is_segwit=False):
@@ -356,9 +356,11 @@ def get_tx_info2(
 
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
+
+    key_burn = check_burnkeys_in_multisig(ctx)
+    logger.warning(f"KEY BURN: {key_burn}")
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
-       
         # asm is the bytestring of the vout values
         # Fee is the input values minus output values.
         output_value = vout.nValue
@@ -655,13 +657,11 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
 
-    source, destination, btc_amount, fee, data, decoded_tx = get_tx_info(tx_hex, db=db) # type: ignore
-    keyburn = None
-    if decoded_tx:
-        keyburn = check_burnkeys_in_multisig(decoded_tx)
+    source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
+
     # logger.warning("keyburn after get_tx_info: {}".format(keyburn))
     # For mempool
-    if block_hash == None:
+    if block_hash is None:
         block_hash = config.MEMPOOL_BLOCK_HASH
         block_index = config.MEMPOOL_BLOCK_INDEX
     else:
