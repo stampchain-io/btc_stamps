@@ -38,6 +38,7 @@ RPC_BATCH_NUM_WORKERS = 5  # 20
 
 raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
+STAMP_TABLE = "StampTableV4"
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ['SRC-721', 'SRC-20']
 INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'json']

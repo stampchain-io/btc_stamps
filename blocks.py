@@ -843,11 +843,11 @@ def follow(db):
                         current_index -= 1
                         requires_rollback = True
 
-                # Rollback for reorganisation.
+                # Rollback for reorganization.
                 if requires_rollback:
-                    # Record reorganisation.
+                    # Record reorganization.
                     logger.warning(
-                        'Blockchain reorganisation at block {}.'
+                        'Blockchain reorganization at block {}.'
                         .format(current_index)
                     )
                     current_index -= 1
@@ -902,7 +902,7 @@ def follow(db):
 
                 for tx_hash in txhash_list:
                     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
-                    if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1":
+                    if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1": # DEBUG
                         print("found first src stamp in block follow db")
                     tx_hex = raw_transactions[tx_hash]
                     tx_index = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)

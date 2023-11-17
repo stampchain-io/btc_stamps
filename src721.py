@@ -2,6 +2,7 @@ import textwrap
 import logging
 import copy
 import json
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def fetch_src721_subasset_base64(asset_name, json_list, db):
         try:
              with db, db.cursor() as src721_subasset_cursor:
                 # this assumes the collection asset is already commited to the db... 
-                sql = f"SELECT stamp_base64 FROM StampTableV4 WHERE cpid = %s"
+                sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
                 src721_subasset_cursor.execute(sql, (asset_name,))
                 result = src721_subasset_cursor.fetchone()
                 if result:
@@ -156,7 +157,7 @@ def create_src721_mint_svg(src_data, db):
             try:
                 db.ping(reconnect=True)
                 cursor = db.cursor()
-                cursor.execute("SELECT src_data FROM StampTableV4 WHERE cpid = %s", (collection_asset,))
+                cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_asset,))
                 result = cursor.fetchone() # pull the deploy details this one has no src_data when it should A12314949010946956252
                 logger.warning(f"asset:{collection_asset}\nresult: {result}")
                 if result[0]:
