@@ -321,7 +321,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                     and keyburn == 1
                 )
             )
-            if not valid_src20:
+            if not valid_src20 and ident == 'SRC-20':
                 continue
             valid_src721 = (
                 ident == 'SRC-721'
