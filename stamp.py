@@ -304,7 +304,6 @@ def parse_stamps_to_stamp_table(db, stamps):
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
             keyburn = stamp_tx[tx_fields['keyburn']]
-            # need to check keyburn for src-721 or they are not valid
             (
                 ident, src_data, file_suffix
             ) = check_src_data(src_data, block_index)
@@ -372,16 +371,16 @@ def parse_stamps_to_stamp_table(db, stamps):
             if file_suffix == 'json' and (valid_src20 or valid_src721):
                 is_btc_stamp = 1
             logger.warning(f'''
-block_index: {block_index}
-cpid: {cpid}
-ident: {ident}
-keyburn: {keyburn}
-file_suffix: {file_suffix}
-is valid src20 in cp: {valid_cp_src20}
-is valid src 20: {valid_src20}
-is valid src 721: {valid_src721}
-is bitcoin stamp: {is_btc_stamp}
-                        ''')
+                block_index: {block_index}
+                cpid: {cpid}
+                ident: {ident}
+                keyburn: {keyburn}
+                file_suffix: {file_suffix}
+                is valid src20 in cp: {valid_cp_src20}
+                is valid src 20: {valid_src20}
+                is valid src 721: {valid_src721}
+                is bitcoin stamp: {is_btc_stamp}
+            ''')
             filename = f"{tx_hash}.{file_suffix}"
 
             if not stamp_mimetype and file_suffix in config.MIME_TYPES:
