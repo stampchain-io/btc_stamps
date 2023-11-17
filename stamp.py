@@ -303,7 +303,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
-
+            keyburn = stamp_tx[tx_fields['keyburn']]
             # need to check keyburn for src-721 or they are not valid
             (
                 ident, src_data, file_suffix
@@ -367,7 +367,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "creator": stamp.get('issuer', stamp_tx[tx_fields['source']]),
                 "divisible": stamp.get('divisible'),
                 "ident": ident,
-                "keyburn": None,  # TODO: add keyburn -- should check while we are parsing through the transactions
+                "keyburn": keyburn,
                 "locked": stamp.get('locked'),
                 "message_index": stamp.get('message_index'),
                 "stamp_base64": stamp_base64,
@@ -393,9 +393,10 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 message_index, stamp_base64,
                                 stamp_mimetype, stamp_url, supply, timestamp,
                                 tx_hash, tx_index, src_data, ident,
-                                creator_name, stamp_gen, stamp_hash
+                                creator_name, stamp_gen, stamp_hash,
+                                is_btc_stamp
                                 ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                %s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                            ''', (
                                 parsed['stamp'], parsed['block_index'],
                                 parsed['cpid'], parsed['asset_longname'],
@@ -408,7 +409,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                                 parsed['tx_hash'], parsed['tx_index'],
                                 parsed['src_data'], parsed['ident'],
                                 parsed['creator_name'], parsed['stamp_gen'],
-                                parsed['stamp_hash'],
+                                parsed['stamp_hash'], parsed['is_btc_stamp']
                            ))
         cursor.execute("COMMIT")
 
