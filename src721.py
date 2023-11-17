@@ -1,5 +1,7 @@
 import textwrap
 import logging
+import copy
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +14,24 @@ def sort_keys(key):
         return priority_keys.index(key)
     return len(priority_keys)
 
+# NOTE: we might be able to remove this function. legacy stuff
+def convert_to_dict(json_string_or_dict):
+    if isinstance(json_string_or_dict, str):
+        try:
+            return json.loads(json_string_or_dict)
+        except json.JSONDecodeError:
+            raise ValueError("Input is not a valid JSON-formatted string")
+    elif isinstance(json_string_or_dict, dict):
+        return json_string_or_dict
+    else:
+        raise TypeError("Input must be a JSON-formatted string or a Python dictionary object")
+    
 
-def query_tokens_custom(token, mysql_conn):
+def query_tokens_custom(token, db):
     # TODO: Populate the srcbackground image table - either through a stampchain API call, or a bootstrap file
     try:
-        with mysql_conn.cursor() as cursor:
-            cursor.execute(
+        with db, db.cursor() as src721_cursor:
+            src721_cursor.execute(
                 '''
                     SELECT base64, text_color, font_size
                     FROM srcbackground
@@ -25,7 +39,7 @@ def query_tokens_custom(token, mysql_conn):
                 ''',
                 (token.upper(),)
             )
-            result = cursor.fetchone()
+            result = src721_cursor.fetchone()
             if result:
                 base64 = result[0]
                 text_color = result[1] if result[1] else 'white'
@@ -38,7 +52,7 @@ def query_tokens_custom(token, mysql_conn):
         return None, 'white', '30px'
 
 
-def fetch_src721_subasset_base64(asset_name, json_list):
+def fetch_src721_subasset_base64(asset_name, json_list, db):
     # check if stamp_base64 is already in the json_list for thc cpid
     collection_sub_asset_base64 = None
     collection_sub_asset_base64 = next((item for item in json_list if item["asset"] == asset_name), None)
@@ -46,11 +60,11 @@ def fetch_src721_subasset_base64(asset_name, json_list):
         return collection_sub_asset_base64["stamp_base64"]
     else:
         try:
-            with mysql_conn.cursor() as cursor:
+             with db, db.cursor() as src721_subasset_cursor:
                 # this assumes the collection asset is already commited to the db... 
                 sql = f"SELECT stamp_base64 FROM StampTableV4 WHERE cpid = %s"
-                cursor.execute(sql, (asset_name,))
-                result = cursor.fetchone()
+                src721_subasset_cursor.execute(sql, (asset_name,))
+                result = src721_subasset_cursor.fetchone()
                 if result:
                     return result[0]  # Return the first column of the result (which should be the base64 string)
                 else:
@@ -59,10 +73,10 @@ def fetch_src721_subasset_base64(asset_name, json_list):
         except Exception as e:
             raise e
         finally:
-            cursor.close()
+            src721_subasset_cursor.close()
 
 
-def fetch_src721_collection(tmp_collection_object, json_list):
+def fetch_src721_collection(tmp_collection_object, json_list, db):
     # this adds the tx-img key to the collection object
     output_object = copy.deepcopy(tmp_collection_object)
     
@@ -75,7 +89,7 @@ def fetch_src721_collection(tmp_collection_object, json_list):
                 # print(f"--- Loading t[{i}][{j}]")
                 try:
                     # this assumes the image base64 is already in the db
-                    img_data = fetch_src721_subasset_base64(asset_name, json_list)
+                    img_data = fetch_src721_subasset_base64(asset_name, json_list, db)
                     # if img_data:
                     output_object[img_key].append(img_data)
                 except Exception as e:
@@ -150,7 +164,7 @@ def create_src721_mint_svg(src_data, db):
                     print("got collection asset item from db", collection_asset_item)
                 else: 
                     collection_asset_item = None
-                    print(f"Failed to fetch deploy src_data for asset {asset} from database")
+                    print(f"Failed to fetch deploy src_data for cpid from database")
                     # raise Exception(f"Failed to fetch deploy src_data for asset {asset} from database")
             except Exception as e:
                 raise e
@@ -161,7 +175,7 @@ def create_src721_mint_svg(src_data, db):
         elif collection_asset_item:
             try:
                 src_collection_data = convert_to_dict(collection_asset_item)
-                src_collection_data = fetch_src721_collection(src_collection_data, src_data)
+                src_collection_data = fetch_src721_collection(src_collection_data, src_data, db)
                 svg_output = build_src721_stacked_svg(src_data, src_collection_data)
             except Exception as e:
                 print(f"ERROR: processing SRC-721 data: {e}")
