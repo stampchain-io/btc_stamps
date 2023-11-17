@@ -396,7 +396,7 @@ def initialise_db():
 
 def connect_to_backend():
     if not config.FORCE:
-        logger.info('Connecting to backend.')
+        logger.info('Connecting to BTC Node.')
         backend.getblockcount()
 
 
@@ -418,10 +418,6 @@ def kickstart(db, bitcoind_dir):
     blocks.kickstart(db, bitcoind_dir=bitcoind_dir)
 
 
-def vacuum(db):
-    database.vacuum(db)
-
-
 def debug_config():
     output = vars(config)
     for k in list(output.keys()):
@@ -429,13 +425,6 @@ def debug_config():
             del output[k]
 
     pprint.pprint(output)
-
-
-def generate_move_random_hash(move):
-    move = int(move).to_bytes(2, byteorder='big')
-    random_bin = os.urandom(16)
-    move_random_hash_bin = util.dhash(random_bin + move)
-    return binascii.hexlify(random_bin).decode('utf8'), binascii.hexlify(move_random_hash_bin).decode('utf8')
 
 
 def configure_rpc(rpc_password=None):
