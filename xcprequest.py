@@ -94,6 +94,7 @@ def get_issuances_by_block(block_index):
             )
             time.sleep(10)
 
+
 def parse_base64_from_description(description):
     if description is not None and description.lower().find("stamp:") != -1:
         stamp_search = description[description.lower().find("stamp:") + 6:]
