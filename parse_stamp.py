@@ -14,7 +14,7 @@ from PIL import Image
 from config import BURNKEYS, BYTE_LENGTH_PREFIX_SIZE, STAMP_PREFIX_HEX
 from src20 import check_format
 
-''' this is a one off test script to parse src-20 transactions manually '''
+''' this is a one off test script to parse src-20 transactions manually - for reference only not part of production code '''
 
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)

@@ -7,6 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# FIXME: need to add adjustments for the correct vars to hit a local/private CP node
 
 url = config.CP_RPC_URL + "/api/rest"  # "http://public.coindaddy.io:4001"
 auth = HTTPBasicAuth(config.CP_RPC_USER, config.CP_RPC_PASSWORD)
@@ -123,25 +124,26 @@ def get_stamp_issuances(issuances):
                 stamp_mimetype
             ) = parse_base64_from_description(description)
 
-            filtered_issuance = {
-                # we are not adding the base64 string to the json string in issuances, this is parsed when going to StampTable
-                "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
-                "quantity": issuance["quantity"],
-                "divisible": issuance["divisible"],
-                "locked": issuance["locked"],
-                "source": issuance["source"],
-                "issuer": issuance["issuer"],
-                "transfer": issuance["transfer"],
-                "description": issuance["description"],
-                "reset": issuance["reset"],
-                "status": issuance["status"],
-                "asset_longname":
-                    issuance["asset_longname"] if "asset_longname" in issuance else "",
-                "tx_hash": issuance["tx_hash"],
-                "message_index": issuance["msg_index"],
-                "stamp_mimetype": stamp_mimetype
-            }
-            stamp_issuances.append(json.loads(json.dumps(filtered_issuance)))
+            if issuance["status"] == "valid":
+                filtered_issuance = {
+                    # we are not adding the base64 string to the json string in issuances, this is parsed when going to StampTable
+                    "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
+                    "quantity": issuance["quantity"],
+                    "divisible": issuance["divisible"],
+                    "locked": issuance["locked"],
+                    "source": issuance["source"],
+                    "issuer": issuance["issuer"],
+                    "transfer": issuance["transfer"],
+                    "description": issuance["description"],
+                    "reset": issuance["reset"],
+                    "status": issuance["status"],
+                    "asset_longname":
+                        issuance["asset_longname"] if "asset_longname" in issuance else "",
+                    "tx_hash": issuance["tx_hash"],
+                    "message_index": issuance["msg_index"],
+                    "stamp_mimetype": stamp_mimetype
+                }
+                stamp_issuances.append(json.loads(json.dumps(filtered_issuance)))
     return stamp_issuances
 
 

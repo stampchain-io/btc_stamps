@@ -3,148 +3,28 @@ from decimal import Decimal
 import json
 from config import TICK_PATTERN_LIST
 
-''' this is not yet implemented - to directly import the src20 items into the srcx table. '''
-''' currently done in the mysql_stv4_to_srcx.py script '''
-
-def initialise(db):
-    cursor = db.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS src20(
-                      tx_index INTEGER PRIMARY KEY,
-                      tx_hash TEXT UNIQUE,
-                      block_index INTEGER,
-                      source TEXT,
-                      timestamp INTEGER,
-                      value REAL,
-                      fee_fraction_int INTEGER,
-                      text TEXT,
-                      locked BOOL,
-                      status TEXT,
-                      FOREIGN KEY (tx_index, tx_hash, block_index) REFERENCES transactions(tx_index, tx_hash, block_index))
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      block_index_idx ON broadcasts (block_index)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      status_source_idx ON broadcasts (status, source)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      status_source_index_idx ON broadcasts (status, source, tx_index)
-                   ''')
-    cursor.execute('''CREATE INDEX IF NOT EXISTS
-                      timestamp_idx ON broadcasts (timestamp)
-                   ''')
+''' this is not yet implemented - intended to the src20 items into the srcx table.
+    in production this is currently done in the mysql_stv4_to_srcx.py script 
+    this will also serve as the basis for the src-20 balance table ''' 
 
 
-    # # Connect to the MySQL database
-    # mysql_conn = mysql.connect(
-    #     host='stamps-1.cluster-cbdenncm0tno.us-east-1.rds.amazonaws.com',
-    #     user='admin',
-    #     password='qh^PsfK&q9hiSWHz',
-    #     port=3306,
-    #     database='btc_stamps' # Replace with your database name
-    # )
-
-    # # Create the database if it does not exist
-    # mysql_cursor = mysql_conn.cursor()
-
-
-def parse (db, tx, message):
-    cursor = db.cursor()
-
-    # Unpack message and validate json string to insert into src20 table
+def query_tokens_custom(token, mysql_conn):
+    ''' used for pulling the src-20 background images for creation of the image '''
     try:
-        if util.enabled('broadcast_pack_text', tx['block_index']):
-            timestamp, value, fee_fraction_int, rawtext = struct.unpack(FORMAT + '{}s'.format(len(message) - LENGTH), message)
-            textlen = VarIntSerializer.deserialize(rawtext)
-            if textlen == 0:
-                text = b''
+        with mysql_conn.cursor() as cursor:
+            cursor.execute("SELECT base64, text_color, font_size FROM srcbackground WHERE tick = %s", (token.upper(),))
+            result = cursor.fetchone()
+            if result:
+                base64 = result[0]
+                text_color = result[1] if result[1] else 'white'
+                font_size = result[2] if result[2] else '30px'
+                return base64, text_color, font_size
             else:
-                text = rawtext[-textlen:]
+                return None, 'white', '30px'
+    except Exception as e:
+        print(f"Error querying database: {e}")
+        return None, 'white', '30px'
 
-            assert len(text) == textlen
-        else:
-            if len(message) - LENGTH <= 52:
-                curr_format = FORMAT + '{}p'.format(len(message) - LENGTH)
-            else:
-                curr_format = FORMAT + '{}s'.format(len(message) - LENGTH)
-
-            timestamp, value, fee_fraction_int, text = struct.unpack(curr_format, message)
-
-        try:
-            text = text.decode('utf-8')
-        except UnicodeDecodeError:
-            text = ''
-        status = 'valid'
-    except (struct.error) as e:
-        timestamp, value, fee_fraction_int, text = 0, None, 0, None
-        status = 'invalid: could not unpack'
-
-    if status == 'valid':
-        # For SQLite3
-        timestamp = min(timestamp, config.MAX_INT)
-        value = min(value, config.MAX_INT)
-
-        problems = validate(db, tx['source'], timestamp, value, fee_fraction_int, text, tx['block_index'])
-        if problems: status = 'invalid: ' + '; '.join(problems)
-
-    # Lock?
-    lock = False
-    if text and text.lower() == 'lock':
-        lock = True
-        timestamp, value, fee_fraction_int, text = 0, None, None, None
-    else:
-        lock = False
-
-    # Add parsed transaction to message-type–specific table.
-    bindings = {
-        'tx_index': tx['tx_index'],
-        'tx_hash': tx['tx_hash'],
-        'block_index': tx['block_index'],
-        'source': tx['source'],
-        'timestamp': timestamp,
-        'value': value,
-        'fee_fraction_int': fee_fraction_int,
-        'text': text,
-        'locked': lock,
-        'status': status,
-    }
-    if "integer overflow" not in status:
-        sql = 'insert into broadcasts values(:tx_index, :tx_hash, :block_index, :source, :timestamp, :value, :fee_fraction_int, :text, :locked, :status)'
-        cursor.execute(sql, bindings)
-    else:
-        logger.warn("Not storing [broadcast] tx [%s]: %s" % (tx['tx_hash'], status))
-        logger.debug("Bindings: %s" % (json.dumps(bindings), ))
-
-    # stop processing if broadcast is invalid for any reason
-    if util.enabled('broadcast_invalid_check') and status != 'valid':
-        return
-
-    # Options? Should not fail to parse due to above checks.
-    if util.enabled('options_require_memo') and text and text.lower().startswith('options'):
-        options = util.parse_options_from_string(text)
-        if options is not False:
-            op_bindings = {
-                        'block_index': tx['block_index'],
-                        'address': tx['source'],
-                        'options': options
-                       }
-            sql = 'insert or replace into addresses(address, options, block_index) values(:address, :options, :block_index)'
-            cursor = db.cursor()
-            cursor.execute(sql, op_bindings)
-
-
-
-    # stop processing if broadcast is invalid for any reason
-    # @TODO: remove this check once broadcast_invalid_check has been activated
-    if util.enabled('max_fee_fraction') and status != 'valid':
-        return
-
-    cursor.close()
-
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
-
-
-## This is the matching functions to validate the json strings
 
 
 def matches_any_pattern(text, pattern_list):

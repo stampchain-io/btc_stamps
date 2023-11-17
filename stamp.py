@@ -42,9 +42,9 @@ def purge_block_db(db, block_index):
         .format(block_index)
     )
     cursor.execute('''
-                   DELETE FROM StampTableV4
+                   DELETE FROM {}
                    WHERE block_index >= %s
-                    ''', (block_index,))
+                    '''.format(config.STAMP_TABLE), (block_index,))
     cursor.execute("COMMIT")
     cursor.close()
 
@@ -377,7 +377,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                 and ident in config.SUPPORTED_SUB_PROTOCOLS
             )):
                 is_btc_stamp = None
-            elif ident != 'UNKNOWN' or (file_suffix == 'json' and (valid_src20 or valid_src721)):
+            elif ident != 'UNKNOWN' and stamp.get('asset_longname') is  None and \
+                cpid.startswith('A') or \
+                (file_suffix == 'json' and (valid_src20 or valid_src721)):
                 is_btc_stamp = 1
             else:
                 is_btc_stamp = 0
@@ -426,7 +428,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "is_btc_stamp": is_btc_stamp,
             }
             cursor.execute('''
-                           INSERT INTO StampTableV4(
+                          INSERT INTO {config.STAMP_TABLE}(
                                 stamp, block_index, cpid, asset_longname,
                                 creator, divisible, keyburn, locked,
                                 message_index, stamp_base64,
