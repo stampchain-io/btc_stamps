@@ -259,7 +259,7 @@ def check_src_data(src_data, block_index):
         try:
             src_data = src_data.decode('utf-8')
         except Exception as e:
-            print(f"src_data is not a bytestring: {e}")
+            print(f"src_data is not a bytestring, is: {type(src_data)}: {e}")
     if (
         (type(src_data) is str and is_json_string(src_data))
         or isinstance(src_data, dict)
