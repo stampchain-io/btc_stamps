@@ -237,10 +237,14 @@ def check_burnkeys_in_multisig(transaction):
     for vout in transaction.vout:
         asm = script.get_asm(vout.scriptPubKey)
         if "OP_CHECKMULTISIG" in asm:
-            for item in asm:
-                if isinstance(item, bytes) and item.hex() in config.BURN_KEYS:
-                    logger.warning(f"Found burnkey in multisig: {item.hex()}")
-                    return 1
+            for burnkey in config.BURNKEYS:
+                logger.warning(f"burnkey: {burnkey}")
+                logger.warning(f"asm: {asm}")
+                for item in asm:
+                    if isinstance(item, bytes):
+                        logger.warning(f"item: {item.hex()}")
+                        if item.hex() == burnkey:
+                            return 1
     return None
 
 
