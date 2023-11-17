@@ -390,7 +390,6 @@ def get_tx_info2(
         except:
             raise DecodeError('unrecognised output type')
         assert new_destination is not None and new_data is not None
-        
         if new_data is not None:
             data += new_data
             destinations = (str(new_destination))
