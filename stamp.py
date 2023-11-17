@@ -111,20 +111,35 @@ def clean_and_load_json(json_string):
         json_string = json_string.replace("None", "null")
         return json.loads(json_string)
 
-
-def decode_base64_json(base64_string):
+def decode_base64(base64_string, block_index):
+    ''' validation on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
+    if block_index >= 784550:
+        decode_base64_with_repair(base64_string)
+        return
     try:
-        decoded_data = base64.b64decode(base64_string)
-        json_string = decoded_data.decode('utf-8')
-        return json.loads(json_string)
-    except Exception as e:
-        print(f"Error decoding json: {e}")
-        return None
+        image_data = base64.b64decode(base64_string)
+        return image_data
+    except Exception as e1:
+        try:
+            image_data = pybase64.b64decode(base64_string)
+            return image_data
+        except Exception as e2:
+            try:
+                # If decoding with pybase64 fails, try decoding with the base64 command line tool with and without newlines for the json strings
+                command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
+                if not base64_string.endswith('\n'):
+                    command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
+                image_data = subprocess.check_output(command, shell=True)
+                return image_data
+            except Exception as e3:
+                # If all decoding attempts fail, print an error message and return None
+                print(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
+                # print(base64_string)
+                return None
 
 
 def decode_base64_with_repair(base64_string):
-    ''' original function which attemts to add padding to "fix" the base64.
-    This was resulting in invalid/corrupted images. '''
+    ''' original function which attemts to add padding to "fix" the base64 string. This was resulting in invalid/corrupted images. '''
     try:
         missing_padding = len(base64_string) % 4
         if missing_padding:
