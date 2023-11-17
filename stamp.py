@@ -346,7 +346,7 @@ def parse_stamps_to_stamp_table(db, stamps):
 
             file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
             if (file_suffix in [
-                "plain", "octet-stream", "js", "css", 
+                "plain", "octet-stream", "js", "css",
                 "x-empty", "json"
             ] or not valid_cp_src20):
                 is_btc_stamp = None
