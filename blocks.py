@@ -660,7 +660,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
 
-    # logger.warning("keyburn after get_tx_info: {}".format(keyburn))
+    logger.warning("keyburn after get_tx_info: {}".format(keyburn))
     # For mempool
     if block_hash is None:
         block_hash = config.MEMPOOL_BLOCK_HASH
