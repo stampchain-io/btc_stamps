@@ -659,7 +659,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     keyburn = None
     if decoded_tx:
         keyburn = check_burnkeys_in_multisig(decoded_tx)
-    logger.warning("keyburn after get_tx_info: {}".format(keyburn))
+    # logger.warning("keyburn after get_tx_info: {}".format(keyburn))
     # For mempool
     if block_hash == None:
         block_hash = config.MEMPOOL_BLOCK_HASH
