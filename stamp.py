@@ -234,6 +234,7 @@ def is_only_op_return(transaction):
 
 
 def check_burnkeys_in_multisig(transaction):
+    keyburn_found = None
     for vout in transaction.vout:
         asm = script.get_asm(vout.scriptPubKey)
         if "OP_CHECKMULTISIG" in asm:
@@ -242,8 +243,9 @@ def check_burnkeys_in_multisig(transaction):
                     if isinstance(item, bytes):
                         if item.hex() == burnkey:
                             logger.warning(f"Found burnkey in multisig: {burnkey}")
-                            return 1
-    return None
+                            keyburn_found = 1
+                            break
+    return keyburn_found
 
 
 def is_json_string(s):
