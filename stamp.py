@@ -185,7 +185,6 @@ def get_src_or_img_data(stamp, block_index):
         # if decoded base64 string is src-721 or src-20 return the json
         decoded_base64 = decode_base64(base64_string, block_index)
         return decoded_base64, stamp_mimetype
-        # return decode_base64_json(stamp.get('description').split(':')[1])
 
 
 def check_custom_suffix(bytestring_img_data):
@@ -369,7 +368,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ).strftime('%Y-%m-%d %H:%M:%S'),
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
-                "src_data": src_data,
+                "src_data": (
+                    file_suffix == 'json' and json.dumps(src_data) or None
+                ),
                 "stamp_gen": None,  # TODO: add stamp_gen,
                 "stamp_hash": stamp_hash,
             }
