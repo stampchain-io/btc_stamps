@@ -323,13 +323,13 @@ def parse_stamps_to_stamp_table(db, stamps):
                 )
             )
             logger.warning(f'''
-                           block_index: {block_index}\n
-                           cpid: {cpid}\n
-                           ident: {ident}\n
+                           block_index: {block_index}
+                           cpid: {cpid}
+                           ident: {ident}
                            keyburn: {keyburn}
                         ''')
             logger.warning(f'''
-                           is valid src20 in cp: {valid_cp_src20}\n
+                           is valid src20 in cp: {valid_cp_src20}
                            is valid src 20: {valid_src20}
                         ''')
             valid_src721 = (

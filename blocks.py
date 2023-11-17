@@ -357,7 +357,8 @@ def get_tx_info2(
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
-    key_burn = check_burnkeys_in_multisig(ctx)
+    keyburn = check_burnkeys_in_multisig(ctx)
+    logger.warning(f"key_burn in tx: {keyburn}")
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
        
@@ -442,7 +443,7 @@ def get_tx_info2(
     if source is None:
         raise DecodeError('unknown source address type')
     # print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
-    return source, destinations, btc_amount, round(fee), data, ctx, key_burn
+    return source, destinations, btc_amount, round(fee), data, ctx, keyburn
 
 
 def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
@@ -673,6 +674,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
+        logger.warning(f"keyburn before saving to db: {keyburn}")
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (
