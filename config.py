@@ -121,7 +121,7 @@ TXS_FIELDS_POSITION = {
     'fee': 8,
     'data': 9,
     'supported': 10,
-    'key_burn': 11,
+    'keyburn': 11,
 }
 
 
