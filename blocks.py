@@ -660,6 +660,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
 
+    if keyburn is None and decoded_tx is not None:
+        keyburn = check_burnkeys_in_multisig(decoded_tx)
     logger.warning("keyburn after get_tx_info: {}".format(keyburn))
     # For mempool
     if block_hash is None:
