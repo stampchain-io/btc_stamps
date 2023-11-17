@@ -357,7 +357,6 @@ def get_tx_info2(
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
     keyburn = check_burnkeys_in_multisig(ctx)
-    logger.warning("<<>>keyburn: {}".format(keyburn))
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
        
@@ -658,7 +657,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
 
     source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
-
+    logger.warning("keyburn after get_tx_info: {}".format(keyburn))
     # For mempool
     if block_hash == None:
         block_hash = config.MEMPOOL_BLOCK_HASH
@@ -672,7 +671,6 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        data and logger.warning(f"keyburn before saving to db: {keyburn}")
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (
