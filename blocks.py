@@ -315,10 +315,10 @@ def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None):
     try:
         return _get_tx_info(tx_hex, block_parser, block_index)
     except DecodeError as e:
-        return b'', None, None, None, None, None, None
+        return b'', None, None, None, None, None
     except BTCOnlyError as e:
         # # NOTE: For debugging, logger.debug('Could not decode: ' + str(e))
-        return b'', None, None, None, None, None, None
+        return b'', None, None, None, None, None
 
 
 def _get_tx_info(tx_hex, block_parser=None, block_index=None, p2sh_is_segwit=False):
@@ -356,8 +356,6 @@ def get_tx_info2(
 
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
-    keyburn = check_burnkeys_in_multisig(ctx)
-    keyburn and logger.warning(f"Found burnkey in multisig: {keyburn}")
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
        
@@ -441,7 +439,7 @@ def get_tx_info2(
     if source is None:
         raise DecodeError('unknown source address type')
     # print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
-    return source, destinations, btc_amount, round(fee), data, ctx, keyburn
+    return source, destinations, btc_amount, round(fee), data, ctx
 
 
 def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
@@ -657,7 +655,10 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
 
-    source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
+    source, destination, btc_amount, fee, data, decoded_tx = get_tx_info(tx_hex, db=db) # type: ignore
+    keyburn = None
+    if decoded_tx:
+        keyburn = check_burnkeys_in_multisig(decoded_tx)
     logger.warning("keyburn after get_tx_info: {}".format(keyburn))
     # For mempool
     if block_hash == None:
