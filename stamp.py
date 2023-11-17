@@ -312,12 +312,21 @@ def parse_stamps_to_stamp_table(db, stamps):
             valid_cp_src20 = (
                 ident == 'SRC-20' and cpid and
                 block_index < config.CP_SRC20_BLOCK_END
-            ) or (
-                ident == 'SRC-20' and not cpid
-                and block_index >= config.CP_SRC20_BLOCK_END
+                and keyburn == 1
             )
+            valid_src20 = (
+                valid_cp_src20 or
+                (
+                    ident == 'SRC-20' and not cpid
+                    and block_index >= config.CP_SRC20_BLOCK_END
+                    and keyburn == 1
+                )
+            )
+            logger.warning(f"is valid src20: {valid_cp_src20}")
             valid_src721 = (
-                ident == 'SRC-721' and keyburn == 1
+                ident == 'SRC-721'
+                and keyburn == 1
+                and stamp.get('quantity') == 1
             )
             stamp_base64 = (
                 stamp.get('description').split(':')[1]
@@ -355,7 +364,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             if (file_suffix in [
                 "plain", "octet-stream", "js", "css",
                 "x-empty", "json"
-            ] or not valid_cp_src20 or not valid_src721):
+            ] or not valid_src20 or not valid_src721):
                 is_btc_stamp = None
             else:
                 is_btc_stamp = 1
