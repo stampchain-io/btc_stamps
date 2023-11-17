@@ -284,6 +284,8 @@ def check_src_data(src_data, block_index):
         ident = 'STAMP'
         src_data = None
         try:
+            if decode_base64(stamp_base64, block_index) is None:
+                return None, None, None
             file_suffix = get_file_suffix(stamp_base64, block_index)
             #  print(f"file_suffix: {file_suffix}")  # DEBUG
         except Exception as e:
@@ -364,7 +366,10 @@ def parse_stamps_to_stamp_table(db, stamps):
             if (file_suffix in [
                 "plain", "octet-stream", "js", "css",
                 "x-empty", "json"
-            ] or (not valid_src20 and not valid_src721)):
+            ] or (
+                not valid_src20 and not valid_src721
+                and ident in ('SRC-20', 'SRC-721')
+            )):
                 is_btc_stamp = None
             else:
                 is_btc_stamp = 1
