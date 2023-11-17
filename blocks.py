@@ -315,10 +315,10 @@ def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None):
     try:
         return _get_tx_info(tx_hex, block_parser, block_index)
     except DecodeError as e:
-        return b'', None, None, None, None, None, None
+        return b'', None, None, None, None, None
     except BTCOnlyError as e:
         # # NOTE: For debugging, logger.debug('Could not decode: ' + str(e))
-        return b'', None, None, None, None, None, None
+        return b'', None, None, None, None, None
 
 
 def _get_tx_info(tx_hex, block_parser=None, block_index=None, p2sh_is_segwit=False):
