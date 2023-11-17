@@ -11,6 +11,7 @@ import config
 from xcprequest import parse_base64_from_description
 from bitcoin.core.script import CScript, OP_RETURN
 from src721 import create_src721_mint_svg, get_src721_svg_string
+import traceback
 import src.script as script
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,7 @@ def get_src_or_img_data(stamp, block_index):
     # if this is src-20 on bitcoin we have already decoded
     # the string in the transaction table
     stamp_mimetype = None
-    if 'description' not in stamp:
+    if 'description' not in stamp: # this was already decoded to json
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
             return stamp, None
         elif 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-721':
@@ -194,36 +195,38 @@ def get_src_or_img_data(stamp, block_index):
             return stamp, None
     else:
         stamp_description = stamp.get('description')
+        #FIXME: stamp_mimetype may also be pulled in from the data json string as the stamp_mimetype key.
+        # below will over-write that user-input value
+        # we also may have text or random garbage in the description field to look out for
         base64_string, stamp_mimetype = parse_base64_from_description(
             stamp_description
         )
-        # if decoded base64 string is src-721 or src-20 return the json
         decoded_base64 = decode_base64(base64_string, block_index)
         return decoded_base64, stamp_mimetype
 
 
-def check_custom_suffix(bytestring_img_data):
+def check_custom_suffix(bytestring_data):
     ''' for items that aren't part of the magic module that we want to include '''
-    if bytestring_img_data[:3] == b'BMN':
+    if bytestring_data[:3] == b'BMN':
         return True
     else:
         return None
 
 
-def get_file_suffix(bytestring_img_data, block_index):
+def get_file_suffix(bytestring_data, block_index):
     print(block_index, config.BMN_BLOCKSTART)
     if block_index > config.BMN_BLOCKSTART:
-        if check_custom_suffix(bytestring_img_data):
+        if check_custom_suffix(bytestring_data):
             return 'bmn'
     try:
-        json.loads(bytestring_img_data.decode('utf-8'))
+        json.loads(bytestring_data.decode('utf-8'))
         return 'json'
     except (json.JSONDecodeError, UnicodeDecodeError):
         # If it failed to decode as UTF-8 text, pass it to magic to determine the file type
         if block_index > 797200: # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
-            file_type = magic.from_buffer(bytestring_img_data.lstrip(), mime=True)
+            file_type = magic.from_buffer(bytestring_data.lstrip(), mime=True)
         else:
-            file_type = magic.from_buffer(bytestring_img_data, mime=True)
+            file_type = magic.from_buffer(bytestring_data, mime=True)
         return file_type.split('/')[-1]
 
 
@@ -268,43 +271,37 @@ def is_json_string(s):
         return False
 
 
-def check_src_data(src_data, block_index):
-    if type(src_data) is bytes:
+def check_decoded_data(decoded_data, block_index):
+    ''' this can come in as a json string or text (in the case of svg's)'''
+    if type(decoded_data) is bytes: # should always be true, we are storing the data as bytestring in data column
         try:
-            src_data = src_data.decode('utf-8')
+            decoded_data = decoded_data.decode('utf-8')
         except Exception as e:
             pass
-            # print(f"src_data is not a bytestring, is: {type(src_data)}: {e}")
     if (
-        (type(src_data) is str and is_json_string(src_data))
-        or isinstance(src_data, dict)
+        (type(decoded_data) is str and is_json_string(decoded_data))
+        or isinstance(decoded_data, dict)
     ):
         # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
-        if isinstance(src_data, str):
-            src_data = json.loads(src_data)
-            src_data = {k.lower(): v for k, v in src_data.items()}
+        if isinstance(decoded_data, str):
+            decoded_data = json.loads(decoded_data)
+            decoded_data = {k.lower(): v for k, v in decoded_data.items()}
         ident = False
-        if src_data and src_data.get('p') and src_data.get('p').upper() in ['SRC-721', 'SRC-20']:
-            ident = src_data['p'].upper()
+        if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in ['SRC-721', 'SRC-20']:
+            ident = decoded_data['p'].upper()
             file_suffix = 'json'
         else:
             ident = 'UNKNOWN'
             # continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
     else:
-        #  logger.warning(
-        #      f"src_data is not a json string is {type(src_data)}: {src_data}"
-        #  )
-        # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
-        stamp_base64 = src_data
         ident = 'STAMP'
         src_data = None
         try:
-            if decode_base64(stamp_base64, block_index) is None:
-                return None, None, None
-            file_suffix = get_file_suffix(stamp_base64, block_index)
-            #  print(f"file_suffix: {file_suffix}")  # DEBUG
+            if type(decoded_data) is str:
+                decoded_data_bytestring = decoded_data.encode('utf-8') # re-encode as bytestring for suffix check
+            file_suffix = get_file_suffix(decoded_data_bytestring, block_index)
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}\n{traceback.format_exc()}")
             raise
     return ident, src_data, file_suffix
 
@@ -314,16 +311,17 @@ def parse_stamps_to_stamp_table(db, stamps):
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
+            file_suffix, filename = None, None
             block_index = stamp_tx[tx_fields['block_index']]
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
-            src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
+            decoded_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index) # still base64 here
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
             keyburn = stamp_tx[tx_fields['keyburn']]
             (
                 ident, src_data, file_suffix
-            ) = check_src_data(src_data, block_index)
+            ) = check_decoded_data(decoded_base64, block_index)
 
             valid_cp_src20 = (
                 ident == 'SRC-20' and cpid and
@@ -352,7 +350,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                 else None
             )
 
-            # TODO: more validation if this is a valid btc_stamp
             if ident == 'SRC-721':
                 op_val = src_data.get("op", None).upper()
                 if 'symbol' in src_data:
@@ -419,7 +416,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "message_index": stamp.get('message_index'),
                 "stamp_base64": stamp_base64,
                 "stamp_mimetype": stamp_mimetype,
-                "stamp_url": None,  # TODO: add stamp_url
+                "stamp_url": '/stamps/' + filename,  # NOTE: will need to prepend URL on frontend
                 "supply": stamp.get('quantity'),
                 "timestamp": datetime.utcfromtimestamp(
                     stamp_tx[tx_fields['block_time']]
@@ -429,7 +426,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "src_data": (
                     file_suffix == 'json' and json.dumps(src_data) or None
                 ),
-                "stamp_gen": None,  # TODO: add stamp_gen,
+                "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this depending on how we handle numbering,
                 "stamp_hash": stamp_hash,
                 "is_btc_stamp": is_btc_stamp,
             }
