@@ -358,7 +358,6 @@ def get_tx_info2(
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
     keyburn = check_burnkeys_in_multisig(ctx)
-    logger.warning(f"key_burn in tx: {keyburn}")
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
        
@@ -674,7 +673,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        logger.warning(f"keyburn before saving to db: {keyburn}")
+        data and logger.warning(f"keyburn before saving to db: {keyburn}")
         # logger.warning('Saving to MySQL transactions: {}\nDATA:{}'.format(tx_hash, data))
         cursor.execute(
             '''INSERT INTO transactions (
