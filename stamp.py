@@ -323,15 +323,13 @@ def parse_stamps_to_stamp_table(db, stamps):
                 )
             )
             logger.warning(f'''
-                           block_index: {block_index}
-                           cpid: {cpid}
-                           ident: {ident}
-                           keyburn: {keyburn}
+block_index: {block_index}
+cpid: {cpid}
+ident: {ident}
+keyburn: {keyburn}
+file_suffix: {file_suffix}
                         ''')
-            logger.warning(f'''
-                           is valid src20 in cp: {valid_cp_src20}
-                           is valid src 20: {valid_src20}
-                        ''')
+            
             valid_src721 = (
                 ident == 'SRC-721'
                 and keyburn == 1
@@ -377,7 +375,12 @@ def parse_stamps_to_stamp_table(db, stamps):
                 is_btc_stamp = None
             else:
                 is_btc_stamp = 1
-
+            logger.warning(f'''
+is valid src20 in cp: {valid_cp_src20}
+is valid src 20: {valid_src20}
+is valid src 721: {valid_src721}
+is bitcoin stamp: {is_btc_stamp}
+                        ''')
             filename = f"{tx_hash}.{file_suffix}"
 
             if not stamp_mimetype and file_suffix in config.MIME_TYPES:
