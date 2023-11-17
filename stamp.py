@@ -366,6 +366,8 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "x-empty", "json"
             ] or not valid_src20 or not valid_src721):
                 is_btc_stamp = None
+            elif file_suffix == 'json' and (valid_src20 or valid_src721):
+                is_btc_stamp = 1
             else:
                 is_btc_stamp = 1
             logger.warning(f'''
