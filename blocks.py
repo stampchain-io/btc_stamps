@@ -357,8 +357,9 @@ def get_tx_info2(
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
-    key_burn = check_burnkeys_in_multisig(ctx)
-    logger.warning(f"KEY BURN: {key_burn}")
+    keyburn = check_burnkeys_in_multisig(ctx)
+    logger.warning(f"KEY BURN: {keyburn}")
+    
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
         # asm is the bytestring of the vout values
@@ -441,7 +442,7 @@ def get_tx_info2(
     if source is None:
         raise DecodeError('unknown source address type')
     # print("returning: sources, destinations, btc_amount, fee, data ", source, destinations, btc_amount, round(fee), data, "\n")
-    return source, destinations, btc_amount, round(fee), data, ctx
+    return source, destinations, btc_amount, round(fee), data, ctx, keyburn
 
 
 def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
