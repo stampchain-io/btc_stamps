@@ -37,7 +37,7 @@ USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
   `block_index` int DEFAULT NULL,
-  `cpid` varchar(255) DEFAULT NULL,
+  `cpid` varchar(255) DEFAULT NULL UNIQUE,
   `asset_longname` varchar(255) DEFAULT NULL,
   `creator` varchar(255) DEFAULT NULL,
   `divisible` tinyint(1) DEFAULT NULL,
