@@ -202,7 +202,7 @@ def get_src_or_img_data(stamp, block_index):
             stamp_description
         )
         decoded_base64 = decode_base64(base64_string, block_index)
-        return decoded_base64, stamp_mimetype
+        return decoded_base64, base64_string, stamp_mimetype
 
 
 def check_custom_suffix(bytestring_data):
@@ -273,37 +273,41 @@ def is_json_string(s):
 
 def check_decoded_data(decoded_data, block_index):
     ''' this can come in as a json string or text (in the case of svg's)'''
-    if type(decoded_data) is bytes: # should always be true, we are storing the data as bytestring in data column
+    if type(decoded_data) is bytes:
         try:
-            decoded_data = decoded_data.decode('utf-8')
+            decoded_data = decoded_data.decode('utf-8') # this will fail if it's not a string (aka if it's a stamp image)
         except Exception as e:
             pass
     if (
         (type(decoded_data) is str and is_json_string(decoded_data))
         or isinstance(decoded_data, dict)
     ):
-        # TODO: invalidate src-20 on CP after block CP_SRC20_BLOCK_END
         if isinstance(decoded_data, str):
             decoded_data = json.loads(decoded_data)
             decoded_data = {k.lower(): v for k, v in decoded_data.items()}
         ident = False
-        if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in ['SRC-721', 'SRC-20']:
+        if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
             ident = decoded_data['p'].upper()
             file_suffix = 'json'
         else:
             ident = 'UNKNOWN'
             # continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
     else:
-        ident = 'STAMP'
-        src_data = None
         try:
-            if type(decoded_data) is str:
-                decoded_data_bytestring = decoded_data.encode('utf-8') # re-encode as bytestring for suffix check
-            file_suffix = get_file_suffix(decoded_data_bytestring, block_index)
+            if decoded_data and type(decoded_data) is str:
+                decoded_data_bytestring = decoded_data.encode('utf-8') # re-encode as bytestring for suffix check (for src-721/svg)
+                file_suffix = get_file_suffix(decoded_data_bytestring, block_index)
+                ident = 'STAMP'
+            elif decoded_data and type(decoded_data) is bytes:
+                file_suffix = get_file_suffix(decoded_data, block_index)
+                ident = 'STAMP'
+            else:
+                file_suffix = None
+                ident = 'UNKNOWN'
         except Exception as e:
             logger.error(f"Error: {e}\n{traceback.format_exc()}")
             raise
-    return ident, src_data, file_suffix
+    return ident, file_suffix
 
 
 def parse_stamps_to_stamp_table(db, stamps):
@@ -311,17 +315,16 @@ def parse_stamps_to_stamp_table(db, stamps):
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            file_suffix, filename = None, None
+            (file_suffix, filename) = None, None
             block_index = stamp_tx[tx_fields['block_index']]
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
-            decoded_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index) # still base64 here
-            cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
+            decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index) # still base64 here
+            (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
             keyburn = stamp_tx[tx_fields['keyburn']]
-            (
-                ident, src_data, file_suffix
-            ) = check_decoded_data(decoded_base64, block_index)
+            (ident, file_suffix) = check_decoded_data(decoded_base64, block_index)
+            file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
             valid_cp_src20 = (
                 ident == 'SRC-20' and cpid and
@@ -343,14 +346,9 @@ def parse_stamps_to_stamp_table(db, stamps):
                 and keyburn == 1
                 and stamp.get('quantity') == 1
             )
-            stamp_base64 = (
-                stamp.get('description').split(':')[1]
-                if ident in ('STAMP', 'SRC-721') or
-                valid_cp_src20
-                else None
-            )
 
             if ident == 'SRC-721':
+                src_data = decoded_base64
                 op_val = src_data.get("op", None).upper()
                 if 'symbol' in src_data:
                     src_data['tick'] = src_data.pop('symbol')
@@ -369,24 +367,21 @@ def parse_stamps_to_stamp_table(db, stamps):
                 else:
                     svg_output = get_src721_svg_string(
                         "SRC-721",
-                        "stampchain.io",
+                        config.DOMAINNAME,
                         db
                     )
                     file_suffix = 'svg'
 
-            file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-            if (file_suffix in [
-                "plain", "octet-stream", "js", "css",
-                "x-empty", "json"
-            ] or (
+            if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
                 not valid_src20 and not valid_src721
-                and ident in ('SRC-20', 'SRC-721')
+                and ident in config.SUPPORTED_SUB_PROTOCOLS
             )):
                 is_btc_stamp = None
+            elif ident != 'UNKNOWN' or (file_suffix == 'json' and (valid_src20 or valid_src721)):
+                is_btc_stamp = 1
             else:
-                is_btc_stamp = 1
-            if file_suffix == 'json' and (valid_src20 or valid_src721):
-                is_btc_stamp = 1
+                is_btc_stamp = 0
+
             logger.warning(f'''
                 block_index: {block_index}
                 cpid: {cpid}
@@ -416,7 +411,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "message_index": stamp.get('message_index'),
                 "stamp_base64": stamp_base64,
                 "stamp_mimetype": stamp_mimetype,
-                "stamp_url": '/stamps/' + filename,  # NOTE: will need to prepend URL on frontend
+                "stamp_url": 'https://' + config.DOMAINNAME + '/stamps/' + filename if file_suffix is not None else None,
                 "supply": stamp.get('quantity'),
                 "timestamp": datetime.utcfromtimestamp(
                     stamp_tx[tx_fields['block_time']]
