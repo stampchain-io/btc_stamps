@@ -258,7 +258,8 @@ def check_src_data(src_data, block_index):
         try:
             src_data = src_data.decode('utf-8')
         except Exception as e:
-            print(f"src_data is not a bytestring, is: {type(src_data)}: {e}")
+            pass
+            # print(f"src_data is not a bytestring, is: {type(src_data)}: {e}")
     if (
         (type(src_data) is str and is_json_string(src_data))
         or isinstance(src_data, dict)
@@ -275,16 +276,16 @@ def check_src_data(src_data, block_index):
             ident = 'UNKNOWN'
             # continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
     else:
-        logger.warning(
-            f"src_data is not a json string is {type(src_data)}: {src_data}"
-        )
+        #  logger.warning(
+        #      f"src_data is not a json string is {type(src_data)}: {src_data}"
+        #  )
         # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
         stamp_base64 = src_data
         ident = 'STAMP'
         src_data = None
         try:
             file_suffix = get_file_suffix(stamp_base64, block_index)
-            print(f"file_suffix: {file_suffix}")  # DEBUG
+            #  print(f"file_suffix: {file_suffix}")  # DEBUG
         except Exception as e:
             print(f"Error: {e}")
             raise
@@ -303,8 +304,6 @@ def parse_stamps_to_stamp_table(db, stamps):
             src_data, stamp_mimetype = get_src_or_img_data(stamp, block_index)
             cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
 
-            logger.warning("SRC_DATA BEFORE CHECK: {}".format(src_data))
-            logger.warning("TX_HASH BEFORE CHECK: {}".format(tx_hash))
             # need to check keyburn for src-721 or they are not valid
             (
                 ident, src_data, file_suffix
