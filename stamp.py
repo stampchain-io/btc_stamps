@@ -322,13 +322,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                     and keyburn == 1
                 )
             )
-            logger.warning(f'''
-block_index: {block_index}
-cpid: {cpid}
-ident: {ident}
-keyburn: {keyburn}
-file_suffix: {file_suffix}
-                        ''')
             
             valid_src721 = (
                 ident == 'SRC-721'
@@ -376,6 +369,11 @@ file_suffix: {file_suffix}
             else:
                 is_btc_stamp = 1
             logger.warning(f'''
+block_index: {block_index}
+cpid: {cpid}
+ident: {ident}
+keyburn: {keyburn}
+file_suffix: {file_suffix}
 is valid src20 in cp: {valid_cp_src20}
 is valid src 20: {valid_src20}
 is valid src 721: {valid_src721}
