@@ -674,7 +674,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        logger.warning('Saving to MySQL transactions: {}\nDATA:{}\n{}'.format(tx_hash, data, keyburn))
+        logger.warning('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}'.format(tx_hash, data, keyburn))
         cursor.execute(
             '''INSERT INTO transactions (
                 tx_index,
