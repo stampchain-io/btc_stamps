@@ -658,7 +658,9 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     source, destination, btc_amount, fee, data, decoded_tx = get_tx_info(tx_hex, db=db) # type: ignore
 
-    keyburn = check_burnkeys_in_multisig(decoded_tx)
+    keyburn = None
+    if decoded_tx:
+        keyburn = check_burnkeys_in_multisig(decoded_tx)
     # For mempool
     if block_hash == None:
         block_hash = config.MEMPOOL_BLOCK_HASH
