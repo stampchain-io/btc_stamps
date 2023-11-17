@@ -309,11 +309,16 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ident, src_data, file_suffix
             ) = check_src_data(src_data, block_index)
 
+            valid_cp_src20 = (
+                ident == 'SRC-20' and block_index < config.CP_SRC20_BLOCK_END
+            )
             stamp_base64 = (
                 stamp.get('description').split(':')[1]
-                if ident == 'STAMP'
+                if ident in ('STAMP', 'SRC-721') or
+                valid_cp_src20
                 else None
             )
+
             # TODO: more validation if this is a valid btc_stamp
             if ident == 'SRC-721':
                 op_val = src_data.get("op", None).upper()
@@ -340,7 +345,14 @@ def parse_stamps_to_stamp_table(db, stamps):
                     file_suffix = 'svg'
 
             file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-            # if file_suffix in ["plain", "octet-stream", "js", "css", "x-empty", "json"]: # these are not btc_stamps
+            if (file_suffix in [
+                "plain", "octet-stream", "js", "css", 
+                "x-empty", "json"
+            ] or not valid_cp_src20):
+                is_btc_stamp = None
+            else:
+                is_btc_stamp = 1
+
             filename = f"{tx_hash}.{file_suffix}"
 
             if not stamp_mimetype and file_suffix in config.MIME_TYPES:
@@ -372,6 +384,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ),
                 "stamp_gen": None,  # TODO: add stamp_gen,
                 "stamp_hash": stamp_hash,
+                "is_btc_stamp": is_btc_stamp,
             }
             cursor.execute('''
                            INSERT INTO StampTableV4(
