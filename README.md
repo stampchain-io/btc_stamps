@@ -1,7 +1,6 @@
 # Bitcoin Stamps Primary Indexer - SRC-20, Glyphs, etc.
 
-
-- currently saving ALL BTC transactions for potential other uses,  this may be trimmed by using the config.BLOCKS_TO_KEEP variable
+- Currently saving ALL BTC transactions for potential other uses,  this may be trimmed by using the config.BLOCKS_TO_KEEP variable
 - We are saving all transactions so that multi-sourced data from CP and direct from BTC (SRC-20) can be ordered - maintaining stamp numbering
 - In the event of a block reorg the impacted transactions, blocks and entries in StampTable are purged
 
