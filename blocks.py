@@ -358,7 +358,6 @@ def get_tx_info2(
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
     keyburn = check_burnkeys_in_multisig(ctx)
-    logger.warning(f"KEY BURN: {keyburn}")
     
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
