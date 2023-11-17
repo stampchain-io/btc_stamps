@@ -240,9 +240,8 @@ def check_burnkeys_in_multisig(transaction):
             for burnkey in config.BURNKEYS:
                 for item in asm:
                     if isinstance(item, bytes):
-                        logger.warning(f"item: {item.hex()}")
-                        logger.warning(f"burnkey: {burnkey}")
                         if item.hex() == burnkey:
+                            logger.warning(f"Found burnkey in multisig: {burnkey}")
                             return 1
     return None
 
