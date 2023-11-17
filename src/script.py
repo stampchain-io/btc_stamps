@@ -280,12 +280,14 @@ def get_checksig(asm):
 
 # Stamp Version
 def get_checkmultisig(asm): #this is for any multisig in the correct format
-    # convert asm[3] bytes to string for comparison
+    keyburn = None
+    # convert asm[3] bytes to string for comparison against burnkeys
     asm3_str = binascii.hexlify(asm[3]).decode("utf-8")
     if len(asm) == 6 and asm[0] == 1 and asm[4] == 3 and asm[5] == 'OP_CHECKMULTISIG' and asm3_str in config.BURNKEYS:
         pubkeys, signatures_required = asm[1:3], asm[0]
         # print("pubkeys from get_checkmultisig", pubkeys)
-        return pubkeys, signatures_required
+        keyburn = True
+        return pubkeys, signatures_required, keyburn
     raise exceptions.DecodeError('invalid OP_CHECKMULTISIG')
 
  # CP Version

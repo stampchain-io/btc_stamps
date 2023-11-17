@@ -357,8 +357,6 @@ def get_tx_info2(
     # Get destinations and data outputs.
     destinations, btc_amount, fee, data = [], 0, 0, b''
 
-    keyburn = check_burnkeys_in_multisig(ctx)
-    
     # vout_count = len(ctx.vout) # number of outputs
     for vout in ctx.vout:
         # asm is the bytestring of the vout values
@@ -373,7 +371,7 @@ def get_tx_info2(
 
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
             try:
-                pubkeys, signatures_required = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
+                pubkeys, signatures_required, keyburn = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
                 # this will return pubkeys for CP transactions that have burnkeys in multisig output
                 pubkeys_compiled += pubkeys
                 # print("pubkeys compiled: ", pubkeys_compiled)
@@ -637,10 +635,6 @@ def reparse(db, block_index=None, quiet=False):
     reparse_end = time.time()
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
-    # on full reparse - vacuum the DB afterwards for better subsequent performance (especially on non-SSDs)
-    if not block_index:
-        database.vacuum(db)
-
 
 def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
@@ -659,8 +653,10 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db) # type: ignore
 
-    if keyburn is None and decoded_tx is not None:
-        keyburn = check_burnkeys_in_multisig(decoded_tx)
+    # FIXME: to remove after validation, this is being done in get_checkmultisig
+    # if keyburn is None and decoded_tx is not None:
+    #     keyburn = check_burnkeys_in_multisig(decoded_tx)
+    
     # For mempool
     if block_hash is None:
         block_hash = config.MEMPOOL_BLOCK_HASH
@@ -810,7 +806,6 @@ def follow(db):
 
         # Get new blocks.
         if block_index <= block_count:
-            print("block_count: ", block_count)
 
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
