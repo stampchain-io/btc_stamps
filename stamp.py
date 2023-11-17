@@ -282,20 +282,13 @@ def check_src_data(src_data, block_index):
         # we are assuming if the src_data does not decode to a json string it's a base64 string perhaps add more checks
         stamp_base64 = src_data
         ident = 'STAMP'
-        src_data is None
+        src_data = None
         try:
             file_suffix = get_file_suffix(stamp_base64, block_index)
             print(f"file_suffix: {file_suffix}")  # DEBUG
         except Exception as e:
             print(f"Error: {e}")
             raise
-        # try:
-        #     pass
-        #     # TODO: this is super redundant since we parse the transaction previously and are hitting bitcoin core again here
-        #     # decoded_tx = get_decoded_tx_with_retries(tx_hash)
-        # except:
-        #     print(f"ERROR: Failed to get decoded transaction for {tx_hash} after retries. Exiting.")
-        #     raise
     return ident, src_data, file_suffix
 
 
@@ -304,7 +297,6 @@ def parse_stamps_to_stamp_table(db, stamps):
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            stamp_base64 = None
             block_index = stamp_tx[tx_fields['block_index']]
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
@@ -319,6 +311,11 @@ def parse_stamps_to_stamp_table(db, stamps):
                 ident, src_data, file_suffix
             ) = check_src_data(src_data, block_index)
 
+            stamp_base64 = (
+                stamp.get('description').split(':')[1]
+                if ident == 'STAMP'
+                else None
+            )
             # TODO: more validation if this is a valid btc_stamp
             if ident == 'SRC-721':
                 op_val = src_data.get("op", None).upper()
