@@ -3,10 +3,6 @@ from decimal import Decimal
 import json
 from config import TICK_PATTERN_LIST
 
-''' this is not yet implemented - intended to the src20 items into the srcx table.
-    in production this is currently done in the mysql_stv4_to_srcx.py script 
-    this will also serve as the basis for the src-20 balance table ''' 
-
 
 def query_tokens_custom(token, mysql_conn):
     ''' used for pulling the src-20 background images for creation of the image '''
