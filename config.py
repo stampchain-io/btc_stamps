@@ -41,7 +41,6 @@ RAW_TRANSACTIONS_CACHE_SIZE = 20000
 RPC_BATCH_SIZE = 20     # A 1 MB block can hold about 4200 transactions.
 RPC_BATCH_NUM_WORKERS = 5  # 20
 
-
 raw_transactions_cache = util.DictCache(size=RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
 STAMP_TABLE = "StampTableV4"
@@ -139,98 +138,14 @@ TICK_PATTERN_LIST = {
     regex.compile(r'((\p{Emoji_Presentation})|(\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?))|[\p{Punctuation}\p{Symbol}\w~!@#$%^&*()_=<>?]')
 }
 
-# part of addrindexrs
-# def chunkify(l, n):
-#     n = max(1, n)
-#     return [l[i:i + n] for i in range(0, len(l), n)]
-
-
-def decimal_default(obj):
-    if isinstance(obj, decimal.Decimal):
-        return float(obj)
-    raise TypeError
-
-
-def bitcoin_rpc_call(method, *params):
-    """Calls a Bitcoin Core RPC method and returns the response"""
-    MAX_TRIES = 12
-    INITIAL_WAIT = 5
-
-    for i in range(MAX_TRIES):
-        try:
-            response = getattr(RPC_CONNECTION, method)(*params)
-            if i > 0:
-                print('Successfully connected.')
-            return response
-        except (JSONRPCException, ConnectionRefusedError):
-            if i == MAX_TRIES - 1:
-                print('Maximum retries reached. Exiting.')
-                raise
-            wait_time = INITIAL_WAIT * math.pow(2, i)
-            print('Could not connect to backend at `{}`. (Try {}/{}, waiting {} seconds)'.format(RPC_IP, i+1, MAX_TRIES, wait_time))
-            time.sleep(wait_time)
-
-    raise Exception('Cannot communicate with bitcoin core at `{}`.'.format(RPC_IP))
-
-
-def bitcoin_rpc_batch(request_list):
-    """Sends multiple Bitcoin Core RPC requests in parallel and returns the responses"""
-    CHUNK_SIZE = 10
-
-    def make_call(chunk):
-        responses = [getattr(RPC_CONNECTION, req['method'])(*req['params']) for req in chunk]
-        return responses
-
-    chunks = [request_list[i:i+CHUNK_SIZE] for i in range(0, len(request_list), CHUNK_SIZE)]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        responses = list(executor.map(make_call, chunks))
-
-    return [response for chunk in responses for response in chunk]
-
-
-# THIS IS FOR PARSE STAMP
-def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
-    """Returns the raw transaction for a given transaction hash **verbose=False is the hex only"""
-    if skip_missing and tx_hash not in getrawtransaction_batch([tx_hash], skip_missing=True):
-        return None
-
-    response = bitcoin_rpc_call('getrawtransaction', tx_hash, verbose)
-    if skip_missing and response is None:
-        return None
-
-    return response['hex'] if not verbose else response
-
-
-# THIS IS FOR PARSE STAMP
-def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False):
-    """Returns the raw transactions for a list of transaction hashes"""
-    txhash_dict = {}
-    cached_txhashes = set(txhash_list) & set(txhash_dict.keys())
-    uncached_txhashes = set(txhash_list) - cached_txhashes
-
-    # Get cached transactions
-    for tx_hash in cached_txhashes:
-        txhash_dict[tx_hash] = txhash_dict[tx_hash]
-
-    # Get uncached transactions
-    if uncached_txhashes:
-        responses = bitcoin_rpc_batch([{'method': 'getrawtransaction', 'params': [tx_hash, verbose]} for tx_hash in uncached_txhashes])
-
-        for i, response in enumerate(responses):
-            tx_hash = uncached_txhashes[i]
-            if skip_missing and response is None:
-                continue
-            txhash_dict[tx_hash] = response['hex'] if not verbose else response
-
-    return txhash_dict
 
 
 UNIT = 100000000        # The same across assets.
 
 
 # Versions
-VERSION_MAJOR = 9
-VERSION_MINOR = 60
+VERSION_MAJOR = 0
+VERSION_MINOR = 1
 VERSION_REVISION = 2
 VERSION_STRING = str(VERSION_MAJOR) + '.' + str(VERSION_MINOR) + '.' + str(VERSION_REVISION)
 
@@ -351,10 +266,7 @@ DEFAULT_UTXO_LOCKS_MAX_AGE = 3.0  # in seconds
 
 ADDRESS_OPTION_REQUIRE_MEMO = 1
 ADDRESS_OPTION_MAX_VALUE = ADDRESS_OPTION_REQUIRE_MEMO  # Or list of all the address options
-OLD_STYLE_API = True
 
 API_LIMIT_ROWS = 1000
-
-MPMA_LIMIT = 1000
 
 MEMPOOL_TXCOUNT_UPDATE_LIMIT = 60000
