@@ -2,15 +2,12 @@ import time
 import json
 import config
 import requests
-from requests.auth import HTTPBasicAuth
 import logging
 
 logger = logging.getLogger(__name__)
 
-# FIXME: need to add adjustments for the correct vars to hit a local/private CP node
-
-url = config.CP_RPC_URL + "/api/rest"  # "http://public.coindaddy.io:4001"
-auth = HTTPBasicAuth(config.CP_RPC_USER, config.CP_RPC_PASSWORD)
+url = config.CP_RPC_URL
+auth = config.CP_AUTH
 
 
 def create_payload(method, params):
