@@ -6,6 +6,7 @@ from datetime import datetime
 import hashlib
 import magic
 import subprocess
+import ast
 
 import config
 from xcprequest import parse_base64_from_description
@@ -111,9 +112,17 @@ def clean_and_load_json(json_string):
     except json.JSONDecodeError:
         json_string = json_string.replace("'", '"')
         json_string = json_string.replace("None", "null")
-        json_string = json_string.replace("\\x00", "") # remove null bytes - error with A2100000000000001918 not sure the implications with current production
+        json_string = json_string.replace("\\x00", "") # remove null bytes
         return json.loads(json_string)
 
+def convert_to_json(input_string):
+    try:
+        dictionary = ast.literal_eval(input_string)
+        json_string = json.dumps(dictionary)
+        return clean_and_load_json(json_string)
+    except Exception as e:
+        return f"An error occurred: {e}"
+    
 def decode_base64(base64_string, block_index):
     ''' validation on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
     if block_index >= 784550:
@@ -318,7 +327,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             block_index = stamp_tx[tx_fields['block_index']]
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
-            stamp = clean_and_load_json(stamp_tx[tx_fields['data']])
+            stamp = convert_to_json(stamp_tx[tx_fields['data']])
             decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index) # still base64 here
             (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
             keyburn = stamp_tx[tx_fields['keyburn']]
