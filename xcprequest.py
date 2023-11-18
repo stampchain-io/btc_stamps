@@ -99,6 +99,7 @@ def parse_base64_from_description(description):
         stamp_search = stamp_search.strip()
         if ";" in stamp_search:
             stamp_mimetype, stamp_base64 = stamp_search.split(";", 1)
+            stamp_mimetype = stamp_mimetype.strip() if len(stamp_mimetype) <= 255 else "" # db limit
             stamp_base64 = stamp_base64.strip() if len(stamp_base64) > 1 else None
         else:
             stamp_mimetype = ""
