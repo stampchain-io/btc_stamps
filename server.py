@@ -1,18 +1,11 @@
 
 import os
 import decimal
-import pprint
 import sys
 import pymysql as mysql
-import time
-import dateutil.parser
-import calendar
-import traceback
 import binascii
-import socket
 import signal
 import appdirs
-import platform
 import bitcoin as bitcoinlib
 import logging
 from urllib.parse import quote_plus as urlencode
@@ -22,7 +15,6 @@ import config
 import src.util as util
 import src.exceptions as exceptions
 import blocks
-import check
 import src.backend as backend
 import src.database as database
 import src.script as script
@@ -53,7 +45,7 @@ signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigterm_handler)
 
 
-## MySQL Locking Function
+## TODO: MySQL Locking Function - perhaps we want this :) 
 # This code creates a table called server_lock in the MySQL database and inserts a single row into the table.
 # If another instance of the server tries to insert a row into the table, it will fail with an IntegrityError, 
 # indicating that another copy of the server is already running.
@@ -90,19 +82,18 @@ class LockingError(Exception):
     pass
 
 
-def initialise(*args, **kwargs):
-    initialise_config(*args, **kwargs)
-    return initialise_db()
+def initialize(*args, **kwargs):
+    initialize_config(*args, **kwargs)
+    return initialize_db()
 
 
-def initialise_config(
+def initialize_config(
     log_file=None,
     api_log_file=None,
-    testnet=False, testcoin=False, regtest=False,
+    testnet=False, regtest=False,
     api_limit_rows=1000,
     backend_name=None, backend_connect=None, backend_port=None,
     backend_user=None, backend_password=None,
-    indexd_connect=None, indexd_port=None,
     backend_ssl=False, backend_ssl_no_verify=False,
     backend_poll_interval=None,
     rpc_host=None, rpc_port=None,
@@ -120,7 +111,7 @@ def initialise_config(
 ):
 
     # Data directory
-    data_dir = appdirs.user_data_dir(appauthor=config.XCP_NAME, appname=config.APP_NAME, roaming=True)
+    data_dir = appdirs.user_data_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME, roaming=True)
     if not os.path.isdir(data_dir):
         os.makedirs(data_dir, mode=0o755)
 
@@ -132,12 +123,6 @@ def initialise_config(
         config.TESTNET = testnet
     else:
         config.TESTNET = False
-
-    # testcoin
-    if testcoin:
-        config.TESTCOIN = testcoin
-    else:
-        config.TESTCOIN = False
 
     # regtest
     if regtest:
@@ -163,8 +148,6 @@ def initialise_config(
         network += '.testnet'
     if config.REGTEST:
         network += '.regtest'
-    if config.TESTCOIN:
-        network += '.testcoin'
 
     if checkdb:
         config.CHECKDB = True
@@ -172,7 +155,7 @@ def initialise_config(
         config.CHECKDB = False
 
     # Log directory
-    log_dir = appdirs.user_log_dir(appauthor=config.XCP_NAME, appname=config.APP_NAME)
+    log_dir = appdirs.user_log_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME)
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir, mode=0o755)
 
@@ -281,32 +264,19 @@ def initialise_config(
         config.FORCE = False
 
     # Encoding
-    if config.TESTCOIN:
-        config.PREFIX = b'XX'
-        config.CP_PREFIX = b'CNTRPRTY'
-    else:
-        config.PREFIX = b'stamp:' 
-        config.CP_PREFIX = b'CNTRPRTY'
+    config.PREFIX = b'stamp:' 
+    config.CP_PREFIX = b'CNTRPRTY'
 
     # (more) Testnet
     if config.TESTNET:
         config.MAGIC_BYTES = config.MAGIC_BYTES_TESTNET
-        if config.TESTCOIN:
-            config.ADDRESSVERSION = config.ADDRESSVERSION_TESTNET
-            config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_TESTNET
-            config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET_TESTCOIN
-            config.BURN_START = config.BURN_START_TESTNET_TESTCOIN
-            config.BURN_END = config.BURN_END_TESTNET_TESTCOIN
-            config.UNSPENDABLE = config.UNSPENDABLE_TESTNET
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-        else:
-            config.ADDRESSVERSION = config.ADDRESSVERSION_TESTNET
-            config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_TESTNET
-            config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
-            config.BURN_START = config.BURN_START_TESTNET
-            config.BURN_END = config.BURN_END_TESTNET
-            config.UNSPENDABLE = config.UNSPENDABLE_TESTNET
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
+        config.ADDRESSVERSION = config.ADDRESSVERSION_TESTNET
+        config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_TESTNET
+        config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
+        config.BURN_START = config.BURN_START_TESTNET
+        config.BURN_END = config.BURN_END_TESTNET
+        config.UNSPENDABLE = config.UNSPENDABLE_TESTNET
+        config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
     elif config.CUSTOMNET:
         custom_args = customnet.split('|')
 
@@ -323,40 +293,22 @@ def initialise_config(
             raise "Custom net parameter needs to be like UNSPENDABLE_ADDRESS|ADDRESSVERSION|P2SH_ADDRESSVERSION (version bytes in HH format)"
     elif config.REGTEST:
         config.MAGIC_BYTES = config.MAGIC_BYTES_REGTEST
-        if config.TESTCOIN:
-            config.ADDRESSVERSION = config.ADDRESSVERSION_REGTEST
-            config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_REGTEST
-            config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST_TESTCOIN
-            config.BURN_START = config.BURN_START_REGTEST_TESTCOIN
-            config.BURN_END = config.BURN_END_REGTEST_TESTCOIN
-            config.UNSPENDABLE = config.UNSPENDABLE_REGTEST
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-        else:
-            config.ADDRESSVERSION = config.ADDRESSVERSION_REGTEST
-            config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_REGTEST
-            config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
-            config.BURN_START = config.BURN_START_REGTEST
-            config.BURN_END = config.BURN_END_REGTEST
-            config.UNSPENDABLE = config.UNSPENDABLE_REGTEST
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
+        config.ADDRESSVERSION = config.ADDRESSVERSION_REGTEST
+        config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_REGTEST
+        config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
+        config.BURN_START = config.BURN_START_REGTEST
+        config.BURN_END = config.BURN_END_REGTEST
+        config.UNSPENDABLE = config.UNSPENDABLE_REGTEST
+        config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
     else:
         config.MAGIC_BYTES = config.MAGIC_BYTES_MAINNET
-        if config.TESTCOIN:
-            config.ADDRESSVERSION = config.ADDRESSVERSION_MAINNET
-            config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_MAINNET
-            config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET_TESTCOIN
-            config.BURN_START = config.BURN_START_MAINNET_TESTCOIN
-            config.BURN_END = config.BURN_END_MAINNET_TESTCOIN
-            config.UNSPENDABLE = config.UNSPENDABLE_MAINNET
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-        else:
-            config.ADDRESSVERSION = config.ADDRESSVERSION_MAINNET
-            config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_MAINNET
-            config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
-            config.BURN_START = config.BURN_START_MAINNET
-            config.BURN_END = config.BURN_END_MAINNET
-            config.UNSPENDABLE = config.UNSPENDABLE_MAINNET
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
+        config.ADDRESSVERSION = config.ADDRESSVERSION_MAINNET
+        config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_MAINNET
+        config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
+        config.BURN_START = config.BURN_START_MAINNET
+        config.BURN_END = config.BURN_END_MAINNET
+        config.UNSPENDABLE = config.UNSPENDABLE_MAINNET
+        config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
 
     # Misc
     config.REQUESTS_TIMEOUT = requests_timeout
@@ -370,8 +322,8 @@ def initialise_config(
     # logger.info('Running v{} of counterparty-lib.'.format(config.VERSION_STRING))
 
 
-def initialise_db():
-    print("initialise_db")
+def initialize_db():
+    print("initialize_db")
     if config.FORCE:
         logger.warning('THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.')
 
@@ -396,7 +348,7 @@ def initialise_db():
 
 def connect_to_backend():
     if not config.FORCE:
-        logger.info('Connecting to BTC Node.')
+        logger.info('Connecting to Bitcoin Node')
         backend.getblockcount()
 
 
@@ -418,25 +370,7 @@ def kickstart(db, bitcoind_dir):
     blocks.kickstart(db, bitcoind_dir=bitcoind_dir)
 
 
-def debug_config():
-    output = vars(config)
-    for k in list(output.keys()):
-        if k[:2] == "__" and k[-2:] == "__":
-            del output[k]
 
-    pprint.pprint(output)
-
-
-def configure_rpc(rpc_password=None):
-    # Server API RPC password
-    if rpc_password:
-        config.RPC_PASSWORD = rpc_password
-        config.RPC = 'http://' + urlencode(config.RPC_USER) + ':' + urlencode(config.RPC_PASSWORD) + '@' + config.RPC_HOST + ':' + str(config.RPC_PORT) + config.RPC_WEBROOT
-    else:
-        config.RPC = 'http://' + config.RPC_HOST + ':' + str(config.RPC_PORT) + config.RPC_WEBROOT
-
-
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 
 

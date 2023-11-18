@@ -1,10 +1,6 @@
 import os
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
-import decimal
 import regex
-import time
-import math
-import concurrent.futures
 import logging
 import src.util as util
 from requests.auth import HTTPBasicAuth
@@ -174,8 +170,8 @@ BTC = 'BTC'
 XCP = 'XCP'
 
 BTC_NAME = 'Bitcoin'
-XCP_NAME = 'btc_stamps'
-APP_NAME = XCP_NAME.lower()
+STAMPS_NAME = 'btc_stamps'
+APP_NAME = STAMPS_NAME.lower()
 
 
 DEFAULT_BACKEND_PORT_REGTEST = 28332
@@ -203,18 +199,10 @@ MAGIC_BYTES_TESTNET = b'\xfa\xbf\xb5\xda'   # For bip-0010
 MAGIC_BYTES_MAINNET = b'\xf9\xbe\xb4\xd9'   # For bip-0010
 MAGIC_BYTES_REGTEST = b'\xda\xb5\xbf\xfa'
 
-BLOCK_FIRST_TESTNET_TESTCOIN = 310000
-BURN_START_TESTNET_TESTCOIN = 310000
-BURN_END_TESTNET_TESTCOIN = 4017708     # Fifty years, at ten minutes per block.
-
 BLOCK_FIRST_TESTNET = 310000
 BLOCK_FIRST_TESTNET_HASH = '000000001f605ec6ee8d2c0d21bf3d3ded0a31ca837acc98893876213828989d'
 BURN_START_TESTNET = 310000
 BURN_END_TESTNET = 4017708              # Fifty years, at ten minutes per block.
-
-BLOCK_FIRST_MAINNET_TESTCOIN = 278270
-BURN_START_MAINNET_TESTCOIN = 278310
-BURN_END_MAINNET_TESTCOIN = 2500000     # A long time.
 
 BLOCK_FIRST_MAINNET = CP_STAMP_GENESIS_BLOCK #791243 # 791510  # 791243  # 796000  # 790249  # 779650
 BLOCK_FIRST_MAINNET_HASH = '000000000000000000058ea4f7bf747a78475f137fd8ff5f22b8db1f6dc1a8c2'
@@ -226,10 +214,6 @@ BLOCK_FIRST_REGTEST = 0
 BLOCK_FIRST_REGTEST_HASH = '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206'
 BURN_START_REGTEST = 101
 BURN_END_REGTEST = 150000000
-
-BLOCK_FIRST_REGTEST_TESTCOIN = 0
-BURN_START_REGTEST_TESTCOIN = 101
-BURN_END_REGTEST_TESTCOIN = 150
 
 # Protocol defaults
 # NOTE: If the DUST_SIZE constants are changed, they MUST also be changed in counterblockd/lib/config.py as well

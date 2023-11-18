@@ -68,7 +68,7 @@ def api(method, params):
 
     response = requests.post(config.RPC, data=json.dumps(payload), headers=headers)
     if response == None:
-        raise RPCError('Cannot communicate with {} server.'.format(config.XCP_NAME))
+        raise RPCError('Cannot communicate with {} server.'.format(config.STAMPS_NAME))
     elif response.status_code != 200:
         if response.status_code == 500:
             raise RPCError('Malformed API call.')
@@ -383,7 +383,7 @@ def debit (db, address, asset, quantity, action=None, event=None):
             assert asset == config.XCP
 
     if asset == config.BTC:
-        raise exceptions.BalanceError('Cannot debit bitcoins from a {} address!'.format(config.XCP_NAME))
+        raise exceptions.BalanceError('Cannot debit bitcoins from a {} address!'.format(config.STAMPS_NAME))
 
     debit_cursor.execute('''SELECT * FROM balances \
                             WHERE (address = ? AND asset = ?)''', (address, asset))
