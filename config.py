@@ -127,6 +127,7 @@ TXS_FIELDS_POSITION = {
     'data': 9,
     'supported': 10,
     'keyburn': 11,
+    'is_btc_stamp': 12,
 }
 
 

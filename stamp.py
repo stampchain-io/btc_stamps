@@ -371,8 +371,37 @@ def parse_stamps_to_stamp_table(db, stamps):
                 cpid.startswith('A') or \
                 (file_suffix == 'json' and (valid_src20 or valid_src721)):
                 is_btc_stamp = 1
+                updated_stamps = []
+                # update the tuple with the is_btc_stamp field
+                for stamp_tx in stamps: # this is more complex because of the tuple... mad chaos ensues, lets review converting a list earlier in this function and ditch the tuple
+                    if stamp_tx[config.TXS_FIELDS_POSITION['tx_hash']] == tx_hash:
+                        stamp_tx = list(stamp_tx)  # Convert the tuple to a list
+                        stamp_tx.append(1)  # Add the is_btc_stamp field to the list
+                        stamp_tx[config.TXS_FIELDS_POSITION['is_btc_stamp']] = 1  # Update the desired element
+                        stamp_tx = tuple(stamp_tx)  # Convert the list back to a tuple
+                    updated_stamps.append(stamp_tx)
+                stamps = tuple(updated_stamps)
             else:
                 is_btc_stamp = 0
+
+            if is_btc_stamp == 1:
+                # check for existing cpid in stamp table, if 
+                cursor.execute(f'''
+                    SELECT * FROM {config.STAMP_TABLE}
+                    WHERE cpid = %s AND is_btc_stamp = 1
+                ''', (cpid,))
+                result = cursor.fetchone()
+                if result:
+                    is_btc_stamp = 0  # this is a reissuance on the same cpid
+                else:
+                    # validate against the stamps tuple for any prior valid stamps on this cpid, if so this one is rejected.
+                    for stamp_trx in stamps: # if it's a reissuance on the same block set to 0
+                        if len(stamp_trx) >= config.TXS_FIELDS_POSITION['is_btc_stamp']: #12
+                            stamped = convert_to_json(stamp_trx[tx_fields['data']])
+                            trx_cpid = stamped.get('cpid')  # Extract the 'cpid' key from the parsed JSON
+                            if trx_cpid == cpid and stamp_trx[config.TXS_FIELDS_POSITION['tx_hash']] != tx_hash and stamp_trx[config.TXS_FIELDS_POSITION['is_btc_stamp']] == 1:
+                                is_btc_stamp = 0 # this is a reissuance on the same cpid in the same block
+
 
             logger.warning(f'''
                 block_index: {block_index}
