@@ -15,6 +15,32 @@ def sort_keys(key):
         return priority_keys.index(key)
     return len(priority_keys)
 
+def validate_src721_and_process(src721_data, db):
+    op_val = src721_data.get("op", None).upper()
+    file_suffix = None
+    if 'symbol' in src721_data:
+        src721_data['tick'] = src721_data.pop('symbol')
+    if op_val == "MINT":
+        svg_output = create_src721_mint_svg(src721_data, db)
+        file_suffix = 'svg'
+    elif op_val == "DEPLOY":
+        deploy_description = src721_data.get("description", None)
+        deploy_name = src721_data.get("name", None)
+        svg_output = get_src721_svg_string(
+            deploy_name,
+            deploy_description,
+            db
+        )
+        file_suffix = 'svg'
+    else:
+        svg_output = get_src721_svg_string(
+            "SRC-721",
+            config.DOMAINNAME,
+            db
+        )
+        file_suffix = 'svg'
+    return svg_output, file_suffix
+
 # NOTE: we might be able to remove this function. legacy stuff
 def convert_to_dict(json_string_or_dict):
     if isinstance(json_string_or_dict, str):

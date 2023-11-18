@@ -10,7 +10,8 @@ import subprocess
 import config
 from xcprequest import parse_base64_from_description
 from bitcoin.core.script import CScript, OP_RETURN
-from src721 import create_src721_mint_svg, get_src721_svg_string
+from src721 import validate_src721_and_process
+from src20 import check_format
 import traceback
 import src.script as script
 
@@ -110,6 +111,7 @@ def clean_and_load_json(json_string):
     except json.JSONDecodeError:
         json_string = json_string.replace("'", '"')
         json_string = json_string.replace("None", "null")
+        json_string = json_string.replace("\\x00", "") # remove null bytes - error with A2100000000000001918 not sure the implications with current production
         return json.loads(json_string)
 
 def decode_base64(base64_string, block_index):
@@ -265,8 +267,11 @@ def check_burnkeys_in_multisig(transaction):
 
 def is_json_string(s):
     try:
-        json.loads(s)
-        return True
+        if s.startswith('{') and s.endswith('}'):
+            json.loads(s)
+            return True
+        else:
+            return False
     except json.JSONDecodeError:
         return False
 
@@ -278,20 +283,14 @@ def check_decoded_data(decoded_data, block_index):
             decoded_data = decoded_data.decode('utf-8') # this will fail if it's not a string (aka if it's a stamp image)
         except Exception as e:
             pass
-    if (
-        (type(decoded_data) is str and is_json_string(decoded_data))
-        or isinstance(decoded_data, dict)
-    ):
-        if isinstance(decoded_data, str):
-            decoded_data = json.loads(decoded_data)
-            decoded_data = {k.lower(): v for k, v in decoded_data.items()}
-        ident = False
+    if (type(decoded_data) is str and is_json_string(decoded_data)): # or isinstance(decoded_data, dict):
+        decoded_data = json.loads(decoded_data)
+        decoded_data = {k.lower(): v for k, v in decoded_data.items()}
         if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
             ident = decoded_data['p'].upper()
             file_suffix = 'json'
         else:
             ident = 'UNKNOWN'
-            # continue # TODO: Determine if this we don't want save to StampTableV4 if not 721/20 JSON?
     else:
         try:
             if decoded_data and type(decoded_data) is str:
@@ -315,7 +314,7 @@ def parse_stamps_to_stamp_table(db, stamps):
     with db:
         cursor = db.cursor()
         for stamp_tx in stamps:
-            (file_suffix, filename) = None, None
+            (file_suffix, filename, src_data) = None, None, None
             block_index = stamp_tx[tx_fields['block_index']]
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
@@ -339,38 +338,20 @@ def parse_stamps_to_stamp_table(db, stamps):
                     and keyburn == 1
                 )
             )
-            if not valid_src20 and ident == 'SRC-20':
-                continue
             valid_src721 = (
                 ident == 'SRC-721'
                 and keyburn == 1
                 and stamp.get('quantity') == 1
             )
 
-            if ident == 'SRC-721':
+            if valid_src20 and check_format(decoded_base64):
                 src_data = decoded_base64
-                op_val = src_data.get("op", None).upper()
-                if 'symbol' in src_data:
-                    src_data['tick'] = src_data.pop('symbol')
-                if op_val == "MINT":
-                    svg_output = create_src721_mint_svg(src_data, db)
-                    file_suffix = 'svg'
-                elif op_val == "DEPLOY":
-                    deploy_description = src_data.get("description", None)
-                    deploy_name = src_data.get("name", None)
-                    svg_output = get_src721_svg_string(
-                        deploy_name,
-                        deploy_description,
-                        db
-                    )
-                    file_suffix = 'svg'
-                else:
-                    svg_output = get_src721_svg_string(
-                        "SRC-721",
-                        config.DOMAINNAME,
-                        db
-                    )
-                    file_suffix = 'svg'
+            elif valid_src20 and not check_format(decoded_base64):
+                continue
+
+            if valid_src721:
+                src_data = decoded_base64
+                (svg_output, file_suffix) = validate_src721_and_process(src_data, db)
 
             if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
                 not valid_src20 and not valid_src721
@@ -421,12 +402,12 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "tx_hash": tx_hash,
                 "tx_index": tx_index,
                 "src_data": (
-                    file_suffix == 'json' and json.dumps(src_data) or None
+                    file_suffix == 'json' and src_data is not None and json.dumps(src_data) and (valid_src20 or valid_src721) or None
                 ),
                 "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this depending on how we handle numbering,
                 "stamp_hash": stamp_hash,
                 "is_btc_stamp": is_btc_stamp,
-            }
+            } # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
             cursor.execute(f'''
                           INSERT INTO {config.STAMP_TABLE}(
                                 stamp, block_index, cpid, asset_longname,
