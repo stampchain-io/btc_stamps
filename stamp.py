@@ -207,7 +207,7 @@ def get_src_or_img_data(stamp, block_index):
     else:
         stamp_description = stamp.get('description')
         #FIXME: stamp_mimetype may also be pulled in from the data json string as the stamp_mimetype key.
-        # below will over-write that user-input value
+        # below will over-write that user-input value assuming the base64 decodes properly
         # we also may have text or random garbage in the description field to look out for
         base64_string, stamp_mimetype = parse_base64_from_description(
             stamp_description
