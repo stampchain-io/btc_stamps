@@ -264,7 +264,7 @@ def serialise(encoding, inputs, destination_outputs, data_output=None, change_ou
 
         data_chunk = config.PREFIX + data_chunk
 
-        # Initialise encryption key (once per output).
+        # initialize encryption key (once per output).
         assert isinstance(inputs[0]['txid'], str)
         key = arc4.init_arc4(binascii.unhexlify(inputs[0]['txid']))  # Arbitrary, easy‐to‐find, unique key.
 
