@@ -7,7 +7,7 @@ def init_arc4(seed):
     return ARC4.new(seed)
 
 def arc4_decrypt(cyphertext, ctx):
-    '''Un‐obfuscate. Initialise key once per attempt.'''
+    '''Un‐obfuscate. initialize key once per attempt.'''
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
     return key.decrypt(cyphertext)
 

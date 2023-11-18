@@ -1,5 +1,5 @@
 """
-Initialise database.
+initialize database.
 
 Sieve blockchain for Stamp transactions, and add them to the database.
 """
@@ -193,9 +193,9 @@ def parse_block(db, block_index, block_time,
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
-def initialise(db):  # CHANGED TO MYSQL
+def initialize(db):  # CHANGED TO MYSQL
     # print(db) # DEBUG
-    """Initialise data, create and populate the database."""
+    """initialize data, create and populate the database."""
     cursor = db.cursor() 
 
     # Check if the block_index_idx index exists
@@ -447,13 +447,13 @@ def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
 
 
 def arc4_decrypt(cyphertext, ctx):
-    '''Un-obfuscate. Initialise key once per attempt.'''
+    '''Un-obfuscate. initialize key once per attempt.'''
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
     return key.decrypt(cyphertext)
 
 
 def arc4_decrypt_chunk(cyphertext, key):
-    '''Un-obfuscate. Initialise key once per attempt.'''
+    '''Un-obfuscate. initialize key once per attempt.'''
     # This  is modified  for stamps since in parse_stamp we were getting the key and then converting to a byte string in 2 steps. 
     return key.decrypt(cyphertext)
 
@@ -534,20 +534,20 @@ def decode_p2w(script_pubkey):  # This is used for stamps
         raise DecodeError('bech32 decoding error')
 
 
-def reinitialise(db, block_index=None):
+def reinitialize(db, block_index=None):
     ''' Not yet implemented for stamps need to swap to mysql and figure out what tables to drop! '''
 
-    """Drop all predefined tables and initialise the database once again."""
+    """Drop all predefined tables and initialize the database once again."""
     cursor = db.cursor()
 
     # Delete all of the results of parsing (including the undolog) - removed since we aren't using any of these tables,
     # perhaps we purge from the src table here.. 
 
     # Create missing tables
-    initialise(db)
+    initialize(db)
 
     # warning and exit the program
-    Exception("reinitialise() is not implemented yet")
+    Exception("reinitialize() is not implemented yet")
 
     # clean consensus hashes if first block hash doesn't match with checkpoint.
     if config.TESTNET:
@@ -605,7 +605,7 @@ def reparse(db, block_index=None, quiet=False):
             root_level = logger.getEffectiveLevel()
 
         with db:
-            reinitialise(db, block_index)
+            reinitialize(db, block_index)
 
             # Reparse all blocks, transactions.
             if quiet:
@@ -765,8 +765,8 @@ def follow(db):
     # Check software version.
     # check.software_version()
 
-    # Initialise.
-    initialise(db)
+    # initialize.
+    initialize(db)
 
     # Get index of last block.
     if util.CURRENT_BLOCK_INDEX == 0:
