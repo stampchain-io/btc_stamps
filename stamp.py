@@ -396,7 +396,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 else:
                     # validate against the stamps tuple for any prior valid stamps on this cpid, if so this one is rejected.
                     for stamp_trx in stamps: # if it's a reissuance on the same block set to 0
-                        if len(stamp_trx) >= config.TXS_FIELDS_POSITION['is_btc_stamp']: #12
+                        if len(stamp_trx) >= 13:
                             stamped = convert_to_json(stamp_trx[tx_fields['data']])
                             trx_cpid = stamped.get('cpid')  # Extract the 'cpid' key from the parsed JSON
                             if trx_cpid == cpid and stamp_trx[config.TXS_FIELDS_POSITION['tx_hash']] != tx_hash and stamp_trx[config.TXS_FIELDS_POSITION['is_btc_stamp']] == 1:
