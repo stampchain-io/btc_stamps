@@ -12,7 +12,7 @@ This is the public indexing code for stampchain.io which is the primary API sour
 
 We recommend using Counterparty fednode to deploy both Counterparty and a full Bitcoin Node via `fednode install base master` see: [Setting up a Counterparty Node](https://github.com/CounterpartyXCP/Documentation/blob/master/Installation/federated_node.md)
 
-The default configuration is using the public Coindaddy API for XCP asset data. To minimize resource consumption on this free public resource we highly recommend using a local Counterparty node for long term use. Bitcoin Stamps and Stampchain is not directly associated with this service and cannot guarantee its availability or long term accessibility. It is intended for dev/test purposes only. Stampchain operates two Counterparty nodes for redundancy and to ensure the availability of the XCP asset data into the Stampchain API.
+The default configuration is using the public Coindaddy API for XCP asset data. To minimize resource consumption on this free public resource we highly recommend using a local Counterparty node for long term use. Bitcoin Stamps and Stampchain is not directly associated with the coindaddy.io service and cannot guarantee its availability or long term accessibility. It is intended for dev/test purposes only. Stampchain operates two Counterparty nodes for redundancy and to ensure the availability of the XCP asset data into the Stampchain API.
 
 ## Indexer Exection via Docker: 
 
