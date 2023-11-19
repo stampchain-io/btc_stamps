@@ -7,6 +7,7 @@ from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
 
+# env vars to be set in docker, or locally if connecting to a local btc and/or cp_node
 RPC_USER = os.environ.get("RPC_USER", 'rpc')
 RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
@@ -19,11 +20,7 @@ CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
 
 BLOCKS_TO_KEEP = int(os.environ.get("BLOCKS_TO_KEEP", 0))
 
-cntrprty_api_url = os.environ.get('cntrprty_api_url', 'http://127.0.0.1:4000/api/')
-cntrprty_user = os.environ.get('cntrprty_user', "rpc")
-cntrprty_password = os.environ.get('cntrprty_password', 'rpc')
-
-# Define for QUicknode or remote nodes which use a token
+# Define for Quicknode or simiilar remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 if QUICKNODE_URL and RPC_TOKEN:
