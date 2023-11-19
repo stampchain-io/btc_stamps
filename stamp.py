@@ -370,38 +370,34 @@ def parse_stamps_to_stamp_table(db, stamps):
             elif ident != 'UNKNOWN' and stamp.get('asset_longname') is  None and \
                 cpid.startswith('A') or \
                 (file_suffix == 'json' and (valid_src20 or valid_src721)):
+                processed_stamps_list = []
                 is_btc_stamp = 1
-                updated_stamps = []
-                # update the tuple with the is_btc_stamp field
-                for stamp_tx in stamps: # this is more complex because of the tuple... mad chaos ensues, lets review converting a list earlier in this function and ditch the tuple
-                    if stamp_tx[config.TXS_FIELDS_POSITION['tx_hash']] == tx_hash:
-                        stamp_tx = list(stamp_tx)  # Convert the tuple to a list
-                        stamp_tx.append(1)  # Add the is_btc_stamp field to the list
-                        stamp_tx[config.TXS_FIELDS_POSITION['is_btc_stamp']] = 1  # Update the desired element
-                        stamp_tx = tuple(stamp_tx)  # Convert the list back to a tuple
-                    updated_stamps.append(stamp_tx)
-                stamps = tuple(updated_stamps)
-            else:
-                is_btc_stamp = 0
-
-            if is_btc_stamp == 1:
-                # check for existing cpid in stamp table, if 
+                #TOD: functionalize these queries for cleanup. WIP
                 cursor.execute(f'''
                     SELECT * FROM {config.STAMP_TABLE}
                     WHERE cpid = %s AND is_btc_stamp = 1
                 ''', (cpid,))
                 result = cursor.fetchone()
                 if result:
-                    is_btc_stamp = 0  # this is a reissuance on the same cpid
+                    is_btc_stamp = 'INVALID_REISSUE'
                 else:
-                    # validate against the stamps tuple for any prior valid stamps on this cpid, if so this one is rejected.
-                    for stamp_trx in stamps: # if it's a reissuance on the same block set to 0
-                        if len(stamp_trx) >= 13:
-                            stamped = convert_to_json(stamp_trx[tx_fields['data']])
-                            trx_cpid = stamped.get('cpid')  # Extract the 'cpid' key from the parsed JSON
-                            if trx_cpid == cpid and stamp_trx[config.TXS_FIELDS_POSITION['tx_hash']] != tx_hash and stamp_trx[config.TXS_FIELDS_POSITION['is_btc_stamp']] == 1:
-                                is_btc_stamp = 0 # this is a reissuance on the same cpid in the same block
+                    # query the processed_stamps_dict and find a matching cpid also with a is_btc_stamp = 1
+                    duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
+                    if duplicate_on_block is not None:
+                        is_btc_stamp = 'INVALID_REISSUE' 
+                
+                if is_btc_stamp == 1:
+                    processed_stamps_dict = {
+                        'tx_hash': tx_hash,
+                        'cpid': cpid,
+                        'is_btc_stamp': is_btc_stamp
+                    }
+                    processed_stamps_list.append(processed_stamps_dict)
+                else:
+                    is_btc_stamp = None
 
+            else:
+                is_btc_stamp = None
 
             logger.warning(f'''
                 block_index: {block_index}

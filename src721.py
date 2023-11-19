@@ -41,7 +41,6 @@ def validate_src721_and_process(src721_data, db):
         file_suffix = 'svg'
     return svg_output, file_suffix
 
-# NOTE: we might be able to remove this function. legacy stuff
 def convert_to_dict(json_string_or_dict):
     if isinstance(json_string_or_dict, str):
         try:
