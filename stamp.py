@@ -289,10 +289,10 @@ def check_decoded_data(decoded_data, block_index):
     ''' this can come in as a json string or text (in the case of svg's)'''
     if type(decoded_data) is bytes:
         try:
-            decoded_data = decoded_data.decode('utf-8') # this will fail if it's not a string (aka if it's a stamp image)
+            decoded_data = decoded_data.decode('utf-8') 
         except Exception as e:
             pass
-    if (type(decoded_data) is str and is_json_string(decoded_data)): # or isinstance(decoded_data, dict):
+    if (type(decoded_data) is str and is_json_string(decoded_data)):
         decoded_data = json.loads(decoded_data)
         decoded_data = {k.lower(): v for k, v in decoded_data.items()}
         if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
@@ -303,7 +303,7 @@ def check_decoded_data(decoded_data, block_index):
     else:
         try:
             if decoded_data and type(decoded_data) is str:
-                decoded_data_bytestring = decoded_data.encode('utf-8') # re-encode as bytestring for suffix check (for src-721/svg)
+                decoded_data_bytestring = decoded_data.encode('utf-8')
                 file_suffix = get_file_suffix(decoded_data_bytestring, block_index)
                 ident = 'STAMP'
             elif decoded_data and type(decoded_data) is bytes:
@@ -328,7 +328,7 @@ def parse_stamps_to_stamp_table(db, stamps):
             tx_index = stamp_tx[tx_fields['tx_index']]
             tx_hash = stamp_tx[tx_fields['tx_hash']]
             stamp = convert_to_json(stamp_tx[tx_fields['data']])
-            decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index) # still base64 here
+            decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index)
             (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
             keyburn = stamp_tx[tx_fields['keyburn']]
             (ident, file_suffix) = check_decoded_data(decoded_base64, block_index)
@@ -372,7 +372,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                 (file_suffix == 'json' and (valid_src20 or valid_src721)):
                 processed_stamps_list = []
                 is_btc_stamp = 1
-                #TOD: functionalize these queries for cleanup. WIP
                 cursor.execute(f'''
                     SELECT * FROM {config.STAMP_TABLE}
                     WHERE cpid = %s AND is_btc_stamp = 1
@@ -381,7 +380,6 @@ def parse_stamps_to_stamp_table(db, stamps):
                 if result:
                     is_btc_stamp = 'INVALID_REISSUE'
                 else:
-                    # query the processed_stamps_dict and find a matching cpid also with a is_btc_stamp = 1
                     duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
                     if duplicate_on_block is not None:
                         is_btc_stamp = 'INVALID_REISSUE' 
@@ -438,7 +436,7 @@ def parse_stamps_to_stamp_table(db, stamps):
                 "src_data": (
                     file_suffix == 'json' and src_data is not None and json.dumps(src_data) and (valid_src20 or valid_src721) or None
                 ),
-                "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this depending on how we handle numbering,
+                "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this column depending on how we handle numbering, this was temporary in prior indexing
                 "stamp_hash": stamp_hash,
                 "is_btc_stamp": is_btc_stamp,
             } # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
