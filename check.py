@@ -18,19 +18,19 @@ CONSENSUS_HASH_VERSION_MAINNET = 2
 
 # TODO: https://github.com/stampchain-io/btc_stamps/issues/12
 CHECKPOINTS_MAINNET = {
-    779650 : {'ledger_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7', 'txlist_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7'},
-    # 280000: {'ledger_hash': '265719e2770d5a6994f6fe49839069183cd842ee14f56c2b870e56641e8a8725', 'txlist_hash': 'a59b33b4633649db4f14586af47e258ed9b8884dbb7aa308fb1f49a653ee60f4'},
+    config.BLOCK_FIRST_MAINNET: {'ledger_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7', 'txlist_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7'},
+    779800: {'ledger_hash': '45b2b6391c08346a15a07cc7c8a270e917368141a2c1876bdb02752a0e127fa0', 'txlist_hash': '45b2b6391c08346a15a07cc7c8a270e917368141a2c1876bdb02752a0e127fa0'},
+    780000: {'ledger_hash': '59ac77426870194dad46425f54344a3e80ae2de28d9fe72cdb607173219bd27c', 'txlist_hash': '59ac77426870194dad46425f54344a3e80ae2de28d9fe72cdb607173219bd27c'},
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {
-    config.BLOCK_FIRST_TESTNET: {'ledger_hash': '63f0fef31d02da85fa779e9a0e1b585b1a6a4e59e14564249e288e074e91c223', 'txlist_hash': '63f0fef31d02da85fa779e9a0e1b585b1a6a4e59e14564249e288e074e91c223'},
-    316000: {'ledger_hash': 'f645e6877da416b8b91670ac927df686c5ea6fc1158c150ae49d594222ed504c', 'txlist_hash': '3e29bcbf3873326097024cc26e9296f0164f552dd79c2ee7cfc344e6d64fa87d'},
+    config.BLOCK_FIRST_TESTNET: {'ledger_hash': '', 'txlist_hash': ''},
 }
 
 CONSENSUS_HASH_VERSION_REGTEST = 1
 CHECKPOINTS_REGTEST = {
-    config.BLOCK_FIRST_REGTEST: {'ledger_hash': '33cf0669a0d309d7e6b1bf79494613b69262b58c0ea03c9c221d955eb4c84fe5', 'txlist_hash': '33cf0669a0d309d7e6b1bf79494613b69262b58c0ea03c9c221d955eb4c84fe5'},
+    config.BLOCK_FIRST_REGTEST: {'ledger_hash': '', 'txlist_hash': ''},
 }
 
 class ConsensusError(Exception):
