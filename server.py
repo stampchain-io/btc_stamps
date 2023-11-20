@@ -3,7 +3,6 @@ import os
 import decimal
 import sys
 import pymysql as mysql
-import binascii
 import signal
 import appdirs
 import bitcoin as bitcoinlib
@@ -16,8 +15,6 @@ import src.util as util
 import src.exceptions as exceptions
 import blocks
 import src.backend as backend
-import src.database as database
-import src.script as script
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -104,9 +101,6 @@ def initialize_config(
     rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
     check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
     backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
-    utxo_locks_max_addresses=config.DEFAULT_UTXO_LOCKS_MAX_ADDRESSES,
-    utxo_locks_max_age=config.DEFAULT_UTXO_LOCKS_MAX_AGE,
-    estimate_fee_per_kb=None,
     customnet=None, checkdb=False
 ):
 
@@ -267,59 +261,6 @@ def initialize_config(
     config.PREFIX = b'stamp:' 
     config.CP_PREFIX = b'CNTRPRTY'
 
-    # (more) Testnet
-    if config.TESTNET:
-        config.MAGIC_BYTES = config.MAGIC_BYTES_TESTNET
-        config.ADDRESSVERSION = config.ADDRESSVERSION_TESTNET
-        config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_TESTNET
-        config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
-        config.BURN_START = config.BURN_START_TESTNET
-        config.BURN_END = config.BURN_END_TESTNET
-        config.UNSPENDABLE = config.UNSPENDABLE_TESTNET
-        config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-    elif config.CUSTOMNET:
-        custom_args = customnet.split('|')
-
-        if len(custom_args) == 3:
-            config.MAGIC_BYTES = config.MAGIC_BYTES_REGTEST
-            config.ADDRESSVERSION = binascii.unhexlify(custom_args[1])
-            config.P2SH_ADDRESSVERSION = binascii.unhexlify(custom_args[2])
-            config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
-            config.BURN_START = config.BURN_START_REGTEST
-            config.BURN_END = config.BURN_END_REGTEST
-            config.UNSPENDABLE = custom_args[0]
-            config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-        else:
-            raise "Custom net parameter needs to be like UNSPENDABLE_ADDRESS|ADDRESSVERSION|P2SH_ADDRESSVERSION (version bytes in HH format)"
-    elif config.REGTEST:
-        config.MAGIC_BYTES = config.MAGIC_BYTES_REGTEST
-        config.ADDRESSVERSION = config.ADDRESSVERSION_REGTEST
-        config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_REGTEST
-        config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
-        config.BURN_START = config.BURN_START_REGTEST
-        config.BURN_END = config.BURN_END_REGTEST
-        config.UNSPENDABLE = config.UNSPENDABLE_REGTEST
-        config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-    else:
-        config.MAGIC_BYTES = config.MAGIC_BYTES_MAINNET
-        config.ADDRESSVERSION = config.ADDRESSVERSION_MAINNET
-        config.P2SH_ADDRESSVERSION = config.P2SH_ADDRESSVERSION_MAINNET
-        config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
-        config.BURN_START = config.BURN_START_MAINNET
-        config.BURN_END = config.BURN_END_MAINNET
-        config.UNSPENDABLE = config.UNSPENDABLE_MAINNET
-        config.P2SH_DUST_RETURN_PUBKEY = p2sh_dust_return_pubkey
-
-    # Misc
-    config.REQUESTS_TIMEOUT = requests_timeout
-    config.CHECK_ASSET_CONSERVATION = check_asset_conservation
-    config.UTXO_LOCKS_MAX_ADDRESSES = utxo_locks_max_addresses
-    config.UTXO_LOCKS_MAX_AGE = utxo_locks_max_age
-
-    if estimate_fee_per_kb is not None:
-        config.ESTIMATE_FEE_PER_KB = estimate_fee_per_kb
-
-    # logger.info('Running v{} of counterparty-lib.'.format(config.VERSION_STRING))
 
 
 def initialize_db():
