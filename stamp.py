@@ -200,10 +200,10 @@ def get_src_or_img_data(stamp, block_index):
     stamp_mimetype = None
     if 'description' not in stamp: # this was already decoded to json
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
-            return stamp, None
+            return stamp, None, None # update mime/type when we start creating img
         elif 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-721':
             # TODO: add src-721 decoding and details here
-            return stamp, None
+            return stamp, None, None # update mimetype when we start creating img
     else:
         stamp_description = stamp.get('description')
         #FIXME: stamp_mimetype may also be pulled in from the data json string as the stamp_mimetype key.
