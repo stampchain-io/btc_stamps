@@ -446,50 +446,9 @@ def get_tx_info3(tx_hex, block_parser=None, p2sh_is_segwit=False):
     return get_tx_info2(tx_hex, block_parser=block_parser, p2sh_support=True, p2sh_is_segwit=p2sh_is_segwit)
 
 
-def arc4_decrypt(cyphertext, ctx):
-    '''Un-obfuscate. initialize key once per attempt.'''
-    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    return key.decrypt(cyphertext)
-
-
-def arc4_decrypt_chunk(cyphertext, key):
-    '''Un-obfuscate. initialize key once per attempt.'''
-    # This  is modified  for stamps since in parse_stamp we were getting the key and then converting to a byte string in 2 steps. 
-    return key.decrypt(cyphertext)
-
-
-def get_opreturn(asm):
-    if len(asm) == 2 and asm[0] == 'OP_RETURN':
-        pubkeyhash = asm[1]
-        if type(pubkeyhash) is bytes:
-            return pubkeyhash
-    raise DecodeError('invalid OP_RETURN')
-
-
-def decode_scripthash(asm):
-    destination = script.base58_check_encode(binascii.hexlify(asm[1]).decode('utf-8'), config.P2SH_ADDRESSVERSION)
-
-    return destination, None
-
-
-def decode_checksig(asm, ctx):
-    pubkeyhash = script.get_checksig(asm)
-    chunk = arc4_decrypt(pubkeyhash, ctx)
-    if chunk[1:len(config.PREFIX) + 1] == config.PREFIX:        # Data
-        # Padding byte in each output (instead of just in the last one) so that encoding methods may be mixed. Also, it’s just not very much data.
-        chunk_length = chunk[0]
-        chunk = chunk[1:chunk_length + 1]
-        destination, data = None, chunk[len(config.PREFIX):]
-    else:                                                       # Destination
-        pubkeyhash = binascii.hexlify(pubkeyhash).decode('utf-8')
-        destination, data = script.base58_check_encode(pubkeyhash, config.ADDRESSVERSION), None
-
-    return destination, data
-
-
 def decode_checkmultisig(ctx, chunk):
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    chunk = arc4_decrypt_chunk(chunk, key) # this is a different method since we are stripping the nonce/sign beforehand
+    chunk = arc4.arc4_decrypt_chunk(chunk, key) # this is a different method since we are stripping the nonce/sign beforehand
     if chunk[2:2+len(config.PREFIX)] == config.PREFIX:
         chunk_length = chunk[:2].hex() # the expected length of the string from the first 2 bytes
         data = chunk[len(config.PREFIX) + 2:].rstrip(b'\x00')

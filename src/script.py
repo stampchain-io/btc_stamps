@@ -326,29 +326,6 @@ def scriptpubkey_to_address(scriptpubkey):
     return None
 
 
-# # TODO: Use `python-bitcointools` instead. (Get rid of `pycoin` dependency.)
-# from pycoin.encoding import wif_to_tuple_of_secret_exponent_compressed, public_pair_to_sec, EncodingError
-# from pycoin.ecdsa import generator_secp256k1, public_pair_for_secret_exponent
-
-# class AltcoinSupportError (Exception): pass
-# def private_key_to_public_key(private_key_wif):
-#     """Convert private key to public key."""
-#     if config.TESTNET:
-#         allowable_wif_prefixes = [config.PRIVATEKEY_VERSION_TESTNET]
-#     elif config.REGTEST:
-#         allowable_wif_prefixes = [config.PRIVATEKEY_VERSION_REGTEST]
-#     else:
-#         allowable_wif_prefixes = [config.PRIVATEKEY_VERSION_MAINNET]
-#     try:
-#         secret_exponent, compressed = wif_to_tuple_of_secret_exponent_compressed(
-#                 private_key_wif, allowable_wif_prefixes=allowable_wif_prefixes)
-#     except EncodingError:
-#         raise AltcoinSupportError('pycoin: unsupported WIF prefix')
-#     public_pair = public_pair_for_secret_exponent(generator_secp256k1, secret_exponent)
-#     public_key = public_pair_to_sec(public_pair, compressed=compressed)
-#     public_key_hex = binascii.hexlify(public_key).decode('utf-8')
-#     return public_key_hex
-
 def is_pubkeyhash(monosig_address):
     """Check if PubKeyHash is valid P2PKH address. """
     assert not is_multisig(monosig_address)
@@ -358,44 +335,3 @@ def is_pubkeyhash(monosig_address):
     except (Base58Error, VersionByteError):
         return False
 
-def make_pubkeyhash(address):
-    """Create a new PubKeyHash."""
-    if is_multisig(address):
-        signatures_required, pubs, signatures_possible = extract_array(address)
-        pubkeyhashes = []
-        for pub in pubs:
-            if is_pubkeyhash(pub):
-                pubkeyhash = pub
-            else:
-                pubkeyhash = pubkey_to_pubkeyhash(binascii.unhexlify(bytes(pub, 'utf-8')))
-            pubkeyhashes.append(pubkeyhash)
-        pubkeyhash_address = construct_array(signatures_required, pubkeyhashes, signatures_possible)
-    else:
-        if util.enabled('segwit_support') and is_bech32(address):
-            pubkeyhash_address = address # Some bech32 addresses are valid base58 data
-        elif is_pubkeyhash(address):
-            pubkeyhash_address = address
-        elif is_p2sh(address):
-            pubkeyhash_address = address
-        else:
-            pubkeyhash_address = pubkey_to_pubkeyhash(binascii.unhexlify(bytes(address, 'utf-8')))
-    return pubkeyhash_address
-
-def extract_pubkeys(pub):
-    """Assume pubkey if not pubkeyhash. (Check validity later.)"""
-    pubkeys = []
-    if is_multisig(pub):
-        _, pubs, _ = extract_array(pub)
-        for pub in pubs:
-            if not is_pubkeyhash(pub):
-                pubkeys.append(pub)
-    elif is_p2sh(pub):
-        pass
-    elif util.enabled('segwit_support') and is_bech32(pub):
-        pass
-    else:
-        if not is_pubkeyhash(pub):
-            pubkeys.append(pub)
-    return pubkeys
-
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
