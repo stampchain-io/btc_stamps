@@ -287,6 +287,7 @@ def is_json_string(s):
 
 def check_decoded_data(decoded_data, block_index):
     ''' this can come in as a json string or text (in the case of svg's)'''
+    file_suffix = None
     if type(decoded_data) is bytes:
         try:
             decoded_data = decoded_data.decode('utf-8') 
