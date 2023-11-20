@@ -356,11 +356,14 @@ def parse_stamps_to_stamp_table(db, stamps):
 
             if valid_src20 and check_format(decoded_base64):
                 src_data = decoded_base64
+                is_btc_stamp = 1
+                #TODO: call query_tokens_custom, build the svg image, and update file_suffix to svg
             elif valid_src20 and not check_format(decoded_base64):
                 continue
 
             if valid_src721:
                 src_data = decoded_base64
+                is_btc_stamp = 1
                 (svg_output, file_suffix) = validate_src721_and_process(src_data, db)
 
             if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
