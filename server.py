@@ -100,6 +100,7 @@ def initialize_config(
     requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
     rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
     check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
+    estimate_fee_per_kb=None,
     backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
     customnet=None, checkdb=False
 ):
@@ -260,7 +261,13 @@ def initialize_config(
     # Encoding
     config.PREFIX = b'stamp:' 
     config.CP_PREFIX = b'CNTRPRTY'
+    
+    config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
+    # Misc
+    config.REQUESTS_TIMEOUT = requests_timeout
 
+    if estimate_fee_per_kb is not None:
+        config.ESTIMATE_FEE_PER_KB = estimate_fee_per_kb
 
 
 def initialize_db():
@@ -309,11 +316,6 @@ def reparse(db, block_index=None, quiet=True):
 
 def kickstart(db, bitcoind_dir):
     blocks.kickstart(db, bitcoind_dir=bitcoind_dir)
-
-
-
-
-
 
 
 
