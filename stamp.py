@@ -7,6 +7,7 @@ import hashlib
 import magic
 import subprocess
 import ast
+import requests
 
 import config
 from xcprequest import parse_base64_from_description
@@ -294,7 +295,16 @@ def check_decoded_data(decoded_data, block_index):
             raise
     return ident, file_suffix
 
-
+# for debug / validation temporarily
+def get_stamp_key(cpid):
+    url = f"https://stampchain.io/api/stamps?cpid={cpid}"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        return response.json()  # Return the response as a JSON object
+    else:
+        return None  # Return None if the request was not successful
+    
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
     (file_suffix, filename, src_data) = None, None, None
     if data is None or data == '':
@@ -372,6 +382,17 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
     else:
         is_btc_stamp = None
+
+    # debug / validation - add breakpoints to check if we are indexing correcly :) 
+    debug_stamp_api = get_stamp_key(cpid)
+    if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
+        print("this is not a valid stamp, but we flagged as such")
+    elif debug_stamp_api and is_btc_stamp is None:
+        api_tx_hash = debug_stamp_api[0].get('tx_hash')
+        api_stamp_num = debug_stamp_api[0].get('stamp')
+
+        if tx_hash == api_tx_hash:
+            print("this is a valid stamp, but we did not flag as such ", api_stamp_num)
 
     logger.warning(f'''
         block_index: {block_index}
