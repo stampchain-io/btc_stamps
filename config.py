@@ -43,13 +43,15 @@ INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'js
 
 STAMP_PREFIX_HEX = "7374616d703a" # (lowercase stamp:)
 
-CP_STAMP_GENESIS_BLOCK = 779652 # block height of first stamp transaction on counterparty
-BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp transaction
+CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction on counterparty
+BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) transaction on btc
 
 CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
 CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 
 CP_SRC720_BLOCK_START = 799434
+
+FIRST_KEYBURN_BLOCK = 784978
 
 BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN audio files
 
