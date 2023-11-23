@@ -5,3 +5,4 @@ db
 */.DS_Store
 .env
 db_data/
+files/

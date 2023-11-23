@@ -7,6 +7,7 @@ import hashlib
 import magic
 import subprocess
 import ast
+import os
 
 import config
 from xcprequest import parse_base64_from_description
@@ -386,6 +387,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     ''')
     filename = f"{tx_hash}.{file_suffix}"
 
+    store_files(filename, decoded_base64)
+
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
     parsed = {
@@ -442,6 +445,27 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['stamp_hash'], parsed['is_btc_stamp']
                     ))
     #  cursor.execute("COMMIT") # commit with the parent block commit
+
+
+def store_files(filename, decoded_base64):
+    store_files_to_disk(filename, decoded_base64)
+
+
+def store_files_to_disk(filename, decoded_base64):
+    if decoded_base64 is None:
+        logger.warning("decoded_base64 is None")
+        return
+    if filename is None:
+        logger.warning("filename is None")
+        return
+    try:
+        base_directory = "/usr/src/app/files/"
+        os.makedirs(base_directory, exist_ok=True)
+        with open(f"{base_directory}{filename}", "wb") as f:
+            f.write(decoded_base64)
+    except Exception as e:
+        logger.error(f"Error: {e}\n{traceback.format_exc()}")
+        raise
 
 
 def update_parsed_block(block_index, db):

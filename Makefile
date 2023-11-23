@@ -38,7 +38,7 @@ down:
 fdown:
 	@docker compose down -v
 
-clean: down-hard
+clean: fdown
 	@rm -rf log.file || true
 
 fclean: clean
