@@ -115,6 +115,7 @@ def clean_and_load_json(json_string):
         json_string = json_string.replace("\\x00", "") # remove null bytes
         return json.loads(json_string)
 
+
 def convert_to_json(input_string):
     try:
         dictionary = ast.literal_eval(input_string)
@@ -122,12 +123,13 @@ def convert_to_json(input_string):
         return clean_and_load_json(json_string)
     except Exception as e:
         return f"An error occurred: {e}"
-    
+
+
 def decode_base64(base64_string, block_index):
     ''' method on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
     if block_index <= 784550:
-        decode_base64_with_repair(base64_string)
-        return
+        image_data = decode_base64_with_repair(base64_string)
+        return image_data
     try:
         image_data = base64.b64decode(base64_string)
         return image_data
@@ -292,6 +294,7 @@ def check_decoded_data(decoded_data, block_index):
             raise
     return ident, file_suffix
 
+
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
     (file_suffix, filename, src_data) = None, None, None
     if data is None or data == '':
@@ -355,7 +358,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         else:
             duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
             if duplicate_on_block is not None:
-                is_btc_stamp = 'INVALID_REISSUE' 
+                is_btc_stamp = 'INVALID_REISSUE'
         
         if is_btc_stamp == 1:
             processed_stamps_dict = {
@@ -412,7 +415,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this column depending on how we handle numbering, this was temporary in prior indexing
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
-    } # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
+    }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
     block_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
                         stamp, block_index, cpid, asset_longname,
@@ -438,7 +441,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['creator_name'], parsed['stamp_gen'],
                         parsed['stamp_hash'], parsed['is_btc_stamp']
                     ))
-        # cursor.execute("COMMIT") # commit with the parent block commit
+    #  cursor.execute("COMMIT") # commit with the parent block commit
 
 
 def update_parsed_block(block_index, db):
