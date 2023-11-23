@@ -3,17 +3,11 @@ import logging
 import copy
 import json
 import config
+from src20 import query_tokens_custom
+
 
 logger = logging.getLogger(__name__)
 
-#  Initial copy of SRC-721 related functions
-
-
-def sort_keys(key):
-    priority_keys = ["p", "op", "tick"]
-    if key in priority_keys:
-        return priority_keys.index(key)
-    return len(priority_keys)
 
 def validate_src721_and_process(src721_data, db):
     op_val = src721_data.get("op", None).upper()
@@ -51,31 +45,6 @@ def convert_to_dict(json_string_or_dict):
         return json_string_or_dict
     else:
         raise TypeError("Input must be a JSON-formatted string or a Python dictionary object")
-    
-
-def query_tokens_custom(token, db):
-    # TODO: Populate the srcbackground image table - either through a stampchain API call, or a bootstrap file
-    try:
-        with db, db.cursor() as src721_cursor:
-            src721_cursor.execute(
-                '''
-                    SELECT base64, text_color, font_size
-                    FROM srcbackground
-                    WHERE tick = %s
-                ''',
-                (token.upper(),)
-            )
-            result = src721_cursor.fetchone()
-            if result:
-                base64 = result[0]
-                text_color = result[1] if result[1] else 'white'
-                font_size = result[2] if result[2] else '30px'
-                return base64, text_color, font_size
-            else:
-                return None, 'white', '30px'
-    except Exception as e:
-        print(f"Error querying database: {e}")
-        return None, 'white', '30px'
 
 
 def fetch_src721_subasset_base64(asset_name, json_list, db):
