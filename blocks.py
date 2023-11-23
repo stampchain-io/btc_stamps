@@ -745,7 +745,6 @@ def follow(db):
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock) 
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
             block_time = cblock.nTime
-            print(block_time)
             txhash_list, raw_transactions = backend.get_tx_list(cblock)
             with db:
                 block_cursor = db.cursor()
