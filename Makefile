@@ -18,6 +18,14 @@ up:
 	@echo "Using platform: $(DOCKER_PLATFORM)"
 	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
 
+dup:
+	@echo "Using arch: $(ARCH)"
+	@echo "Using platform: $(DOCKER_PLATFORM)"
+	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d
+
+logs: dup
+	@docker compose logs -f app
+
 dev:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
@@ -27,7 +35,7 @@ dev:
 down:
 	@docker compose down
 
-down-hard:
+fdown:
 	@docker compose down -v
 
 clean: down-hard
