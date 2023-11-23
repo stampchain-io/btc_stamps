@@ -6,6 +6,7 @@ from config import TICK_PATTERN_LIST
 
 def query_tokens_custom(token, mysql_conn):
     ''' used for pulling the src-20 background images for creation of the image '''
+    # TODO: populate the srcbackground table via bootstrap or api call to stampchain
     try:
         with mysql_conn.cursor() as cursor:
             cursor.execute("SELECT base64, text_color, font_size FROM srcbackground WHERE tick = %s", (token.upper(),))
@@ -20,7 +21,6 @@ def query_tokens_custom(token, mysql_conn):
     except Exception as e:
         print(f"Error querying database: {e}")
         return None, 'white', '30px'
-
 
 
 def matches_any_pattern(text, pattern_list):
