@@ -3,6 +3,7 @@ import json
 import config
 import requests
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,12 @@ def parse_base64_from_description(description):
         else:
             stamp_mimetype = ""
             stamp_base64 = stamp_search.strip() if len(stamp_search) > 1 else None
+
+        # this is new for 'A5479569622374092000' which was included in production, but rejected here
+        # NOTE: this was not part of prior production code validation
+        # we may need to activate this at a block height once we validate data
+        stamp_base64 = re.sub(r'[^a-zA-Z0-9+/=]', '', stamp_base64)
+
         return stamp_base64, stamp_mimetype
     else:
         return None, None
