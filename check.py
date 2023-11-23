@@ -104,17 +104,6 @@ def consensus_hash(db, field, previous_consensus_hash, content):
 class SanityError(Exception):
     pass
 
-def asset_conservation(db):
-    logger.debug('Checking for conservation of assets.')
-    supplies = util.supplies(db)
-    held = util.held(db)
-    for asset in supplies.keys():
-        asset_issued = supplies[asset]
-        asset_held = held[asset] if asset in held and held[asset] != None else 0
-        if asset_issued != asset_held:
-            raise SanityError('{} {} issued ≠ {} {} held'.format(util.value_out(db, asset_issued, asset), asset, util.value_out(db, asset_held, asset), asset))
-        logger.debug('{} has been conserved ({} {} both issued and held)'.format(asset, util.value_out(db, asset_issued, asset), asset))
-
 class VersionError(Exception):
     pass
 class VersionUpdateRequiredError(VersionError):
