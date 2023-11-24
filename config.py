@@ -4,6 +4,7 @@ import regex
 import logging
 import src.util as util
 from requests.auth import HTTPBasicAuth
+import boto3
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,20 @@ CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001/api/
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
 CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
+
+AWS_ACCESS_KEY_ID=os.environ.get("AWS_ACCESS_KEY_ID", None)
+AWS_SECRET_ACCESS_KEY=os.environ.get("AWS_SECRET_ACCESS_KEY", None)
+
+AWS_S3_CLIENT = boto3.client(
+    's3',
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    )
+
+AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get('AWS_CLOUDFRONT_DISTRIBUTION_ID', None)
+AWS_S3_BUCKETNAME = os.environ.get('AWS_S3_BUCKETNAME', None)
+AWS_S3_IMAGE_DIR = os.environ.get('AWS_S3_IMAGE_DIR', None)
+S3_OBJECTS = []
 
 BLOCKS_TO_KEEP = int(os.environ.get("BLOCKS_TO_KEEP", 0))
 
