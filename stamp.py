@@ -327,16 +327,17 @@ def check_decoded_data(decoded_data, block_index):
             raise
     return ident, file_suffix
 
+
 # for debug / validation temporarily
 def get_stamp_key(cpid):
     url = f"https://stampchain.io/api/stamps?cpid={cpid}"
     response = requests.get(url)
-    
     if response.status_code == 200:
         return response.json()  # Return the response as a JSON object
     else:
         return None  # Return None if the request was not successful
-    
+
+
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
     (file_suffix, filename, src_data, is_reissue) = None, None, None, None
     if data is None or data == '':
