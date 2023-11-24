@@ -30,7 +30,7 @@ COPY *.py ./
 
 # Crea un usuario no root
 RUN useradd -m indexer
-USER myuser
+USER indexer
 
 # Comando para ejecutar la aplicación
 CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "180s", "python3.9", "start.py"]
