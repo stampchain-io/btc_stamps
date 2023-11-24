@@ -63,7 +63,7 @@ def parse_block(db, block_index, block_time,
                    (block_index,))
     txes = cursor.fetchall()
     logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
-    time.sleep(2)
+    #time.sleep(2)
     txlist = []
     for tx in txes: # this should be empty unless we are reparsing a block - not implemented
         # print("tx", tx) # DEBUG
