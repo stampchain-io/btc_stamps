@@ -16,6 +16,7 @@ import src.util as util
 import src.exceptions as exceptions
 import blocks
 import src.backend as backend
+from src.aws import get_s3_objects
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -369,6 +370,9 @@ def start_all(db):
 
     # Backend.
     connect_to_backend()
+
+    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
+        config.S3_OBJECTS = get_s3_objects(config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
     # Server.
     blocks.follow(db)

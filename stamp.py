@@ -11,6 +11,7 @@ import requests
 import os
 import zlib
 import msgpack
+import io
 
 
 import config
@@ -20,6 +21,7 @@ from src721 import validate_src721_and_process
 from src20 import check_format
 import traceback
 import src.script as script
+from src.aws import check_existing_and_upload_to_s3
 
 logger = logging.getLogger(__name__)
 
@@ -285,16 +287,16 @@ def zlib_decompress(compressed_data):
         file_suffix = "json"
         ident, file_suffix = reformat_src_string(json_string)
         # FIXME: we will need to return the json_string to import into the srcx table or import from here
-        return ident, file_suffix
+        return ident, file_suffix, json_string
     except zlib.error:
         print("EXCLUSION: Error decompressing zlib data")
-        return 'UNKNOWN', 'zlib'
+        return 'UNKNOWN', 'zlib', compressed_data
     except msgpack.exceptions.ExtraData:
         print("EXCLUSION: Error decoding MessagePack data")
-        return 'UNKNOWN', 'zlib'
+        return 'UNKNOWN', 'zlib', compressed_data
     except TypeError:
         print("EXCLUSION: The decoded data is not JSON-compatible")
-        return 'UNKNOWN', 'zlib'
+        return 'UNKNOWN', 'zlib', compressed_data
 
 def check_decoded_data(decoded_data, block_index):
     ''' this can come in as a json string or text (in the case of svg's)'''
@@ -316,7 +318,7 @@ def check_decoded_data(decoded_data, block_index):
             elif decoded_data and type(decoded_data) is bytes:
                 file_suffix = get_file_suffix(decoded_data, block_index)
                 if file_suffix in ['zlib']:
-                    ident, file_suffix = zlib_decompress(decoded_data)
+                    ident, file_suffix, decoded_data = zlib_decompress(decoded_data)
                 else:
                     ident = 'STAMP'
             else:
@@ -325,7 +327,7 @@ def check_decoded_data(decoded_data, block_index):
         except Exception as e:
             logger.error(f"Error: {e}\n{traceback.format_exc()}")
             raise
-    return ident, file_suffix
+    return ident, file_suffix, decoded_data
 
 
 # for debug / validation temporarily
@@ -345,7 +347,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     stamp = convert_to_json(data)
     decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    (ident, file_suffix) = check_decoded_data(decoded_base64, block_index)
+    #FIXME: This is assuming decoded base64 is a bytestring (aka the image for src20/721 has been created)
+    (ident, file_suffix, decoded_base64) = check_decoded_data(decoded_base64, block_index)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
     valid_cp_src20 = (
@@ -430,6 +433,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         if tx_hash == api_tx_hash:
             print("this is a valid stamp, but we did not flag as such ", api_stamp_num)
 
+    if not stamp_mimetype and file_suffix in config.MIME_TYPES:
+        stamp_mimetype = config.MIME_TYPES[file_suffix]
+
+    file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
+
     logger.warning(f'''
         block_index: {block_index}
         cpid: {cpid}
@@ -442,13 +450,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is valid src 721: {valid_src721}
         is bitcoin stamp: {is_btc_stamp}
         is_reissue: {is_reissue}
+        stamp_mimetype: {stamp_mimetype}
+        file_hash: {file_obj_md5}
     ''')
     filename = f"{tx_hash}.{file_suffix}"
 
-    store_files(filename, decoded_base64)
-
-    if not stamp_mimetype and file_suffix in config.MIME_TYPES:
-        stamp_mimetype = config.MIME_TYPES[file_suffix]
     parsed = {
         "stamp": stamp_number,
         "block_index": block_index,
@@ -476,7 +482,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this column depending on how we handle numbering, this was temporary in prior indexing
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
-        "is_reissue": is_reissue
+        "is_reissue": is_reissue,
+        "file_hash": file_obj_md5
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
     block_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
@@ -526,9 +533,27 @@ def get_next_stamp_number(db):
 
     return stamp_number
 
+def get_fileobj_and_md5(decoded_base64):
+    if decoded_base64 is None:
+        logger.warning("decoded_base64 is None")
+        return None, None
+    try:
+        file_obj = io.BytesIO(decoded_base64)
+        file_obj.seek(0)
+        file_obj_md5 = hashlib.md5(file_obj.read()).hexdigest()
+        return file_obj, file_obj_md5
+    except Exception as e:
+        logger.error(f"Error: {e}\n{traceback.format_exc()}")
+        raise
 
-def store_files(filename, decoded_base64):
-    store_files_to_disk(filename, decoded_base64)
+def store_files(filename, decoded_base64, mime_type):
+    file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
+    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID:
+        print("uploading to aws") #FIXME: there may be cases where we want both aws and disk storage
+        check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
+    else:
+        store_files_to_disk(filename, decoded_base64)
+    return file_obj_md5
 
 
 def store_files_to_disk(filename, decoded_base64):
