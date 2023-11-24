@@ -59,7 +59,13 @@ services:
       - RPC_TOKEN= # Optional - only for Quicknode users
       - BLOCKS_TO_KEEP=0 # Optional to purgue historic txs from db - keep all with 0
       - BACKEND_POLL_INTERVAL= # Optional to change the interval of the backend polling default 0.5 secs
-      - DOMAINNAME= # Optional to prepend the stamp_url value ie https://stampchain.io
+      - DOMAINNAME= # Optional to prepend the stamp_url value in the db ie https://stampchain.io
+      - AWS_ACCESS_KEY_ID= # Optional - only for AWS S3 users
+      - AWS_SECRET_ACCESS_KEY= # Optional - only for AWS S3 users
+      - AWS_CLOUDFRONT_DISTRIBUTION_ID= # Optional if using Cloudfront with S3 and require invalidation
+      - AWS_S3_BUCKET_NAME= # Optional - only for AWS S3 users
+      - AWS_S3_IMAGE_DIR= # Optional - only for AWS S3 users
+      - AWS_RDS_HOSTNAME= # Optional - only for AWS RDS users
 volumes:
   db_data:
   grafana_data:

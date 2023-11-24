@@ -1,7 +1,7 @@
 import server
 import os
 
-if os.path.exists('.env'):
+if os.path.exists('.env'): # this is for debugging or when not running app in docker
     with open('.env') as f:
         for line in f:
             key, value = line.strip().split('=')
