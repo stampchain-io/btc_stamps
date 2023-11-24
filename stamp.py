@@ -374,9 +374,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     else:
         is_btc_stamp = None
 
+    stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
     logger.warning(f'''
         block_index: {block_index}
         cpid: {cpid}
+        stamp_number: {stamp_number}
         ident: {ident}
         keyburn: {keyburn}
         file_suffix: {file_suffix}
@@ -392,7 +394,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
     parsed = {
-        "stamp": get_next_stamp_number(db) if is_btc_stamp else None,
+        "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
         "creator_name": None,  # TODO: add creator_name
