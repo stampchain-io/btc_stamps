@@ -8,6 +8,7 @@ import appdirs
 import bitcoin as bitcoinlib
 import logging
 from urllib.parse import quote_plus as urlencode
+import csv
 
 import src.log as log
 import config
@@ -270,6 +271,58 @@ def initialize_config(
         config.ESTIMATE_FEE_PER_KB = estimate_fee_per_kb
 
 
+def initialize_tables(db):
+    try:
+        logger.warning("initializing tables...")
+        cursor = db.cursor()
+        with open('table_schema.sql', 'r') as file:
+            sql_script = file.read()
+        sql_commands = [
+            cmd.strip() for cmd in sql_script.split(';') if cmd.strip()
+        ]
+        for command in sql_commands:
+            try:
+                cursor.execute(command)
+            except Exception as e:
+                logger.error(
+                    f"Error executing command:{command};\nerror:{e}"
+                )
+                raise e
+        import_csv_data(
+            cursor,
+            'bootstrap/creator.csv',
+            'INSERT INTO creator (address, creator) VALUES (%s, %s)'
+        )
+        import_csv_data(
+            cursor,
+            'bootstrap/srcbackground.csv',
+            '''INSERT INTO srcbackground
+            (tick, base64, font_size, text_color, unicode, p)
+            VALUES (%s, %s, %s, %s, %s, %s)'''
+        )
+        db.commit()
+        cursor.close()
+    except Exception as e:
+        logger.error(
+            "Error initializing tables: {}".format(e)
+        )
+        raise e
+
+
+def import_csv_data(cursor, csv_file, insert_query):
+    max_int = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(max_int)
+            break
+        except OverflowError:
+            max_int = int(max_int/10)
+    with open(csv_file, 'r') as file:
+        csv_reader = csv.reader(file)
+        for row in csv_reader:
+            cursor.execute(insert_query, tuple(row))
+
+
 def initialize_db():
     print("initialize_db")
     if config.FORCE:
@@ -290,6 +343,8 @@ def initialize_db():
         database=rds_database
     )
     util.CURRENT_BLOCK_INDEX = blocks.last_db_index(db)
+
+    initialize_tables(db)
 
     return db
 
