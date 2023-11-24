@@ -14,4 +14,5 @@ python-docx
 cryptography
 pybase64
 python-magic
-# boto3 # required if using AWS S3 for file storage
+boto3 # required if using AWS S3 for file storage
+msgpack
