@@ -537,9 +537,10 @@ def store_files_to_disk(filename, decoded_base64):
         logger.warning("filename is None")
         return
     try:
-        base_directory = "/usr/src/app/files/"
+        pwd = os.environ.get("PWD", '/usr/src/app')
+        base_directory = os.path.join(pwd, "files")
         os.makedirs(base_directory, exist_ok=True)
-        file_path = f"{base_directory}{filename}"
+        file_path = os.path.join(base_directory, filename)
         with open(file_path, "wb") as f:
             f.write(decoded_base64)
     except Exception as e:
