@@ -481,8 +481,10 @@ def store_files_to_disk(filename, decoded_base64):
     try:
         base_directory = "/usr/src/app/files/"
         os.makedirs(base_directory, exist_ok=True)
-        with open(f"{base_directory}{filename}", "wb") as f:
+        file_path = f"{base_directory}{filename}"
+        with open(file_path, "wb") as f:
             f.write(decoded_base64)
+        os.chmod(file_path, 0o666)
     except Exception as e:
         logger.error(f"Error: {e}\n{traceback.format_exc()}")
         raise
