@@ -67,12 +67,12 @@ def get_issuances_by_block(block_index):
                 logger.warning(
                     "Waiting for block {} to be parsed...".format(block_index)
                 )
-                time.sleep(10)
+                time.sleep(config.BACKEND_POLL_INTERVAL)
         except Exception as e:
             logger.warning(
                 "Error getting block count: {}\nSleeping to retry...".format(e)
             )
-            time.sleep(10)
+            time.sleep(config.BACKEND_POLL_INTERVAL)
     issuances = None
     while issuances is None:
         try:
@@ -91,7 +91,7 @@ def get_issuances_by_block(block_index):
             logger.warning(
                 "Error getting issuances: {}\n Sleeping to retry...".format(e)
             )
-            time.sleep(10)
+            time.sleep(config.BACKEND_POLL_INTERVAL)
 
 
 def parse_base64_from_description(description):
