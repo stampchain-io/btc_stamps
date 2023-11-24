@@ -37,6 +37,9 @@ down:
 
 fdown:
 	@docker compose down -v
+	@rm -rf files || true
+	@rm -rf log.file || true
+	@rm -rf db_data || true
 
 clean: fdown
 	@rm -rf log.file || true
