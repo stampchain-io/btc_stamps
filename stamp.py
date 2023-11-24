@@ -9,6 +9,8 @@ import subprocess
 import ast
 import requests
 import os
+import zlib
+import msgpack
 
 
 import config
@@ -264,6 +266,35 @@ def is_json_string(s):
         return False
 
 
+def reformat_src_string(decoded_data):
+    decoded_data = json.loads(decoded_data)
+    decoded_data = {k.lower(): v for k, v in decoded_data.items()}
+    if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
+        ident = decoded_data['p'].upper()
+        file_suffix = 'json'
+    else:
+        ident = 'UNKNOWN'
+    return ident, file_suffix
+
+def zlib_decompress(compressed_data):
+    try:
+        uncompressed_data = zlib.decompress(compressed_data) # suffix = plain /  Uncompressed data: b'\x85\xa1p\xa6src-20\xa2op\xa6deploy\xa4tick\xa4ordi\xa3max\xa821000000\xa3lim\xa41000'
+        decoded_data = msgpack.unpackb(uncompressed_data) #  {'p': 'src-20', 'op': 'deploy', 'tick': 'kevin', 'max': '21000000', 'lim': '1000'}
+        json_string = json.dumps(decoded_data)
+        file_suffix = "json"
+        ident, file_suffix = reformat_src_string(json_string)
+        # FIXME: we will need to return the json_string to import into the srcx table or import from here
+        return ident, file_suffix
+    except zlib.error:
+        print("EXCLUSION: Error decompressing zlib data")
+        return 'UNKNOWN', 'zlib'
+    except msgpack.exceptions.ExtraData:
+        print("EXCLUSION: Error decoding MessagePack data")
+        return 'UNKNOWN', 'zlib'
+    except TypeError:
+        print("EXCLUSION: The decoded data is not JSON-compatible")
+        return 'UNKNOWN', 'zlib'
+
 def check_decoded_data(decoded_data, block_index):
     ''' this can come in as a json string or text (in the case of svg's)'''
     file_suffix = None
@@ -273,13 +304,8 @@ def check_decoded_data(decoded_data, block_index):
         except Exception as e:
             pass
     if (type(decoded_data) is str and is_json_string(decoded_data)):
-        decoded_data = json.loads(decoded_data)
-        decoded_data = {k.lower(): v for k, v in decoded_data.items()}
-        if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
-            ident = decoded_data['p'].upper()
-            file_suffix = 'json'
-        else:
-            ident = 'UNKNOWN'
+        ident, file_suffix = reformat_src_string(decoded_data)
+        # FIXME: we will need to return the json_string to import into the srcx table or import from here
     else:
         try:
             if decoded_data and type(decoded_data) is str:
@@ -288,7 +314,10 @@ def check_decoded_data(decoded_data, block_index):
                 ident = 'STAMP'
             elif decoded_data and type(decoded_data) is bytes:
                 file_suffix = get_file_suffix(decoded_data, block_index)
-                ident = 'STAMP'
+                if file_suffix in ['zlib']:
+                    ident, file_suffix = zlib_decompress(decoded_data)
+                else:
+                    ident = 'STAMP'
             else:
                 file_suffix = None
                 ident = 'UNKNOWN'
