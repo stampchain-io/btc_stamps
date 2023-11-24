@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp_gen` int DEFAULT NULL,
   `stamp_hash` varchar(255) DEFAULT NULL,
   `is_btc_stamp` tinyint(1) DEFAULT NULL,
+  `is_reissue` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`tx_hash`),
   KEY `cpid_index` (`cpid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
