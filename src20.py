@@ -41,6 +41,8 @@ def sort_keys(key):
 
 def check_format(input_string):
     try:
+        if isinstance(input_string, bytes):
+            input_string = input_string.decode('utf-8')
         start_index = input_string.find('{')
         end_index = input_string.rfind('}') + 1
         input_string = input_string[start_index:end_index]
