@@ -291,14 +291,24 @@ def initialize_tables(db):
         import_csv_data(
             cursor,
             'bootstrap/creator.csv',
-            'INSERT INTO creator (address, creator) VALUES (%s, %s)'
+            '''
+            INSERT INTO creator (address, creator)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE creator = VALUES(creator)
+            '''
         )
         import_csv_data(
             cursor,
             'bootstrap/srcbackground.csv',
             '''INSERT INTO srcbackground
             (tick, base64, font_size, text_color, unicode, p)
-            VALUES (%s, %s, %s, %s, %s, %s)'''
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            base64 = VALUES(base64),
+            font_size = VALUES(font_size),
+            text_color = VALUES(text_color),
+            unicode = VALUES(unicode),
+            p = VALUES(p)'''
         )
         db.commit()
         cursor.close()
