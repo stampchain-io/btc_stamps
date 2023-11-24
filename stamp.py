@@ -273,6 +273,7 @@ def reformat_src_string(decoded_data):
         ident = decoded_data['p'].upper()
         file_suffix = 'json'
     else:
+        file_suffix = None
         ident = 'UNKNOWN'
     return ident, file_suffix
 
