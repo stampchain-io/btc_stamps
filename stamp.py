@@ -8,6 +8,8 @@ import magic
 import subprocess
 import ast
 import requests
+import os
+
 
 import config
 from xcprequest import parse_base64_from_description
@@ -306,7 +308,7 @@ def get_stamp_key(cpid):
         return None  # Return None if the request was not successful
     
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
-    (file_suffix, filename, src_data) = None, None, None
+    (file_suffix, filename, src_data, is_reissue) = None, None, None, None
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
@@ -365,11 +367,13 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         result = block_cursor.fetchone()
         if result:
             is_btc_stamp = 'INVALID_REISSUE'
+            # reissunace of a stamp
+            is_reissue = 1
         else:
             duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
             if duplicate_on_block is not None:
                 is_btc_stamp = 'INVALID_REISSUE'
-        
+
         if is_btc_stamp == 1:
             processed_stamps_dict = {
                 'tx_hash': tx_hash,
@@ -382,7 +386,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
     else:
         is_btc_stamp = None
-
+    stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
+        
     # debug / validation - add breakpoints to check if we are indexing correcly :) 
     debug_stamp_api = get_stamp_key(cpid)
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
@@ -397,6 +402,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     logger.warning(f'''
         block_index: {block_index}
         cpid: {cpid}
+        stamp_number: {stamp_number}
         ident: {ident}
         keyburn: {keyburn}
         file_suffix: {file_suffix}
@@ -404,13 +410,16 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is valid src 20: {valid_src20}
         is valid src 721: {valid_src721}
         is bitcoin stamp: {is_btc_stamp}
+        is_reissue: {is_reissue}
     ''')
     filename = f"{tx_hash}.{file_suffix}"
+
+    store_files(filename, decoded_base64)
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
     parsed = {
-        "stamp": None,
+        "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
         "creator_name": None,  # TODO: add creator_name
@@ -436,6 +445,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this column depending on how we handle numbering, this was temporary in prior indexing
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
+        "is_reissue": is_reissue
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
     block_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
@@ -445,9 +455,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         stamp_mimetype, stamp_url, supply, timestamp,
                         tx_hash, tx_index, src_data, ident,
                         creator_name, stamp_gen, stamp_hash,
-                        is_btc_stamp
+                        is_btc_stamp, is_reissue
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
                         parsed['cpid'], parsed['asset_longname'],
@@ -460,9 +470,52 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['tx_hash'], parsed['tx_index'],
                         parsed['src_data'], parsed['ident'],
                         parsed['creator_name'], parsed['stamp_gen'],
-                        parsed['stamp_hash'], parsed['is_btc_stamp']
+                        parsed['stamp_hash'], parsed['is_btc_stamp'],
+                        parsed['is_reissue']
                     ))
     #  cursor.execute("COMMIT") # commit with the parent block commit
+
+
+def get_next_stamp_number(db):
+    """Return index of next transaction."""
+    cursor = db.cursor()
+
+    cursor.execute(f'''
+        SELECT stamp FROM {config.STAMP_TABLE}
+        WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
+    ''')
+    stamps = cursor.fetchall()
+    if stamps:
+        assert len(stamps) == 1
+        stamp_number = stamps[0][0] + 1
+    else:
+        stamp_number = 0
+
+    cursor.close()
+
+    return stamp_number
+
+
+def store_files(filename, decoded_base64):
+    store_files_to_disk(filename, decoded_base64)
+
+
+def store_files_to_disk(filename, decoded_base64):
+    if decoded_base64 is None:
+        logger.warning("decoded_base64 is None")
+        return
+    if filename is None:
+        logger.warning("filename is None")
+        return
+    try:
+        base_directory = "/usr/src/app/files/"
+        os.makedirs(base_directory, exist_ok=True)
+        file_path = f"{base_directory}{filename}"
+        with open(file_path, "wb") as f:
+            f.write(decoded_base64)
+    except Exception as e:
+        logger.error(f"Error: {e}\n{traceback.format_exc()}")
+        raise
 
 
 def update_parsed_block(block_index, db):
