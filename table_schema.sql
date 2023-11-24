@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
   UNIQUE KEY `tx_hash` (`tx_hash`),
   KEY `asset` (`asset`),
   CONSTRAINT `dispensers_ibfk_1` FOREIGN KEY (`asset`) REFERENCES `StampTableV4` (`cpid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `srcx` (
