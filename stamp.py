@@ -360,7 +360,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
             if duplicate_on_block is not None:
                 is_btc_stamp = 'INVALID_REISSUE'
-        
+
         if is_btc_stamp == 1:
             processed_stamps_dict = {
                 'tx_hash': tx_hash,
@@ -392,7 +392,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
     parsed = {
-        "stamp": None,
+        "stamp": get_next_stamp_number(db) if is_btc_stamp else None,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
         "creator_name": None,  # TODO: add creator_name
@@ -445,6 +445,26 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['stamp_hash'], parsed['is_btc_stamp']
                     ))
     #  cursor.execute("COMMIT") # commit with the parent block commit
+
+
+def get_next_stamp_number(db):
+    """Return index of next transaction."""
+    cursor = db.cursor()
+
+    cursor.execute(f'''
+        SELECT stamp FROM {config.STAMP_TABLE}
+        WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
+    ''')
+    stamps = cursor.fetchall()
+    if stamps:
+        assert len(stamps) == 1
+        stamp_number = stamps[0][0] + 1
+    else:
+        stamp_number = 0
+
+    cursor.close()
+
+    return stamp_number
 
 
 def store_files(filename, decoded_base64):
