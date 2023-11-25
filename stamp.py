@@ -369,7 +369,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     valid_src721 = (
         ident == 'SRC-721'
         and keyburn == 1
-        and stamp.get('quantity') == 1
+        and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
 
     if valid_src20:
@@ -434,7 +434,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
      # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
     if ident in config.SUPPORTED_SUB_PROTOCOLS or file_suffix in config.MIME_TYPES:
         # if decoded_base64 is not a bytestring convert it to one
-        if type(decoded_base64) is str and file_suffix == 'svg':
+        if type(decoded_base64) is str: # and file_suffix in ['svg','html']:
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
