@@ -441,6 +441,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
     # debug / validation - add breakpoints to check if we are indexing correcly :) 
     api_stamp_num = None
+    api_tx_hash = None
     debug_stamp_api = get_stamp_key(tx_hash)
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
         api_stamp_num = debug_stamp_api[0].get('stamp')
@@ -448,9 +449,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     elif debug_stamp_api:
         api_tx_hash = debug_stamp_api[0].get('tx_hash')
         api_stamp_num = debug_stamp_api[0].get('stamp')
-        if tx_hash == api_tx_hash:
-            print("this is a valid stamp, but we did not flag as such ", api_stamp_num)
-
+        
     logger.warning(f'''
         block_index: {block_index}
         cpid: {cpid}
@@ -467,10 +466,14 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         stamp_mimetype: {stamp_mimetype}
         file_hash: {file_obj_md5}
         tx_hash: {tx_hash}
+        api_tx_hash: {api_tx_hash}
     ''')
     # DEBUG only
-    if api_stamp_num and api_stamp_num != stamp_number:
+    if api_stamp_num != stamp_number:
         print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
+        input("Press Enter to continue...")
+    if api_tx_hash != tx_hash:
+        print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
         input("Press Enter to continue...")
 
     parsed = {
