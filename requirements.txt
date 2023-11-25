@@ -16,3 +16,4 @@ pybase64
 python-magic
 boto3 # required if using AWS S3 for file storage
 msgpack
+#arweave-python-client # required for arweave storage
