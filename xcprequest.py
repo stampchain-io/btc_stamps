@@ -57,7 +57,7 @@ def get_issuances(params={}):
 
 
 def get_issuances_by_block(block_index):
-    while util.CP_BLOCK_COUNT is None and block_index > util.CP_BLOCK_COUNT:
+    while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
             util.CP_BLOCK_COUNT = get_block_count()
             if (
