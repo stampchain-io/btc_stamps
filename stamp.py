@@ -12,7 +12,7 @@ import os
 import zlib
 import msgpack
 import io
-from Pillow import Image
+from PIL import Image
 
 import config
 from xcprequest import parse_base64_from_description
