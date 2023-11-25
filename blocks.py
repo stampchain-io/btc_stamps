@@ -299,8 +299,6 @@ def get_tx_info2(
             data += new_data
             destinations = (str(new_destination))
 
-    if keyburn == True:
-        print("keyburn", keyburn)
     # Get source
     source = None
 
