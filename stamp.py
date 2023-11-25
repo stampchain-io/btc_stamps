@@ -516,7 +516,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         creator_name, stamp_gen, stamp_hash,
                         is_btc_stamp, is_reissue
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
                         parsed['cpid'], parsed['asset_longname'],
@@ -530,7 +530,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['src_data'], parsed['ident'],
                         parsed['creator_name'], parsed['stamp_gen'],
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
-                        parsed['is_reissue']
+                        parsed['is_reissue'], parsed['file_hash']
                     ))
 
 
