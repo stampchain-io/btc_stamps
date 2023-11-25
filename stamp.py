@@ -440,9 +440,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
     # debug / validation - add breakpoints to check if we are indexing correcly :) 
+    api_stamp_num = None
     debug_stamp_api = get_stamp_key(cpid)
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
-        # get the key stamp from debug_stamp_api
         api_stamp_num = debug_stamp_api[0].get('stamp')
         print("this is not a valid stamp, but we flagged as such")
     elif debug_stamp_api and is_btc_stamp is None:
@@ -467,10 +467,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         stamp_mimetype: {stamp_mimetype}
         file_hash: {file_obj_md5}
     ''')
-
+    # DEBUG only
     if api_stamp_num and api_stamp_num != stamp_number:
         print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
-        # pause the script for user input
         input("Press Enter to continue...")
 
     parsed = {
