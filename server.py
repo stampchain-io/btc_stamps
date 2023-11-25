@@ -274,7 +274,7 @@ def initialize_config(
 
 def initialize_tables(db):
     try:
-        logger.warning("initializing tables...")
+        logger.info("initializing tables...")
         cursor = db.cursor()
         with open('table_schema.sql', 'r') as file:
             sql_script = file.read()
