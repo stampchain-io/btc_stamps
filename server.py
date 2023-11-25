@@ -385,9 +385,3 @@ def reparse(db, block_index=None, quiet=True):
 
 def kickstart(db, bitcoind_dir):
     blocks.kickstart(db, bitcoind_dir=bitcoind_dir)
-
-
-
-
-
-
