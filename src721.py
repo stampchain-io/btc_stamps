@@ -3,7 +3,7 @@ import logging
 import copy
 import json
 import config
-from src20 import query_tokens_custom
+from src20 import get_srcbackground_data
 
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ def fetch_src721_collection(tmp_collection_object, json_list, db):
 
 
 def get_src721_svg_string(src721_title, src721_desc, db):
-    custom_background_result, text_color, font_size = query_tokens_custom(
+    custom_background_result, text_color, font_size = get_srcbackground_data(
         'SRC721',
         db
     )
