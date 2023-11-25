@@ -445,10 +445,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
         api_stamp_num = debug_stamp_api[0].get('stamp')
         print("this is not a valid stamp, but we flagged as such")
-    elif debug_stamp_api and is_btc_stamp is None:
+    elif debug_stamp_api:
         api_tx_hash = debug_stamp_api[0].get('tx_hash')
         api_stamp_num = debug_stamp_api[0].get('stamp')
-
         if tx_hash == api_tx_hash:
             print("this is a valid stamp, but we did not flag as such ", api_stamp_num)
 
@@ -456,6 +455,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         block_index: {block_index}
         cpid: {cpid}
         stamp_number: {stamp_number}
+        api_stamp_num: {api_stamp_num}
         ident: {ident}
         keyburn: {keyburn}
         file_suffix: {file_suffix}
