@@ -168,7 +168,7 @@ def create_src721_mint_svg(src_data, db):
         print("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
             # print("this is a mint without a v2 collection asset reference") #DEBUG
-            svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+            svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
         elif collection_asset_item:
             try:
                 src_collection_data = convert_to_dict(collection_asset_item)
@@ -179,7 +179,8 @@ def create_src721_mint_svg(src_data, db):
                 raise
         else:
             # print("this is a mint without a v2 collection asset reference") #DEBUG
-            svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+            svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
     else:
         print("this is a mint without a collection asset reference") #DEBUG
-        svg_output = get_src721_svg_string("SRC-721", "stampchain.io")
+        svg_output = get_src721_svg_string("SRC-721", "config.DOMAINNAME", db)
+    return svg_output
