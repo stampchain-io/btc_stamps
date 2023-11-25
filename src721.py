@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def validate_src721_and_process(src721_data, db):
+    src721_data = convert_to_dict(src721_data)
     op_val = src721_data.get("op", None).upper()
     file_suffix = None
     if 'symbol' in src721_data:
@@ -28,12 +29,13 @@ def validate_src721_and_process(src721_data, db):
         file_suffix = 'svg'
     else:
         svg_output = get_src721_svg_string(
-            "SRC-721",
+            "SRC721",
             config.DOMAINNAME,
             db
         )
         file_suffix = 'svg'
-    return svg_output, file_suffix
+    return  svg_output.encode('utf-8'), file_suffix
+
 
 def convert_to_dict(json_string_or_dict):
     if isinstance(json_string_or_dict, str):
@@ -96,12 +98,11 @@ def fetch_src721_collection(tmp_collection_object, json_list, db):
 
 def get_src721_svg_string(src721_title, src721_desc, db):
     custom_background_result, text_color, font_size = get_srcbackground_data(
+        db.cursor(),
         'SRC721',
-        db
     )
     # print(f"SRC-721: {asset}, {tx_hash}, {tick_value}, {p_val}, {text_color}, {font_size}")
-    svg_output = f"""
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
+    svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
         <foreignObject font-size="{font_size}" width="100%" height="100%">
             <p xmlns="http://www.w3.org/1999/xhtml"
                 style="background-image: url(data:{custom_background_result});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;">
@@ -112,6 +113,7 @@ def get_src721_svg_string(src721_title, src721_desc, db):
         <desc>{src721_desc} - provided by stampchain.io</desc>
     </svg>
     """
+    svg_output = svg_output.replace('\n', '')
     return svg_output
 
 
