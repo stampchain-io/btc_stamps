@@ -431,8 +431,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
 
-     # if ident is not equal to unknown
-    if ident != 'UNKNOWN':
+     # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
+    if ident in config.SUPPORTED_SUB_PROTOCOLS or file_suffix in config.MIME_TYPES:
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
@@ -477,7 +477,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "message_index": stamp.get('message_index'),
         "stamp_base64": stamp_base64,
         "stamp_mimetype": stamp_mimetype,
-        "stamp_url": 'https://' + config.DOMAINNAME + '/stamps/' + filename if file_suffix is not None else None,
+        "stamp_url": 'https://' + config.DOMAINNAME + '/stamps/' + filename if file_suffix is not None and filename is not None else None,
         "supply": stamp.get('quantity'),
         "timestamp": datetime.utcfromtimestamp(
             block_time
