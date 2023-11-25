@@ -1,7 +1,11 @@
 
 from decimal import Decimal
 import json
+import logging
 from config import TICK_PATTERN_LIST
+
+logger = logging.getLogger(__name__)
+
 
 
 def build_src20_svg_string(cursor, src_20_dict):
@@ -69,7 +73,7 @@ def check_format(input_string):
         if input_dict.get("p") == "src-20":
             tick_value = input_dict.get("tick")
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_LIST) or len(tick_value) > 5:
-                print("EXCLUSION: did not match tick pattern", input_dict)
+                logger.warning("EXCLUSION: did not match tick pattern", input_dict)
                 return False
 
             deploy_keys = {"op", "tick", "max", "lim"}
@@ -87,27 +91,23 @@ def check_format(input_string):
                     for key in key_to_check[list(key_to_check.keys())[i]]:
                         value = input_dict.get(key)
                         if value is None:
-                            print(input_string)
-                            print(f"EXCLUSION: Missing or invalid value for {key}", input_dict)
+                            logger.warning(f"EXCLUSION: Missing or invalid value for {key}", input_dict)
                             return None
 
                         if isinstance(value, str):
                             try:
                                 value = Decimal(''.join(c for c in value if c.isdigit() or c == '.')) if value else Decimal(0)
                             except ValueError:
-                                print(input_string)
-                                print(f"EXCLUSION: {key} not a valid decimal", input_dict)
+                                logger.warning(f"EXCLUSION: {key} not a valid decimal", input_dict)
                                 return None
                         elif isinstance(value, int):
                             value = Decimal(value)
                         else:
-                            print(input_string)
-                            print(f"EXCLUSION: {key} not a string or integer", input_dict)
+                            logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
 
                         if not (0 <= value <= uint64_max):
-                            print(input_string)
-                            print(f"EXCLUSION: {key} not in range", input_dict)
+                            logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return False
             return input_dict
 
