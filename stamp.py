@@ -12,6 +12,8 @@ import os
 import zlib
 import msgpack
 import io
+from PIL import Image
+
 
 
 import config
@@ -342,6 +344,16 @@ def get_stamp_key(tx_hash):
         return None  # Return None if the request was not successful
 
 
+def verify_image(img_data):
+    try:
+        image = Image.open(io.BytesIO(img_data))
+        image.verify()  # Verificar si es una imagen válida
+        return True
+    except Exception as e:
+        print(f"Error al verificar la imagen: {e}")
+        return False
+
+
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
     (file_suffix, filename, src_data, is_reissue, file_obj_md5) = None, None, None, None, None
     if data is None or data == '':
@@ -390,6 +402,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
+
     if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
         not valid_src20 and not valid_src721
         and ident in config.SUPPORTED_SUB_PROTOCOLS
@@ -425,6 +438,10 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             is_btc_stamp = None
     else:
         is_btc_stamp = None
+    # Verify IMG
+    if is_btc_stamp == 1 and file_suffix in config.IMAGE_SUFFIX:
+        if verify_image(decoded_base64) is False:
+            is_btc_stamp = None
 
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
 
