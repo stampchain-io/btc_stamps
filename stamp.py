@@ -402,7 +402,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is_btc_stamp = 1
         block_cursor.execute(f'''
             SELECT * FROM {config.STAMP_TABLE}
-            WHERE cpid = %s AND is_btc_stamp = 1
+            WHERE cpid = %s
         ''', (cpid,))
         result = block_cursor.fetchone()
         if result:
@@ -472,7 +472,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if api_stamp_num != stamp_number:
         print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
         input("Press Enter to continue...")
-    if api_tx_hash != tx_hash:
+    if is_btc_stamp and api_tx_hash != tx_hash:
         print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
         input("Press Enter to continue...")
 
