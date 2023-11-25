@@ -433,6 +433,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
      # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
     if ident in config.SUPPORTED_SUB_PROTOCOLS or file_suffix in config.MIME_TYPES:
+        # if decoded_base64 is not a bytestring convert it to one
+        if type(decoded_base64) is str and file_suffix == 'svg':
+            decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
@@ -519,7 +522,6 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
                         parsed['is_reissue']
                     ))
-    #  cursor.execute("COMMIT") # commit with the parent block commit
 
 
 def get_next_stamp_number(db):
