@@ -514,7 +514,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         stamp_mimetype, stamp_url, supply, timestamp,
                         tx_hash, tx_index, src_data, ident,
                         creator_name, stamp_gen, stamp_hash,
-                        is_btc_stamp, is_reissue
+                        is_btc_stamp, is_reissue, file_hash
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
