@@ -3,7 +3,7 @@ import json
 import config
 import requests
 import logging
-import re
+import src.util as util
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +57,13 @@ def get_issuances(params={}):
 
 
 def get_issuances_by_block(block_index):
-    block_count = None
-    while block_count is None:
+    while util.CP_BLOCK_COUNT is None and block_index > util.CP_BLOCK_COUNT:
         try:
-            block_count = get_block_count()
-            if block_count is not None and block_index <= block_count:
+            util.CP_BLOCK_COUNT = get_block_count()
+            if (
+                util.CP_BLOCK_COUNT is not None
+                and block_index <= util.CP_BLOCK_COUNT
+            ):
                 break
             else:
                 logger.warning(
