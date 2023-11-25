@@ -287,7 +287,7 @@ def get_checkmultisig(asm): #this is for any multisig in the correct format
         pubkeys, signatures_required = asm[1:3], asm[0]
         # print("pubkeys from get_checkmultisig", pubkeys)
         if  asm3_str in config.BURNKEYS:
-            keyburn = True
+            keyburn = 1
         return pubkeys, signatures_required, keyburn
     raise exceptions.DecodeError('invalid OP_CHECKMULTISIG')
 
