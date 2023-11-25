@@ -18,7 +18,7 @@ import config
 from xcprequest import parse_base64_from_description
 from bitcoin.core.script import CScript, OP_RETURN
 from src721 import validate_src721_and_process
-from src20 import check_format
+from src20 import check_format, build_src20_svg_string
 import traceback
 import src.script as script
 from src.aws import check_existing_and_upload_to_s3
@@ -279,6 +279,7 @@ def reformat_src_string(decoded_data):
         ident = 'UNKNOWN'
     return ident, file_suffix
 
+
 def zlib_decompress(compressed_data):
     try:
         uncompressed_data = zlib.decompress(compressed_data) # suffix = plain /  Uncompressed data: b'\x85\xa1p\xa6src-20\xa2op\xa6deploy\xa4tick\xa4ordi\xa3max\xa821000000\xa3lim\xa41000'
@@ -297,6 +298,7 @@ def zlib_decompress(compressed_data):
     except TypeError:
         print("EXCLUSION: The decoded data is not JSON-compatible")
         return 'UNKNOWN', 'zlib', compressed_data
+
 
 def check_decoded_data(decoded_data, block_index):
     ''' this can come in as a json string or text (in the case of svg's)'''
@@ -341,7 +343,7 @@ def get_stamp_key(cpid):
 
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
-    (file_suffix, filename, src_data, is_reissue) = None, None, None, None
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5) = None, None, None, None, None
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
@@ -370,19 +372,23 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         and stamp.get('quantity') == 1
     )
 
-    if valid_src20 and check_format(decoded_base64):
-        src_data = decoded_base64
-        is_btc_stamp = 1
-        #TODO: call query_tokens_custom, build the svg image, and update file_suffix to svg
-        # hardcode for now to ensure is_btc_stamp below
-        file_suffix = 'svg'
-    elif valid_src20 and not check_format(decoded_base64):
-        return
+    if valid_src20:
+        src_20_string = check_format(decoded_base64)
+        src_20_dict = None
+        if src_20_string:
+            src_20_dict = decoded_base64
+            is_btc_stamp = 1
+            decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
+            file_suffix = 'svg'
+        elif valid_src20 and not src_20_dict:
+            return
 
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
         (svg_output, file_suffix) = validate_src721_and_process(src_data, db)
+        decoded_base64 = svg_output
+        file_suffix = 'svg'
 
     if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
         not valid_src20 and not valid_src721
@@ -417,11 +423,19 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             processed_stamps_list.append(processed_stamps_dict)
         else:
             is_btc_stamp = None
-
     else:
         is_btc_stamp = None
+
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
-        
+
+    if not stamp_mimetype and file_suffix in config.MIME_TYPES:
+        stamp_mimetype = config.MIME_TYPES[file_suffix]
+
+     # if ident is not equal to unknown
+    if ident != 'UNKNOWN':
+        filename = f"{tx_hash}.{file_suffix}"
+        file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
+
     # debug / validation - add breakpoints to check if we are indexing correcly :) 
     debug_stamp_api = get_stamp_key(cpid)
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
@@ -432,11 +446,6 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
         if tx_hash == api_tx_hash:
             print("this is a valid stamp, but we did not flag as such ", api_stamp_num)
-
-    if not stamp_mimetype and file_suffix in config.MIME_TYPES:
-        stamp_mimetype = config.MIME_TYPES[file_suffix]
-
-    file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
     logger.warning(f'''
         block_index: {block_index}
@@ -453,13 +462,12 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         stamp_mimetype: {stamp_mimetype}
         file_hash: {file_obj_md5}
     ''')
-    filename = f"{tx_hash}.{file_suffix}"
 
     parsed = {
         "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
-        "creator_name": None,  # TODO: add creator_name
+        "creator_name": None,  # TODO: add creator_name - this is the issuer in CP, and source in BTC
         "asset_longname": stamp.get('asset_longname'),
         "creator": source,
         "divisible": stamp.get('divisible'),

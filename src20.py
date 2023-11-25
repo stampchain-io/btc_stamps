@@ -4,23 +4,38 @@ import json
 from config import TICK_PATTERN_LIST
 
 
-def query_tokens_custom(token, mysql_conn):
-    ''' used for pulling the src-20 background images for creation of the image '''
-    # TODO: populate the srcbackground table via bootstrap or api call to stampchain
-    try:
-        with mysql_conn.cursor() as cursor:
-            cursor.execute("SELECT base64, text_color, font_size FROM srcbackground WHERE tick = %s", (token.upper(),))
-            result = cursor.fetchone()
-            if result:
-                base64 = result[0]
-                text_color = result[1] if result[1] else 'white'
-                font_size = result[2] if result[2] else '30px'
-                return base64, text_color, font_size
-            else:
-                return None, 'white', '30px'
-    except Exception as e:
-        print(f"Error querying database: {e}")
-        return None, 'white', '30px'
+def build_src20_svg_string(cursor, src_20_dict):
+    from src721 import convert_to_dict
+    src_20_dict = convert_to_dict(src_20_dict)
+    background_base64, font_size, text_color = get_srcbackground_data(cursor, src_20_dict.get('tick'))
+    svg_image_data = generate_srcbackground_svg(src_20_dict, background_base64, font_size, text_color)
+    return svg_image_data
+
+
+# query the srcbackground mysql table for these columns tick, base64, font_size, text_color, unicode, p
+def get_srcbackground_data(cursor, tick):
+    query = "SELECT base64, IFNULL(font_size, '30px') as font_size, IFNULL(text_color, 'white') as text_color FROM srcbackground WHERE UPPER(tick) = UPPER(%s) AND UPPER(p) = UPPER(%s)"
+    cursor.execute(query, (tick.upper(), "SRC-20"))
+    result = cursor.fetchone()
+    if result:
+        base64, font_size, text_color = result
+        return base64, font_size, text_color
+    else:
+        return None, None, None
+
+def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
+    # remove the s field so we don't add it to the image - this is sale price data
+    input_dict.pop("s", None)
+    
+    sorted_keys = sorted(input_dict.keys(), key=sort_keys)
+    pretty_json = json.dumps({k: input_dict[k] for k in sorted_keys}, indent=1, separators=(',', ': '), sort_keys=False, ensure_ascii=False, default=str)
+
+    if base64 is not None:
+        svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420"><foreignObject font-size="{font_size}" width="100%" height="100%"><p xmlns="http://www.w3.org/1999/xhtml" style="background-image: url(data:{base64});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;"><pre>{pretty_json}</pre></p></foreignObject></svg>"""
+    else:
+        svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420"><foreignObject font-size="30px" width="100%" height="100%"><p xmlns="http://www.w3.org/1999/xhtml" style="background: rgb(149,56,182); background: linear-gradient(138deg, rgba(149,56,182,1) 23%, rgba(0,56,255,1) 100%);padding:20px;margin:0px;width:1000px;height:1000px;"><pre>{pretty_json}</pre></p></foreignObject></svg>"""
+    img_data = svg_output.encode('utf-8')
+    return img_data
 
 
 def matches_any_pattern(text, pattern_list):
@@ -31,6 +46,7 @@ def matches_any_pattern(text, pattern_list):
             matched = False
             break
     return matched
+
 
 def sort_keys(key):
     priority_keys = ["p", "op", "tick"]
@@ -73,7 +89,7 @@ def check_format(input_string):
                         if value is None:
                             print(input_string)
                             print(f"EXCLUSION: Missing or invalid value for {key}", input_dict)
-                            return False
+                            return None
 
                         if isinstance(value, str):
                             try:
@@ -81,13 +97,13 @@ def check_format(input_string):
                             except ValueError:
                                 print(input_string)
                                 print(f"EXCLUSION: {key} not a valid decimal", input_dict)
-                                return False
+                                return None
                         elif isinstance(value, int):
                             value = Decimal(value)
                         else:
                             print(input_string)
                             print(f"EXCLUSION: {key} not a string or integer", input_dict)
-                            return False
+                            return None
 
                         if not (0 <= value <= uint64_max):
                             print(input_string)
@@ -96,7 +112,7 @@ def check_format(input_string):
             return input_dict
 
     except json.JSONDecodeError:
-        return False
+        return None
 
-    return False
+    return None
 

@@ -536,8 +536,6 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     # Get the important details about each transaction.
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
-    if stamp_issuance:
-        print("CP stamp") # first keyburn CP stamp = 784978
     source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance) # type: ignore
 
     # print(source, keyburn, destination, btc_amount, fee, data, decoded_tx)
