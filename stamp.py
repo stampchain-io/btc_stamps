@@ -146,10 +146,10 @@ def decode_base64(base64_string, block_index):
             return image_data
         except Exception as e2:
             try:
-                # If decoding with pybase64 fails, try decoding with the base64 command line tool with and without newlines for the json strings
+                # Note: base64 cli returns success on MAC when on linux it returns an error code. 
+                # this will be ok in the docker containers, but a potential problem
+                # will need to verify that there are no instances where this is su
                 command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
-                if not base64_string.endswith('\n'):
-                    command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
                 image_data = subprocess.check_output(command, shell=True)
                 return image_data
             except Exception as e3:
