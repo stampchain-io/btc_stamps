@@ -333,8 +333,8 @@ def check_decoded_data(decoded_data, block_index):
 
 
 # for debug / validation temporarily
-def get_stamp_key(cpid):
-    url = f"https://stampchain.io/api/stamps?cpid={cpid}"
+def get_stamp_key(tx_hash):
+    url = f"https://stampchain.io/api/stamps?tx_hash={tx_hash}"
     response = requests.get(url)
     if response.status_code == 200:
         return response.json()  # Return the response as a JSON object
@@ -441,7 +441,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
     # debug / validation - add breakpoints to check if we are indexing correcly :) 
     api_stamp_num = None
-    debug_stamp_api = get_stamp_key(cpid)
+    debug_stamp_api = get_stamp_key(tx_hash)
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
         api_stamp_num = debug_stamp_api[0].get('stamp')
         print("this is not a valid stamp, but we flagged as such")
@@ -466,6 +466,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is_reissue: {is_reissue}
         stamp_mimetype: {stamp_mimetype}
         file_hash: {file_obj_md5}
+        tx_hash: {tx_hash}
     ''')
     # DEBUG only
     if api_stamp_num and api_stamp_num != stamp_number:
