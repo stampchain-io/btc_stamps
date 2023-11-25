@@ -1,40 +1,39 @@
-import logging
-logger = logging.getLogger(__name__)
-import sys
-import os
 import json
 import requests
-from requests.exceptions import Timeout, ReadTimeout, ConnectionError
+from requests.exceptions import Timeout, ConnectionError
 import time
-import threading
-import socket
 import concurrent.futures
 import collections
 import binascii
 import hashlib
-import signal
 import bitcoin.wallet
 import config
 import src.util as util
-import src.address as address
 import src.script as script
 
 
 import bitcoin as bitcoinlib
 from bitcoin.core import CBlock
 
+import logging
+logger = logging.getLogger(__name__)
 
 MEMPOOL_CACHE_INITIALIZED = False
 
 PRETX_CACHE = {}
 
-raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
+raw_transactions_cache = util.DictCache(
+    size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE
+)  # used in getrawtransaction_batch()
+
 
 class BackendRPCError(Exception):
     pass
 
+
 class AddrIndexRsRPCError(Exception):
     pass
+
 
 def rpc_call(payload):
     """Calls to bitcoin core and returns the response"""
@@ -44,41 +43,69 @@ def rpc_call(payload):
 
     for i in range(TRIES):
         try:
-            response = requests.post(url, data=json.dumps(payload), headers={'content-type': 'application/json'},
-                verify=(not config.BACKEND_SSL_NO_VERIFY), timeout=config.REQUESTS_TIMEOUT)
+            response = requests.post(
+                url, data=json.dumps(payload),
+                headers={'content-type': 'application/json'},
+                verify=(not config.BACKEND_SSL_NO_VERIFY),
+                timeout=config.REQUESTS_TIMEOUT
+            )
             if i > 0:
                 logger.debug('Successfully connected.')
             break
-        except (Timeout, ReadTimeout, ConnectionError):
-            logger.debug('Could not connect to backend at `{}`. (Try {}/{})'.format(util.clean_url_for_log(url), i+1, TRIES))
+        except (Timeout, ConnectionError):
+            logger.debug(
+                'Could not connect to backend at `{}`. (Try {}/{})'
+                .format(util.clean_url_for_log(url), i+1, TRIES)
+            )
             time.sleep(5)
-
-    if response == None:
+    if response is None:
         if config.TESTNET:
             network = 'testnet'
         elif config.REGTEST:
             network = 'regtest'
         else:
             network = 'mainnet'
-        raise BackendRPCError('Cannot communicate with backend at `{}`. (server is set to run on {}, is backend?)'.format(util.clean_url_for_log(url), network))
+        raise BackendRPCError(
+            '''
+            Cannot communicate with backend at `{}`.
+            (server is set to run on {}, is backend?
+            '''
+            .format(util.clean_url_for_log(url), network)
+        )
     elif response.status_code in (401,):
-        raise BackendRPCError('Authorization error connecting to {}: {} {}'.format(util.clean_url_for_log(url), response.status_code, response.reason))
-    elif response.status_code not in (200, 500):
-        raise BackendRPCError(str(response.status_code) + ' ' + response.reason)
+        raise BackendRPCError(
+            'Authorization error connecting to {}: {} {}'
+            .format(
+                util.clean_url_for_log(url),
+                response.status_code,
+                response.reason
+            )
+        )
+    elif response.status_code not in (200, 500, 503):
+        raise BackendRPCError(
+            f"{response.status_code} {response.reason}"
+        )
 
     # Handle json decode errors
     try:
         response_json = response.json()
     except json.decoder.JSONDecodeError as e:
-        raise BackendRPCError('Received invalid JSON from backend with a response of {}'.format(str(response.status_code) + ' ' + response.reason))
+        raise BackendRPCError(
+            f'''
+            Received invalid JSON from backend with a response of:
+            {response.status_code} {response.reason}
+            '''
+        )
 
     # Batch query returns a list
     if isinstance(response_json, list):
         return response_json
-    if 'error' not in response_json.keys() or response_json['error'] == None:
+    if 'error' not in response_json.keys() or response_json['error'] is None:
         return response_json['result']
     elif response_json['error']['code'] == -5:   # RPC_INVALID_ADDRESS_OR_KEY
-        raise BackendRPCError('{} Is `txindex` enabled in {} Core?'.format(response_json['error'], config.BTC_NAME))
+        raise BackendRPCError('{} Is `txindex` enabled in {} Core?'.format(
+            response_json['error'], config.BTC_NAME
+        ))
     elif response_json['error']['code'] in [-28, -8, -2]:
         # “Verifying blocks...” or “Block height out of range” or “The network does not appear to fully agree!“
         logger.debug('Backend not ready. Sleeping for ten seconds.')
@@ -89,6 +116,7 @@ def rpc_call(payload):
     else:
         raise BackendRPCError('Error connecting to {}: {}'.format(util.clean_url_for_log(url), response_json['error']))
 
+
 def rpc(method, params):
     payload = {
         "method": method,
@@ -97,6 +125,7 @@ def rpc(method, params):
         "id": 0,
     }
     return rpc_call(payload)
+
 
 def rpc_batch(request_list):
     responses = collections.deque()
@@ -113,11 +142,13 @@ def rpc_batch(request_list):
             executor.submit(make_call, chunk)
     return list(responses)
 
+
 def extract_addresses(txhash_list):
     logger.debug('extract_addresses, txs: %d' % (len(txhash_list), ))
     tx_hashes_tx = getrawtransaction_batch(txhash_list, verbose=True)
 
     return extract_addresses_from_txlist(tx_hashes_tx, getrawtransaction_batch)
+
 
 def extract_addresses_from_txlist(tx_hashes_tx, _getrawtransaction_batch):
     """
@@ -154,14 +185,18 @@ def extract_addresses_from_txlist(tx_hashes_tx, _getrawtransaction_batch):
 
     return tx_hashes_addresses, tx_hashes_tx
 
+
 def getblockcount():
     return rpc('getblockcount', [])
+
 
 def getblockhash(blockcount):
     return rpc('getblockhash', [blockcount])
 
+
 def getblock(block_hash): # returns a hex string
     return rpc('getblock', [block_hash, False])
+
 
 def getcblock(block_hash):
     # print('getblock', block_hash)
@@ -169,17 +204,22 @@ def getcblock(block_hash):
     return CBlock.deserialize(bytes.fromhex(block_hex))
     # return CBlock.deserialize(util.unhexlify(block_hex)) # prior
 
+
 def cache_pretx(txid, rawtx):
     PRETX_CACHE[binascii.hexlify(txid).decode('utf8')] = binascii.hexlify(rawtx).decode('utf8')
+
 
 def clear_pretx(txid):
     del PRETX_CACHE[binascii.hexlify(txid).decode('utf8')]
 
+
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
     return getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing)[tx_hash]
 
+
 def getrawmempool():
     return rpc('getrawmempool', [])
+
 
 def fee_per_kb(conf_target, mode, nblocks=None):
     """
@@ -197,8 +237,10 @@ def fee_per_kb(conf_target, mode, nblocks=None):
 
     return int(max(feeperkb['feerate'] * config.UNIT, config.DEFAULT_FEE_PER_KB_ESTIMATE_SMART))
 
+
 def deserialize(tx_hex):
     return bitcoinlib.core.CTransaction.deserialize(binascii.unhexlify(tx_hex))
+
 
 def serialize(ctx):
     return bitcoinlib.core.CTransaction.serialize(ctx)
@@ -211,8 +253,10 @@ def is_valid(address):
     except script.AddressError:
         return False
 
+
 def get_txhash_list(block):
     return [bitcoinlib.core.b2lx(ctx.GetHash()) for ctx in block.vtx]
+
 
 def get_tx_list(block):
     raw_transactions = {}
@@ -231,11 +275,15 @@ def get_tx_list(block):
     # print("tx_hash_list: ", tx_hash_list) # debug
     return (tx_hash_list, raw_transactions)
 
+
 def sendrawtransaction(tx_hex):
     return rpc('sendrawtransaction', [tx_hex])
 
-GETRAWTRANSACTION_MAX_RETRIES=2
+
+GETRAWTRANSACTION_MAX_RETRIES = 2
 monotonic_call_id = 0
+
+
 def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _retry=0):
     _logger = logger.getChild("getrawtransaction_batch")
 
@@ -311,13 +359,14 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
                 r = getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing, _retry=_retry+1)
                 result[tx_hash] = r[tx_hash]
             else:
-                raise #already tried again, give up
+                raise  #already tried again, give up
 
     return result
 
 
 def _script_pubkey_to_hash(spk):
     return hashlib.sha256(spk).digest()[::-1].hex()
+
 
 def _address_to_hash(addr):
     script_pubkey = bitcoin.wallet.CBitcoinAddress(addr).to_scriptPubKey()
@@ -333,9 +382,12 @@ def _address_to_hash(addr):
 # }
 # [{"txId":"a0d12eb3716e2e70fd00525486ace0da2947f82d818b7be0285f16ff672cf237","vout":5,"height":647484,"value":30455293,"confirmations":2}]
 #
+
+
 def unpack_outpoint(outpoint):
     txid, vout = outpoint.split(':')
     return (txid, int(vout))
+
 
 def unpack_vout(outpoint, tx, block_count):
     if tx is None:
@@ -355,6 +407,7 @@ def unpack_vout(outpoint, tx, block_count):
         "value": int(round(vout["value"] * config.UNIT)),
         "confirmations": tx["confirmations"]
     }
+
 
 # def get_unspent_txouts(source):
 #     ensure_addrindexrs_connected()
@@ -445,6 +498,7 @@ def getindexblocksbehind():
 
 class MempoolError(Exception):
     pass
+
 
 def init_mempool_cache():
     """prime the mempool cache, so that functioning is faster...
