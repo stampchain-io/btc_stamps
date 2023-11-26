@@ -1,0 +1,14 @@
+# Utilizar la imagen oficial de Deno
+FROM denoland/deno:alpine
+
+
+WORKDIR /app
+
+
+COPY . .
+
+
+EXPOSE 8000
+
+
+CMD ["deno", "run", "--allow-net", "--allow-read", "--allow-run", "--allow-write", "--allow-env", "dev.ts"]

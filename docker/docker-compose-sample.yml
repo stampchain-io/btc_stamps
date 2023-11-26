@@ -38,7 +38,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=
       - GF_USERS_ALLOW_SIGN_UP=false
 
-  app:
+  indexer:
     build: .
     command:  dockerize -wait tcp://db:3306 -timeout 5m python3 start.py
     volumes:
@@ -66,6 +66,19 @@ services:
       - AWS_S3_BUCKET_NAME= # Optional - only for AWS S3 users
       - AWS_S3_IMAGE_DIR= # Optional - only for AWS S3 users
       - AWS_RDS_HOSTNAME= # Optional - only for AWS RDS users
+
+  app:
+    build:
+      context: ../app
+    volumes:
+      - ../files:/app/static/content
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=mysql://RDS_USER:RDS_PASSWORD@db:3306/RDS_DATABASE
+      # Otras variables de entorno necesarias
 volumes:
   db_data:
   grafana_data:
