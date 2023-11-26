@@ -30,7 +30,9 @@ View indexer application logs:
 
 `cd docker && docker-compose logs -f app`
 
+
 - Option 2:
+
 You can use the Makefile to start all the services:
 
 `make dup`
