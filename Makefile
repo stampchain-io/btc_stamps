@@ -45,7 +45,12 @@ fdown:
 	@rm -rf docker/db_data || true
 
 clean: fdown
+	@rm -rf files || true
+	@rm -rf indexer/files || true
+	@rm -rf */__pycache__ || true
+	@rm -rf */*/__pycache__ || true
 	@rm -rf indexer/log.file || true
+	@rm -rf docker/db_data || true
 
 fclean: clean
 	@cd docker && docker system prune -a -f
