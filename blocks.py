@@ -220,10 +220,9 @@ def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None, stamp_issu
             p2sh_support=True, p2sh_is_segwit=False, stamp_issuance=stamp_issuance
         )
     except DecodeError as e:
-        return b'', None, None, None, None, None, None
+        return b'', None, None, None, None, None, None, None
     except BTCOnlyError as e:
-        # # NOTE: For debugging, logger.debug('Could not decode: ' + str(e))
-        return b'', None, None, None, None, None, None
+        return b'', None, None, None, None, None, None, None
 
 
 def get_tx_info2(
@@ -246,11 +245,14 @@ def get_tx_info2(
     if ctx.is_coinbase():
         raise DecodeError('coinbase transaction')
 
-    # Get destinations and data outputs.
-    destinations, btc_amount, fee, data = [], 0, 0, b''
+    destinations, btc_amount, fee, data, keyburn, is_op_return = [], 0, 0, b'', None, None
+
+    if stamp_issuance:
+        source = str(stamp_issuance['source'])
+        destination = str(stamp_issuance['issuer'])
+        data = str(stamp_issuance)
 
     # vout_count = len(ctx.vout) # number of outputs
-    keyburn = None
     for vout in ctx.vout:
         # asm is the bytestring of the vout values
         # Fee is the input values minus output values.
@@ -261,7 +263,6 @@ def get_tx_info2(
             asm = script.get_asm(vout.scriptPubKey)
         except CScriptInvalidError as e:
             raise DecodeError(e)
-
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
             try:
                 keyburn_vout = None
@@ -274,6 +275,16 @@ def get_tx_info2(
             except:
                 # print("ctx: ", ctx)
                 raise DecodeError('unrecognised output type')
+        elif asm[-1] == 'OP_CHECKSIG':
+            pass # FIXME: not certain if we need to check keyburn on these
+                # see 'A14845889080100805000'
+                #   0: OP_DUP
+                #   1: OP_HASH160
+                #   3: OP_EQUALVERIFY
+                #   4: OP_CHECKSIG
+        elif asm[0] == 'OP_RETURN':
+            is_op_return = True
+            pass #Just ignore.
     
     new_destination, new_data = None, None
     if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
@@ -284,40 +295,25 @@ def get_tx_info2(
             new_destination, new_data = decode_checkmultisig(ctx, chunk) # this only decodes src-20 type trx
         except:
             if stamp_issuance:
-                # we get these values from cp with the exception of keyburn
-                source = str(stamp_issuance['source'])
-                destination = str(stamp_issuance['issuer'])
-                data = str(stamp_issuance)
                 # returning since we parsed and got keyburn
-                return source, destination, btc_amount, round(fee), data, ctx, keyburn
+                return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
             else:
-            # however this is resulting in a lot more getrawtransaction calls
-            # we don't want to raise an exception here so we can detect keyburn in all trx? #DEBUG
-                raise DecodeError('unrecognised output type')
+                raise DecodeError('unrecognized output type')
         assert new_destination is not None and new_data is not None  # removing this might not get a dest for cp trx?
         if new_data is not None:
             data += new_data
             destinations = (str(new_destination))
 
-    # Get source
     source = None
 
     if stamp_issuance:
-        # FIXME: some CP transactions arrive here which don't decode as op_checkmultisig above
-        # see 'A14845889080100805000'
-        #   0: OP_DUP
-        #   1: OP_HASH160
-        #   3: OP_EQUALVERIFY
-        #   4: OP_CHECKSIG
-        return None, None, None, None, None, None, keyburn
+        return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
 
     if not data:
         raise BTCOnlyError('no data and not unspendable', ctx)
 
-    # Get the first input transaction.
     vin = ctx.vin[0]
 
-    # Get the previous transaction hash and output index.
     prev_tx_hash = vin.prevout.hash
     prev_tx_index = vin.prevout.n
 
@@ -355,7 +351,7 @@ def get_tx_info2(
     
     # this is detecting keyburn for CP as well :) 
     # print("source =", source, "destinations =", destinations, "btc_amount =", btc_amount, "fee =", round(fee), "data =", data, "keyburn", keyburn, "\n")
-    return source, destinations, btc_amount, round(fee), data, ctx, keyburn
+    return source, destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return
 
 
 def decode_checkmultisig(ctx, chunk):
@@ -534,20 +530,17 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     # Get the important details about each transaction.
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
-    source, destination, btc_amount, fee, data, decoded_tx, keyburn = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance) # type: ignore
-
-    # print(source, keyburn, destination, btc_amount, fee, data, decoded_tx)
+    source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return = \
+        get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
     
     assert block_index == util.CURRENT_BLOCK_INDEX
 
-    # if source and (data or destination == config.UNSPENDABLE or decoded_tx):
     if source and (data or destination) or stamp_issuance:
-    # if True: # we are writing all trx to the transactions table enable the above to only write stamp trx found to trx table
-        if stamp_issuance is not None: # this is a stamp TX
+        if stamp_issuance is not None:
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
-        # logger.warning('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}'.format(tx_hash, data, keyburn))
+        logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
                 tx_index,
@@ -576,11 +569,11 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 keyburn,
             )
         )
-        return tx_index + 1, source, destination, btc_amount, fee, data, decoded_tx, keyburn 
+        return tx_index + 1, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return
     else:
         logger.getChild('list_tx.skip').debug('Skipping transaction: {}'.format(tx_hash))
 
-    return tx_index, None, None, None, None, None, None, None
+    return tx_index, None, None, None, None, None, None, None, None
 
 
 def last_db_index(db):
@@ -682,10 +675,10 @@ def follow(db):
         # Get new blocks.
         if block_index <= block_count:
 
-            purge_old_block_tx_db(db, block_index) # this will not be needed when we only save stamp tx to db
+            purge_old_block_tx_db(db, block_index)
             current_index = block_index
-            issuances = get_issuances_by_block(current_index) # this is a CP node call
-            stamp_issuances = get_stamp_issuances(issuances) # parse the issuances for only stamp tx on CP
+            issuances = get_issuances_by_block(current_index)
+            stamp_issuances = get_stamp_issuances(issuances)
             if block_count - block_index < 100:
                 requires_rollback = False
                 while True:
@@ -694,8 +687,8 @@ def follow(db):
 
                     logger.debug('Checking that block {} is not an orphan.'.format(current_index))
                     # Backend parent hash.
-                    current_hash = backend.getblockhash(current_index)  # rpc call to the node
-                    current_cblock = backend.getcblock(current_hash)    # rpc call to the node
+                    current_hash = backend.getblockhash(current_index)
+                    current_cblock = backend.getcblock(current_hash) 
                     backend_parent = bitcoinlib.core.b2lx(current_cblock.hashPrevBlock)
 
                     test_query = '''
@@ -735,7 +728,7 @@ def follow(db):
                     requires_rollback = False
                     continue
 
-            # check.software_version()
+            # check.software_version() #FIXME: We may want to validate MySQL version here.
             block_hash = backend.getblockhash(current_index)
             cblock = backend.getcblock(block_hash)
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock) 
@@ -744,7 +737,6 @@ def follow(db):
             txhash_list, raw_transactions = backend.get_tx_list(cblock)
             with db:
                 block_cursor = db.cursor()
-                # db.ping(reconnect=True)
                 util.CURRENT_BLOCK_INDEX = block_index
 
                 logger.warning('Inserting MySQL Block: {}'.format(block_index))
@@ -774,13 +766,11 @@ def follow(db):
                     sys.exit()
 
                 for tx_hash in txhash_list:
-                    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash) # if we see the CP transaction it gets imported here
-                    if tx_hash == "50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1": # DEBUG
-                        print("found first src stamp in block follow db")
+                    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
                     tx_hex = raw_transactions[tx_hash]
-                    tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn  = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
+                    tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return  = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
                     # stamptable is using the same cursor and will commit when the block is complete
-                    parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time)
+                    parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time, is_op_return)
                 try:
                     block_cursor.execute("COMMIT")
                     update_parsed_block(block_index, db)
@@ -789,8 +779,6 @@ def follow(db):
                     block_cursor.execute("ROLLBACK")
                     sys.exit()
 
-            # this was iterating through all transactions in tx table again.. moved into the parse_tx_to_stamp_table function
-            # update_stamp_table(db, block_index) # parse transactions table for data column in this block, write to stv4, update blocks to parsed=1
             logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
                 new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
