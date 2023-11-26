@@ -438,7 +438,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is_btc_stamp = None
     # Verify IMG
     if is_btc_stamp == 1 and file_suffix in config.IMAGE_SUFFIX:
-        if verify_image(decoded_base64) is False:
+        if (
+            verify_image(decoded_base64) is False
+            and tx_hash !=
+                '2327261d1564811e63e863ed8bc52652dcf5c9557a512c0918a495c9e663bd21' # stamp 47
+        ):
             is_btc_stamp = None
 
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
@@ -446,7 +450,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
 
-     # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
+    # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
     if ident in config.SUPPORTED_SUB_PROTOCOLS or file_suffix in config.MIME_TYPES:
         # if decoded_base64 is not a bytestring convert it to one
         if type(decoded_base64) is str: # and file_suffix in ['svg','html']:
@@ -464,7 +468,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     elif debug_stamp_api:
         api_tx_hash = debug_stamp_api[0].get('tx_hash')
         api_stamp_num = debug_stamp_api[0].get('stamp')
-        
+
     logger.warning(f'''
         block_index: {block_index}
         cpid: {cpid}
