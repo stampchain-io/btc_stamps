@@ -39,6 +39,13 @@ View indexer application logs:
 
 `make logs`
 
+Shutdown all the services:
+
+`make down`
+
+shutdown all the services and clean volumes:
+
+`make fdown`
 
 
 ## Local Execution w/o Docker:
