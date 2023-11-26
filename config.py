@@ -116,10 +116,6 @@ MIME_TYPES = {
     # "pdf": "application/pdf"
 }
 
-IMAGE_SUFFIX = [
-    "jpg", "jpeg", "png", "gif", "svg", "tif", "jfif", "jpe", "pbm", "pgm", "ppm", "pnm", "apng", "bmp", "webp", "heif", "heic", "avif", "ico", "tiff", "svgz", "wmf", "emf", "pcx", "djvu", "djv",
-]
-
 BLOCK_FIELDS_POSITION = {
     'block_index': 0,
     'block_hash': 1,
