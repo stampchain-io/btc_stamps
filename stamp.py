@@ -12,7 +12,6 @@ import os
 import zlib
 import msgpack
 import io
-from PIL import Image
 
 import config
 from xcprequest import parse_base64_from_description
@@ -342,16 +341,6 @@ def get_stamp_key(tx_hash):
         return None  # Return None if the request was not successful
 
 
-def verify_image(img_data):
-    try:
-        image = Image.open(io.BytesIO(img_data))
-        image.verify()  # Verificar si es una imagen válida
-        return True
-    except Exception as e:
-        print(f"Error al verificar la imagen: {e}")
-        return False
-
-
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
     (file_suffix, filename, src_data, is_reissue, file_obj_md5) = None, None, None, None, None
     if data is None or data == '':
@@ -436,14 +425,6 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             is_btc_stamp = None
     else:
         is_btc_stamp = None
-    # Verify IMG
-    if is_btc_stamp == 1 and file_suffix in config.IMAGE_SUFFIX:
-        if (
-            verify_image(decoded_base64) is False
-            and tx_hash !=
-                '2327261d1564811e63e863ed8bc52652dcf5c9557a512c0918a495c9e663bd21' # stamp 47
-        ):
-            is_btc_stamp = None
 
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
 
@@ -451,9 +432,12 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         stamp_mimetype = config.MIME_TYPES[file_suffix]
 
     # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
-    if ident in config.SUPPORTED_SUB_PROTOCOLS or file_suffix in config.MIME_TYPES:
+    if (
+        ident in config.SUPPORTED_SUB_PROTOCOLS
+        or file_suffix in config.MIME_TYPES
+    ):
         # if decoded_base64 is not a bytestring convert it to one
-        if type(decoded_base64) is str: # and file_suffix in ['svg','html']:
+        if type(decoded_base64) is str:  # and file_suffix in ['svg','html']:
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
