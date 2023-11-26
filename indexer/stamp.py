@@ -358,7 +358,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
-    is_whitelisted = is_tx_in_whitelist(tx_hash)
+    is_whitelisted = None
+    if is_op_return:
+        is_whitelisted = is_tx_in_whitelist(tx_hash)
 
     if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
         not valid_src20 and not valid_src721
