@@ -16,38 +16,38 @@ endif
 up:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
 
 dup:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d
 
 logs: dup
-	@docker compose logs -f app
+	@cd docker && docker compose logs -f indexer
 
 dev:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d app db adminer
-	@docker compose logs -f app db
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d indexer db adminer
+	@docker compose logs -f indexer db
 
 down:
-	@docker compose down
+	@cd docker && docker compose down
 
 fdown:
-	@docker compose down -v
+	@cd docker && docker compose down -v
 	@rm -rf files || true
-	@rm -rf log.file || true
-	@rm -rf db_data || true
+	@rm -rf indexer/files || true
+	@rm -rf */__pycache__ || true
+	@rm -rf */*/__pycache__ || true
+	@rm -rf indexer/log.file || true
+	@rm -rf docker/db_data || true
 
 clean: fdown
-	@rm -rf log.file || true
+	@rm -rf indexer/log.file || true
 
 fclean: clean
-	@docker system prune -a -f
-
-logs:
-	@docker compose logs -f app
+	@cd docker && docker system prune -a -f
 
 redo: clean up

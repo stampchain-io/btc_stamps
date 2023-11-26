@@ -7,7 +7,7 @@ services:
     volumes:
       - ./db_data:/var/lib/mysql
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
-      - ./table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
+      - ../indexer/table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD:
@@ -16,7 +16,7 @@ services:
       MYSQL_PASSWORD: 
       GRAFANA_USER:
       GRAFANA_PASSWORD: 
-    command: --bind-address=0.0.0.0
+    command: --bind-address=0.0.0.0 --innodb_data_file_path=ibdata1:10M:autoextend
     ports:
       - "3306:3306"
 
@@ -42,8 +42,8 @@ services:
     build: .
     command:  dockerize -wait tcp://db:3306 -timeout 5m python3 start.py
     volumes:
-      - .:/usr/src/app
-      - ./files:/usr/src/app/files
+      - ../indexer:/usr/src/app
+      - ../files:/usr/src/app/files
     ports:
       - "8000:8000"
     depends_on:
