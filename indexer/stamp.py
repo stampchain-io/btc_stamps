@@ -223,39 +223,6 @@ def get_file_suffix(bytestring_data, block_index):
         return file_type.split('/')[-1]
 
 
-def is_op_return(hex_pk_script):
-    pk_script = bytes.fromhex(hex_pk_script)
-    decoded_script = CScript(pk_script)
-
-    if len(decoded_script) < 1:
-        return False
-
-    if decoded_script[0] == OP_RETURN:
-        return True
-
-    return False
-
-
-def is_only_op_return(transaction):
-    for outp in transaction['vout']:
-        if 'scriptPubKey' in outp and not is_op_return(outp['scriptPubKey']['hex']):
-            return False
-
-    return True
-
-
-def check_burnkeys_in_multisig(transaction):
-    for vout in transaction.vout:
-        asm = script.get_asm(vout.scriptPubKey)
-        if "OP_CHECKMULTISIG" in asm:
-            for burnkey in config.BURNKEYS:
-                for item in asm:
-                    if isinstance(item, bytes):
-                        if item.hex() == burnkey:
-                            return 1
-    return None
-
-
 def is_json_string(s):
     try:
         if s.startswith('{') and s.endswith('}'):
@@ -341,8 +308,11 @@ def get_stamp_key(tx_hash):
         return None  # Return None if the request was not successful
 
 
-def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time):
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5) = None, None, None, None, None
+def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
+                            tx_index, block_index, block_time, is_op_return):
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5) = (
+        None, None, None, None, None
+    )
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
@@ -396,7 +366,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     )):
         is_btc_stamp = None
     elif ident != 'UNKNOWN' and stamp.get('asset_longname') is  None and \
-        cpid.startswith('A') or \
+        cpid.startswith('A') and not is_op_return or \
         (file_suffix == 'json' and (valid_src20 or valid_src721)):
         processed_stamps_list = []
         is_btc_stamp = 1
@@ -407,12 +377,13 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         result = block_cursor.fetchone()
         if result:
             is_btc_stamp = 'INVALID_REISSUE'
-            # reissunace of a stamp
+            # reissunace of a stamp - we can update any changed fields like supply from this
             is_reissue = 1
         else:
             duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
             if duplicate_on_block is not None:
                 is_btc_stamp = 'INVALID_REISSUE'
+                is_reissue = 1
 
         if is_btc_stamp == 1:
             processed_stamps_dict = {
@@ -436,8 +407,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         ident in config.SUPPORTED_SUB_PROTOCOLS
         or file_suffix in config.MIME_TYPES
     ):
-        # if decoded_base64 is not a bytestring convert it to one
-        if type(decoded_base64) is str:  # and file_suffix in ['svg','html']:
+        if type(decoded_base64) is str:
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
@@ -448,7 +418,6 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     debug_stamp_api = get_stamp_key(tx_hash)
     if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
         api_stamp_num = debug_stamp_api[0].get('stamp')
-        print("this is not a valid stamp, but we flagged as such")
     elif debug_stamp_api:
         api_tx_hash = debug_stamp_api[0].get('tx_hash')
         api_stamp_num = debug_stamp_api[0].get('stamp')
@@ -470,8 +439,9 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         file_hash: {file_obj_md5}
         tx_hash: {tx_hash}
         api_tx_hash: {api_tx_hash}
+        is_op_return: {is_op_return}
     ''')
-    # DEBUG only
+    # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
     if api_stamp_num != stamp_number:
         print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
         input("Press Enter to continue...")
