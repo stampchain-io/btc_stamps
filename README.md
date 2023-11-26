@@ -16,17 +16,27 @@ The default configuration is using the public Coindaddy API for XCP asset data. 
 
 ## Indexer Exection via Docker: 
 
+- Option 1:
+
 Revise your variables in docker-compose
 
-`cp docker-compose-sample.yml docker-compose.yml`
+`cp docker/docker-compose-sample.yml docker/docker-compose.yml`
 
 Execute the indexer which creates docker instances for the indexer application, MySQL Database, Grafana for visualization, and Adminer for MySQL management
 
-`docker-compose up -d`
+`cd docker && docker-compose up -d`
 
 View indexer application logs:
 
-`docker-compose logs -f app`
+`cd docker && docker-compose logs -f app`
+
+- Option 2:
+You can use the Makefile to start all the services
+`make dup`
+
+View indexer application logs:
+`make logs`
+
 
 
 ## Local Execution w/o Docker:
