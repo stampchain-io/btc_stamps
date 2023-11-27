@@ -309,8 +309,8 @@ def get_stamp_key(tx_hash):
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
                             tx_index, block_index, block_time, is_op_return):
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5) = (
-        None, None, None, None, None
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict) = (
+        None, None, None, None, None, None
     )
     if data is None or data == '':
         return
@@ -453,6 +453,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         api_tx_hash: {api_tx_hash}
         is_op_return: {is_op_return}
         is_whitelisted: {is_whitelisted}
+        src_data: {src_20_dict}
     ''')
     # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
     if api_stamp_num != stamp_number:
