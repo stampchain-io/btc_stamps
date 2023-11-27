@@ -15,7 +15,6 @@ export const connectDb = async () => {
         const password = conf.DB_PASSWORD;
         const port = conf.DB_PORT;
         const db = conf.DB_NAME;
-
         const client = await new Client().connect({
             hostname,
             port: Number(port),

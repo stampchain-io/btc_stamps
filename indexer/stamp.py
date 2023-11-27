@@ -15,12 +15,11 @@ import io
 
 import config
 from xcprequest import parse_base64_from_description
-from bitcoin.core.script import CScript, OP_RETURN
 from src721 import validate_src721_and_process
 from src20 import check_format, build_src20_svg_string
 import traceback
-import src.script as script
 from src.aws import check_existing_and_upload_to_s3
+from whitelist import is_tx_in_whitelist
 
 logger = logging.getLogger(__name__)
 
@@ -359,15 +358,21 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
+    is_whitelisted = None
+    if is_op_return:
+        is_whitelisted = is_tx_in_whitelist(tx_hash)
 
     if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
         not valid_src20 and not valid_src721
         and ident in config.SUPPORTED_SUB_PROTOCOLS
     )):
         is_btc_stamp = None
-    elif ident != 'UNKNOWN' and stamp.get('asset_longname') is  None and \
-        cpid.startswith('A') and not is_op_return or \
-        (file_suffix == 'json' and (valid_src20 or valid_src721)):
+    elif (
+        ident != 'UNKNOWN' and stamp.get('asset_longname') is None
+        and cpid.startswith('A')
+        and (not is_op_return or (is_op_return and is_whitelisted))
+        or (file_suffix == 'json' and (valid_src20 or valid_src721))
+    ):
         processed_stamps_list = []
         is_btc_stamp = 1
         block_cursor.execute(f'''
@@ -380,7 +385,13 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             # reissunace of a stamp - we can update any changed fields like supply from this
             is_reissue = 1
         else:
-            duplicate_on_block = next((item for item in processed_stamps_list if item["cpid"] == cpid and item["is_btc_stamp"] == 1), None)
+            duplicate_on_block = next(
+                (
+                    item for item in processed_stamps_list
+                    if item["cpid"] == cpid and item["is_btc_stamp"] == 1
+                ),
+                None
+            )
             if duplicate_on_block is not None:
                 is_btc_stamp = 'INVALID_REISSUE'
                 is_reissue = 1
@@ -394,6 +405,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             processed_stamps_list.append(processed_stamps_dict)
         else:
             is_btc_stamp = None
+
     else:
         is_btc_stamp = None
 
@@ -440,6 +452,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         tx_hash: {tx_hash}
         api_tx_hash: {api_tx_hash}
         is_op_return: {is_op_return}
+        is_whitelisted: {is_whitelisted}
     ''')
     # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
     #  if api_stamp_num != stamp_number:
@@ -539,11 +552,14 @@ def get_fileobj_and_md5(decoded_base64):
         logger.error(f"Error: {e}\n{traceback.format_exc()}")
         raise
 
+
 def store_files(filename, decoded_base64, mime_type):
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
     if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID:
-        print("uploading to aws") #FIXME: there may be cases where we want both aws and disk storage
-        check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
+        print("uploading to aws")  # FIXME: there may be cases where we want both aws and disk storage
+        check_existing_and_upload_to_s3(
+            filename, mime_type, file_obj, file_obj_md5
+        )
     else:
         store_files_to_disk(filename, decoded_base64)
     return file_obj_md5
@@ -559,7 +575,7 @@ def store_files_to_disk(filename, decoded_base64):
     try:
         pwd = os.environ.get("PWD", '/usr/src/app')
         base_directory = os.path.join(pwd, "files")
-        os.makedirs(base_directory, exist_ok=True)
+        os.makedirs(base_directory, mode=0o777, exist_ok=True)
         file_path = os.path.join(base_directory, filename)
         with open(file_path, "wb") as f:
             f.write(decoded_base64)
