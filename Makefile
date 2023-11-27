@@ -26,6 +26,12 @@ dup:
 logs: dup
 	@cd docker && docker compose logs -f indexer
 
+db: dup
+	@echo "Using arch: $(ARCH)"
+	@echo "Using platform: $(DOCKER_PLATFORM)"
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d db adminer
+	@cd docker && docker compose logs -f db
+
 dev:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
