@@ -1,6 +1,5 @@
 __pycache__/
 log.file
-docker-compose.yml
 db
 */.DS_Store
 .env

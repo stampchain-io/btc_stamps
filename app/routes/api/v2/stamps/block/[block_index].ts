@@ -1,31 +1,20 @@
 import { HandlerContext } from "$fresh/server.ts";
-import { query } from "$lib/db.ts";
+import {query} from "$lib/db.ts";
 
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { block_index } = ctx.params;
   try {
-    const block_info = await query(
-      `
-      SELECT * FROM blocks
-      WHERE block_index = ?
-      `,
-      [block_index],
-    );
-    const stamps = await query(
+    const data = await query(
       `
       SELECT * FROM StampTableV4
       WHERE block_index = ?
-      AND (is_btc_stamp IS NOT NULL
-      OR is_reissue IS NOT NULL)
+      AND is_btc_stamp IS NOT NULL
       ORDER BY stamp
       `,
       [block_index],
     );
     let body = JSON.stringify(
-      {
-        block_info: block_info.rows[0],
-        issuances: stamps.rows
-      }
+      data.rows
     );
     return new Response(body);
   } catch {
