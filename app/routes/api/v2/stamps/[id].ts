@@ -1,11 +1,11 @@
 import { HandlerContext } from "$fresh/server.ts";
-import { query } from "$lib/db.ts";
+import { handleQuery } from "$lib/db.ts";
 
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { id } = ctx.params;
   try {
     if (Number.isInteger(Number(id))) {
-      const data = await query(
+      const data = await handleQuery(
         `SELECT * FROM StampTableV4 WHERE stamp = ?`,
         [id]
       );
@@ -14,7 +14,7 @@ export const handler = async (_req: Request, ctx: HandlerContext): Response => {
       );
       return new Response(body);
     } else {
-      const data = await query(
+      const data = await handleQuery(
         `
         SELECT * FROM StampTableV4
         WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?)
