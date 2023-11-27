@@ -2,7 +2,7 @@ import json
 
 
 def is_tx_in_whitelist(tx_hash):
-    whitelist_path = 'whitelist.json'
+    whitelist_path = 'indexer/whitelist.json'
     try:
         with open(whitelist_path, 'r') as file:
             whitelist = json.load(file)
