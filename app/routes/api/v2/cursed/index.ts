@@ -4,6 +4,7 @@ import {
   handleQueryWithClient,
   get_last_block_with_client,
   get_total_cursed_with_client,
+  get_cursed_by_page_with_client,
  } from "$lib/db.ts";
 
 export const handler = async (req: Request, _ctx: HandlerContext): Response => {
@@ -13,17 +14,7 @@ export const handler = async (req: Request, _ctx: HandlerContext): Response => {
     const page = Number(url.searchParams.get("page")) || 0;
     const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
     const client = await connectDb();
-    const data = await handleQueryWithClient(
-      client,
-      `
-        SELECT * FROM StampTableV4
-        WHERE is_btc_stamp IS NULL
-        AND is_reissue IS NULL
-        ORDER BY tx_index
-        LIMIT ? OFFSET ?;
-        `,
-      [limit, offset]
-    );
+    const data = await get_cursed_by_page_with_client(client, limit, page);
     const last_block = await get_last_block_with_client(client);
     const total = await get_total_cursed_with_client(client);
     client.close();
