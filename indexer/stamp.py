@@ -19,7 +19,7 @@ from src721 import validate_src721_and_process
 from src20 import check_format, build_src20_svg_string
 import traceback
 from src.aws import check_existing_and_upload_to_s3
-from whitelist import is_tx_in_whitelist
+from whitelist import is_tx_in_whitelist, is_to_include
 
 logger = logging.getLogger(__name__)
 
@@ -410,6 +410,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is_btc_stamp = None
 
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
+
+    # DEBUG: this is for debugging / validation only - these will be stamps we need to include in the final release
+    if is_to_include(tx_hash):
+        stamp_number = None
+        is_btc_stamp = None
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
