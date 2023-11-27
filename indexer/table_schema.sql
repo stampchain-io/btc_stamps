@@ -54,7 +54,6 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `src_data` json DEFAULT NULL,
   `ident` varchar(16) DEFAULT NULL,
   `creator_name` varchar(255) DEFAULT NULL,
-  `stamp_gen` int DEFAULT NULL,
   `stamp_hash` varchar(255) DEFAULT NULL,
   `is_btc_stamp` tinyint(1) DEFAULT NULL,
   `is_reissue` tinyint(1) DEFAULT NULL,
@@ -110,7 +109,6 @@ CREATE TABLE IF NOT EXISTS `srcx` (
   `stamp_url` text,
   `tick` varchar(255) DEFAULT NULL,
   `ts` json DEFAULT NULL,
-  `stamp_gen` int DEFAULT NULL,
   `destination` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

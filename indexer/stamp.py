@@ -19,7 +19,7 @@ from src721 import validate_src721_and_process
 from src20 import check_format, build_src20_svg_string
 import traceback
 from src.aws import check_existing_and_upload_to_s3
-from whitelist import is_tx_in_whitelist, is_to_include
+from whitelist import is_tx_in_whitelist, is_to_include, is_to_exclude
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +206,6 @@ def check_custom_suffix(bytestring_data):
 
 
 def get_file_suffix(bytestring_data, block_index):
-    print(block_index, config.BMN_BLOCKSTART)
     if block_index > config.BMN_BLOCKSTART:
         if check_custom_suffix(bytestring_data):
             return 'bmn'
@@ -438,6 +437,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     elif debug_stamp_api:
         api_tx_hash = debug_stamp_api[0].get('tx_hash')
         api_stamp_num = debug_stamp_api[0].get('stamp')
+    
+    # debug /validation only - to be removed
+    if is_to_exclude(tx_hash):
+        stamp_number = api_stamp_num
+        is_btc_stamp = 1 # temporarily add this to the db to keep numbers in sync
 
     logger.warning(f'''
         block_index: {block_index}
@@ -492,7 +496,6 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "src_data": (
             file_suffix == 'json' and src_data is not None and json.dumps(src_data) and (valid_src20 or valid_src721) or None
         ),
-        "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this column depending on how we handle numbering, this was temporary in prior indexing
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
         "is_reissue": is_reissue,
@@ -505,10 +508,10 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         message_index, stamp_base64,
                         stamp_mimetype, stamp_url, supply, timestamp,
                         tx_hash, tx_index, src_data, ident,
-                        creator_name, stamp_gen, stamp_hash,
+                        creator_name, stamp_hash,
                         is_btc_stamp, is_reissue, file_hash
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
                         parsed['cpid'], parsed['asset_longname'],
@@ -520,7 +523,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['supply'], parsed['timestamp'],
                         parsed['tx_hash'], parsed['tx_index'],
                         parsed['src_data'], parsed['ident'],
-                        parsed['creator_name'], parsed['stamp_gen'],
+                        parsed['creator_name'],
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
                         parsed['is_reissue'], parsed['file_hash']
                     ))
