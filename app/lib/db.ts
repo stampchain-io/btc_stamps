@@ -109,3 +109,101 @@ export const get_total_cursed_with_client = async (client: Client) => {
       []
     );
 }
+
+export const get_stamps_by_page = async (limit=1000, page=0) => {
+    const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
+    return await handleQuery(
+        `
+          SELECT * FROM StampTableV4
+          WHERE is_btc_stamp IS NOT NULL
+          ORDER BY stamp
+          LIMIT ? OFFSET ?;
+          `,
+        [limit, offset]
+      );
+};
+
+export const get_stamps_by_page_with_client = async (client: Client, limit=1000, page=0) => {
+    const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
+    return await handleQueryWithClient(
+        client,
+        `
+          SELECT * FROM StampTableV4
+          WHERE is_btc_stamp IS NOT NULL
+          ORDER BY stamp
+          LIMIT ? OFFSET ?;
+          `,
+        [limit, offset]
+      );
+};
+
+export const get_cursed_by_page = async (limit=1000, page=0) => {
+    const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
+    return await handleQuery(
+        `
+          SELECT * FROM StampTableV4
+          WHERE is_btc_stamp IS NULL
+          AND is_reissue IS NULL
+          ORDER BY tx_index
+          LIMIT ? OFFSET ?;
+          `,
+        [limit, offset]
+      );
+};
+
+export const get_cursed_by_page_with_client = async (client: Client, limit=1000, page=0) => {
+    const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
+    return await handleQueryWithClient(
+        client,
+        `
+          SELECT * FROM StampTableV4
+          WHERE is_btc_stamp IS NULL
+          AND is_reissue IS NULL
+          ORDER BY tx_index
+          LIMIT ? OFFSET ?;
+          `,
+        [limit, offset]
+      );
+};
+
+export const get_stamp_by_stamp = async (stamp: number) => {
+    return await handleQuery(
+        `
+        SELECT * FROM StampTableV4
+        WHERE stamp = ?;
+        `,
+        [stamp]
+      );
+};
+
+export const get_stamp_by_stamp_with_client = async (client: Client, stamp: number) => {
+    return await handleQueryWithClient(
+        client,
+        `
+        SELECT * FROM StampTableV4
+        WHERE stamp = ?;
+        `,
+        [stamp]
+      );
+};
+
+export const get_stamp_by_identifier = async (identifier: string) => {
+    return await handleQuery(
+        `
+        SELECT * FROM StampTableV4
+        WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?);
+        `,
+        [identifier, identifier, identifier]
+      );
+};
+
+export const get_stamp_by_identifier_with_client = async (client: Client, identifier: string) => {
+    return await handleQueryWithClient(
+        client,
+        `
+        SELECT * FROM StampTableV4
+        WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?);
+        `,
+        [identifier, identifier, identifier]
+      );
+};

@@ -4,6 +4,7 @@ import {
   handleQueryWithClient,
   get_last_block_with_client,
   get_total_stamps_with_client,
+  get_stamps_by_page_with_client,
 } from "$lib/db.ts";
 
 export const handler = async (req: Request, _ctx: HandlerContext): Response => {
@@ -11,18 +12,8 @@ export const handler = async (req: Request, _ctx: HandlerContext): Response => {
     const url = new URL(req.url);
     const limit = Number(url.searchParams.get("limit")) || 1000;
     const page = Number(url.searchParams.get("page")) || 0;
-    const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
     const client = await connectDb();
-    const data = await handleQueryWithClient(
-      client,
-      `
-        SELECT * FROM StampTableV4
-        WHERE is_btc_stamp IS NOT NULL
-        ORDER BY stamp
-        LIMIT ? OFFSET ?;
-        `,
-      [limit, offset]
-    );
+    const data = await get_stamps_by_page_with_client(client, limit, page);
     const total = await get_total_stamps_with_client(client);
     const last_block = await get_last_block_with_client(client);
     client.close();
