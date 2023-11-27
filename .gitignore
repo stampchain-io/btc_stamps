@@ -6,3 +6,5 @@ db
 .env
 db_data/
 files/
+indexer/.env
+.vscode/
