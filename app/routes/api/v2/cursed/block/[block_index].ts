@@ -1,17 +1,17 @@
 import { HandlerContext } from "$fresh/server.ts";
-import { query } from "$lib/db.ts";
+import { handleQuery } from "$lib/db.ts";
 
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { block_index } = ctx.params;
   try {
-    const block_info = await query(
+    const block_info = await handleQuery(
       `
       SELECT * FROM blocks
       WHERE block_index = ?
       `,
       [block_index],
     );
-    const stamps = await query(
+    const stamps = await handleQuery(
       `
       SELECT * FROM StampTableV4
       WHERE block_index = ?
