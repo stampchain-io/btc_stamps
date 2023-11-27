@@ -575,7 +575,7 @@ def store_files_to_disk(filename, decoded_base64):
     try:
         pwd = os.environ.get("PWD", '/usr/src/app')
         base_directory = os.path.join(pwd, "files")
-        os.makedirs(base_directory, exist_ok=True)
+        os.makedirs(base_directory, mode=0o777, exist_ok=True)
         file_path = os.path.join(base_directory, filename)
         with open(file_path, "wb") as f:
             f.write(decoded_base64)
