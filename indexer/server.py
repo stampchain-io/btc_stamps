@@ -276,7 +276,7 @@ def initialize_tables(db):
     try:
         logger.info("initializing tables...")
         cursor = db.cursor()
-        with open('table_schema.sql', 'r') as file:
+        with open('indexer/table_schema.sql', 'r') as file:
             sql_script = file.read()
         sql_commands = [
             cmd.strip() for cmd in sql_script.split(';') if cmd.strip()
@@ -291,7 +291,7 @@ def initialize_tables(db):
                 raise e
         import_csv_data(
             cursor,
-            'bootstrap/creator.csv',
+            'indexer/bootstrap/creator.csv',
             '''
             INSERT INTO creator (address, creator)
             VALUES (%s, %s)
@@ -300,7 +300,7 @@ def initialize_tables(db):
         )
         import_csv_data(
             cursor,
-            'bootstrap/srcbackground.csv',
+            'indexer/bootstrap/srcbackground.csv',
             '''INSERT INTO srcbackground
             (tick, base64, font_size, text_color, unicode, p)
             VALUES (%s, %s, %s, %s, %s, %s)
