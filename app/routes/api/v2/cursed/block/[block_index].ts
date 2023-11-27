@@ -15,9 +15,9 @@ export const handler = async (_req: Request, ctx: HandlerContext): Response => {
       `
       SELECT * FROM StampTableV4
       WHERE block_index = ?
-      AND (is_btc_stamp IS NOT NULL
-      OR is_reissue IS NOT NULL)
-      ORDER BY stamp
+      AND (is_btc_stamp IS NULL
+      AND is_reissue IS NULL)
+      ORDER BY tx_index
       `,
       [block_index],
     );
