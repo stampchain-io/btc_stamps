@@ -1,6 +1,5 @@
 import { HandlerContext } from "$fresh/server.ts";
 import { handleQuery } from "$lib/db.ts";
-
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { block_index } = ctx.params;
   try {
