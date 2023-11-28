@@ -765,12 +765,13 @@ def follow(db):
                     print("Error message:", e)
                     sys.exit()
 
+                processed_in_block= []
                 for tx_hash in txhash_list:
                     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
                     tx_hex = raw_transactions[tx_hash]
                     tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return  = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
                     # stamptable is using the same cursor and will commit when the block is complete
-                    parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time, is_op_return)
+                    parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time, is_op_return, processed_in_block)
                 try:
                     block_cursor.execute("COMMIT")
                     update_parsed_block(block_index, db)

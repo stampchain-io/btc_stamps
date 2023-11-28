@@ -107,7 +107,7 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, block_index, tx_hash):
-    cpid = stamp.get('cpid')
+    cpid = stamp.get('cpid', None)
     return cpid, create_base62_hash(tx_hash, str(block_index), 20)
 
 
@@ -307,16 +307,15 @@ def get_stamp_key(tx_hash):
 
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return):
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict) = (
-        None, None, None, None, None, None
+                            tx_index, block_index, block_time, is_op_return,  processed_in_block):
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict, is_btc_stamp) = (
+        None, None, None, None, None, None, None
     )
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
     decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    #FIXME: This is assuming decoded base64 is a bytestring (aka the image for src20/721 has been created)
     (ident, file_suffix, decoded_base64) = check_decoded_data(decoded_base64, block_index)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
@@ -357,56 +356,48 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
+    # DEBUG / VALIDATION ONLY - REMOVE AFTER VALIDATION
     is_whitelisted = None
     if is_op_return:
         is_whitelisted = is_tx_in_whitelist(tx_hash)
+    # -------- remove above
 
-    if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
-        not valid_src20 and not valid_src721
-        and ident in config.SUPPORTED_SUB_PROTOCOLS
-    )):
-        is_btc_stamp = None
-    elif (
+    if (
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
-        and cpid.startswith('A')
+        and cpid.startswith('A') and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX
         and (not is_op_return or (is_op_return and is_whitelisted))
         or (file_suffix == 'json' and (valid_src20 or valid_src721))
     ):
-        processed_stamps_list = []
         is_btc_stamp = 1
+
+    reissue_result = None
+    if cpid:
         block_cursor.execute(f'''
             SELECT * FROM {config.STAMP_TABLE}
-            WHERE cpid = %s
+            WHERE cpid = %s AND is_btc_stamp = 1
         ''', (cpid,))
-        result = block_cursor.fetchone()
-        if result:
-            is_btc_stamp = 'INVALID_REISSUE'
-            # reissunace of a stamp - we can update any changed fields like supply from this
-            is_reissue = 1
-        else:
-            duplicate_on_block = next(
-                (
-                    item for item in processed_stamps_list
-                    if item["cpid"] == cpid and item["is_btc_stamp"] == 1
-                ),
-                None
-            )
-            if duplicate_on_block is not None:
-                is_btc_stamp = 'INVALID_REISSUE'
-                is_reissue = 1
-
-        if is_btc_stamp == 1:
-            processed_stamps_dict = {
-                'tx_hash': tx_hash,
-                'cpid': cpid,
-                'is_btc_stamp': is_btc_stamp
-            }
-            processed_stamps_list.append(processed_stamps_dict)
-        else:
-            is_btc_stamp = None
-
+        reissue_result = block_cursor.fetchone()
+    if reissue_result:
+        is_btc_stamp = None # invalid reissuance
+        is_reissue = 1
     else:
-        is_btc_stamp = None
+        duplicate_on_block = next(
+            (
+                item for item in processed_in_block
+                if item["cpid"] == cpid and item["is_btc_stamp"] == 1
+            ),
+            None
+        )
+        if duplicate_on_block is not None:
+            is_btc_stamp = None # invalid reissuance
+            is_reissue = 1
+
+        processed_stamps_dict = {
+            'tx_hash': tx_hash,
+            'cpid': cpid,
+            'is_btc_stamp': is_btc_stamp
+        }
+        processed_in_block.append(processed_stamps_dict)
 
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
 
@@ -414,11 +405,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if is_to_include(tx_hash):
         stamp_number = None
         is_btc_stamp = None
+    # ------- remove above
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
 
-    # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
     if (
         ident in config.SUPPORTED_SUB_PROTOCOLS
         or file_suffix in config.MIME_TYPES
@@ -428,7 +419,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
-    # debug / validation - add breakpoints to check if we are indexing correcly :) 
+    # debug / validation - to be removed
     api_stamp_num = None
     api_tx_hash = None
     debug_stamp_api = get_stamp_key(tx_hash)
@@ -437,11 +428,10 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     elif debug_stamp_api:
         api_tx_hash = debug_stamp_api[0].get('tx_hash')
         api_stamp_num = debug_stamp_api[0].get('stamp')
-    
-    # debug /validation only - to be removed
     if is_to_exclude(tx_hash):
         stamp_number = api_stamp_num
         is_btc_stamp = 1 # temporarily add this to the db to keep numbers in sync
+    # ------- remove above
 
     logger.warning(f'''
         block_index: {block_index}
@@ -471,7 +461,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if is_btc_stamp and api_tx_hash != tx_hash:
         print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
         input("Press Enter to continue...")
-
+    # ------- remove above
     parsed = {
         "stamp": stamp_number,
         "block_index": block_index,
