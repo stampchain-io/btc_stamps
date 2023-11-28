@@ -4,7 +4,7 @@ import {
   get_block_info_with_client,
   get_last_block_with_client,
   get_issuances_by_block_index_with_client,
-} from "$lib/db.ts";
+} from "$lib/database/index.ts";
 
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { block_index } = ctx.params;

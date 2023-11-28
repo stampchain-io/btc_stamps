@@ -5,7 +5,7 @@ import {
   get_last_block_with_client,
   get_total_stamps_with_client,
   get_stamps_by_page_with_client,
-} from "$lib/db.ts";
+} from "$lib/database/index.ts";
 
 export const handler = async (req: Request, _ctx: HandlerContext): Response => {
   try {

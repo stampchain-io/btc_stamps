@@ -5,7 +5,7 @@ import {
   get_last_block_with_client,
   get_total_cursed_with_client,
   get_cursed_by_page_with_client,
- } from "$lib/db.ts";
+ } from "$lib/database/index.ts";
 
 export const handler = async (req: Request, _ctx: HandlerContext): Response => {
   try {

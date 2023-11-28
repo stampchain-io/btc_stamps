@@ -9,12 +9,13 @@ import * as $3 from "./routes/api/v2/cursed/[id].ts";
 import * as $4 from "./routes/api/v2/cursed/block/[block_index].ts";
 import * as $5 from "./routes/api/v2/cursed/ident/[ident].ts";
 import * as $6 from "./routes/api/v2/cursed/index.ts";
-import * as $7 from "./routes/api/v2/stamps/[id].ts";
-import * as $8 from "./routes/api/v2/stamps/block/[block_index].ts";
-import * as $9 from "./routes/api/v2/stamps/ident/[ident].ts";
-import * as $10 from "./routes/api/v2/stamps/index.ts";
-import * as $11 from "./routes/greet/[name].tsx";
-import * as $12 from "./routes/index.tsx";
+import * as $7 from "./routes/api/v2/issuances/[id].ts";
+import * as $8 from "./routes/api/v2/stamps/[id].ts";
+import * as $9 from "./routes/api/v2/stamps/block/[block_index].ts";
+import * as $10 from "./routes/api/v2/stamps/ident/[ident].ts";
+import * as $11 from "./routes/api/v2/stamps/index.ts";
+import * as $12 from "./routes/greet/[name].tsx";
+import * as $13 from "./routes/index.tsx";
 import * as $$0 from "./islands/Counter.tsx";
 
 const manifest = {
@@ -26,12 +27,13 @@ const manifest = {
     "./routes/api/v2/cursed/block/[block_index].ts": $4,
     "./routes/api/v2/cursed/ident/[ident].ts": $5,
     "./routes/api/v2/cursed/index.ts": $6,
-    "./routes/api/v2/stamps/[id].ts": $7,
-    "./routes/api/v2/stamps/block/[block_index].ts": $8,
-    "./routes/api/v2/stamps/ident/[ident].ts": $9,
-    "./routes/api/v2/stamps/index.ts": $10,
-    "./routes/greet/[name].tsx": $11,
-    "./routes/index.tsx": $12,
+    "./routes/api/v2/issuances/[id].ts": $7,
+    "./routes/api/v2/stamps/[id].ts": $8,
+    "./routes/api/v2/stamps/block/[block_index].ts": $9,
+    "./routes/api/v2/stamps/ident/[ident].ts": $10,
+    "./routes/api/v2/stamps/index.ts": $11,
+    "./routes/greet/[name].tsx": $12,
+    "./routes/index.tsx": $13,
   },
   islands: {
     "./islands/Counter.tsx": $$0,

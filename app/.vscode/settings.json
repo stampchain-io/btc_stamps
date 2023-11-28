@@ -4,16 +4,25 @@
   "editor.defaultFormatter": "denoland.vscode-deno",
   "editor.formatOnSave": true,
   "editor.indentSize": 2,
+  "editor.tabSize": 2,
   "[typescriptreact]": {
-    "editor.defaultFormatter": "denoland.vscode-deno"
+    "editor.defaultFormatter": "denoland.vscode-deno",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2
   },
   "[typescript]": {
-    "editor.defaultFormatter": "denoland.vscode-deno"
+    "editor.defaultFormatter": "denoland.vscode-deno",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2
   },
   "[javascriptreact]": {
-    "editor.defaultFormatter": "denoland.vscode-deno"
+    "editor.defaultFormatter": "denoland.vscode-deno",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2
   },
   "[javascript]": {
-    "editor.defaultFormatter": "denoland.vscode-deno"
+    "editor.defaultFormatter": "denoland.vscode-deno",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2
   }
 }
