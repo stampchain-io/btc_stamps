@@ -33,7 +33,9 @@ def is_to_exclude(tx_hash):
     try:
         with open(whitelist_path, 'r') as file:
             whitelist = json.load(file)
-        return tx_hash in whitelist.get('invalid_src20_no_keyburn', [])
+        invalid_src20_no_keyburn = whitelist.get('invalid_src20_no_keyburn', [])
+        reissue = whitelist.get('reissue', [])
+        return tx_hash in invalid_src20_no_keyburn or tx_hash in reissue
     except FileNotFoundError:
         print(f"The file {whitelist_path} was not found.")
         return False
