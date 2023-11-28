@@ -70,7 +70,7 @@ export const get_last_x_blocks = async (num = 10) => {
   })
 
 
-  return Promise.all(populated.reverse());
+  return Promise.all(populated);
 }
 
 export const get_last_x_blocks_with_client = async (client: Client, num = 10) => {
@@ -99,7 +99,7 @@ export const get_last_x_blocks_with_client = async (client: Client, num = 10) =>
       tx_count: tx_info_from_block.rows[0]['tx_count']
     }
   })
-  return Promise.all(populated.reverse());
+  return Promise.all(populated);
 }
 
 export const get_issuances_by_block_index = async (block_index: number) => {
