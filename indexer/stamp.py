@@ -422,6 +422,30 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if is_to_exclude(tx_hash):
         stamp_number = api_stamp_num
         is_btc_stamp = 1 # temporarily add this to the db to keep numbers in sync
+    logger.warning(f'''
+        block_index: {block_index}
+        cpid: {cpid}
+        stamp_number: {stamp_number}
+        api_stamp_num: {api_stamp_num}
+        ident: {ident}
+        keyburn: {keyburn}
+        creator_name: {creator_name}
+        file_suffix: {file_suffix}
+        is valid src20 in cp: {valid_cp_src20}
+        is valid src 20: {valid_src20}
+        is valid src 721: {valid_src721}
+        is bitcoin stamp: {is_btc_stamp}
+        is_reissue: {is_reissue}
+        stamp_mimetype: {stamp_mimetype}
+        file_hash: {file_obj_md5}
+        tx_hash: {tx_hash}
+        api_tx_hash: {api_tx_hash}
+        is_op_return: {is_op_return}
+        is_whitelisted: {is_whitelisted}
+        src_data: {src_data}
+        src_string: {src_20_string}
+        is_reissue: {is_reissue}
+    ''')
     if api_stamp_num != stamp_number:
         print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
         input("Press Enter to continue...")
@@ -459,7 +483,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "is_reissue": is_reissue,
         "file_hash": file_obj_md5
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
-    logger.warning(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
+    # logger.warning(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
     block_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
                         stamp, block_index, cpid, asset_longname,
