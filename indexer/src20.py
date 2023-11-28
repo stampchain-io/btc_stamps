@@ -1,5 +1,5 @@
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import logging
 from config import TICK_PATTERN_LIST
@@ -71,6 +71,7 @@ def check_format(input_string):
             return input_dict
 
         if input_dict.get("p") == "src-20":
+            ''' If the keys and values in the  string does not meet the requirements for src-20 we do not return or save the data in the Stamptable '''
             tick_value = input_dict.get("tick")
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_LIST) or len(tick_value) > 5:
                 logger.warning("EXCLUSION: did not match tick pattern", input_dict)
@@ -97,8 +98,8 @@ def check_format(input_string):
                         if isinstance(value, str):
                             try:
                                 value = Decimal(''.join(c for c in value if c.isdigit() or c == '.')) if value else Decimal(0)
-                            except ValueError:
-                                logger.warning(f"EXCLUSION: {key} not a valid decimal", input_dict)
+                            except InvalidOperation as e:
+                                logger.warning(f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}")
                                 return None
                         elif isinstance(value, int):
                             value = Decimal(value)
