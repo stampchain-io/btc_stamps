@@ -19,7 +19,7 @@ from src721 import validate_src721_and_process
 from src20 import check_format, build_src20_svg_string
 import traceback
 from src.aws import check_existing_and_upload_to_s3
-from whitelist import is_tx_in_whitelist
+from whitelist import is_tx_in_whitelist, is_to_include, is_to_exclude
 
 logger = logging.getLogger(__name__)
 
@@ -70,18 +70,14 @@ def is_prev_block_parsed(db, block_index):
     else:
         purge_block_db(db, block_index - 1)
         return False
+    
 
-
-def get_stamps_without_validation(db, block_index):
-    cursor = db.cursor()
-    cursor.execute('''
-                    SELECT * FROM transactions
-                    WHERE block_index = %s
-                    AND data IS NOT NULL
-                    ''', (block_index,))
-    stamps = cursor.fetchall()
-    # logger.warning("stamps: {}".format(stamps))
-    return stamps
+def get_creator_name(block_cursor, address):
+    block_cursor.execute(f'''
+        SELECT creator FROM creator
+        WHERE address = %s 
+    ''', (address,))
+    return block_cursor.fetchone()
 
 
 def base62_encode(num):
@@ -107,7 +103,7 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, block_index, tx_hash):
-    cpid = stamp.get('cpid')
+    cpid = stamp.get('cpid', None)
     return cpid, create_base62_hash(tx_hash, str(block_index), 20)
 
 
@@ -174,8 +170,6 @@ def decode_base64_with_repair(base64_string):
 
 
 def get_src_or_img_data(stamp, block_index):
-    # if this is src-20 on bitcoin we have already decoded
-    # the string in the transaction table
     stamp_mimetype, decoded_base64, base64_string = None, None, None
     if 'description' not in stamp: # for src-20
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
@@ -187,9 +181,6 @@ def get_src_or_img_data(stamp, block_index):
         stamp_description = stamp.get('description')
         if stamp_description is None:
             return None, None, None
-        #FIXME: stamp_mimetype may also be pulled in from the data json string as the stamp_mimetype key.
-        # below will over-write that user-input value assuming the base64 decodes properly
-        # we also may have text or random garbage in the description field to look out for
         base64_string, stamp_mimetype = parse_base64_from_description(
             stamp_description
         )
@@ -206,7 +197,6 @@ def check_custom_suffix(bytestring_data):
 
 
 def get_file_suffix(bytestring_data, block_index):
-    print(block_index, config.BMN_BLOCKSTART)
     if block_index > config.BMN_BLOCKSTART:
         if check_custom_suffix(bytestring_data):
             return 'bmn'
@@ -224,6 +214,8 @@ def get_file_suffix(bytestring_data, block_index):
 
 def is_json_string(s):
     try:
+        s = s.strip()  # DEBUG: This was for one src-721 that was currently in production. need to review/test reparse. 
+        s = s.rstrip('\r\n')  
         if s.startswith('{') and s.endswith('}'):
             json.loads(s)
             return True
@@ -308,18 +300,19 @@ def get_stamp_key(tx_hash):
 
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return):
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5) = (
-        None, None, None, None, None
+                            tx_index, block_index, block_time, is_op_return,  processed_in_block):
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict, src_20_string, is_btc_stamp) = (
+        None, None, None, None, None, None, None, None
     )
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
     decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    #FIXME: This is assuming decoded base64 is a bytestring (aka the image for src20/721 has been created)
     (ident, file_suffix, decoded_base64) = check_decoded_data(decoded_base64, block_index)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
+
+    creator_name = get_creator_name(block_cursor, source)
 
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
@@ -354,67 +347,59 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
+        # TODO: add a list of src721 tx to build for each block like we do with dupe on block below.
         (svg_output, file_suffix) = validate_src721_and_process(src_data, db)
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
+    # DEBUG / VALIDATION ONLY - REMOVE AFTER VALIDATION
     is_whitelisted = None
     if is_op_return:
         is_whitelisted = is_tx_in_whitelist(tx_hash)
+    # -------- remove above
 
-    if (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or (
-        not valid_src20 and not valid_src721
-        and ident in config.SUPPORTED_SUB_PROTOCOLS
-    )):
-        is_btc_stamp = None
-    elif (
+    if (
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
-        and cpid.startswith('A')
+        and cpid.startswith('A') and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX
         and (not is_op_return or (is_op_return and is_whitelisted))
         or (file_suffix == 'json' and (valid_src20 or valid_src721))
     ):
-        processed_stamps_list = []
         is_btc_stamp = 1
+
+    reissue_result = None
+    if cpid:
         block_cursor.execute(f'''
             SELECT * FROM {config.STAMP_TABLE}
-            WHERE cpid = %s
+            WHERE cpid = %s AND is_btc_stamp = 1
         ''', (cpid,))
-        result = block_cursor.fetchone()
-        if result:
-            is_btc_stamp = 'INVALID_REISSUE'
-            # reissunace of a stamp - we can update any changed fields like supply from this
-            is_reissue = 1
-        else:
-            duplicate_on_block = next(
-                (
-                    item for item in processed_stamps_list
-                    if item["cpid"] == cpid and item["is_btc_stamp"] == 1
-                ),
-                None
-            )
-            if duplicate_on_block is not None:
-                is_btc_stamp = 'INVALID_REISSUE'
-                is_reissue = 1
-
-        if is_btc_stamp == 1:
-            processed_stamps_dict = {
-                'tx_hash': tx_hash,
-                'cpid': cpid,
-                'is_btc_stamp': is_btc_stamp
-            }
-            processed_stamps_list.append(processed_stamps_dict)
-        else:
-            is_btc_stamp = None
-
+        reissue_result = block_cursor.fetchone()
+    if reissue_result:
+        is_btc_stamp = None # invalid reissuance
+        is_reissue = 1
     else:
-        is_btc_stamp = None
+        duplicate_on_block = next(
+            (
+                item for item in processed_in_block
+                if item["cpid"] == cpid and item["is_btc_stamp"] == 1
+            ),
+            None
+        )
+        if duplicate_on_block is not None:
+            is_btc_stamp = None # invalid reissuance
+            is_reissue = 1
+
+        processed_stamps_dict = {
+            'tx_hash': tx_hash,
+            'cpid': cpid,
+            'is_btc_stamp': is_btc_stamp
+        }
+        processed_in_block.append(processed_stamps_dict)
 
     stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
 
-    # we won't try to save the file/image of a plaintext, etc. eg. cpid: ESTAMP
     if (
         ident in config.SUPPORTED_SUB_PROTOCOLS
         or file_suffix in config.MIME_TYPES
@@ -424,15 +409,22 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
-    # debug / validation - add breakpoints to check if we are indexing correcly :) 
+    # DEBUG: this is for debugging / validation only against stampchain prod api
+    if is_to_include(tx_hash):
+        stamp_number = None
+        is_btc_stamp = None
     api_stamp_num = None
     api_tx_hash = None
+
     #  debug_stamp_api = get_stamp_key(tx_hash)
     #  if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
     #      api_stamp_num = debug_stamp_api[0].get('stamp')
     #  elif debug_stamp_api:
     #      api_tx_hash = debug_stamp_api[0].get('tx_hash')
     #      api_stamp_num = debug_stamp_api[0].get('stamp')
+    if is_to_exclude(tx_hash):
+        stamp_number = api_stamp_num
+        is_btc_stamp = 1 # temporarily add this to the db to keep numbers in sync
 
     logger.warning(f'''
         block_index: {block_index}
@@ -441,6 +433,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         api_stamp_num: {api_stamp_num}
         ident: {ident}
         keyburn: {keyburn}
+        creator_name: {creator_name}
         file_suffix: {file_suffix}
         is valid src20 in cp: {valid_cp_src20}
         is valid src 20: {valid_src20}
@@ -453,7 +446,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         api_tx_hash: {api_tx_hash}
         is_op_return: {is_op_return}
         is_whitelisted: {is_whitelisted}
+        src_data: {src_data}
+        src_string: {src_20_string}
+        is_reissue: {is_reissue}
     ''')
+
     # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
     #  if api_stamp_num != stamp_number:
     #      print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
@@ -462,11 +459,12 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     #      print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
     #      input("Press Enter to continue...")
 
+
     parsed = {
         "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
-        "creator_name": None,  # TODO: add creator_name - this is the issuer in CP, and source in BTC
+        "creator_name": creator_name,
         "asset_longname": stamp.get('asset_longname'),
         "creator": source,
         "divisible": stamp.get('divisible'),
@@ -484,14 +482,14 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "tx_hash": tx_hash,
         "tx_index": tx_index,
         "src_data": (
-            file_suffix == 'json' and src_data is not None and json.dumps(src_data) and (valid_src20 or valid_src721) or None
-        ),
-        "stamp_gen": None,  # TODO: add stamp_gen - might be able to remove this column depending on how we handle numbering, this was temporary in prior indexing
+                src_data if src_data is not None and (valid_src20 or valid_src721) else json.dumps(src_20_string)
+            ),
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
         "is_reissue": is_reissue,
         "file_hash": file_obj_md5
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
+    # logger.warning(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
     block_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
                         stamp, block_index, cpid, asset_longname,
@@ -499,10 +497,10 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         message_index, stamp_base64,
                         stamp_mimetype, stamp_url, supply, timestamp,
                         tx_hash, tx_index, src_data, ident,
-                        creator_name, stamp_gen, stamp_hash,
+                        creator_name, stamp_hash,
                         is_btc_stamp, is_reissue, file_hash
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
                         parsed['cpid'], parsed['asset_longname'],
@@ -514,7 +512,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['supply'], parsed['timestamp'],
                         parsed['tx_hash'], parsed['tx_index'],
                         parsed['src_data'], parsed['ident'],
-                        parsed['creator_name'], parsed['stamp_gen'],
+                        parsed['creator_name'],
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
                         parsed['is_reissue'], parsed['file_hash']
                     ))
@@ -573,8 +571,8 @@ def store_files_to_disk(filename, decoded_base64):
         logger.warning("filename is None")
         return
     try:
-        pwd = os.environ.get("PWD", '/usr/src/app')
-        base_directory = os.path.join(pwd, "files")
+        cwd = os.path.abspath(os.getcwd())
+        base_directory = os.path.join(cwd, "files")
         os.makedirs(base_directory, mode=0o777, exist_ok=True)
         file_path = os.path.join(base_directory, filename)
         with open(file_path, "wb") as f:
