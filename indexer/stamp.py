@@ -395,7 +395,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         duplicate_on_block = next(
             (
                 item for item in processed_in_block
-                if item["cpid"] == cpid and item["is_btc_stamp"] == 1
+                if cpid is not None and item["cpid"] == cpid and item["is_btc_stamp"] == 1
             ),
             None
         )
