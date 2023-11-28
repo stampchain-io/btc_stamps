@@ -5,7 +5,9 @@ import {
   get_last_x_blocks_with_client,
   connectDb,
 } from "$lib/database/index.ts";
-import Block from "$islands/Block.tsx";
+import Block from "$islands/BlockSelector.tsx";
+import BlockInfo from "$islands/BlockInfo.tsx";
+
 
 export const handler: Handlers<BlockRow[]> = {
   async GET(_req: Request, ctx: HandlerContext) {
@@ -31,7 +33,7 @@ export default function Home(props: PageProps<BlockRow[]>) {
         ))}
       </div>
 
-
+      <BlockInfo block={selected}/>
 
     </div>
   );

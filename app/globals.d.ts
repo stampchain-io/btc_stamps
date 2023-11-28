@@ -3,7 +3,7 @@ type SUBPROTOCOLS = 'STAMP' | 'SRC-20' | 'SRC-721';
 interface BlockRow {
   block_index: number;
   block_hash: string;
-  block_time: number;
+  block_time: number | Date;
   previous_block_hash: string;
   difficulty: number;
   ledger_hash: string;
