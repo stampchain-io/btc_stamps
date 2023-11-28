@@ -1,0 +1,1 @@
+type SUBPROTOCOLS = 'STAMP' | 'SRC-20' | 'SRC-721';
