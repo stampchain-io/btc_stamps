@@ -45,6 +45,63 @@ export const get_last_block_with_client = async (client: Client) => {
   );
 };
 
+export const get_last_x_blocks = async (num = 10) => {
+  const blocks = await handleQuery(
+    `
+    SELECT * FROM blocks
+    ORDER BY block_index DESC
+    LIMIT ?;
+    `,
+    [num]
+  );
+  const populated = blocks.rows.map(async (block) => {
+    const tx_info_from_block = await handleQuery(
+      `
+      SELECT COUNT(*) AS tx_count
+      FROM StampTableV4
+      WHERE block_index = ?;
+      `,
+      [block.block_index],
+    );
+    return {
+      ...block,
+      tx_count: tx_info_from_block.rows[0]['tx_count']
+    }
+  })
+
+
+  return Promise.all(populated.reverse());
+}
+
+export const get_last_x_blocks_with_client = async (client: Client, num = 10) => {
+  const blocks = await handleQueryWithClient(
+    client,
+    `
+    SELECT * FROM blocks
+    ORDER BY block_index DESC
+    LIMIT ?;
+    `,
+    [num]
+  );
+  const populated = blocks.rows.map(async (block) => {
+    const tx_info_from_block = await handleQueryWithClient(
+      client,
+      `
+      SELECT COUNT(*) AS tx_count
+      FROM StampTableV4
+      WHERE block_index = ?;
+      `,
+      [block.block_index],
+    );
+
+    return {
+      ...block,
+      tx_count: tx_info_from_block.rows[0]['tx_count']
+    }
+  })
+  return Promise.all(populated.reverse());
+}
+
 export const get_issuances_by_block_index = async (block_index: number) => {
   return await handleQuery(
     `

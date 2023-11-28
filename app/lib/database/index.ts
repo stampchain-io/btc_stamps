@@ -15,6 +15,8 @@ export {
   get_issuances_by_stamp_with_client,
   get_issuances_by_identifier,
   get_issuances_by_identifier_with_client,
+  get_last_x_blocks,
+  get_last_x_blocks_with_client,
 } from "./common.ts";
 
 export {
