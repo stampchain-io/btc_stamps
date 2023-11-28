@@ -70,18 +70,14 @@ def is_prev_block_parsed(db, block_index):
     else:
         purge_block_db(db, block_index - 1)
         return False
+    
 
-
-def get_stamps_without_validation(db, block_index):
-    cursor = db.cursor()
-    cursor.execute('''
-                    SELECT * FROM transactions
-                    WHERE block_index = %s
-                    AND data IS NOT NULL
-                    ''', (block_index,))
-    stamps = cursor.fetchall()
-    # logger.warning("stamps: {}".format(stamps))
-    return stamps
+def get_creator_name(block_cursor, address):
+    block_cursor.execute(f'''
+        SELECT creator FROM creator
+        WHERE address = %s 
+    ''', (address,))
+    return block_cursor.fetchone()
 
 
 def base62_encode(num):
@@ -174,8 +170,6 @@ def decode_base64_with_repair(base64_string):
 
 
 def get_src_or_img_data(stamp, block_index):
-    # if this is src-20 on bitcoin we have already decoded
-    # the string in the transaction table
     stamp_mimetype, decoded_base64, base64_string = None, None, None
     if 'description' not in stamp: # for src-20
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
@@ -187,9 +181,6 @@ def get_src_or_img_data(stamp, block_index):
         stamp_description = stamp.get('description')
         if stamp_description is None:
             return None, None, None
-        #FIXME: stamp_mimetype may also be pulled in from the data json string as the stamp_mimetype key.
-        # below will over-write that user-input value assuming the base64 decodes properly
-        # we also may have text or random garbage in the description field to look out for
         base64_string, stamp_mimetype = parse_base64_from_description(
             stamp_description
         )
@@ -319,6 +310,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     (ident, file_suffix, decoded_base64) = check_decoded_data(decoded_base64, block_index)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
+    creator_name = get_creator_name(block_cursor, source)
+
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
         block_index < config.CP_SRC20_BLOCK_END
@@ -440,6 +433,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         api_stamp_num: {api_stamp_num}
         ident: {ident}
         keyburn: {keyburn}
+        creator_name: {creator_name}
         file_suffix: {file_suffix}
         is valid src20 in cp: {valid_cp_src20}
         is valid src 20: {valid_src20}
@@ -454,6 +448,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is_whitelisted: {is_whitelisted}
         src_data: {src_20_dict}
     ''')
+    if creator_name is not None:
+        print()
     # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
     if api_stamp_num != stamp_number:
         print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
@@ -466,7 +462,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
-        "creator_name": None,  # TODO: add creator_name - this is the issuer in CP, and source in BTC
+        "creator_name": creator_name,
         "asset_longname": stamp.get('asset_longname'),
         "creator": source,
         "divisible": stamp.get('divisible'),
