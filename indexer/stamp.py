@@ -77,7 +77,11 @@ def get_creator_name(block_cursor, address):
         SELECT creator FROM creator
         WHERE address = %s 
     ''', (address,))
-    return block_cursor.fetchone()
+    result = block_cursor.fetchone()
+    if result and result[0]:
+        return result[0]
+    else:
+        return None
 
 
 def base62_encode(num):
@@ -329,6 +333,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             ident == 'SRC-20' and not cpid
             and block_index >= config.CP_SRC20_BLOCK_END
             and keyburn == 1
+            and block_index < config.SRC20_BLOCK_START
+
         )
     )
     valid_src721 = (
