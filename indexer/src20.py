@@ -61,6 +61,8 @@ def sort_keys(key):
 
 def check_format(input_string):
     try:
+        if isinstance(input_string, dict):
+            input_string = json.dumps(input_string) # FIXME: chaos with all the data types, need to normalize higher up
         if isinstance(input_string, bytes):
             input_string = input_string.decode('utf-8')
         start_index = input_string.find('{')

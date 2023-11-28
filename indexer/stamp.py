@@ -122,10 +122,14 @@ def clean_and_load_json(json_string):
 
 
 def convert_to_json(input_data):
+    # FIXME: this function needs simplification
     if isinstance (input_data, bytes):
         input_string = input_data.decode(' utf-8')
     elif isinstance (input_data, str):
         input_string = input_data
+    elif isinstance (input_data, dict):
+        input_string = json.dumps(input_data)
+        return clean_and_load_json(input_string)
     try:
         dictionary = ast.literal_eval(input_string)
         json_string = json.dumps(dictionary)
@@ -177,23 +181,23 @@ def decode_base64_with_repair(base64_string):
         return None
 
 
-def get_src_or_img_data(stamp, block_index):
+def get_src_or_img_from_data(stamp, block_index):
     stamp_mimetype, decoded_base64, base64_string = None, None, None
     if 'description' not in stamp: # for src-20
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
-            return stamp, None, None # update mime/type when we start creating img
+            return stamp, None, None, 'SRC-20' # update mime/type when we start creating img
         elif 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-721':
             # TODO: add src-721 decoding and details here
-            return stamp, None, None # update mimetype when we start creating img
+            return stamp, None, None, 'SRC-20' # update mimetype when we start creating img
     else:
         stamp_description = stamp.get('description')
         if stamp_description is None:
-            return None, None, None
+            return None, None, None, None
         base64_string, stamp_mimetype = parse_base64_from_description(
             stamp_description
         )
         decoded_base64 = decode_base64(base64_string, block_index)
-        return decoded_base64, base64_string, stamp_mimetype
+        return decoded_base64, base64_string, stamp_mimetype, None
 
 
 def check_custom_suffix(bytestring_data):
@@ -233,7 +237,7 @@ def is_json_string(s):
         return False
 
 
-def reformat_src_string(decoded_data):
+def reformat_src_string_get_ident(decoded_data):
     decoded_data = json.loads(decoded_data)
     decoded_data = {k.lower(): v for k, v in decoded_data.items()}
     if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
@@ -251,7 +255,7 @@ def zlib_decompress(compressed_data):
         decoded_data = msgpack.unpackb(uncompressed_data) #  {'p': 'src-20', 'op': 'deploy', 'tick': 'kevin', 'max': '21000000', 'lim': '1000'}
         json_string = json.dumps(decoded_data)
         file_suffix = "json"
-        ident, file_suffix = reformat_src_string(json_string)
+        ident, file_suffix = reformat_src_string_get_ident(json_string)
         # FIXME: we will need to return the json_string to import into the srcx table or import from here
         return ident, file_suffix, json_string
     except zlib.error:
@@ -265,7 +269,7 @@ def zlib_decompress(compressed_data):
         return 'UNKNOWN', 'zlib', compressed_data
 
 
-def check_decoded_data(decoded_data, block_index):
+def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
     ''' this can come in as a json string or text (in the case of svg's)'''
     file_suffix = None
     if type(decoded_data) is bytes:
@@ -273,8 +277,11 @@ def check_decoded_data(decoded_data, block_index):
             decoded_data = decoded_data.decode('utf-8') 
         except Exception as e:
             pass
-    if (type(decoded_data) is str and is_json_string(decoded_data)):
-        ident, file_suffix = reformat_src_string(decoded_data)
+    if (type(decoded_data) is dict): # NOTE: src-20 are coming in as dict here, ripe for cleanup
+        decoded_string = json.dumps(decoded_data)
+        ident, file_suffix = reformat_src_string_get_ident(decoded_string)
+    elif (type(decoded_data) is str and is_json_string(decoded_data)):
+        ident, file_suffix = reformat_src_string_get_ident(decoded_data)
         # FIXME: we will need to return the json_string to import into the srcx table or import from here
     else:
         try:
@@ -309,15 +316,15 @@ def get_stamp_key(tx_hash):
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
                             tx_index, block_index, block_time, is_op_return,  processed_in_block):
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict, src_20_string, is_btc_stamp) = (
-        None, None, None, None, None, None, None, None
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict, src_20_string, is_btc_stamp, ident) = (
+        None, None, None, None, None, None, None, None, None
     )
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
-    decoded_base64, stamp_base64, stamp_mimetype = get_src_or_img_data(stamp, block_index)
+    decoded_base64, stamp_base64, stamp_mimetype, ident = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    (ident, file_suffix, decoded_base64) = check_decoded_data(decoded_base64, block_index)
+    (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
     creator_name = get_creator_name(block_cursor, source)
@@ -331,10 +338,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         valid_cp_src20 or
         (
             ident == 'SRC-20' and not cpid
-            and block_index >= config.CP_SRC20_BLOCK_END
             and keyburn == 1
-            and block_index < config.SRC20_BLOCK_START
-
         )
     )
     valid_src721 = (
@@ -370,7 +374,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
     if (
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
-        and cpid.startswith('A') and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX
+        and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
+        (cpid and cpid.startswith('A'))
         and (not is_op_return or (is_op_return and is_whitelisted))
         or (file_suffix == 'json' and (valid_src20 or valid_src721))
     ):
