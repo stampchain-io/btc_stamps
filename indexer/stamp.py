@@ -214,8 +214,8 @@ def get_file_suffix(bytestring_data, block_index):
 
 def is_json_string(s):
     try:
-        s = s.strip()  # Strip leading and trailing whitespace
-        s = s.rstrip('\r\n')  # Strip newline and carriage return characters from the end
+        s = s.strip()  # DEBUG: This was for one src-721 that was currently in production. need to review/test reparse. 
+        s = s.rstrip('\r\n')  
         if s.startswith('{') and s.endswith('}'):
             json.loads(s)
             return True
