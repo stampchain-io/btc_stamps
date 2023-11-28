@@ -4,7 +4,7 @@ import {
   get_cursed_by_ident_with_client,
   get_last_block_with_client,
   get_total_cursed_by_ident_with_client,
-} from "$lib/db.ts";
+} from "$lib/database/index.ts";
 import { PROTOCOL_IDENTIFIERS } from "$lib/utils/protocol.ts";
 
 export const handler = async (req: Request, ctx: HandlerContext): Response => {
