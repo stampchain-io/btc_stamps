@@ -77,7 +77,11 @@ def get_creator_name(block_cursor, address):
         SELECT creator FROM creator
         WHERE address = %s 
     ''', (address,))
-    return block_cursor.fetchone()
+    result = block_cursor.fetchone()
+    if result and result[0]:
+        return result[0]
+    else:
+        return None
 
 
 def base62_encode(num):
