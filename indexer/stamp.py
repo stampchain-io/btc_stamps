@@ -214,6 +214,8 @@ def get_file_suffix(bytestring_data, block_index):
 
 def is_json_string(s):
     try:
+        s = s.strip()  # Strip leading and trailing whitespace
+        s = s.rstrip('\r\n')  # Strip newline and carriage return characters from the end
         if s.startswith('{') and s.endswith('}'):
             json.loads(s)
             return True
