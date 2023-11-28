@@ -1,29 +1,22 @@
 import { HandlerContext } from "$fresh/server.ts";
-import { handleQuery } from "$lib/db.ts";
+import {
+  connectDb,
+  get_block_info_with_client,
+  get_last_block_with_client,
+  get_cursed_by_block_index_with_client,
+} from "$lib/db.ts";
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { block_index } = ctx.params;
   try {
-    const block_info = await handleQuery(
-      `
-      SELECT * FROM blocks
-      WHERE block_index = ?
-      `,
-      [block_index],
-    );
-    const stamps = await handleQuery(
-      `
-      SELECT * FROM StampTableV4
-      WHERE block_index = ?
-      AND (is_btc_stamp IS NULL
-      AND is_reissue IS NULL)
-      ORDER BY tx_index
-      `,
-      [block_index],
-    );
+    const client = await connectDb();
+    const block_info = await get_block_info_with_client(client, block_index);
+    const last_block = await get_last_block_with_client(client);
+    const cursed = await get_cursed_by_block_index_with_client(client, block_index);
+
     let body = JSON.stringify(
       {
         block_info: block_info.rows[0],
-        issuances: stamps.rows
+        data: cursed.rows
       }
     );
     return new Response(body);
