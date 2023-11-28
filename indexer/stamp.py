@@ -117,8 +117,12 @@ def clean_and_load_json(json_string):
         return json.loads(json_string)
 
 
-def convert_to_json(input_string):
+def convert_to_json(input_data):
     try:
+        if isinstance(input_data, bytes):
+            input_string = input_data.decode('utf-8')
+        elif isinstance(input_data, str):
+            input_string = input_data
         dictionary = ast.literal_eval(input_string)
         json_string = json.dumps(dictionary)
         return clean_and_load_json(json_string)
