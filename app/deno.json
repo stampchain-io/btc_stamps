@@ -21,7 +21,9 @@
     "twind/": "https://esm.sh/twind@0.16.19/",
     "$std/": "https://deno.land/std@0.193.0/",
     "$mysql/":"https://deno.land/x/mysql@v2.12.1/",
-    "$lib/": "./lib/"
+    "$lib/": "./lib/",
+    "$islands/": "./islands/",
+    "$/": "./"
   },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" }
 }
