@@ -117,7 +117,11 @@ def clean_and_load_json(json_string):
         return json.loads(json_string)
 
 
-def convert_to_json(input_string):
+def convert_to_json(input_data):
+    if isinstance (input_data, bytes):
+        input_string = input_data.decode(' utf-8')
+    elif isinstance (input_data, str):
+        input_string = input_data
     try:
         dictionary = ast.literal_eval(input_string)
         json_string = json.dumps(dictionary)
@@ -325,6 +329,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             ident == 'SRC-20' and not cpid
             and block_index >= config.CP_SRC20_BLOCK_END
             and keyburn == 1
+            and block_index < config.SRC20_BLOCK_START
+
         )
     )
     valid_src721 = (
