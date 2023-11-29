@@ -17,3 +17,6 @@ python-magic
 boto3 # required if using AWS S3 for file storage
 msgpack
 #arweave-python-client # required for arweave storage
+
+Pillow      #Needed for src721v3 SDXL 
+requests    #Nedded for src721v3 SDXL

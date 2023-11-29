@@ -7,6 +7,12 @@ from src20 import get_srcbackground_data
 
 
 logger = logging.getLogger(__name__)
+##### change to your environmental variable for your sdxl server
+sdxlServer = "http://192.168.1.243:7860"  
+## NOTE: This SDXL setup require you to run an instance of SDXL using Automatic1111 with ./webui.sh --api
+## https://github.com/AUTOMATIC1111/stable-diffusion-webui
+## To generate consistent results across architectures, you will need to open the 
+## web ui and set settings -> stable diffusion -> random number generator source to CPU
 
 
 def validate_src721_and_process(src721_data, db):
@@ -117,20 +123,50 @@ def get_src721_svg_string(src721_title, src721_desc, db):
     return svg_output
 
 
+def generate_image_src_b64(payload):
+    response = requests.post(sdxlServer+"/sdapi/v1/txt2img", json=payload)
+    r = response.json()
+
+    for i in r['images']:
+        image = Image.open(io.BytesIO(base64.b64decode(i.split(",",1)[0])))
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        imageB64 = "data:image/jpg;base64," + base64.b64encode(buffered.getvalue()).decode("utf-8") 
+        return imageB64
+
 def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     # Initialize the SVG string
     # svg = f'<div><svg xmlns="http://www.w3.org/2000/svg" viewbox="{tmp_collection_object["viewbox"]}" style="image-rendering:{tmp_collection_object["image-rendering"]}">'
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_collection_object["image-rendering"]}; width: 420px; height: 420px;">
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_collection_object.get("image-rendering","auto")}; width: 420px; height: 420px;">
             <foreignObject width="100%" height="100%">
             <style>img {{position:absolute;width:100%;height:100%;}}</style>
             <title>{tmp_collection_object["name"]}</title>
             <desc>{tmp_collection_object["description"]} - provided by stampchain.io</desc>
             <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
 
-    # Loop to add the image elements
-    for i in range(len(tmp_nft_object["ts"])):
-        image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
-        svg += f'<img src="{image_src_base64}"/>'
+    # v1 & v2 - Loop to add the image elements 
+    if tmp_collection_object['v'] < 3:
+        for i in range(len(tmp_nft_object["ts"])):
+            image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
+            svg += f'<img src="{image_src_base64}"/>'
+    # v3 - ai to generate the image
+    else:
+        style = tmp_nft_object["ai"][0]
+        payload = {
+            "prompt": tmp_nft_object["ai"][2] + tmp_collection_object["prompts"][style]["p"] ,
+            "negative_prompt": tmp_nft_object["ai"][3] + tmp_collection_object["prompts"][style]["n"],
+            "steps": tmp_collection_object["steps"],
+            "width": tmp_collection_object["width"],
+            "height": tmp_collection_object["height"],
+            "cfg_scale": tmp_collection_object["cfg_scale"],
+            "samples": tmp_collection_object["samples"],
+            "seed":tmp_nft_object["ai"][1],
+            "sampler_name": tmp_collection_object["sampler"]
+        }
+        imageSrcB64 =  "";
+        if len(sdxlServer) > 0:
+            imageSrcB64 = generate_image_src_b64(payload);
+        svg += f'<img src="{imageSrcB64}" alt="{payload.prompt}"/>'
     
     # Add closing SVG tag
     svg += "</div></foreignObject></svg>"
