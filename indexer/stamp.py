@@ -334,7 +334,7 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
         WHERE cpid = %s
     ''', (cpid,))
     reissue_results = block_cursor.fetchall()
-    if len(reissue_results) > 1:
+    if len(reissue_results) > 0:
         for row in reissue_results:
             prior_is_btc_stamp, is_valid_base64 = row[0], row[1]
             if prior_is_btc_stamp or is_valid_base64:
