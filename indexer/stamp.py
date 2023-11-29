@@ -459,12 +459,13 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     api_stamp_num = None
     api_tx_hash = None
 
-    #  debug_stamp_api = get_stamp_key(tx_hash)
-    #  if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
-    #      api_stamp_num = debug_stamp_api[0].get('stamp')
-    #  elif debug_stamp_api:
-    #      api_tx_hash = debug_stamp_api[0].get('tx_hash')
-    #      api_stamp_num = debug_stamp_api[0].get('stamp')
+    debug_stamp_api = get_stamp_key(tx_hash)
+    if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
+        api_stamp_num = debug_stamp_api[0].get('stamp')
+    elif debug_stamp_api:
+        api_tx_hash = debug_stamp_api[0].get('tx_hash')
+        api_stamp_num = debug_stamp_api[0].get('stamp')
+
     if is_to_exclude(tx_hash):
         stamp_number = api_stamp_num
         is_btc_stamp = 1 # temporarily add this to the db to keep numbers in sync
@@ -496,13 +497,12 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     ''')
 
     # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
-    #  if api_stamp_num != stamp_number:
-    #      print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
-    #      input("Press Enter to continue...")
-    #  if is_btc_stamp and api_tx_hash != tx_hash:
-    #      print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
-    #      input("Press Enter to continue...")
-
+    if api_stamp_num != stamp_number:
+        print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
+        input("Press Enter to continue...")
+    if is_btc_stamp and api_tx_hash != tx_hash:
+        print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
+        input("Press Enter to continue...")
 
     parsed = {
         "stamp": stamp_number,
