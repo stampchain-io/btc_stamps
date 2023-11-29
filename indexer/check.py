@@ -9,6 +9,7 @@ import sys
 import config
 import src.util as util
 import src.database as database
+from xcprequest import get_cp_version
 
 ''' this is the consensus hash for counterparty. needs to be updated for stamps'''
 
@@ -132,6 +133,11 @@ def check_change(protocol_change, change_name):
             raise VersionUpdateRequiredError(explanation)
         else:
             warnings.warn(explanation)
+
+def cp_version():
+    cp_version = get_cp_version()
+    #FIXME: Finish version checking validation.
+    return
 
 def software_version():
     if config.FORCE:

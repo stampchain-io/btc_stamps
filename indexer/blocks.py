@@ -470,6 +470,7 @@ def reparse(db, block_index=None, quiet=False):
     Exception("reparse() is not implemented yet")
 
     # check.software_version()
+    check.cp_version()
     reparse_start = time.time()
 
     # Reparse from the undolog if possible
@@ -634,6 +635,7 @@ class MempoolError(Exception):
 def follow(db): 
     # Check software version.
     # check.software_version()
+    check.cp_version()
 
     # initialize.
     initialize(db)
