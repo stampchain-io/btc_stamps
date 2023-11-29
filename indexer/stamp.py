@@ -468,7 +468,6 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
     if is_to_exclude(tx_hash):
         stamp_number = api_stamp_num
-        is_btc_stamp = 1 # temporarily add this to the db to keep numbers in sync
 
     logger.warning(f'''
         block_index: {block_index}

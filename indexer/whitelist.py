@@ -20,7 +20,10 @@ def is_to_include(tx_hash):
     try:
         with open(whitelist_path, 'r') as file:
             whitelist = json.load(file)
-        return tx_hash in whitelist.get('to_include', [])
+            to_include = whitelist.get('to_include', [])
+            detected_now_was_not_prior_tbd = whitelist.get('detected_now_was_not_prior_tbd', [])
+
+        return tx_hash in to_include or tx_hash in detected_now_was_not_prior_tbd
     except FileNotFoundError:
         print(f"The file {whitelist_path} was not found.")
         return False
