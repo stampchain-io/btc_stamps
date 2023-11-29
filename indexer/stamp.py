@@ -317,7 +317,15 @@ def get_stamp_key(tx_hash):
     else:
         return None  # Return None if the request was not successful
 
-def check_reissue(block_cursor, cpid, is_btc_stamp):
+
+def check_reissue(block_cursor, cpid, is_btc_stamp, processed_in_block):
+    ''' Validate if there was a prior valid stamp for cpid in the db or block and adust is_btc_stamp and is_reissue  '''
+    is_btc_stamp, is_reissue = check_reissue_in_db(block_cursor, cpid, is_btc_stamp)
+    is_btc_stamp, is_reissue = check_reissue_in_block(processed_in_block, cpid, is_btc_stamp)
+    return is_btc_stamp, is_reissue 
+
+
+def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
     prior_is_btc_stamp, is_reissue = None, None
     block_cursor.execute(f'''
         SELECT is_btc_stamp FROM {config.STAMP_TABLE}
@@ -325,8 +333,8 @@ def check_reissue(block_cursor, cpid, is_btc_stamp):
     ''', (cpid,))
     reissue_results = block_cursor.fetchall()
     for row in reissue_results:
-        prior_is_btc_stamp = row[0]  # Extract the numeric value from the tuple
-        # if any prior row is a stamp then this is an invalid reissuance
+        prior_is_btc_stamp = row[0] 
+        # if any prior row is a stamp then this is an invalid stamp reissuance
         if prior_is_btc_stamp:
             is_btc_stamp = None 
             is_reissue = 1
@@ -334,6 +342,22 @@ def check_reissue(block_cursor, cpid, is_btc_stamp):
         # if the current row is a stamp, and the previous row is not a stamp, then this is a reissuance, check next row
         elif prior_is_btc_stamp and not prior_is_btc_stamp:
             is_reissue = 1
+    return is_btc_stamp, is_reissue
+
+
+def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp):
+    prior_is_btc_stamp, is_reissue = None, None
+    for item in processed_in_block:
+        if item["cpid"] == cpid:
+            prior_is_btc_stamp = item["is_btc_stamp"]
+            # if any prior item is a stamp then this is an invalid stamp reissuance
+            if prior_is_btc_stamp:
+                is_btc_stamp = None 
+                is_reissue = 1
+                return is_btc_stamp, is_reissue
+            # if the current item is a stamp, and the previous item is not a stamp, then this is a reissuance, check next item
+            elif is_btc_stamp and not prior_is_btc_stamp:
+                is_reissue = 1
     return is_btc_stamp, is_reissue
 
 
@@ -404,20 +428,10 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     ):
         is_btc_stamp = 1
 
-    if cpid:
-        is_btc_stamp, is_reissue = check_reissue(block_cursor, cpid, is_btc_stamp)
-    else:
-        duplicate_on_block = next(
-            (
-                item for item in processed_in_block 
-                if cpid is not None and item["cpid"] == cpid and item["is_btc_stamp"] == 1
-            ),
-            None
-        )
-        if duplicate_on_block is not None: # need to add the same query as above so below.
-            is_btc_stamp = None # invalid reissuance
-            is_reissue = 1
+    if cpid: 
+        is_btc_stamp, is_reissue = check_reissue(block_cursor, cpid, is_btc_stamp, processed_in_block)
 
+    if cpid and (is_btc_stamp or is_reissue):
         processed_stamps_dict = {
             'tx_hash': tx_hash,
             'cpid': cpid,
@@ -519,7 +533,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "is_reissue": is_reissue,
         "file_hash": file_obj_md5
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
-    # logger.warning(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
+    # logger.debug(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
     block_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
                         stamp, block_index, cpid, asset_longname,
@@ -566,6 +580,7 @@ def get_next_stamp_number(db):
     cursor.close()
 
     return stamp_number
+
 
 def get_fileobj_and_md5(decoded_base64):
     if decoded_base64 is None:
