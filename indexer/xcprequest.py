@@ -56,6 +56,7 @@ def get_block_count():
             headers=headers,
             auth=auth
         )
+        logger.info("get_block_count response: {}".format(response.text))
         return json.loads(response.text)["result"]["last_block"]["block_index"]
     except Exception as e:
         logger.warning(
@@ -83,6 +84,7 @@ def get_issuances_by_block(block_index):
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
             util.CP_BLOCK_COUNT = get_block_count()
+            logger.info("Current block count: {}".format(util.CP_BLOCK_COUNT))
             if (
                 util.CP_BLOCK_COUNT is not None
                 and block_index <= util.CP_BLOCK_COUNT
