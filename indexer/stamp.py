@@ -325,7 +325,6 @@ def check_reissue(block_cursor, cpid, is_btc_stamp):
         ''', (cpid,))
         reissue_results = block_cursor.fetchall()
         for reissue_result in reissue_results:
-            prior_is_btc_stamp = reissue_result
             if reissue_result and prior_is_btc_stamp:
                 is_btc_stamp = None # invalid reissuance
                 is_reissue = 1
