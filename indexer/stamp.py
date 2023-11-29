@@ -317,6 +317,23 @@ def get_stamp_key(tx_hash):
     else:
         return None  # Return None if the request was not successful
 
+def check_reissue(block_cursor, cpid, is_btc_stamp):
+        reissue_result, prior_is_btc_stamp, is_reissue = None, None, None
+        block_cursor.execute(f'''
+            SELECT is_btc_stamp FROM {config.STAMP_TABLE}
+            WHERE cpid = %s
+        ''', (cpid,))
+        reissue_results = block_cursor.fetchall()
+        for reissue_result in reissue_results:
+            prior_is_btc_stamp = reissue_result
+            if reissue_result and prior_is_btc_stamp:
+                is_btc_stamp = None # invalid reissuance
+                is_reissue = 1
+                return is_btc_stamp, is_reissue
+            elif reissue_result and not prior_is_btc_stamp:
+                is_reissue = 1
+        return is_btc_stamp, is_reissue
+
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
                             tx_index, block_index, block_time, is_op_return,  processed_in_block):
@@ -385,25 +402,17 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     ):
         is_btc_stamp = 1
 
-    reissue_result = None
     if cpid:
-        block_cursor.execute(f'''
-            SELECT * FROM {config.STAMP_TABLE}
-            WHERE cpid = %s AND is_btc_stamp = 1
-        ''', (cpid,))
-        reissue_result = block_cursor.fetchone()
-    if reissue_result:
-        is_btc_stamp = None # invalid reissuance
-        is_reissue = 1
+        is_btc_stamp, is_reissue = check_reissue(block_cursor, cpid, is_btc_stamp)
     else:
         duplicate_on_block = next(
             (
-                item for item in processed_in_block
+                item for item in processed_in_block 
                 if cpid is not None and item["cpid"] == cpid and item["is_btc_stamp"] == 1
             ),
             None
         )
-        if duplicate_on_block is not None:
+        if duplicate_on_block is not None: # need to add the same query as above so below.
             is_btc_stamp = None # invalid reissuance
             is_reissue = 1
 
