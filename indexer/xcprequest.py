@@ -23,6 +23,29 @@ def create_payload(method, params):
     return base_payload
 
 
+def get_cp_version():
+    try:
+        logger.info("Connecting to CP Node: {}".format(config.CP_RPC_URL))
+        payload = create_payload("get_running_info", {})
+        headers = {'content-type': 'application/json'}
+        response = requests.post(
+            url,
+            data=json.dumps(payload),
+            headers=headers,
+            auth=auth
+        )
+        result = json.loads(response.text)["result"]
+        version_major = result["version_major"]
+        version_minor = result["version_minor"]
+        version_revision = result["version_revision"]
+        version = ".".join([str(version_major), str(version_minor), str(version_revision)])
+        return version
+    except Exception as e:
+        logger.warning(
+            "Error getting version info: {}".format(e)
+        )
+        return None
+
 def get_block_count():
     try:
         payload = create_payload("get_running_info", {})
