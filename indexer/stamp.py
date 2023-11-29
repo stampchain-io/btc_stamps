@@ -318,20 +318,23 @@ def get_stamp_key(tx_hash):
         return None  # Return None if the request was not successful
 
 def check_reissue(block_cursor, cpid, is_btc_stamp):
-        reissue_result, prior_is_btc_stamp, is_reissue = None, None, None
-        block_cursor.execute(f'''
-            SELECT is_btc_stamp FROM {config.STAMP_TABLE}
-            WHERE cpid = %s
-        ''', (cpid,))
-        reissue_results = block_cursor.fetchall()
-        for reissue_result in reissue_results:
-            if reissue_result and prior_is_btc_stamp:
-                is_btc_stamp = None # invalid reissuance
-                is_reissue = 1
-                return is_btc_stamp, is_reissue
-            elif reissue_result and not prior_is_btc_stamp:
-                is_reissue = 1
-        return is_btc_stamp, is_reissue
+    prior_is_btc_stamp, is_reissue = None, None
+    block_cursor.execute(f'''
+        SELECT is_btc_stamp FROM {config.STAMP_TABLE}
+        WHERE cpid = %s
+    ''', (cpid,))
+    reissue_results = block_cursor.fetchall()
+    for row in reissue_results:
+        prior_is_btc_stamp = row[0]  # Extract the numeric value from the tuple
+        # if any prior row is a stamp then this is an invalid reissuance
+        if prior_is_btc_stamp:
+            is_btc_stamp = None 
+            is_reissue = 1
+            return is_btc_stamp, is_reissue
+        # if the current row is a stamp, and the previous row is not a stamp, then this is a reissuance, check next row
+        elif prior_is_btc_stamp and not prior_is_btc_stamp:
+            is_reissue = 1
+    return is_btc_stamp, is_reissue
 
 
 def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
