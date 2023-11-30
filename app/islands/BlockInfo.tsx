@@ -1,18 +1,78 @@
 interface BlockInfoProps {
-  block: Signal<BlockRow>;
+  block: BlockInfo;
 }
 
-export default function BlockInfo (props) {
+export default function BlockInfo(props: BlockInfoProps) {
   const { block } = props;
+  const { block_info, data: issuances } = block;
+  const time = new Date(Number(block_info.block_time) * 1000);
 
   return (
-    <div class="mt-8 text-center">
-      <div class="text-2xl text-[#ffffff]">{block.value.block_index}</div>
-      <div class="text-[#ffffff] py-2 text-lg">
-        {
-          `${block.value.block_hash.substring(0, 10)}...${block.value.block_hash.substring(block.value.block_hash.length - 10, block.value.block_hash.length)}`
-        }
+    <div class="mt-8 text-center p-4 w-full mx-auto">
+      <table class="table-auto w-full text-white text-left mb-4 border">
+        <tbody>
+          <tr>
+            <th>Block Hash</th>
+            <td>{block_info.block_hash}</td>
+          </tr>
+          <tr>
+            <th>Time</th>
+            <td>{time.toLocaleString()}</td>
+          </tr>
+          <tr>
+            <th>Height</th>
+            <td>{block_info.block_index}</td>
+          </tr>
+          <tr>
+            <th>Issuances</th>
+            <td>{issuances.length}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="text-2xl text-[#ffffff]">
+        <h2>Issuances</h2>
       </div>
+
+      <table class="table-auto w-full text-white responsive-table border">
+        <thead class="border-b">
+          <tr>
+            <th>Stamp</th>
+            <th>cpid</th>
+            <th>Creator</th>
+            <th>Divisible</th>
+            <th>Locked</th>
+            <th>Supply</th>
+            <th>Keyburn</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {issuances.map((issuance: StampRow) => {
+            return (
+              <tr>
+                <td class="flex flex-row items-center gap-4">
+                  <>
+                    <img
+                      class="w-24 h-24"
+                      style={{ imageRendering: "pixelated" }}
+                      src={`content/${issuance.stamp_url.split("/")[4]}`}
+                      alt="Stamp"
+                    />
+                    <span>{issuance.stamp}</span>
+                  </>
+                </td>
+                <td>{issuance.cpid}</td>
+                <td>{issuance.creator_name ?? issuance.creator}</td>
+                <td>{issuance.divisible ? "true" : "false"}</td>
+                <td>{issuance.locked ? "true" : "false"}</td>
+                <td>{issuance.supply}</td>
+                <td>{issuance.keyburn ? "true" : "false"}</td>
+                <td>{new Date(issuance.timestamp).toLocaleDateString()}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
-  )
+  );
 }
