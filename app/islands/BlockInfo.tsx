@@ -59,7 +59,7 @@ export default function BlockInfo(props: BlockInfoProps) {
                       style={{ imageRendering: "pixelated" }}
                       src={`/stamps/${issuance.tx_hash}.${
                         get_suffix_from_mimetype(issuance.stamp_mimetype)
-                      })}`}
+                      }`}
                       alt="Stamp"
                     />
                     <span>{issuance.stamp}</span>
