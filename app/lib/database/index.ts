@@ -46,5 +46,3 @@ export {
 } from "./cursed.ts";
 
 export { summarize_issuances } from "./summary.ts";
-
-export { api_get_block_with_issuances } from "./block_api.ts";
