@@ -6,11 +6,10 @@ export async function handler(
   ctx: HandlerContext,
 ): Promise<Response> {
   const { imgpath } = ctx.params;
-  const path = `../../static/stamps/${imgpath}`;
+  console.log(Deno.cwd());
+  const path = `${Deno.cwd()}/static/stamps/${imgpath}`;
   try {
     const file = await Deno.readFile(path);
-
-    console.log(file);
     const mimeType = getMimeType(imgpath.split(".").pop() as string);
     console.log(mimeType);
     return new Response(file, {
