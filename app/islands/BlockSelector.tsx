@@ -30,7 +30,7 @@ export default function Block(props: BlockProps) {
         {dayjs(Number(block.block_time) * 1000).fromNow()}
       </div>
       <div class="text-center text-[#000000] text-lg">
-        stamps: {block.tx_count}
+        issuances: {block.tx_count}
       </div>
     </a>
   );
