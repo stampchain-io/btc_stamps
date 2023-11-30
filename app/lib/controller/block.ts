@@ -59,3 +59,24 @@ export const api_get_related_blocks = async (block_index: number) => {
     throw error;
   }
 };
+
+export const api_get_last_block = async () => {
+  try {
+    const client = await connectDb();
+    if (!client) {
+      throw new Error("Could not connect to database");
+    }
+    const last_block = await get_last_block_with_client(client);
+    if (!last_block || !last_block?.rows?.length) {
+      throw new Error("Could not get last block");
+    }
+    const response = {
+      last_block: last_block.rows[0]["last_block"],
+    };
+    client.close();
+    return response;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
