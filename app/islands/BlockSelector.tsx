@@ -1,4 +1,8 @@
 import type { Signal } from "@preact/signals";
+import dayjs from "$dayjs/";
+import relativeTime from "$dayjs/plugin/relativeTime";
+
+dayjs.extend(relativeTime);
 
 interface BlockProps {
   block: BlockRow;
@@ -13,8 +17,8 @@ export default function Block(props: BlockProps) {
   }
 
   return (
-    <button
-      onClick={handleClick}
+    <a
+      href={`/block/${block.block_index}`}
       class={`p-4 bg-[#ffffff] rounded-lg shadow outline-none focus:outline-none active:outline-none ${
         selected.value === block
           ? "border-4 border-[#000000] bg-[#fefefefe]"
@@ -23,16 +27,11 @@ export default function Block(props: BlockProps) {
     >
       <div class="text-xl text-center text-[#000000]">{block.block_index}</div>
       <div class="text-center text-[#000000] py-2 text-lg">
-        {`${block.block_hash.substring(0, 10)}...${
-          block.block_hash.substring(
-            block.block_hash.length - 10,
-            block.block_hash.length,
-          )
-        }`}
+        {dayjs(Number(block.block_time) * 1000).fromNow()}
       </div>
       <div class="text-center text-[#000000] text-lg">
         stamps: {block.tx_count}
       </div>
-    </button>
+    </a>
   );
 }
