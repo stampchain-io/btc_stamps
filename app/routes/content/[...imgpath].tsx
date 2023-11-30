@@ -1,16 +1,21 @@
 import { HandlerContext } from "$fresh/server.ts";
+import { getMimeType } from "$lib/utils/util.ts";
 
 export async function handler(
   req: Request,
   ctx: HandlerContext,
 ): Promise<Response> {
-  const path = `../../static/stamp/${ctx.params.imgpath}`;
+  const { imgpath } = ctx.params;
+  const path = `../../static/stamp/${imgpath}`;
   try {
     const file = await Deno.readFile(path);
+
+    const mimeType = getMimeType(imgpath.split(".").pop());
+    console.log(mimeType);
     return new Response(file, {
       status: 200,
       headers: {
-        "Content-Type": "image/jpeg", // Asegúrate de ajustar el tipo de contenido según el tipo de archivo de imagen
+        "Content-Type": mimeType,
       },
     });
   } catch (error) {
