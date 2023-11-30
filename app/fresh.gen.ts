@@ -6,17 +6,18 @@ import * as $0 from "./routes/_404.tsx";
 import * as $1 from "./routes/_app.tsx";
 import * as $2 from "./routes/api/v2/block/[block_index].ts";
 import * as $3 from "./routes/api/v2/block/block_count/[...number].ts";
-import * as $4 from "./routes/api/v2/cursed/[id].ts";
-import * as $5 from "./routes/api/v2/cursed/block/[block_index].ts";
-import * as $6 from "./routes/api/v2/cursed/ident/[ident].ts";
-import * as $7 from "./routes/api/v2/cursed/index.ts";
-import * as $8 from "./routes/api/v2/issuances/[id].ts";
-import * as $9 from "./routes/api/v2/stamps/[id].ts";
-import * as $10 from "./routes/api/v2/stamps/block/[block_index].ts";
-import * as $11 from "./routes/api/v2/stamps/ident/[ident].ts";
-import * as $12 from "./routes/api/v2/stamps/index.ts";
-import * as $13 from "./routes/block/[id].tsx";
-import * as $14 from "./routes/index.tsx";
+import * as $4 from "./routes/api/v2/block/related/[block_index].ts";
+import * as $5 from "./routes/api/v2/cursed/[id].ts";
+import * as $6 from "./routes/api/v2/cursed/block/[block_index].ts";
+import * as $7 from "./routes/api/v2/cursed/ident/[ident].ts";
+import * as $8 from "./routes/api/v2/cursed/index.ts";
+import * as $9 from "./routes/api/v2/issuances/[id].ts";
+import * as $10 from "./routes/api/v2/stamps/[id].ts";
+import * as $11 from "./routes/api/v2/stamps/block/[block_index].ts";
+import * as $12 from "./routes/api/v2/stamps/ident/[ident].ts";
+import * as $13 from "./routes/api/v2/stamps/index.ts";
+import * as $14 from "./routes/block/[id].tsx";
+import * as $15 from "./routes/index.tsx";
 import * as $$0 from "./islands/BlockInfo.tsx";
 import * as $$1 from "./islands/BlockSelector.tsx";
 
@@ -26,17 +27,18 @@ const manifest = {
     "./routes/_app.tsx": $1,
     "./routes/api/v2/block/[block_index].ts": $2,
     "./routes/api/v2/block/block_count/[...number].ts": $3,
-    "./routes/api/v2/cursed/[id].ts": $4,
-    "./routes/api/v2/cursed/block/[block_index].ts": $5,
-    "./routes/api/v2/cursed/ident/[ident].ts": $6,
-    "./routes/api/v2/cursed/index.ts": $7,
-    "./routes/api/v2/issuances/[id].ts": $8,
-    "./routes/api/v2/stamps/[id].ts": $9,
-    "./routes/api/v2/stamps/block/[block_index].ts": $10,
-    "./routes/api/v2/stamps/ident/[ident].ts": $11,
-    "./routes/api/v2/stamps/index.ts": $12,
-    "./routes/block/[id].tsx": $13,
-    "./routes/index.tsx": $14,
+    "./routes/api/v2/block/related/[block_index].ts": $4,
+    "./routes/api/v2/cursed/[id].ts": $5,
+    "./routes/api/v2/cursed/block/[block_index].ts": $6,
+    "./routes/api/v2/cursed/ident/[ident].ts": $7,
+    "./routes/api/v2/cursed/index.ts": $8,
+    "./routes/api/v2/issuances/[id].ts": $9,
+    "./routes/api/v2/stamps/[id].ts": $10,
+    "./routes/api/v2/stamps/block/[block_index].ts": $11,
+    "./routes/api/v2/stamps/ident/[ident].ts": $12,
+    "./routes/api/v2/stamps/index.ts": $13,
+    "./routes/block/[id].tsx": $14,
+    "./routes/index.tsx": $15,
   },
   islands: {
     "./islands/BlockInfo.tsx": $$0,

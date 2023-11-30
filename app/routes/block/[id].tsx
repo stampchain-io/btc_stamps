@@ -1,6 +1,11 @@
 import { Handler, HandlerContext, Handlers, PageProps } from "$fresh/server.ts";
-import { api_get_block_with_issuances } from "$lib/controller/block.ts";
+import {
+  api_get_block_with_issuances,
+  api_get_related_blocks,
+} from "$lib/controller/block.ts";
 import BlockInfo from "$islands/BlockInfo.tsx";
+import Block from "$islands/BlockSelector.tsx";
+import { useSignal } from "@preact/signals";
 
 type BlockPageProps = {
   params: {
@@ -12,19 +17,30 @@ type BlockPageProps = {
 export const handler: Handlers<BlockRow[]> = {
   async GET(_req: Request, ctx: HandlerContext) {
     const block = await api_get_block_with_issuances(Number(ctx.params.id));
+    const related_blocks = await api_get_related_blocks(Number(ctx.params.id));
     return await ctx.render({
-      block: block,
+      block,
+      related_blocks,
     });
   },
 };
 
 export default function BlockPage(props: PageProps) {
-  const { block } = props.data;
+  const { block, related_blocks } = props.data;
   const { block_info, data: issuances } = block;
+  const { blocks, last_block } = related_blocks;
+  console.log(related_blocks);
+  const selected = useSignal<BlockRow>(
+    blocks.find((b: BlockRow) => b.block_index === block_info.block_index),
+  );
   return (
     <div class="px-4 py-8 mx-auto bg-[#000000]">
       <h1 class="text-2xl text-center text-[#ffffff]">Bitcoin Stamps</h1>
-
+      <div class="grid grid-cols-1 gap-4 mt-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        {blocks.map((block: BlockRow) => (
+          <Block block={block} selected={selected} />
+        ))}
+      </div>
       <BlockInfo block={block} />
     </div>
   );
