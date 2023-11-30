@@ -1,3 +1,5 @@
+import { get_suffix_from_mimetype } from "$lib/utils/util.ts";
+
 interface BlockInfoProps {
   block: BlockInfo;
 }
@@ -55,7 +57,9 @@ export default function BlockInfo(props: BlockInfoProps) {
                     <img
                       class="w-24 h-24"
                       style={{ imageRendering: "pixelated" }}
-                      src={`/stamps/${issuance.stamp_url.split("/")[4]}`}
+                      src={`/stamps/${issuance.tx_hash}.${
+                        get_suffix_from_mimetype(issuance.stamp_mimetype)
+                      })}`}
                       alt="Stamp"
                     />
                     <span>{issuance.stamp}</span>
