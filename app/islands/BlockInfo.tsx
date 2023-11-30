@@ -1,4 +1,4 @@
-import { get_suffix_from_mimetype } from "$lib/utils/util.ts";
+import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
 
 interface BlockInfoProps {
   block: BlockInfo;
@@ -38,6 +38,7 @@ export default function BlockInfo(props: BlockInfoProps) {
       <table class="table-auto w-full text-white responsive-table border">
         <thead class="border-b">
           <tr>
+            <th>Image</th>
             <th>Stamp</th>
             <th>cpid</th>
             <th>Creator</th>
@@ -47,33 +48,35 @@ export default function BlockInfo(props: BlockInfoProps) {
             <th>Keyburn</th>
             <th>Timestamp</th>
             <th>is_btc_stamp</th>
+            <th>is_reissuance</th>
           </tr>
         </thead>
         <tbody>
           {issuances.map((issuance: StampRow) => {
             return (
               <tr>
-                <td class="flex flex-row items-center gap-4">
-                  <>
-                    <img
-                      class="w-24 h-24"
-                      style={{ imageRendering: "pixelated" }}
-                      src={`/stamps/${issuance.tx_hash}.${
-                        get_suffix_from_mimetype(issuance.stamp_mimetype)
-                      }`}
-                      alt="Stamp"
-                    />
-                    <span>{issuance.stamp}</span>
-                  </>
+                <td>
+                  <img
+                    class="w-24 h-24"
+                    style={{ imageRendering: "pixelated" }}
+                    src={`/stamps/${issuance.tx_hash}.${
+                      get_suffix_from_mimetype(issuance.stamp_mimetype)
+                    }`}
+                    alt="Stamp"
+                  />
                 </td>
-                <td>{issuance.cpid}</td>
-                <td>{issuance.creator_name ?? issuance.creator}</td>
+                <td>{issuance.stamp}</td>
+                <td class="text-sm">{issuance.cpid}</td>
+                <td class="text-sm">
+                  {issuance.creator_name ?? short_address(issuance.creator)}
+                </td>
                 <td>{issuance.divisible ? "true" : "false"}</td>
                 <td>{issuance.locked ? "true" : "false"}</td>
                 <td>{issuance.supply}</td>
                 <td>{issuance.keyburn ? "true" : "false"}</td>
                 <td>{new Date(issuance.timestamp).toLocaleDateString()}</td>
                 <td>{issuance.is_btc_stamp ? "true" : "false"}</td>
+                <td>{issuance.is_reissue ? "true" : "false"}</td>
               </tr>
             );
           })}
