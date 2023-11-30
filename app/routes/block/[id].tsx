@@ -1,6 +1,7 @@
 import { Handler, HandlerContext, Handlers, PageProps } from "$fresh/server.ts";
 import {
   api_get_block_with_issuances,
+  api_get_last_block,
   api_get_related_blocks,
 } from "$lib/controller/block.ts";
 import BlockInfo from "$islands/BlockInfo.tsx";
@@ -16,12 +17,22 @@ type BlockPageProps = {
 
 export const handler: Handlers<BlockRow[]> = {
   async GET(_req: Request, ctx: HandlerContext) {
-    const block = await api_get_block_with_issuances(Number(ctx.params.id));
-    const related_blocks = await api_get_related_blocks(Number(ctx.params.id));
-    return await ctx.render({
-      block,
-      related_blocks,
-    });
+    if (!ctx.params.id || isNaN(Number(ctx.params.id))) {
+      const { last_block } = await api_get_last_block();
+      return new Response("", {
+        status: 307,
+        headers: { Location: `/block/${last_block}` },
+      });
+    } else {
+      const block = await api_get_block_with_issuances(Number(ctx.params.id));
+      const related_blocks = await api_get_related_blocks(
+        Number(ctx.params.id),
+      );
+      return await ctx.render({
+        block,
+        related_blocks,
+      });
+    }
   },
 };
 

@@ -4,3 +4,7 @@ export const get_suffix_from_mimetype = (mimetype: string) => {
   if (suffix === "svg+xml") return "svg";
   return suffix;
 };
+
+export const short_address = (address: string) => {
+  return address.slice(0, 6) + "..." + address.slice(-6);
+};
