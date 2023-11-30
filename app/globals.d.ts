@@ -1,4 +1,4 @@
-type SUBPROTOCOLS = 'STAMP' | 'SRC-20' | 'SRC-721';
+type SUBPROTOCOLS = "STAMP" | "SRC-20" | "SRC-721";
 
 interface BlockRow {
   block_index: number;
@@ -10,6 +10,7 @@ interface BlockRow {
   txlist_hash: string;
   messages_hash: string;
   indexed: 1;
+  tx_count?: number;
 }
 interface StampRow {
   stamp: number | null;
@@ -36,4 +37,9 @@ interface StampRow {
   is_btc_stamp: number;
   is_reissue: number | null;
   file_hash: string;
+}
+
+interface BlockInfo {
+  block_info: BlockRow;
+  data: StampRow[];
 }

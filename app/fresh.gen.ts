@@ -15,7 +15,7 @@ import * as $9 from "./routes/api/v2/stamps/[id].ts";
 import * as $10 from "./routes/api/v2/stamps/block/[block_index].ts";
 import * as $11 from "./routes/api/v2/stamps/ident/[ident].ts";
 import * as $12 from "./routes/api/v2/stamps/index.ts";
-import * as $13 from "./routes/greet/[name].tsx";
+import * as $13 from "./routes/block/[id].tsx";
 import * as $14 from "./routes/index.tsx";
 import * as $$0 from "./islands/BlockInfo.tsx";
 import * as $$1 from "./islands/BlockSelector.tsx";
@@ -35,7 +35,7 @@ const manifest = {
     "./routes/api/v2/stamps/block/[block_index].ts": $10,
     "./routes/api/v2/stamps/ident/[ident].ts": $11,
     "./routes/api/v2/stamps/index.ts": $12,
-    "./routes/greet/[name].tsx": $13,
+    "./routes/block/[id].tsx": $13,
     "./routes/index.tsx": $14,
   },
   islands: {
