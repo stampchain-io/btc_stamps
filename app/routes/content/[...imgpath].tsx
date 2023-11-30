@@ -6,7 +6,7 @@ export async function handler(
   ctx: HandlerContext,
 ): Promise<Response> {
   const { imgpath } = ctx.params;
-  const path = `/stamps/${imgpath}`;
+  const path = `../../static/stamps/${imgpath}`;
   try {
     const file = await Deno.readFile(path);
 
