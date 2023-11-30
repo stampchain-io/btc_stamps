@@ -1,28 +1,14 @@
 import { HandlerContext } from "$fresh/server.ts";
-import {
-  connectDb,
-  get_block_info_with_client,
-  get_last_block_with_client,
-  get_issuances_by_block_index_with_client,
-} from "$lib/database/index.ts";
+import { api_get_block_with_issuances } from "$lib/database/index.ts";
 
 export const handler = async (_req: Request, ctx: HandlerContext): Response => {
   const { block_index } = ctx.params;
   try {
-    const client = await connectDb();
-    const block_info = await get_block_info_with_client(client, block_index);
-    const data = await get_issuances_by_block_index_with_client(client, block_index);
-    const last_block = await get_last_block_with_client(client);
-    let body = JSON.stringify(
-      {
-        block_info: block_info.rows[0],
-        data: data.rows,
-        last_block: last_block.rows[0]["last_block"],
-      }
-    );
+    const response = await api_get_block_with_issuances(block_index);
+    const body = JSON.stringify(response);
     return new Response(body);
   } catch {
-    let body = JSON.stringify({ error: `Block: ${block_index} not found` });
+    const body = JSON.stringify({ error: `Block: ${block_index} not found` });
     return new Response(body);
   }
 };
