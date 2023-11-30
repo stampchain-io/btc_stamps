@@ -3,6 +3,7 @@ import {
   get_block_info_with_client,
   get_issuances_by_block_index_with_client,
   get_last_block_with_client,
+  get_related_blocks_with_client,
 } from "$lib/database/index.ts";
 
 export async function api_get_block_with_issuances(block_index: number) {
@@ -37,4 +38,24 @@ export async function api_get_block_with_issuances(block_index: number) {
 }
 
 export const api_get_related_blocks = async (block_index: number) => {
+  try {
+    const client = await connectDb();
+    if (!client) {
+      throw new Error("Could not connect to database");
+    }
+    const blocks = await get_related_blocks_with_client(client, block_index);
+    const last_block = await get_last_block_with_client(client);
+    if (!last_block || !last_block?.rows?.length) {
+      throw new Error("Could not get last block");
+    }
+    const response = {
+      blocks,
+      last_block: last_block.rows[0]["last_block"],
+    };
+    client.close();
+    return response;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
 };

@@ -13,6 +13,8 @@ export {
   get_last_block_with_client,
   get_last_x_blocks,
   get_last_x_blocks_with_client,
+  get_related_blocks,
+  get_related_blocks_with_client,
 } from "./common.ts";
 
 export {
