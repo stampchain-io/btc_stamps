@@ -2,6 +2,7 @@ import dayjs from "$dayjs/";
 import relativeTime from "$dayjs/plugin/relativeTime";
 
 import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
+import Stamp from "$islands/Stamp.tsx";
 
 dayjs.extend(relativeTime);
 
@@ -61,16 +62,7 @@ export default function BlockInfo(props: BlockInfoProps) {
             return (
               <tr>
                 <td>
-                  <img
-                    class="w-24 h-24"
-                    data-fresh-disable-lock
-                    style={{ imageRendering: "pixelated" }}
-                    src={`/content/${issuance.tx_hash}.${
-                      get_suffix_from_mimetype(issuance.stamp_mimetype)
-                    }`}
-                    onError={(e) => (e.currentTarget.src = issuance.stamp_url)}
-                    alt="Stamp"
-                  />
+                  <Stamp stamp={issuance} />
                 </td>
                 <td>{issuance.stamp}</td>
                 <td class="text-sm">{issuance.cpid}</td>
