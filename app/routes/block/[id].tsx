@@ -1,8 +1,5 @@
 import { Handler, HandlerContext, Handlers, PageProps } from "$fresh/server.ts";
-import {
-  api_get_block_with_issuances,
-  connectDb,
-} from "$lib/database/index.ts";
+import { api_get_block_with_issuances } from "$lib/controller/block.ts";
 import BlockInfo from "$islands/BlockInfo.tsx";
 
 type BlockPageProps = {

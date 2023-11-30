@@ -3,7 +3,7 @@ import {
   get_block_info_with_client,
   get_issuances_by_block_index_with_client,
   get_last_block_with_client,
-} from "./index.ts";
+} from "$lib/database/index.ts";
 
 export async function api_get_block_with_issuances(block_index: number) {
   try {

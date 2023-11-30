@@ -1,10 +1,10 @@
 import { HandlerContext } from "$fresh/server.ts";
-import { api_get_block_with_issuances } from "$lib/database/index.ts";
+import { api_get_block_with_issuances } from "$lib/controller/block.ts";
 
-export const handler = async (_req: Request, ctx: HandlerContext): Response => {
+export const handler = async (_req: Request, ctx: HandlerContext) => {
   const { block_index } = ctx.params;
   try {
-    const response = await api_get_block_with_issuances(block_index);
+    const response = await api_get_block_with_issuances(parseInt(block_index));
     const body = JSON.stringify(response);
     return new Response(body);
   } catch {

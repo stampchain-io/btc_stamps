@@ -36,8 +36,6 @@ export default function Home(props: IndexProps) {
           <Block block={block} selected={selected} />
         ))}
       </div>
-
-      <BlockInfo block={selected} />
     </div>
   );
 }
