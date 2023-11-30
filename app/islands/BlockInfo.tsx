@@ -1,4 +1,9 @@
+import dayjs from "$dayjs/";
+import relativeTime from "$dayjs/plugin/relativeTime";
+
 import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
+
+dayjs.extend(relativeTime);
 
 interface BlockInfoProps {
   block: BlockInfo;
@@ -60,7 +65,7 @@ export default function BlockInfo(props: BlockInfoProps) {
                     class="w-24 h-24"
                     data-fresh-disable-lock
                     style={{ imageRendering: "pixelated" }}
-                    src={`/stamps/${issuance.tx_hash}.${
+                    src={`/content/${issuance.tx_hash}.${
                       get_suffix_from_mimetype(issuance.stamp_mimetype)
                     }`}
                     alt="Stamp"
@@ -75,7 +80,7 @@ export default function BlockInfo(props: BlockInfoProps) {
                 <td>{issuance.locked ? "true" : "false"}</td>
                 <td>{issuance.supply}</td>
                 <td>{issuance.keyburn ? "true" : "false"}</td>
-                <td>{new Date(issuance.timestamp).toLocaleDateString()}</td>
+                <td>{dayjs(Number(block_info.block_time) * 1000).fromNow()}</td>
                 <td>{issuance.is_btc_stamp ? "true" : "false"}</td>
                 <td>{issuance.is_reissue ? "true" : "false"}</td>
               </tr>
