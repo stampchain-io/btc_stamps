@@ -35,3 +35,6 @@ export async function api_get_block_with_issuances(block_index: number) {
     throw error;
   }
 }
+
+export const api_get_related_blocks = async (block_index: number) => {
+};
