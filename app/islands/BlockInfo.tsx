@@ -46,6 +46,7 @@ export default function BlockInfo(props: BlockInfoProps) {
             <th>Supply</th>
             <th>Keyburn</th>
             <th>Timestamp</th>
+            <th>is_btc_stamp</th>
           </tr>
         </thead>
         <tbody>
@@ -72,6 +73,7 @@ export default function BlockInfo(props: BlockInfoProps) {
                 <td>{issuance.supply}</td>
                 <td>{issuance.keyburn ? "true" : "false"}</td>
                 <td>{new Date(issuance.timestamp).toLocaleDateString()}</td>
+                <td>{issuance.is_btc_stamp ? "true" : "false"}</td>
               </tr>
             );
           })}
