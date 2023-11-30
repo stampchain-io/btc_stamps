@@ -10,7 +10,7 @@ export async function handler(
   try {
     const file = await Deno.readFile(path);
 
-    const mimeType = getMimeType(imgpath.split(".").pop());
+    const mimeType = getMimeType(imgpath.split(".").pop() as string);
     console.log(mimeType);
     return new Response(file, {
       status: 200,
