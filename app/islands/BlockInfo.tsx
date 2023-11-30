@@ -58,6 +58,7 @@ export default function BlockInfo(props: BlockInfoProps) {
                 <td>
                   <img
                     class="w-24 h-24"
+                    data-fresh-disable-lock
                     style={{ imageRendering: "pixelated" }}
                     src={`/stamps/${issuance.tx_hash}.${
                       get_suffix_from_mimetype(issuance.stamp_mimetype)
