@@ -68,6 +68,7 @@ export default function BlockInfo(props: BlockInfoProps) {
                     src={`/content/${issuance.tx_hash}.${
                       get_suffix_from_mimetype(issuance.stamp_mimetype)
                     }`}
+                    onError={(e) => (e.currentTarget.src = issuance.stamp_url)}
                     alt="Stamp"
                   />
                 </td>
