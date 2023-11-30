@@ -17,7 +17,11 @@
 
 # EXPLORER:
 
-- [DONE] Retrieve images from the static/stamps folder
+- [WIP] Retrieve images from the static/stamps folder
+
+-[TOFIX] new images are not being updated.... need to restart the container to
+be updated, asking for solutions to this...
+
 - [TODO] Work on blocks page
 - [TODO] Work on index page
 - [TODO] Work on stamp page
