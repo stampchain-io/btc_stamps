@@ -63,6 +63,7 @@ def fetch_src721_subasset_base64(asset_name, json_list, db):
                 src721_subasset_cursor.execute(sql, (asset_name,))
                 result = src721_subasset_cursor.fetchone()
                 if result:
+                    logger.warning(f"result: {result[0]}")
                     return result[0]  # Return the first column of the result (which should be the base64 string)
                 else:
                     # return None
