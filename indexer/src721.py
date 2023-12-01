@@ -57,13 +57,17 @@ def fetch_src721_subasset_base64(asset_name, json_list, db):
         return collection_sub_asset_base64["stamp_base64"]
     else:
         try:
-             with db, db.cursor() as src721_subasset_cursor:
+            with db, db.cursor() as src721_subasset_cursor:
                 # this assumes the collection asset is already commited to the db... 
-                sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
+                sql = f'''
+                SELECT stamp_base64
+                FROM {config.STAMP_TABLE}
+                WHERE cpid = %s
+                '''
                 src721_subasset_cursor.execute(sql, (asset_name,))
                 result = src721_subasset_cursor.fetchone()
                 if result:
-                    logger.warning(f"result: {result[0]}")
+                    logger.warning(f"result at fetch_src721_subasset_base64: {result[0]}")
                     return result[0]  # Return the first column of the result (which should be the base64 string)
                 else:
                     # return None
