@@ -27,7 +27,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
             get_suffix_from_mimetype(stamp.stamp_mimetype)
           }`}
           onError={(e) => {
-            e.currentTarget.src = "/content/not-available.png";
+            e.currentTarget.src = `${API_BASE}/content/not-available.png`;
           }}
           alt="Stamp"
         />
