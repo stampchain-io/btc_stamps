@@ -21,8 +21,8 @@ export default function Block(props: BlockProps) {
       href={`/block/${block.block_index}`}
       class={`bg-gray-700 shadow outline-none focus:outline-none active:outline-none ${
         selected.value === block
-          ? "border-4 border-[#000000] bg-[#fefefefe]"
-          : ""
+          ? "border-4 border-[#000000] bg-[#fefefefe] text-gray-700"
+          : "text-[#fefefefe]"
       }`}
     >
       <div class="text-center text-[#000000]">{block.block_index}</div>
