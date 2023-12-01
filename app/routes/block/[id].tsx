@@ -4,7 +4,7 @@ import {
   api_get_last_block,
   api_get_related_blocks,
 } from "$lib/controller/block.ts";
-import BlockInfo from "$islands/BlockInfo.tsx";
+import BlockInfo from "$components/BlockInfo.tsx";
 import Block from "$islands/BlockSelector.tsx";
 import { useSignal } from "@preact/signals";
 
