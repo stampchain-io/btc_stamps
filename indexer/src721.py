@@ -97,6 +97,8 @@ def fetch_src721_collection(tmp_collection_object, json_list, db):
                         i: {i}
                         j: {j}
                         asset_name: {asset_name}
+                        type_json_list: {type(json_list)}
+                        json_list: {json_list}
                     ''')
                     # this assumes the image base64 is already in the db
                     img_data = fetch_src721_subasset_base64(
@@ -115,7 +117,6 @@ def fetch_src721_collection(tmp_collection_object, json_list, db):
                     output_object[img_key].append(img_data)
                 except Exception as e:
                     raise Exception(f"Unable to load t{i}[{j}] {e}")
-    
     # print("output_object collection with base64", output_object)
     return output_object
 
