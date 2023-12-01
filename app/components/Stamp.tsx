@@ -34,7 +34,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
     <img
       class="w-16 h-16"
       style={{ imageRendering: "pixelated" }}
-      src={`${BASE_URL}/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)
+      src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)
         }`}
       onError={(e) => {
         console.log({ e });
