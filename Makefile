@@ -30,11 +30,10 @@ db:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d db adminer
-	@cd docker && docker compose logs -f db
-app:
+app: db
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d db adminer app
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d app
 	@cd docker && docker compose logs -f app
 
 dev:
