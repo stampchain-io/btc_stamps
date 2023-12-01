@@ -19,7 +19,7 @@ export default function Block(props: BlockProps) {
   return (
     <a
       href={`/block/${block.block_index}`}
-      class={`p-1 bg-[#ffffff] shadow outline-none focus:outline-none active:outline-none ${
+      class={`bg-[#ffffff] shadow outline-none focus:outline-none active:outline-none ${
         selected.value === block
           ? "border-4 border-[#000000] bg-[#fefefefe]"
           : ""
