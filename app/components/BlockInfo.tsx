@@ -16,8 +16,8 @@ export default function BlockInfo(props: BlockInfoProps) {
   const time = new Date(Number(block_info.block_time) * 1000);
 
   return (
-    <div class="border p-1 relative overflow-x-auto shadow-md sm:rounded-lg">
-      <table class=" w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+    <div class="border sm:p-1 relative overflow-x-auto shadow-md sm:rounded-lg">
+      <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
         <tbody>
           <tr>
             <th scope="row" class="px-6 py-3">Block Hash</th>
