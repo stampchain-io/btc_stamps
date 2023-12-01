@@ -33,7 +33,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
   return (
     <img
       class="w-16 h-16"
-      style={{ imageRendering: "pixelated" }}
+      style={{ imageRendering: "pixelated", objectFit: "contain" }}
       src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)
         }`}
       onError={(e) => {
