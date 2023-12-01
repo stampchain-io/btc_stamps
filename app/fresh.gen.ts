@@ -19,9 +19,7 @@ import * as $13 from "./routes/api/v2/stamps/index.ts";
 import * as $14 from "./routes/block/[id].tsx";
 import * as $15 from "./routes/content/[...imgpath].tsx";
 import * as $16 from "./routes/index.tsx";
-import * as $$0 from "./islands/BlockInfo.tsx";
-import * as $$1 from "./islands/BlockSelector.tsx";
-import * as $$2 from "./islands/Stamp.tsx";
+import * as $$0 from "./islands/BlockSelector.tsx";
 
 const manifest = {
   routes: {
@@ -44,9 +42,7 @@ const manifest = {
     "./routes/index.tsx": $16,
   },
   islands: {
-    "./islands/BlockInfo.tsx": $$0,
-    "./islands/BlockSelector.tsx": $$1,
-    "./islands/Stamp.tsx": $$2,
+    "./islands/BlockSelector.tsx": $$0,
   },
   baseUrl: import.meta.url,
 };
