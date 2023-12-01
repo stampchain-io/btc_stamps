@@ -30,7 +30,7 @@ db:
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d db adminer
-app: db
+app: db 
 	@echo "Using arch: $(ARCH)"
 	@echo "Using platform: $(DOCKER_PLATFORM)"
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d app
