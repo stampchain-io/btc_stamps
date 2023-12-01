@@ -1,4 +1,5 @@
 import { get_suffix_from_mimetype } from "$lib/utils/util.ts";
+import { API_BASE } from "$lib/utils/constants.ts";
 
 export const Stamp = ({ stamp }: { stamp: StampRow }) => {
   return (
@@ -8,7 +9,6 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
           width="100%"
           height="100%"
           class="w-24 h-24"
-          data-fresh-disable-lock
           style={{ imageRendering: "pixelated" }}
           src={`/content/${stamp.tx_hash}.${
             get_suffix_from_mimetype(stamp.stamp_mimetype)
@@ -21,8 +21,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
       )
       : (
         <img
-          class="w-24 h-24"
-          data-fresh-disable-lock
+          class="w-10 h-10"
           style={{ imageRendering: "pixelated" }}
           src={`/content/${stamp.tx_hash}.${
             get_suffix_from_mimetype(stamp.stamp_mimetype)
