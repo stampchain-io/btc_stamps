@@ -85,8 +85,18 @@ def fetch_src721_collection(tmp_collection_object, json_list, db):
             for j, asset_name in enumerate(output_object[key]):
                 # print(f"--- Loading t[{i}][{j}]")
                 try:
+                    logger.warning(f'''
+                        img_key: {img_key}
+                        type_img_key: {type(img_key)}
+                        output_object: {output_object}
+                        i: {i}
+                        j: {j}
+                        asset_name: {asset_name}
+                    ''')
                     # this assumes the image base64 is already in the db
-                    img_data = fetch_src721_subasset_base64(asset_name, json_list, db)
+                    img_data = fetch_src721_subasset_base64(
+                        asset_name, json_list, db
+                    )
                     # if img_data:
                     logger.warning(f'''
                         img_data: {img_data}
