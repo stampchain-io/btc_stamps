@@ -6,7 +6,6 @@ export async function handler(
   ctx: HandlerContext,
 ): Promise<Response> {
   const { imgpath } = ctx.params;
-  console.log(Deno.cwd());
   let path;
   if (imgpath === "not-available.png") {
     path = `${Deno.cwd()}/static/${imgpath}`;
@@ -16,7 +15,6 @@ export async function handler(
   try {
     const file = await Deno.readFile(path);
     const mimeType = getMimeType(imgpath.split(".").pop() as string);
-    console.log(mimeType);
     return new Response(file, {
       status: 200,
       headers: {
