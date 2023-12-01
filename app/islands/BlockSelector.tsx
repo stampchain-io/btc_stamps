@@ -25,8 +25,8 @@ export default function Block(props: BlockProps) {
           : ""
       }`}
     >
-      <div class="text-xl text-center text-[#000000]">{block.block_index}</div>
-      <div class="text-center text-[#000000] py-2 text-lg">
+      <div class="text-center text-[#000000]">{block.block_index}</div>
+      <div class="text-center text-[#000000]">
         {dayjs(Number(block.block_time) * 1000).fromNow()}
       </div>
       <div class="text-center text-[#000000] text-lg">
