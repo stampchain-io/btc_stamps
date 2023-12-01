@@ -87,15 +87,6 @@ def fetch_src721_collection(tmp_collection_object, json_list, block_cursor):
                     # this assumes the image base64 is already in the block_cursor
                     img_data = fetch_src721_subasset_base64(asset_name, json_list, block_cursor)
                     # if img_data:
-                    logger.warning(f'''
-                        img_data: {img_data}
-                        img_key: {img_key}
-                        type_img_key: {type(img_key)}
-                        output_object: {output_object}
-                        i: {i}
-                        j: {j}
-                        asset_name: {asset_name}
-                    ''')
                     output_object[img_key].append(img_data)
                 except Exception as e:
                     raise Exception(f"Unable to load t{i}[{j}] {e}")
