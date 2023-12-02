@@ -1,4 +1,3 @@
-
 import os
 import decimal
 import sys
@@ -7,13 +6,11 @@ import signal
 import appdirs
 import bitcoin as bitcoinlib
 import logging
-from urllib.parse import quote_plus as urlencode
 import csv
 
 import src.log as log
 import config
 import src.util as util
-import src.exceptions as exceptions
 import blocks
 import src.backend as backend
 from src.aws import get_s3_objects
@@ -26,6 +23,7 @@ D = decimal.Decimal
 
 class ConfigurationError(Exception):
     pass
+
 
 def sigterm_handler(_signo, _stack_frame):
     if _signo == 15:
@@ -44,7 +42,7 @@ signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigterm_handler)
 
 
-## TODO: MySQL Locking Function - perhaps we want this :) 
+# TODO: MySQL Locking Function - perhaps we want this :)
 # This code creates a table called server_lock in the MySQL database and inserts a single row into the table.
 # If another instance of the server tries to insert a row into the table, it will fail with an IntegrityError, 
 # indicating that another copy of the server is already running.
@@ -77,8 +75,6 @@ signal.signal(signal.SIGINT, sigterm_handler)
 #     logger.debug('Lock acquired.')
 
 # Lock database access by opening a socket.
-class LockingError(Exception):
-    pass
 
 
 def initialize(*args, **kwargs):
@@ -88,22 +84,16 @@ def initialize(*args, **kwargs):
 
 def initialize_config(
     log_file=None,
-    api_log_file=None,
     testnet=False, regtest=False,
     api_limit_rows=1000,
-    backend_name=None, backend_connect=None, backend_port=None,
+    backend_connect=None, backend_port=None,
     backend_user=None, backend_password=None,
     backend_ssl=False, backend_ssl_no_verify=False,
     backend_poll_interval=None,
-    rpc_host=None, rpc_port=None,
-    rpc_user=None, rpc_password=None,
-    rpc_no_allow_cors=False,
     force=False, verbose=False, console_logfilter=None,
     requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
-    rpc_batch_size=config.DEFAULT_RPC_BATCH_SIZE,
-    check_asset_conservation=config.DEFAULT_CHECK_ASSET_CONSERVATION,
     estimate_fee_per_kb=None,
-    backend_ssl_verify=None, rpc_allow_cors=None, p2sh_dust_return_pubkey=None,
+    backend_ssl_verify=None,
     customnet=None, checkdb=False
 ):
 
@@ -263,7 +253,7 @@ def initialize_config(
     # Encoding
     config.PREFIX = b'stamp:' 
     config.CP_PREFIX = b'CNTRPRTY'
-    
+
     config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
     # Misc
     config.REQUESTS_TIMEOUT = requests_timeout
@@ -378,10 +368,7 @@ def start_all(db):
     blocks.follow(db)
 
 
+# TODO
 def reparse(db, block_index=None, quiet=True):
     connect_to_backend()
     blocks.reparse(db, block_index=block_index, quiet=quiet)
-
-
-def kickstart(db, bitcoind_dir):
-    blocks.kickstart(db, bitcoind_dir=bitcoind_dir)
