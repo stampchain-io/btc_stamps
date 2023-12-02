@@ -54,6 +54,7 @@ def get_arweave_transaction(wallet=stampchain_arweave_wallet, tags=[]):
         raise Exception(f"Error fetching Arweave: {response.status_code}")
 
 
+# TODO currently unused
 def fetch_and_download_arweave_files(
     wallet=stampchain_arweave_wallet,
     tags=[],
