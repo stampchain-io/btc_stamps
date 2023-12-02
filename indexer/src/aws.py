@@ -1,6 +1,4 @@
 import boto3
-import io
-import hashlib
 import config
 from botocore.exceptions import NoCredentialsError
 import logging
@@ -24,6 +22,7 @@ def get_s3_objects(bucket_name, s3_client):
     
     return result
 
+
 def invalidate_s3_files(file_paths, aws_cloudfront_distribution_id):
     client = boto3.client('cloudfront')
     response = client.create_invalidation(
@@ -37,6 +36,7 @@ def invalidate_s3_files(file_paths, aws_cloudfront_distribution_id):
         }
     )
     return response
+
 
 def upload_file_to_s3(file_obj_or_path, bucket_name, s3_file_path, s3_client, content_type='binary/octet-stream'):
     try:
