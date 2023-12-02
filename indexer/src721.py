@@ -5,7 +5,6 @@ import json
 import config
 from src20 import get_srcbackground_data
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +33,7 @@ def validate_src721_and_process(src721_data, block_cursor):
             block_cursor
         )
         file_suffix = 'svg'
-    return  svg_output.encode('utf-8'), file_suffix
+    return svg_output.encode('utf-8'), file_suffix
 
 
 def convert_to_dict(json_string_or_dict):

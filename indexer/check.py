@@ -1,15 +1,11 @@
-import json
-import requests
 import logging
-logger = logging.getLogger(__name__)
 import warnings
-import time
-import sys
 
 import config
 import src.util as util
-import src.database as database
 from xcprequest import get_cp_version
+
+logger = logging.getLogger(__name__)
 
 ''' this is the consensus hash for counterparty. needs to be updated for stamps'''
 
@@ -34,10 +30,12 @@ CHECKPOINTS_REGTEST = {
     config.BLOCK_FIRST_REGTEST: {'ledger_hash': '', 'txlist_hash': ''},
 }
 
+
 class ConsensusError(Exception):
     pass
 
-#CHANGED TO MYSQL
+
+# CHANGED TO MYSQL
 def consensus_hash(db, field, previous_consensus_hash, content):
     field_position = config.BLOCK_FIELDS_POSITION
     
@@ -102,13 +100,14 @@ def consensus_hash(db, field, previous_consensus_hash, content):
 
     return calculated_hash, found_hash
 
-class SanityError(Exception):
-    pass
 
 class VersionError(Exception):
     pass
+
+
 class VersionUpdateRequiredError(VersionError):
     pass
+
 
 # TODO: https://github.com/stampchain-io/btc_stamps/issues/13
 def check_change(protocol_change, change_name):
@@ -134,54 +133,8 @@ def check_change(protocol_change, change_name):
         else:
             warnings.warn(explanation)
 
+
 def cp_version():
     cp_version = get_cp_version()
-    #FIXME: Finish version checking validation.
+    # FIXME: Finish version checking validation.
     return
-
-def software_version():
-    if config.FORCE:
-        return
-    logger.debug('Checking version.')
-
-    try:
-        host = 'https://counterpartyxcp.github.io/counterparty-lib/counterpartylib/protocol_changes.json'
-        response = requests.get(host, headers={'cache-control': 'no-cache'})
-        versions = json.loads(response.text)
-    except (requests.exceptions.ConnectionError, ConnectionRefusedError, ValueError) as e:
-        logger.warning('Unable to check version! ' + str(sys.exc_info()[1]))
-        return
-
-    for change_name in versions:
-        protocol_change = versions[change_name]
-        try:
-            check_change(protocol_change, change_name)
-        except VersionUpdateRequiredError as e:
-            logger.error("Version Update Required", exc_info=sys.exc_info())
-            sys.exit(config.EXITCODE_UPDATE_REQUIRED)
-
-    logger.debug('Version check passed.')
-
-
-class DatabaseVersionError(Exception):
-    def __init__(self, message, reparse_block_index):
-        super(DatabaseVersionError, self).__init__(message)
-        self.reparse_block_index = reparse_block_index
-
-def database_version(db):
-    if config.FORCE:
-        return
-    logger.debug('Checking database version.')
-
-    version_major, version_minor = database.version(db)
-
-
-    if version_major != config.VERSION_MAJOR:
-        print(version_major, version_minor) # DEBUG
-        # Rollback database if major version has changed.
-        raise DatabaseVersionError('Client major version number mismatch ({} ≠ {}).'.format(version_major, config.VERSION_MAJOR), config.BLOCK_FIRST)
-    elif version_minor != config.VERSION_MINOR:
-        # Reparse all transactions if minor version has changed.
-        raise DatabaseVersionError('Client minor version number mismatch ({} ≠ {}).'.format(version_minor, config.VERSION_MINOR), None)
-
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

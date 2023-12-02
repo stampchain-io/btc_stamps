@@ -8,12 +8,6 @@ def init_arc4(seed):
     return ARC4.new(seed)
 
 
-def arc4_decrypt(cyphertext, ctx):
-    '''Un‐obfuscate. initialize key once per attempt.'''
-    key = init_arc4(ctx.vin[0].prevout.hash[::-1])
-    return key.decrypt(cyphertext)
-
-
 def arc4_decrypt_chunk(cyphertext, key):
     '''Un-obfuscate. initialize key once per attempt.'''
     # This  is modified  for stamps since in parse_stamp we were getting the key and then converting to a byte string in 2 steps. 
