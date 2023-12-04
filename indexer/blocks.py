@@ -12,7 +12,6 @@ import logging
 import http
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
-from bitcoin.core import CBlock
 from bitcoin.wallet import CBitcoinAddress
 import pymysql as mysql
 
@@ -23,7 +22,6 @@ import src.util as util
 import check
 import src.script as script
 import src.backend as backend
-import src.database as database
 import src.arc4 as arc4
 from xcprequest import (
     get_issuances_by_block,
@@ -38,7 +36,6 @@ from stamp import (
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
-import kickstart.utils as utils
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -52,8 +49,6 @@ def parse_block(db, block_index, block_time,
     The unused arguments `ledger_hash` and `txlist_hash` are for the test suite.
     """
 
-    util.BLOCK_LEDGER = []
-    database.BLOCK_MESSAGES = []
     assert block_index == util.CURRENT_BLOCK_INDEX
 
     cursor = db.cursor()
@@ -63,7 +58,7 @@ def parse_block(db, block_index, block_time,
                    (block_index,))
     txes = cursor.fetchall()
     logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
-    #time.sleep(2)
+
     txlist = []
     for tx in txes: # this should be empty unless we are reparsing a block - not implemented
         # print("tx", tx) # DEBUG
@@ -88,8 +83,8 @@ def parse_block(db, block_index, block_time,
     # Calculate consensus hashes.
     # TODO: need to update these functions to use MySQL - these appear to be part of the block reorg checks - needs to be done before deprecating sqlite 
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
-    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
-    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, database.BLOCK_MESSAGES)
+    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, [])
+    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, [])
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
@@ -238,7 +233,6 @@ def get_tx_info2(
     # Decode transaction binary.
     ctx = backend.deserialize(tx_hex)
     # deserialize does this: bitcoinlib.core.CTransaction.deserialize(binascii.unhexlify(tx_hex))
-    pubkeys = []
     pubkeys_compiled = []
 
     # Ignore coinbase transactions.
@@ -265,7 +259,6 @@ def get_tx_info2(
             raise DecodeError(e)
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
             try:
-                keyburn_vout = None
                 pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
                 if keyburn_vout is not None: # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
                     keyburn = keyburn_vout
@@ -286,7 +279,6 @@ def get_tx_info2(
             is_op_return = True
             pass #Just ignore.
     
-    new_destination, new_data = None, None
     if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
         chunk = b''
         for pubkey in pubkeys_compiled:
@@ -322,7 +314,7 @@ def get_tx_info2(
         prev_tx = block_parser.read_raw_transaction(prev_tx_hash[::-1])
         prev_ctx = backend.deserialize(prev_tx['__data__'])
     else:
-        prev_tx = backend.getrawtransaction(utils.ib2h(prev_tx_hash))
+        prev_tx = backend.getrawtransaction(util.ib2h(prev_tx_hash))
         # prev_tx = backend.getrawtransaction(prev_tx_hash[::-1])
         prev_ctx = backend.deserialize(prev_tx)
 
@@ -628,10 +620,6 @@ def purge_old_block_tx_db(db, block_index):
     cursor.close()
 
 
-class MempoolError(Exception):
-    pass
-
-
 def follow(db): 
     # Check software version.
     # check.software_version()
@@ -733,7 +721,6 @@ def follow(db):
             # check.software_version() #FIXME: We may want to validate MySQL version here.
             block_hash = backend.getblockhash(current_index)
             cblock = backend.getcblock(block_hash)
-            previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock) 
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
             block_time = cblock.nTime
             txhash_list, raw_transactions = backend.get_tx_list(cblock)

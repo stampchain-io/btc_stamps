@@ -1,11 +1,9 @@
-
 from decimal import Decimal, InvalidOperation
 import json
 import logging
 from config import TICK_PATTERN_LIST
 
 logger = logging.getLogger(__name__)
-
 
 
 def build_src20_svg_string(cursor, src_20_dict):
@@ -26,6 +24,7 @@ def get_srcbackground_data(cursor, tick):
         return base64, font_size, text_color
     else:
         return None, None, None
+
 
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
     # remove the s field so we don't add it to the image - this is sale price data
@@ -118,4 +117,3 @@ def check_format(input_string):
         return None
 
     return None
-
