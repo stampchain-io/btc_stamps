@@ -1,20 +1,11 @@
 import logging
-logger = logging.getLogger(__name__)
 import decimal
-D = decimal.Decimal
-import binascii
-import collections
-import json
-import time
-from datetime import datetime
-from dateutil.tz import tzlocal
-import os
 from colorlog import ColoredFormatter
-
-import config
-import src.exceptions as exceptions
-import src.util as util
 from logging.handlers import RotatingFileHandler
+
+logger = logging.getLogger(__name__)
+D = decimal.Decimal
+
 
 class ModuleLoggingFilter(logging.Filter):
     """
@@ -73,6 +64,8 @@ class ModuleLoggingFilter(logging.Filter):
 
 
 ROOT_LOGGER = None
+
+
 def set_logger(logger):
     global ROOT_LOGGER
     if ROOT_LOGGER is None:
@@ -81,11 +74,11 @@ def set_logger(logger):
 
 LOGGING_SETUP = False
 LOGGING_TOFILE_SETUP = False
+
+
 def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     global LOGGING_SETUP
     global LOGGING_TOFILE_SETUP
-
-
 
     def set_up_file_logging():
         assert logfile
@@ -138,37 +131,3 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     # Disable InsecureRequestWarning
     import requests
     requests.packages.urllib3.disable_warnings()
-
-def curr_time():
-    return int(time.time())
-
-def isodt (epoch_time):
-    try:
-        return datetime.fromtimestamp(epoch_time, tzlocal()).isoformat()
-    except OSError:
-        return '<datetime>'
-
-
-def log (db, command, category, bindings):
-
-    cursor = db.cursor()
-
-    for element in bindings.keys():
-        try:
-            str(bindings[element])
-        except KeyError:
-            bindings[element] = '<Error>'
-
-    cursor.close()
-
-
-def get_tx_info(cursor, tx_hash):
-    cursor.execute('SELECT * FROM transactions WHERE tx_hash=:tx_hash', {
-        'tx_hash': tx_hash
-    })
-    transactions = cursor.fetchall()
-    transaction = transactions[0]
-    
-    return transaction["btc_amount"]
-
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

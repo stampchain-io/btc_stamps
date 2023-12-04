@@ -46,6 +46,7 @@ def get_cp_version():
         )
         return None
 
+
 def get_block_count():
     try:
         payload = create_payload("get_running_info", {})
