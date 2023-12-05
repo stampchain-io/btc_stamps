@@ -22,6 +22,7 @@ def is_to_include(tx_hash):
             whitelist = json.load(file)
             to_include = whitelist.get('to_include', [])
             detected_now_was_not_prior_tbd = whitelist.get('detected_now_was_not_prior_tbd', [])
+            temporary_include  = whitelist.get('temporary_include', [])
 
         return tx_hash in to_include or tx_hash in detected_now_was_not_prior_tbd
     except FileNotFoundError:
