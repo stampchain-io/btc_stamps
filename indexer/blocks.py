@@ -26,6 +26,8 @@ import src.arc4 as arc4
 from xcprequest import (
     get_issuances_by_block,
     get_stamp_issuances,
+    get_all_tx_by_block,
+    parse_issuances_and_sends_from_block,
     filter_issuances_by_tx_hash
 )
 from stamp import (
@@ -667,19 +669,32 @@ def follow(db):
 
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
-            issuances = get_issuances_by_block(current_index)
-            stamp_issuances = get_stamp_issuances(issuances)
+            #  issuances = get_issuances_by_block(current_index)
+            #  stamp_issuances = get_stamp_issuances(issuances)
+            block_data_from_xcp = get_all_tx_by_block(block_index=block_index)
+            parsed_block_data = parse_issuances_and_sends_from_block(
+                block_data=block_data_from_xcp,
+                db=db
+            )
+            stamp_issuances = parsed_block_data['issuances']
+            stamp_sends = parsed_block_data['sends']
+            logger.warning(
+                f"""XCP Block {block_index}\n- {len(stamp_issuances)} issuances\n- {len(stamp_sends)} sends."""
+            )
             if block_count - block_index < 100:
                 requires_rollback = False
                 while True:
                     if current_index == config.BLOCK_FIRST:
                         break
-
-                    logger.debug('Checking that block {} is not an orphan.'.format(current_index))
+                    logger.debug(
+                        f'Checking that block {current_index} is not orphan.'
+                    )
                     # Backend parent hash.
                     current_hash = backend.getblockhash(current_index)
-                    current_cblock = backend.getcblock(current_hash) 
-                    backend_parent = bitcoinlib.core.b2lx(current_cblock.hashPrevBlock)
+                    current_cblock = backend.getcblock(current_hash)
+                    backend_parent = bitcoinlib.core.b2lx(
+                        current_cblock.hashPrevBlock
+                    )
 
                     test_query = '''
                     SELECT * FROM blocks WHERE block_index = %s
