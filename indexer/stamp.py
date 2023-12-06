@@ -401,7 +401,12 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
             file_suffix = 'svg'
         elif valid_src20 and not src_20_dict:
-            return
+            # DEBUG / VALIDATION - REMOVE AFTER VALIDATION and just return here
+            is_whitelisted = is_tx_in_whitelist(tx_hash)
+            if is_whitelisted:
+                file_suffix = 'svg'
+            else:
+                return
 
     if valid_src721:
         src_data = decoded_base64
