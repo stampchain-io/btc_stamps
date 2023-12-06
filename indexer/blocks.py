@@ -24,8 +24,7 @@ import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
 from xcprequest import (
-    get_issuances_by_block,
-    get_stamp_issuances,
+    filter_sends_by_tx_hash,
     get_all_tx_by_block,
     parse_issuances_and_sends_from_block,
     filter_issuances_by_tx_hash
@@ -35,6 +34,11 @@ from stamp import (
     purge_block_db,
     parse_tx_to_stamp_table,
     update_parsed_block,
+)
+
+from send import (
+    parse_tx_to_send_table,
+    parse_issuance_to_send_table
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -402,6 +406,7 @@ def decode_checkmultisig(ctx, chunk):
 #         pubkeyhashes = [script.pubkey_to_pubkeyhash(pubkey) for pubkey in pubkeys]
 #         destination, data = script.construct_array(signatures_required, pubkeyhashes, len(pubkeyhashes)), None
 
+
 def decode_p2w(script_pubkey):  # This is used for stamps
     try:
         bech32 = bitcoinlib.bech32.CBech32Data.from_bytes(0, script_pubkey[2:22])
@@ -513,7 +518,7 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
+def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None):
     assert type(tx_hash) is str
     cursor = db.cursor()
     # check if the incoming tx_hash from txhash_list is already in the trx table
@@ -524,17 +529,29 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     # Get the important details about each transaction.
     if tx_hex is None:
-        tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
-    source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return = \
-        get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
-    
+        tx_hex = backend.getrawtransaction(tx_hash)  # TODO: This is the call that is stalling the process the most
+    (
+        source,
+        destination,
+        btc_amount,
+        fee,
+        data,
+        decoded_tx,
+        keyburn,
+        is_op_return
+    ) = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
+
     assert block_index == util.CURRENT_BLOCK_INDEX
 
-    if source and (data or destination) or stamp_issuance:
+    if source and (data or destination) or stamp_issuance or stamp_send:
         if stamp_issuance is not None:
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
+        if stamp_send is not None:
+            data = str(stamp_send)
+            source = str(stamp_send['source'])
+            destination = str(stamp_send['destination'])
         logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
@@ -769,13 +786,74 @@ def follow(db):
                     print("Error message:", e)
                     sys.exit()
 
-                processed_in_block= []
+                processed_in_block = []
                 for tx_hash in txhash_list:
-                    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
+                    stamp_issuance = filter_issuances_by_tx_hash(
+                        stamp_issuances, tx_hash
+                    )
+                    stamp_send = filter_sends_by_tx_hash(stamp_sends, tx_hash)
                     tx_hex = raw_transactions[tx_hash]
-                    tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return  = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
-                    # stamptable is using the same cursor and will commit when the block is complete
-                    parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time, is_op_return, processed_in_block)
+                    (
+                        tx_index,
+                        source,
+                        destination,
+                        btc_amount,
+                        fee,
+                        data,
+                        decoded_tx,
+                        keyburn,
+                        is_op_return
+                    ) = list_tx(
+                        db,
+                        block_hash,
+                        block_index,
+                        block_time,
+                        tx_hash,
+                        tx_index,
+                        tx_hex,
+                        stamp_issuance=stamp_issuance,
+                        stamp_send=stamp_send
+                    )
+                    if (stamp_send is None):
+                        # stamptable is using the same cursor and will commit
+                        # when the block is complete
+                        parse_tx_to_stamp_table(
+                            db,
+                            block_cursor,
+                            tx_hash,
+                            source,
+                            destination,
+                            btc_amount,
+                            fee,
+                            data,
+                            decoded_tx,
+                            keyburn,
+                            tx_index,
+                            block_index,
+                            block_time,
+                            is_op_return,
+                            processed_in_block
+                        )
+                        if (stamp_issuance is not None):
+                            parse_issuance_to_send_table(
+                                db=db,
+                                cursor=block_cursor,
+                                issuance=stamp_issuance,
+                                tx={
+                                    "tx_index": tx_index,
+                                    "block_index": block_index
+                                }
+                            )
+                    else:
+                        parse_tx_to_send_table(
+                            db=db,
+                            cursor=block_cursor,
+                            send=stamp_send,
+                            tx={
+                                "tx_index": tx_index,
+                            }
+                        )
+
                 try:
                     block_cursor.execute("COMMIT")
                     update_parsed_block(block_index, db)
