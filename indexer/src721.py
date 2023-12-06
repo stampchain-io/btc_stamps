@@ -89,6 +89,7 @@ def fetch_src721_collection(tmp_collection_object, json_list, block_cursor):
                     output_object[img_key].append(img_data)
                 except Exception as e:
                     raise Exception(f"Unable to load t{i}[{j}] {e}")
+    
     # print("output_object collection with base64", output_object)
     return output_object
 
@@ -115,6 +116,8 @@ def get_src721_svg_string(src721_title, src721_desc, block_cursor):
 
 
 def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
+    # Initialize the SVG string
+    # svg = f'<div><svg xmlns="http://www.w3.org/2000/svg" viewbox="{tmp_collection_object["viewbox"]}" style="image-rendering:{tmp_collection_object["image-rendering"]}">'
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_collection_object["image-rendering"]}; width: 420px; height: 420px;">
             <foreignObject width="100%" height="100%">
             <style>img {{position:absolute;width:100%;height:100%;}}</style>
@@ -123,10 +126,8 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
             <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
 
     for i in range(len(tmp_nft_object["ts"])):
-        if i < len(tmp_collection_object['t' + str(i) + '-img']) and tmp_nft_object['ts'][i] < len(tmp_collection_object['t' + str(i) + '-img']):
-            image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
-            svg += f'<img src="{image_src_base64}"/>'
-    
+        image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
+        svg += f'<img src="{image_src_base64}"/>'
     svg += "</div></foreignObject></svg>"
     
     return textwrap.dedent(svg)
@@ -134,8 +135,10 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
 
 def create_src721_mint_svg(src_data, block_cursor):
     tick_value = src_data.get('tick', None).upper() if src_data.get('tick') else None
-    collection_asset_item = None
+    ts = src_data.get('ts', None)
     collection_asset = src_data.get('c') # this is the CPID of the collection / parent asset
+    collection_asset_item = None
+    
     if collection_asset:
         ## FIXME: This is problematic if the collection asset is in the same block because the additional items will not show up in the src_data as in the current indexer
         # get the collection asset from the existing src_data if in the same block 
@@ -161,7 +164,7 @@ def create_src721_mint_svg(src_data, block_cursor):
         if collection_asset_item is None or collection_asset_item == 'null':
             logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
             svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, block_cursor)
-        elif collection_asset_item:
+        elif collection_asset_item and ts:
             try:
                 src_collection_data = convert_to_dict(collection_asset_item)
                 src_collection_data = fetch_src721_collection(src_collection_data, src_data, block_cursor)
@@ -170,7 +173,7 @@ def create_src721_mint_svg(src_data, block_cursor):
                 logger.warning(f"ERROR: processing SRC-721 data: {e}")
                 raise
         else:
-            logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
+            logger.debug("this is a mint without a v2 collection asset reference, or missing ts") #DEBUG
             svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, block_cursor)
     else:
         logger.debug("this is a mint without a collection asset reference") #DEBUG
