@@ -330,3 +330,10 @@ def filter_issuances_by_tx_hash(issuances, tx_hash):
         issuance for issuance in issuances if issuance["tx_hash"] == tx_hash
     ]
     return filtered_issuances[0] if filtered_issuances else None
+
+
+def filter_sends_by_tx_hash(sends, tx_hash):
+    filtered_sends = [
+        send for send in sends if send["tx_hash"] == tx_hash
+    ]
+    return filtered_sends[0] if filtered_sends else None
