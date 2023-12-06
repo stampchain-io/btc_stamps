@@ -94,34 +94,28 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 USE `btc_stamps`;
-CREATE TABLE IF NOT EXISTS `srcx` (
-  `tx_hash` varchar(255) NOT NULL,
-  `tx_index` int DEFAULT NULL,
-  `amt` decimal(37,18) DEFAULT NULL,
-  `block_index` int DEFAULT NULL,
-  `c` varchar(255) DEFAULT NULL,
-  `creator` varchar(255) DEFAULT NULL,
-  `deci` int DEFAULT '18',
-  `lim` int DEFAULT NULL,
-  `max` int DEFAULT NULL,
-  `op` varchar(255) DEFAULT NULL,
-  `p` varchar(255) DEFAULT NULL,
-  `stamp` int DEFAULT NULL,
-  `stamp_url` text,
+CREATE TABLE IF NOT EXISTS `sends` (
+  `from` varchar(255) DEFAULT NULL,
+  `to` varchar(255) DEFAULT NULL,
+  `cpid` varchar(255) DEFAULT NULL,
   `tick` varchar(255) DEFAULT NULL,
-  `ts` json DEFAULT NULL,
-  `destination` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`tx_hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
+  `memo` varchar(255) DEFAULT NULL,
+  `quantity` bigint DEFAULT NULL,
+  `tx_hash` NVARCHAR(64) UNIQUE,
+  `tx_index` int DEFAULT NULL,
+  `block_index` int DEFAULT NULL,
+  KEY `index_name` (`cpid`,`tick`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 USE `btc_stamps`;
-CREATE TABLE IF NOT EXISTS `cp_wallet` (
+CREATE TABLE IF NOT EXISTS `balances` (
   `address` varchar(255) DEFAULT NULL,
   `cpid` varchar(255) DEFAULT NULL,
+  `tick` varchar(255) DEFAULT NULL,
   `quantity` bigint DEFAULT NULL,
-  KEY `index_name` (`address`,`cpid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  `last_update` int DEFAULT NULL,
+  KEY `index_name` (`cpid`,`tick`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `creator` (
