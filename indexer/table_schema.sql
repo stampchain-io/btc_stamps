@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   `block_hash` NVARCHAR(64),
   `block_time` INT,
   `source` NVARCHAR(64),
-  `destination` NVARCHAR(64),
+  `destination` LONGTEXT,
   `btc_amount` BIGINT,
   `fee` BIGINT,
   `data` LONGTEXT,
@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   `keyburn` tinyint(1) DEFAULT NULL,
   FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `transactions` MODIFY COLUMN `destination` LONGTEXT;
 
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
@@ -101,11 +103,13 @@ CREATE TABLE IF NOT EXISTS `sends` (
   `tick` varchar(255) DEFAULT NULL,
   `memo` varchar(255) DEFAULT NULL,
   `quantity` bigint DEFAULT NULL,
-  `tx_hash` NVARCHAR(64) UNIQUE,
+  `tx_hash` NVARCHAR(64),
   `tx_index` int DEFAULT NULL,
   `block_index` int DEFAULT NULL,
   KEY `index_name` (`cpid`,`tick`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `sends` DROP INDEX `tx_hash`;
 
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `balances` (
