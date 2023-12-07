@@ -394,7 +394,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
 
 
     if valid_src20:
-        src_20_string = check_format(decoded_base64)
+        src_20_string = check_format(decoded_base64, tx_hash)
         src_20_dict = None
         if src_20_string:
             src_20_dict = decoded_base64
