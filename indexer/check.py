@@ -13,12 +13,19 @@ CONSENSUS_HASH_SEED = 'We can only see a short distance ahead, but we can see pl
 
 CONSENSUS_HASH_VERSION_MAINNET = 2
 
-# TODO: https://github.com/stampchain-io/btc_stamps/issues/12
+# TODO: https://github.com/stampchain-io/btc_stamps/issues/12 # NOTE: the txlist_hash is the same because we have not implemented in the consensus_hash check from balances StampTable, etc.
 CHECKPOINTS_MAINNET = {
     config.BLOCK_FIRST_MAINNET: {'ledger_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7', 'txlist_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7'},
     779800: {'ledger_hash': '45b2b6391c08346a15a07cc7c8a270e917368141a2c1876bdb02752a0e127fa0', 'txlist_hash': '45b2b6391c08346a15a07cc7c8a270e917368141a2c1876bdb02752a0e127fa0'},
     780000: {'ledger_hash': '59ac77426870194dad46425f54344a3e80ae2de28d9fe72cdb607173219bd27c', 'txlist_hash': '59ac77426870194dad46425f54344a3e80ae2de28d9fe72cdb607173219bd27c'},
-}
+    785000: {'ledger_hash': 'a1f50cf22c62addc5b1c41c21fbc85b2e59a1c7e95acf306376f7bcc6a5ad045', 'txlist_hash': 'a1f50cf22c62addc5b1c41c21fbc85b2e59a1c7e95acf306376f7bcc6a5ad045'},
+    790000: {'ledger_hash': '2cf5d02635f4d91bc3e35ec27b120ad45f2c753f0e3d15cbbe01bedd09e33e72', 'txlist_hash': '2cf5d02635f4d91bc3e35ec27b120ad45f2c753f0e3d15cbbe01bedd09e33e72'},
+    795000: {'ledger_hash': 'e9cf3bcb17392954f03072b12908a58dd73b28e40e2e8d18d4d7ecc9d38131da', 'txlist_hash': 'e9cf3bcb17392954f03072b12908a58dd73b28e40e2e8d18d4d7ecc9d38131da'},
+    800000: {'ledger_hash': 'fd87fd227eaa2ea2374f1d5db632a7ffe92e1c01080f2c7d6a71ee00ff96a063', 'txlist_hash': 'fd87fd227eaa2ea2374f1d5db632a7ffe92e1c01080f2c7d6a71ee00ff96a063'},
+    805000: {'ledger_hash': '336896ddb26cb148237dd0b4abc43afdc6a7bf34cba6f7f0ae58545ae7e200f6', 'txlist_hash': '336896ddb26cb148237dd0b4abc43afdc6a7bf34cba6f7f0ae58545ae7e200f6'},
+    810000: {'ledger_hash': '9d4cdced353649d75d933791e70ce344bb2b397545b18cffe66c109a39ea1356', 'txlist_hash': '9d4cdced353649d75d933791e70ce344bb2b397545b18cffe66c109a39ea1356'},
+    815000: {'ledger_hash': 'e6891326abcc4e9ee27401f6c29cded4c57d123c942b408b91fcae1e0d952db2', 'txlist_hash': 'e6891326abcc4e9ee27401f6c29cded4c57d123c942b408b91fcae1e0d952db2'}
+    }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {
@@ -35,7 +42,6 @@ class ConsensusError(Exception):
     pass
 
 
-# CHANGED TO MYSQL
 def consensus_hash(db, field, previous_consensus_hash, content):
     field_position = config.BLOCK_FIELDS_POSITION
     
