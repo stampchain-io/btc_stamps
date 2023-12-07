@@ -502,6 +502,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         src_data: {src_data}
         src_string: {src_20_string}
         is_reissue: {is_reissue}
+        supply: {stamp.get('quantity')}
         is_valid_base64: {is_valid_base64}
     ''')
 

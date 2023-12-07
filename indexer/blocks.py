@@ -550,8 +550,8 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             destination = str(stamp_issuance['issuer'])
         if stamp_send is not None:
             data = str(stamp_send)
-            source = str(stamp_send['source'])
-            destination = str(stamp_send['destination'])
+            source = str(stamp_send[0]['source'])
+            destination = ','.join(send['destination'] for send in stamp_send)
         logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
@@ -848,7 +848,7 @@ def follow(db):
                         parse_tx_to_send_table(
                             db=db,
                             cursor=block_cursor,
-                            send=stamp_send,
+                            sends=stamp_send,
                             tx={
                                 "tx_index": tx_index,
                             }

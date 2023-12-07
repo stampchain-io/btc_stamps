@@ -336,4 +336,4 @@ def filter_sends_by_tx_hash(sends, tx_hash):
     filtered_sends = [
         send for send in sends if send["tx_hash"] == tx_hash
     ]
-    return filtered_sends[0] if filtered_sends else None
+    return filtered_sends if filtered_sends else None

@@ -18,7 +18,7 @@ def insert_into_sends_table(db, cursor, send):
             send.get('to'),
             send.get('cpid', None),
             send.get('tick', None),
-            send.get('memo', None),
+            send.get('memo', "send"),
             send.get('quantity'),
             send.get('tx_hash'),
             send.get('tx_index'),
@@ -71,25 +71,35 @@ def insert_into_balances_table(cursor, send, op):
                     raise Exception(
                         f"Not enough balance for {send.get('tx_hash')}"
                     )
-                if result[0] == send.get('quantity'):
-                    cursor.execute(
-                        """
-                        DELETE FROM balances
-                        WHERE `address` = %s
-                        AND `cpid` <=> %s
-                        AND `tick` <=> %s
-                        """,
-                        (
-                            address,
-                            send.get('cpid'),
-                            send.get('tick'),
-                        )
-                    )
-                    return
+                # FIXME: this is a problem for reorgs as we are not saving
+                # prev_quantity and prev_last_update
+                # if result[0] == send.get('quantity'):
+                #     cursor.execute(
+                #         """
+                #         DELETE FROM balances
+                #         WHERE `address` = %s
+                #         AND `cpid` <=> %s
+                #         AND `tick` <=> %s
+                #         """,
+                #         (
+                #             address,
+                #             send.get('cpid'),
+                #             send.get('tick'),
+                #         )
+                #     )
+                #     return
+            logger.warning(
+                f"""
+                Updating balance for {send.get('cpid')} {send.get('quantity')}
+                """
+            )
             cursor.execute(
                 f"""
                 UPDATE balances
-                SET `quantity` = `quantity` {operation} %s, `last_update` = %s
+                SET `prev_last_update` = `last_update`,
+                `prev_quantity` = `quantity`,
+                `quantity` = `quantity` {operation} %s,
+                `last_update` = %s
                 WHERE `address` = %s
                 AND `cpid` <=> %s
                 AND `tick` <=> %s
@@ -130,34 +140,35 @@ def insert_into_balances_table(cursor, send, op):
         raise e
 
 
-def parse_tx_to_send_table(db, cursor, send, tx):
+def parse_tx_to_send_table(db, cursor, sends, tx):
     try:
-        parsed_send = {
-            'from': send.get('source'),
-            'to': send.get('destination'),
-            'cpid': send.get('cpid', None),
-            'tick': send.get('tick', None),
-            'memo': send.get('memo', None),
-            'quantity': send.get('quantity'),
-            'tx_hash': send.get('tx_hash'),
-            'tx_index': tx.get('tx_index'),
-            'block_index': send.get('block_index'),
-        }
-        insert_into_sends_table(
-            db=db,
-            cursor=cursor,
-            send=parsed_send
-        )
-        parse_send_to_balance_table_to(
-            db=db,
-            cursor=cursor,
-            send=parsed_send
-        )
-        parse_send_to_balance_table_from(
-            db=db,
-            cursor=cursor,
-            send=parsed_send
-        )
+        for send in sends:
+            parsed_send = {
+                'from': send.get('source'),
+                'to': send.get('destination'),
+                'cpid': send.get('cpid', None),
+                'tick': send.get('tick', None),
+                'memo': send.get('memo', None),
+                'quantity': send.get('quantity'),
+                'tx_hash': send.get('tx_hash'),
+                'tx_index': tx.get('tx_index'),
+                'block_index': send.get('block_index'),
+            }
+            insert_into_sends_table(
+                db=db,
+                cursor=cursor,
+                send=parsed_send
+            )
+            parse_send_to_balance_table_to(
+                db=db,
+                cursor=cursor,
+                send=parsed_send
+            )
+            parse_send_to_balance_table_from(
+                db=db,
+                cursor=cursor,
+                send=parsed_send
+            )
     except Exception as e:
         logger.error(f"parse_tx_to_send_table: {e}")
         logger.error(f"{send}")

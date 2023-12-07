@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS `balances` (
   `tick` varchar(255) DEFAULT NULL,
   `quantity` bigint DEFAULT NULL,
   `last_update` int DEFAULT NULL,
+  `prev_quantity` bigint DEFAULT NULL,
+  `prev_last_update` int DEFAULT NULL,
   KEY `index_name` (`cpid`,`tick`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
