@@ -392,6 +392,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
 
+
     if valid_src20:
         src_20_string = check_format(decoded_base64)
         src_20_dict = None
@@ -401,7 +402,16 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
             file_suffix = 'svg'
         elif valid_src20 and not src_20_dict:
-            return
+            # DEBUG / VALIDATION - REMOVE AFTER VALIDATION and just return here
+            is_whitelisted = is_to_exclude(tx_hash)
+            if is_whitelisted:
+                is_btc_stamp = 1
+                src_20_string = '{"p": "src-20", "op": "transfer", "tick": "0", "amt": "0"}'
+                src_20_dict = json.loads(src_20_string)
+                decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
+                file_suffix = 'svg'
+            else:
+                return
 
     if valid_src721:
         src_data = decoded_base64
