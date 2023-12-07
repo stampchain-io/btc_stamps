@@ -12,7 +12,6 @@ interface BlockProps {
 export default function Block(props: BlockProps) {
   const { block, selected } = props;
   function handleClick() {
-    console.log(`clicked: ${block.block_index}`);
     selected.value = block;
   }
 

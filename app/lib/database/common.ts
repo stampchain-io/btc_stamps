@@ -197,6 +197,32 @@ export const get_issuances_by_block_index_with_client = async (
   );
 };
 
+export const get_sends_by_block_index = async (block_index: number) => {
+  return await handleQuery(
+    `
+    SELECT * FROM sends
+    WHERE block_index = ?
+    ORDER BY tx_index;
+    `,
+    [block_index],
+  );
+};
+
+export const get_sends_by_block_index_with_client = async (
+  client: Client,
+  block_index: number,
+) => {
+  return await handleQueryWithClient(
+    client,
+    `
+    SELECT * FROM sends
+    WHERE block_index = ?
+    ORDER BY tx_index;
+    `,
+    [block_index],
+  );
+};
+
 export const get_issuances_by_stamp = async (stamp: number) => {
   let issuances = await handleQuery(
     `

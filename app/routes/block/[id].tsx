@@ -38,9 +38,8 @@ export const handler: Handlers<BlockRow[]> = {
 
 export default function BlockPage(props: PageProps) {
   const { block, related_blocks } = props.data;
-  const { block_info, data: issuances } = block;
+  const { block_info, issuances, sends } = block;
   const { blocks, last_block } = related_blocks;
-  console.log(related_blocks);
   const selected = useSignal<BlockRow>(
     blocks.find((b: BlockRow) => b.block_index === block_info.block_index),
   );

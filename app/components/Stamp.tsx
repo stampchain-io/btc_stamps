@@ -23,7 +23,6 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
         style={{ imageRendering: "pixelated" }}
         src={`/content/not-available.png`}
         onError={(e) => {
-          console.log({ e });
           e.currentTarget.src = `/content/not-available.png`;
         }}
         alt="Stamp"
@@ -37,7 +36,6 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
       src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)
         }`}
       onError={(e) => {
-        console.log({ e });
         e.currentTarget.src = `/content/not-available.png`;
       }}
       alt="Stamp"

@@ -117,7 +117,6 @@ export const get_stamps_by_ident = async (ident: SUBPROTOCOLS, limit = 1000, pag
 
 export const get_stamps_by_ident_with_client = async (client: Client, ident: SUBPROTOCOLS, limit = 1000, page = 0) => {
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
-  console.log({ ident, limit, offset })
   return await handleQueryWithClient(
     client,
     `
