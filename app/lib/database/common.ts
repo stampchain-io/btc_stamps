@@ -205,7 +205,7 @@ export const get_sends_by_block_index = async (block_index: number) => {
     JOIN StampTableV4 st ON s.cpid = st.cpid
     WHERE s.block_index = ?
       AND st.is_valid_base64 = true
-      AND st.block_index = (SELECT MAX(block_index) 
+      AND st.block_index = (SELECT MIN(block_index) 
                             FROM StampTableV4 
                             WHERE cpid = s.cpid 
                               AND is_valid_base64 = 1)
@@ -227,7 +227,7 @@ export const get_sends_by_block_index_with_client = async (
     JOIN StampTableV4 st ON s.cpid = st.cpid
     WHERE s.block_index = ?
       AND st.is_valid_base64 = true
-      AND st.block_index = (SELECT MAX(block_index) 
+      AND st.block_index = (SELECT MIN(block_index) 
                             FROM StampTableV4 
                             WHERE cpid = s.cpid 
                               AND is_valid_base64 = 1)

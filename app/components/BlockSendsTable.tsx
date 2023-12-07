@@ -26,6 +26,7 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
         </caption>
         <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
           <tr>
+            <th scope="col" class="px-6 py-3">Image</th>
             <th scope="col" class="px-6 py-3">Stamp</th>
             <th scope="col" class="px-6 py-3">From</th>
             <th scope="col" class="px-6 py-3">To</th>
@@ -44,6 +45,9 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
               <tr class="odd:bg-white odd:dark:bg-gray-900 even:bg-gray-50 even:dark:bg-gray-800 border-b dark:border-gray-700">
                 <td class="px-6 py-4">
                   <Stamp stamp={send} />
+                </td>
+                <td class="px-6 py-4">
+                  {send.stamp ? send.stamp : "CURSED"}
                 </td>
                 <td class="px-6 py-4">
                   {send.from ? short_address(send.from) : "NULL"}

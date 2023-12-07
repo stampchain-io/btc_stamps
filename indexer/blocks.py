@@ -24,10 +24,15 @@ import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
 from xcprequest import (
-    filter_sends_by_tx_hash,
     get_all_tx_by_block,
+    get_all_dispensers_by_block,
+    get_all_dispenses_by_block,
     parse_issuances_and_sends_from_block,
-    filter_issuances_by_tx_hash
+    parse_dispensers_from_block,
+    parse_dispenses_from_block,
+    filter_sends_by_tx_hash,
+    filter_issuances_by_tx_hash,
+    filter_dispensers_by_tx_hash,
 )
 from stamp import (
     is_prev_block_parsed,
@@ -518,7 +523,7 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None):
+def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None, stamp_dispenser=None):
     assert type(tx_hash) is str
     cursor = db.cursor()
     # check if the incoming tx_hash from txhash_list is already in the trx table
@@ -552,6 +557,10 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_send)
             source = str(stamp_send[0]['source'])
             destination = ','.join(send['destination'] for send in stamp_send)
+        if stamp_dispenser is not None:
+            data = str(stamp_dispenser)
+            source = str(stamp_dispenser['origin'])
+            destination = str(stamp_dispenser['destination'])
         logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
@@ -695,8 +704,30 @@ def follow(db):
             )
             stamp_issuances = parsed_block_data['issuances']
             stamp_sends = parsed_block_data['sends']
+            block_dispensers_from_xcp = get_all_dispensers_by_block(
+                block_index=block_index
+            )
+            parsed_stamp_dispensers = parse_dispensers_from_block(
+                dispensers=block_dispensers_from_xcp,
+                db=db
+            )
+            stamp_dispensers = parsed_stamp_dispensers['dispensers']
+            stamp_sends += parsed_stamp_dispensers['sends']
+            block_dispenses_from_xcp = get_all_dispenses_by_block(
+                block_index=block_index
+            )
+            stamp_dispenses = parse_dispenses_from_block(
+                dispenses=block_dispenses_from_xcp,
+                db=db
+            )
+            stamp_sends += stamp_dispenses
             logger.warning(
-                f"""XCP Block {block_index}\n- {len(stamp_issuances)} issuances\n- {len(stamp_sends)} sends."""
+                f"""XCP Block {block_index}
+                - {len(stamp_issuances)} issuances
+                - {len(stamp_sends)} sends
+                - {len(stamp_dispensers)} dispensers
+                - {len(stamp_dispenses)} dispenses
+                """
             )
             if block_count - block_index < 100:
                 requires_rollback = False
@@ -792,6 +823,9 @@ def follow(db):
                         stamp_issuances, tx_hash
                     )
                     stamp_send = filter_sends_by_tx_hash(stamp_sends, tx_hash)
+                    stamp_dispenser = filter_dispensers_by_tx_hash(
+                        stamp_dispensers, tx_hash
+                    )
                     tx_hex = raw_transactions[tx_hash]
                     (
                         tx_index,
@@ -812,7 +846,8 @@ def follow(db):
                         tx_index,
                         tx_hex,
                         stamp_issuance=stamp_issuance,
-                        stamp_send=stamp_send
+                        stamp_send=stamp_send,
+                        stamp_dispenser=stamp_dispenser
                     )
                     if (stamp_send is None):
                         # stamptable is using the same cursor and will commit

@@ -149,11 +149,69 @@ def get_issuances_by_block(block_index):
     )
 
 
+def get_dispensers_by_block(params):
+    payload = create_payload(
+        "get_dispensers",
+        params
+    )
+    headers = {'content-type': 'application/json'}
+    response = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers=headers,
+        auth=auth
+    )
+    return json.loads(response.text)["result"]
+
+
+def get_dispenses_by_block(params):
+    payload = create_payload(
+        "get_dispenses",
+        params
+    )
+    headers = {'content-type': 'application/json'}
+    response = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers=headers,
+        auth=auth
+    )
+    return json.loads(response.text)["result"]
+
+
 def get_all_tx_by_block(block_index):
     return handle_cp_call_with_retry(
         func=get_block,
         params={
             "block_indexes": [block_index]
+        },
+        block_index=block_index
+    )
+
+
+def get_all_dispensers_by_block(block_index):
+    return handle_cp_call_with_retry(
+        func=get_dispensers_by_block,
+        params={
+            "filters": {
+                "field": "block_index",
+                "op": "==",
+                "value": block_index
+            }
+        },
+        block_index=block_index
+    )
+
+
+def get_all_dispenses_by_block(block_index):
+    return handle_cp_call_with_retry(
+        func=get_dispenses_by_block,
+        params={
+            "filters": {
+                "field": "block_index",
+                "op": "==",
+                "value": block_index
+            }
         },
         block_index=block_index
     )
@@ -202,6 +260,44 @@ def parse_issuances_and_sends_from_block(block_data, db):
         "issuances": issuances,
         "sends": sends
     }
+
+
+def parse_dispensers_from_block(dispensers, db):
+    stamp_dispensers, dispensers_sends = [], []
+    cursor = db.cursor()
+    for dispenser in dispensers:
+        stamp_dispenser, dispenser_send = check_for_stamp_dispensers(
+            dispenser=dispenser,
+            cursor=cursor
+        )
+        if stamp_dispenser and dispenser_send is not None:
+            stamp_dispensers.append(
+                stamp_dispenser
+            )
+            dispensers_sends.append(
+                dispenser_send
+            )
+    cursor.close()
+    return {
+        "dispensers": stamp_dispensers,
+        "sends": dispensers_sends
+    }
+
+
+def parse_dispenses_from_block(dispenses, db):
+    dispenses_sends = []
+    cursor = db.cursor()
+    for dispense in dispenses:
+        dispense_send = check_for_stamp_dispenses(
+            dispense=dispense,
+            cursor=cursor
+        )
+        if dispense_send is not None:
+            dispenses_sends.append(
+                dispense_send
+            )
+    cursor.close()
+    return dispenses_sends
 
 
 def parse_base64_from_description(description):
@@ -278,6 +374,61 @@ def check_for_stamp_issuance(issuance):
     return None
 
 
+def check_for_stamp_dispensers(dispenser, cursor):
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (dispenser["asset"],)
+    )
+    issuance = cursor.fetchone()
+    if (issuance is not None):
+        filtered_dispenser = {
+            "source": dispenser["source"],
+            "origin": dispenser["origin"],
+            "tx_hash": dispenser["tx_hash"],
+            "block_index": dispenser["block_index"],
+            "asset": dispenser["asset"],
+            "escrow_quantity": dispenser["escrow_quantity"],
+            "give_quantity": dispenser["give_quantity"],
+            "give_remaining": dispenser["give_remaining"],
+            "satoshirate":  dispenser["satoshirate"],
+            "status": dispenser["status"],
+            "oracle_address": dispenser["oracle_address"],
+        }
+        filtered_send = {
+            "cpid": dispenser["asset"],
+            "quantity": dispenser["escrow_quantity"],
+            "source": dispenser["origin"],
+            "destination": dispenser["source"],
+            "memo": "dispenser",
+            "tx_hash": dispenser["tx_hash"],
+            "block_index": dispenser["block_index"],
+            "message_index": dispenser["msg_index"]
+        }
+        return filtered_dispenser, filtered_send
+    return None, None
+
+
+def check_for_stamp_dispenses(dispense, cursor):
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (dispense["asset"],)
+    )
+    issuance = cursor.fetchone()
+    if (issuance is not None):
+        filtered_send = {
+            "cpid": dispense["asset"],
+            "quantity": dispense["dispense_quantity"],
+            "source": dispense["source"],
+            "destination": dispense["destination"],
+            "memo": "dispense",
+            "tx_hash": dispense["tx_hash"],
+            "block_index": dispense["block_index"],
+            "message_index": dispense["msg_index"]
+        }
+        return filtered_send
+    return None
+
+
 def check_for_stamp_send(send, cursor):
     if send["status"] == "valid":
         cursor.execute(
@@ -337,3 +488,17 @@ def filter_sends_by_tx_hash(sends, tx_hash):
         send for send in sends if send["tx_hash"] == tx_hash
     ]
     return filtered_sends if filtered_sends else None
+
+
+def filter_dispensers_by_tx_hash(dispensers, tx_hash):
+    filtered_disp = [
+        disp for disp in dispensers if disp["tx_hash"] == tx_hash
+    ]
+    return filtered_disp[0] if filtered_disp else None
+
+
+def filter_txs_by_tx_hash(txs, tx_hash):
+    filtered_txs = [
+        tx for tx in txs if tx["tx_hash"] == tx_hash
+    ]
+    return filtered_txs if filtered_txs else None
