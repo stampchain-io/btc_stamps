@@ -19,7 +19,6 @@ from src721 import validate_src721_and_process
 from src20 import check_format, build_src20_svg_string
 import traceback
 from src.aws import check_existing_and_upload_to_s3
-from whitelist import is_tx_in_whitelist, is_to_include, is_to_exclude
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +231,7 @@ def get_file_suffix(bytestring_data, block_index):
 
 def is_json_string(s):
     try:
-        s = s.strip()  # DEBUG: This was for one src-721 that was currently in production. need to review/test reparse. 
+        s = s.strip() 
         s = s.rstrip('\r\n')  
         if s.startswith('{') and s.endswith('}'):
             json.loads(s)
@@ -402,16 +401,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
             decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
             file_suffix = 'svg'
         elif valid_src20 and not src_20_dict:
-            # DEBUG / VALIDATION - REMOVE AFTER VALIDATION and just return here
-            is_whitelisted = is_to_exclude(tx_hash)
-            if is_whitelisted:
-                is_btc_stamp = 1
-                src_20_string = '{"p": "src-20", "op": "transfer", "tick": "0", "amt": "0"}'
-                src_20_dict = json.loads(src_20_string)
-                decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
-                file_suffix = 'svg'
-            else:
-                return
+            return
 
     if valid_src721:
         src_data = decoded_base64
@@ -421,17 +411,11 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
-    # DEBUG / VALIDATION ONLY - REMOVE AFTER VALIDATION
-    is_whitelisted = None
-    if is_op_return:
-        is_whitelisted = is_tx_in_whitelist(tx_hash)
-    # -------- remove above
-
     if (
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
         and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
         (cpid and cpid.startswith('A'))
-        and (not is_op_return or (is_op_return and is_whitelisted))
+        and (not is_op_return)
         or (file_suffix == 'json' and (valid_src20 or valid_src721))
     ):
         is_btc_stamp = 1
@@ -462,28 +446,10 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
 
-    # DEBUG: this is for debugging / validation only against stampchain prod api
-    if is_to_include(tx_hash):
-        stamp_number = None
-        is_btc_stamp = None
-    api_stamp_num = None
-    api_tx_hash = None
-
-    debug_stamp_api = get_stamp_key(tx_hash)
-    if debug_stamp_api is None and debug_stamp_api[0] is None and is_btc_stamp == 1:
-        api_stamp_num = debug_stamp_api[0].get('stamp')
-    elif debug_stamp_api:
-        api_tx_hash = debug_stamp_api[0].get('tx_hash')
-        api_stamp_num = debug_stamp_api[0].get('stamp')
-
-    if is_to_exclude(tx_hash):
-        stamp_number = api_stamp_num
-
     logger.warning(f'''
         block_index: {block_index}
         cpid: {cpid}
         stamp_number: {stamp_number}
-        api_stamp_num: {api_stamp_num}
         ident: {ident}
         keyburn: {keyburn}
         creator_name: {creator_name}
@@ -496,23 +462,13 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         stamp_mimetype: {stamp_mimetype}
         file_hash: {file_obj_md5}
         tx_hash: {tx_hash}
-        api_tx_hash: {api_tx_hash}
         is_op_return: {is_op_return}
-        is_whitelisted: {is_whitelisted}
         src_data: {src_data}
         src_string: {src_20_string}
         is_reissue: {is_reissue}
         supply: {stamp.get('quantity')}
         is_valid_base64: {is_valid_base64}
     ''')
-
-    # DEBUG: Validation against stampchain API numbers. May want to validate against akash records instead
-    if api_stamp_num != stamp_number:
-        print("we found a mismatch - api:", api_stamp_num, "vs:", stamp_number)
-        input("Press Enter to continue...")
-    if is_btc_stamp and api_tx_hash != tx_hash:
-        print("we found a mismatch - api:", api_tx_hash, "vs:", tx_hash)
-        input("Press Enter to continue...")
 
     parsed = {
         "stamp": stamp_number,

@@ -37,9 +37,9 @@ def is_to_exclude(tx_hash):
             whitelist = json.load(file)
         invalid_src20_no_keyburn = whitelist.get('invalid_src20_no_keyburn', [])
         reissue = whitelist.get('reissue', [])
-        invalid_src2_before_activation = whitelist.get('invalid_src2_before_activation', [])
+        invalid_src20_before_activation = whitelist.get('invalid_src20_before_activation', [])
         temporary_include  = whitelist.get('temporary_include', [])
-        return tx_hash in invalid_src20_no_keyburn or tx_hash in reissue or tx_hash in invalid_src2_before_activation or tx_hash in temporary_include
+        return tx_hash in invalid_src20_no_keyburn or tx_hash in reissue or tx_hash in invalid_src20_before_activation or tx_hash in temporary_include
     except FileNotFoundError:
         print(f"The file {whitelist_path} was not found.")
         return False
