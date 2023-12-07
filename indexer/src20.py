@@ -58,7 +58,7 @@ def sort_keys(key):
     return len(priority_keys)
 
 
-def check_format(input_string):
+def check_format(input_string, tx_hash):
     try:
         if isinstance(input_string, dict):
             input_string = json.dumps(input_string) # FIXME: chaos with all the data types, need to normalize higher up
@@ -100,7 +100,7 @@ def check_format(input_string):
                             try:
                                 value = Decimal(''.join(c for c in value if c.isdigit() or c == '.')) if value else Decimal(0)
                             except InvalidOperation as e:
-                                logger.warning(f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}")
+                                logger.warning(f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}")
                                 return None
                         elif isinstance(value, int):
                             value = Decimal(value)
