@@ -15,23 +15,17 @@ export default function BlockHeaderTable(props: BlockHeaderTableProps) {
   return (
     <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
       <tbody>
-        <tr>
+        <tr class="border-b">
+          <th scope="row" class="px-6 py-3">Block Index</th>
+          <td>{block_info.block_index}</td>
           <th scope="row" class="px-6 py-3">Block Hash</th>
           <td>{short_address(block_info.block_hash)}</td>
-        </tr>
-        <tr >
           <th scope="row" class="px-6 py-3">Time</th>
           <td>{time.toLocaleString()}</td>
         </tr>
-        <tr>
-          <th scope="row" class="px-6 py-3">Height</th>
-          <td>{block_info.block_index}</td>
-        </tr>
-        <tr>
+        <tr class="border-b">
           <th scope="row" class="px-6 py-3">Issuances</th>
           <td>{issuances.length}</td>
-        </tr>
-        <tr>
           <th scope="row" class="px-6 py-3">Sends</th>
           <td>{sends.length}</td>
         </tr>

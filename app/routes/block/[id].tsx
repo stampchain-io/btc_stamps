@@ -44,9 +44,9 @@ export default function BlockPage(props: PageProps) {
     blocks.find((b: BlockRow) => b.block_index === block_info.block_index),
   );
   return (
-    <div class="px-2 py-8 mx-auto bg-[#000000]">
+    <div class="px-2 py-8 mx-auto bg-[#000000] flex flex-col md:gap-4 overflow-auto max-w-6xl">
       <h1 class="text-2xl text-center text-[#ffffff]">Bitcoin Stamps</h1>
-      <div class="grid grid-cols-1 gap-4 my-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 py-2 ">
+      <div class="grid grid-cols-1 gap-4 my-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 py-2 overflow-y-auto">
         {blocks.map((block: BlockRow) => (
           <Block block={block} selected={selected} />
         ))}

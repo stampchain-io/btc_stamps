@@ -200,9 +200,16 @@ export const get_issuances_by_block_index_with_client = async (
 export const get_sends_by_block_index = async (block_index: number) => {
   return await handleQuery(
     `
-    SELECT * FROM sends
-    WHERE block_index = ?
-    ORDER BY tx_index;
+    SELECT s.*, st.*
+    FROM sends s
+    JOIN StampTableV4 st ON s.cpid = st.cpid
+    WHERE s.block_index = ?
+      AND st.is_valid_base64 = true
+      AND st.block_index = (SELECT MAX(block_index) 
+                            FROM StampTableV4 
+                            WHERE cpid = s.cpid 
+                              AND is_valid_base64 = 1)
+    ORDER BY s.tx_index;
     `,
     [block_index],
   );
@@ -215,9 +222,16 @@ export const get_sends_by_block_index_with_client = async (
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM sends
-    WHERE block_index = ?
-    ORDER BY tx_index;
+    SELECT s.*, st.*
+    FROM sends s
+    JOIN StampTableV4 st ON s.cpid = st.cpid
+    WHERE s.block_index = ?
+      AND st.is_valid_base64 = true
+      AND st.block_index = (SELECT MAX(block_index) 
+                            FROM StampTableV4 
+                            WHERE cpid = s.cpid 
+                              AND is_valid_base64 = 1)
+    ORDER BY s.tx_index;
     `,
     [block_index],
   );
