@@ -14,8 +14,8 @@ def insert_into_sends_table(db, cursor, send):
         (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
-            None,
-            send.get('source'),
+            send.get('from', None),
+            send.get('to'),
             send.get('cpid', None),
             send.get('tick', None),
             send.get('memo', None),
@@ -102,7 +102,6 @@ def insert_into_balances_table(cursor, send, op):
                     send.get('tick'),
                 )
             )
-        # Si no, inserta
         else:
             cursor.execute(
                 """
@@ -172,7 +171,7 @@ def parse_issuance_to_send_table(db, cursor, issuance, tx):
     try:
         parsed_send = {
             'from': None,
-            'to': issuance['source'],
+            'to': issuance.get('source'),
             'cpid': issuance.get('cpid', None),
             'tick': issuance.get('tick', None),
             'memo': "issuance",
@@ -222,3 +221,7 @@ def parse_send_to_balance_table_from(db, cursor, send):
         logger.error(f"parse_send_to_balance_table: {e}")
         logger.error(f"{send}")
         raise e
+
+
+def parse_src20_issuance_to_send_table(db, cursor, issuance):
+    pass
