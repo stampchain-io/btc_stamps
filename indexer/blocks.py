@@ -690,6 +690,7 @@ def follow(db):
 
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
+            #  DEPRECATED
             #  issuances = get_issuances_by_block(current_index)
             #  stamp_issuances = get_stamp_issuances(issuances)
             block_data_from_xcp = get_all_tx_by_block(block_index=block_index)

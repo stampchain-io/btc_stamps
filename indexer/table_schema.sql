@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS `sends` (
   `cpid` varchar(255) DEFAULT NULL,
   `tick` varchar(255) DEFAULT NULL,
   `memo` varchar(255) DEFAULT NULL,
+  `satoshirate` bigint DEFAULT NULL,
   `quantity` bigint DEFAULT NULL,
   `tx_hash` NVARCHAR(64),
   `tx_index` int DEFAULT NULL,
