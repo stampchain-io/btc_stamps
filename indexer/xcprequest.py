@@ -386,7 +386,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
             "origin": dispenser["origin"],
             "tx_hash": dispenser["tx_hash"],
             "block_index": dispenser["block_index"],
-            "asset": dispenser["asset"],
+            "cpid": dispenser["asset"],
             "escrow_quantity": dispenser["escrow_quantity"],
             "give_quantity": dispenser["give_quantity"],
             "give_remaining": dispenser["give_remaining"],

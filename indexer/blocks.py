@@ -43,7 +43,8 @@ from stamp import (
 
 from send import (
     parse_tx_to_send_table,
-    parse_issuance_to_send_table
+    parse_issuance_to_send_table,
+    parse_tx_to_dispenser_table,
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -68,8 +69,6 @@ def parse_block(db, block_index, block_time,
                       WHERE block_index=%s ORDER BY tx_index''',
                    (block_index,))
     txes = cursor.fetchall()
-    logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
-
     txlist = []
     for tx in txes: # this should be empty unless we are reparsing a block - not implemented
         # print("tx", tx) # DEBUG
@@ -523,7 +522,7 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None, stamp_dispenser=None):
+def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None):
     assert type(tx_hash) is str
     cursor = db.cursor()
     # check if the incoming tx_hash from txhash_list is already in the trx table
@@ -557,10 +556,6 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_send)
             source = str(stamp_send[0]['source'])
             destination = ','.join(send['destination'] for send in stamp_send)
-        if stamp_dispenser is not None:
-            data = str(stamp_dispenser)
-            source = str(stamp_dispenser['origin'])
-            destination = str(stamp_dispenser['destination'])
         logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
@@ -722,7 +717,8 @@ def follow(db):
             )
             stamp_sends += stamp_dispenses
             logger.warning(
-                f"""XCP Block {block_index}
+                f"""
+                XCP Block {block_index}
                 - {len(stamp_issuances)} issuances
                 - {len(stamp_sends)} sends
                 - {len(stamp_dispensers)} dispensers
@@ -847,7 +843,6 @@ def follow(db):
                         tx_hex,
                         stamp_issuance=stamp_issuance,
                         stamp_send=stamp_send,
-                        stamp_dispenser=stamp_dispenser
                     )
                     if (stamp_send is None):
                         # stamptable is using the same cursor and will commit
@@ -888,6 +883,15 @@ def follow(db):
                                 "tx_index": tx_index,
                             }
                         )
+                        if (stamp_dispenser is not None):
+                            parse_tx_to_dispenser_table(
+                                db=db,
+                                cursor=block_cursor,
+                                dispenser=stamp_dispenser,
+                                tx={
+                                    "tx_index": tx_index,
+                                }
+                            )
 
                 try:
                     block_cursor.execute("COMMIT")

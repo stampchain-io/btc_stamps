@@ -155,7 +155,6 @@ def parse_tx_to_send_table(db, cursor, sends, tx):
                 'block_index': send.get('block_index'),
             }
             insert_into_sends_table(
-                db=db,
                 cursor=cursor,
                 send=parsed_send
             )
@@ -176,6 +175,50 @@ def parse_tx_to_send_table(db, cursor, sends, tx):
         raise e
 
 
+def insert_into_dispenser_table(cursor, dispenser):
+    cursor.execute(
+        """
+        INSERT INTO dispenser
+        (
+            `tx_index`, `tx_hash`, `block_index`, `source`, `origin`,
+            `cpid`, `give_quantity`, `escrow_quantity`,
+            `satoshirate`, `status`, `give_remaining`,
+            `oracle_address`
+        )
+        VALUES
+        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            dispenser.get('tx_index'),
+            dispenser.get('tx_hash'),
+            dispenser.get('block_index'),
+            dispenser.get('source'),
+            dispenser.get('origin'),
+            dispenser.get('cpid'),
+            dispenser.get('give_quantity'),
+            dispenser.get('escrow_quantity'),
+            dispenser.get('satoshirate'),
+            dispenser.get('status'),
+            dispenser.get('give_remaining'),
+            dispenser.get('oracle_address'),
+        ),
+    )
+
+
+def parse_tx_to_dispenser_table(db, cursor, dispenser, tx):
+    try:
+        dispenser['tx_index'] = tx['tx_index']
+        insert_into_dispenser_table(
+            cursor=cursor,
+            dispenser=dispenser
+        )
+    except Exception as e:
+        logger.error(f"parse_tx_to_dispenser_table: {e}")
+        logger.error(f"{dispenser}")
+        logger.error(f"{tx}")
+        raise e
+
+
 def parse_issuance_to_send_table(db, cursor, issuance, tx):
     if (issuance['quantity'] == 0):
         return
@@ -192,7 +235,6 @@ def parse_issuance_to_send_table(db, cursor, issuance, tx):
             'block_index': tx['block_index'],
         }
         insert_into_sends_table(
-            db=db,
             cursor=cursor,
             send=parsed_send
         )
