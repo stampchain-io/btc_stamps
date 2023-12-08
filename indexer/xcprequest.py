@@ -221,6 +221,7 @@ def parse_issuances_and_sends_from_block(block_data, db):
     issuances, sends = [], []
     cursor = db.cursor()
     block_data = json.loads(json.dumps(block_data[0]))
+    dividends = []
     for tx in block_data['_messages']:
         tx_data = json.loads(tx.get('bindings'))
         tx_data['msg_index'] = tx.get('message_index')
@@ -254,12 +255,74 @@ def parse_issuances_and_sends_from_block(block_data, db):
                     sends.append(
                         stamp_send
                     )
+        if (
+            tx.get("command") == 'insert'
+            and (
+                (
+                    tx.get('category') == 'debits'
+                    or tx.get('category') == 'credits'
+                )
+                and tx_data.get('action') == 'dividend'
+            )
+        ):
+            dividend = check_for_stamp_dividend(
+                dividend=tx_data,
+                type=tx.get('category'),
+                cursor=cursor
+            )
+            if (dividend is not None):
+                dividends.append(
+                    dividend
+                )
     cursor.close()
+    filtered_dividends = convert_dividends_to_sends(dividends)
+    sends.extend(filtered_dividends)
     return {
         "block_index": block_data["block_index"],
         "issuances": issuances,
         "sends": sends
     }
+
+
+def check_for_stamp_dividend(dividend, type, cursor):
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (dividend["asset"],)
+    )
+    issuance = cursor.fetchone()
+    if (issuance is not None):
+        filtered_dividend = {
+            "cpid": dividend["asset"],
+            "quantity": dividend["quantity"],
+            "address": dividend["address"],
+            "memo": "dividend",
+            "tx_hash": dividend["event"],
+            "block_index": dividend["block_index"],
+            "type": type
+        }
+        return filtered_dividend
+    return None
+
+
+def convert_dividends_to_sends(dividends):
+    sends = []
+    source = None
+    for dividend in dividends:
+        if dividend["type"] == "debits":
+            source = dividend["address"]
+    for dividend in dividends:
+        if dividend["type"] == "credits":
+            send = {
+                "cpid": dividend["cpid"],
+                "quantity": dividend["quantity"],
+                "source": source,
+                "destination": dividend["address"],
+                "memo": dividend["memo"],
+                "tx_hash": dividend["tx_hash"],
+                "block_index": dividend["block_index"]
+            }
+            sends.append(send)
+    return sends
 
 
 def parse_dispensers_from_block(dispensers, db):
@@ -421,8 +484,7 @@ def check_for_stamp_dispenses(dispense, cursor):
             "destination": dispense["destination"],
             "memo": "dispense",
             "tx_hash": dispense["tx_hash"],
-            "block_index": dispense["block_index"],
-            "message_index": dispense["msg_index"]
+            "block_index": dispense["block_index"]
         }
         return filtered_send
     return None
