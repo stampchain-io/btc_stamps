@@ -401,8 +401,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
             "destination": dispenser["source"],
             "memo": "dispenser",
             "tx_hash": dispenser["tx_hash"],
-            "block_index": dispenser["block_index"],
-            "message_index": dispenser["msg_index"]
+            "block_index": dispenser["block_index"]
         }
         return filtered_dispenser, filtered_send
     return None, None

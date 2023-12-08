@@ -148,7 +148,7 @@ def parse_tx_to_send_table(db, cursor, sends, tx):
                 'to': send.get('destination'),
                 'cpid': send.get('cpid', None),
                 'tick': send.get('tick', None),
-                'memo': send.get('memo', None),
+                'memo': send.get('memo', "send"),
                 'quantity': send.get('quantity'),
                 'tx_hash': send.get('tx_hash'),
                 'tx_index': tx.get('tx_index'),
