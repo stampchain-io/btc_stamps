@@ -2,7 +2,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def insert_into_sends_table(db, cursor, send):
+def insert_into_sends_table(cursor, send):
     cursor.execute(
         """
         INSERT INTO sends

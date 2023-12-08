@@ -33,8 +33,6 @@ CREATE TABLE IF NOT EXISTS transactions (
   FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE `transactions` MODIFY COLUMN `destination` LONGTEXT;
-
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
@@ -82,7 +80,8 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
   `tx_hash` varchar(255) NOT NULL,
   `block_index` int DEFAULT NULL,
   `source` varchar(255) DEFAULT NULL,
-  `asset` varchar(255) DEFAULT NULL,
+  `origin` varchar(255) DEFAULT NULL,
+  `cpid` varchar(255) DEFAULT NULL,
   `give_quantity` bigint DEFAULT NULL,
   `escrow_quantity` bigint DEFAULT NULL,
   `satoshirate` bigint DEFAULT NULL,
@@ -91,8 +90,8 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
   `oracle_address` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`tx_hash`),
   UNIQUE KEY `tx_hash` (`tx_hash`),
-  KEY `asset` (`asset`),
-  CONSTRAINT `dispensers_ibfk_1` FOREIGN KEY (`asset`) REFERENCES `StampTableV4` (`cpid`)
+  KEY `cpid` (`cpid`),
+  CONSTRAINT `dispensers_ibfk_1` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4` (`cpid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 USE `btc_stamps`;
@@ -108,8 +107,6 @@ CREATE TABLE IF NOT EXISTS `sends` (
   `block_index` int DEFAULT NULL,
   KEY `index_name` (`cpid`,`tick`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-ALTER TABLE `sends` DROP INDEX `tx_hash`;
 
 USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `balances` (
