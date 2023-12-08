@@ -178,7 +178,7 @@ def parse_tx_to_send_table(db, cursor, sends, tx):
 def insert_into_dispenser_table(cursor, dispenser):
     cursor.execute(
         """
-        INSERT INTO dispenser
+        INSERT INTO dispensers
         (
             `tx_index`, `tx_hash`, `block_index`, `source`, `origin`,
             `cpid`, `give_quantity`, `escrow_quantity`,
