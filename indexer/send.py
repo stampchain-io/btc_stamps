@@ -161,12 +161,10 @@ def parse_tx_to_send_table(db, cursor, sends, tx):
                 send=parsed_send
             )
             parse_send_to_balance_table_to(
-                db=db,
                 cursor=cursor,
                 send=parsed_send
             )
             parse_send_to_balance_table_from(
-                db=db,
                 cursor=cursor,
                 send=parsed_send
             )
@@ -241,7 +239,6 @@ def parse_issuance_to_send_table(db, cursor, issuance, tx):
             send=parsed_send
         )
         parse_send_to_balance_table_to(
-            db=db,
             cursor=cursor,
             send=parsed_send
         )
@@ -252,7 +249,7 @@ def parse_issuance_to_send_table(db, cursor, issuance, tx):
         raise e
 
 
-def parse_send_to_balance_table_to(db, cursor, send):
+def parse_send_to_balance_table_to(cursor, send):
     try:
         insert_into_balances_table(
             cursor=cursor,
@@ -265,7 +262,7 @@ def parse_send_to_balance_table_to(db, cursor, send):
         raise e
 
 
-def parse_send_to_balance_table_from(db, cursor, send):
+def parse_send_to_balance_table_from( cursor, send):
     try:
         insert_into_balances_table(
             cursor=cursor,

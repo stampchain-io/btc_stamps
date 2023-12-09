@@ -4,6 +4,11 @@ import config
 import requests
 import logging
 import src.util as util
+from send import (
+    insert_into_sends_table,
+    parse_send_to_balance_table_to,
+    parse_send_to_balance_table_from,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +125,21 @@ def get_issuances(params={}):
     return json.loads(response.text)["result"]
 
 
+def get_sends(params={}):
+    payload = create_payload(
+        "get_sends",
+        params
+    )
+    headers = {'content-type': 'application/json'}
+    response = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers=headers,
+        auth=auth
+    )
+    return json.loads(response.text)["result"]
+
+
 def get_block(params={}):
     payload = create_payload(
         "get_blocks",
@@ -133,6 +153,21 @@ def get_block(params={}):
         auth=auth
     )
     return json.loads(response.text)["result"]
+
+
+def get_sends_for_cpid_before_block(cpid, block_index):
+    return handle_cp_call_with_retry(
+        func=get_sends,
+        params={
+            "filters": {
+                "field": "asset",
+                "op": "==",
+                "value": cpid
+            },
+            "end_block": block_index
+        },
+        block_index=block_index
+    )
 
 
 def get_issuances_by_block(block_index):
@@ -428,6 +463,7 @@ def check_for_stamp_issuance(issuance, cursor):
         description.lower().find("stamp:") != -1
     ):
         prev_qty = 0
+        prev_sends = None
         (
             stamp_base64,
             stamp_mimetype
@@ -446,15 +482,39 @@ def check_for_stamp_issuance(issuance, cursor):
                 for prev_issuance in prev_issuances:
                     prev_qty += prev_issuance["quantity"]
             if (prev_qty > 0):
-                logger.warning(
-                    f"PREV QTY FOR ASSET {issuance['asset']}: {prev_qty}"
+                sends = get_sends_for_cpid_before_block(
+                    cpid=issuance["asset"],
+                    block_index=issuance["block_index"]
                 )
+                if len(sends) > 0:
+                    prev_sends = [
+                        parse_send(send)
+                        for send in sends
+                    ]
+                    for send in prev_sends:
+                        send['block_index'] = issuance["block_index"]
+                        insert_into_sends_table(
+                            cursor=cursor,
+                            send=send
+                        )
+                        parse_send_to_balance_table_to(
+                            cursor=cursor,
+                            send=send
+                        )
+                        parse_send_to_balance_table_from(
+                            cursor=cursor,
+                            send=send
+                        )
         if issuance["status"] == "valid":
             filtered_issuance = {
                 # we are not adding the base64 string to the json string
                 # in issuances, this is parsed when going to StampTable
                 "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
-                "quantity": issuance["quantity"] + prev_qty,
+                "quantity": (
+                    issuance["quantity"] + prev_qty
+                    if prev_sends and len(prev_sends) == 0
+                    else issuance["quantity"]
+                ),
                 "divisible": issuance["divisible"],
                 "locked": issuance["locked"],
                 "source": issuance["source"],
@@ -559,6 +619,23 @@ def check_for_stamp_send(send, cursor):
             }
             return filtered_send
     return None
+
+
+def parse_send(send):
+    filtered_send = {
+        "cpid": send["asset"],
+        "quantity": send["quantity"],
+        "from": send["source"],
+        "to": send["destination"],
+        "memo": send.get("memo", "send"),
+        "status": send["status"],
+        "satoshirate": send.get('satoshirate'),
+        "tx_hash": send["tx_hash"],
+        "block_index": send["block_index"],
+        "message_index": send["msg_index"]
+    }
+    return filtered_send
+
 
 # DEPRECATED
 #  def get_stamp_issuances(issuances):
