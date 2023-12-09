@@ -219,7 +219,8 @@ def get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
                     "value": cpid
                 }
             ]
-        }
+        },
+        block_index=block_index
     )
 
 
@@ -436,7 +437,7 @@ def check_for_stamp_issuance(issuance, cursor):
             (issuance["asset"],)
         )
         issuances = cursor.fetchall()
-        if (issuances is None):
+        if (len(issuances) == 0):
             prev_issuances = get_all_prev_issuances_for_cpid_and_block(
                 cpid=issuance["asset"],
                 block_index=issuance["block_index"]
@@ -444,6 +445,10 @@ def check_for_stamp_issuance(issuance, cursor):
             if len(prev_issuances) > 0:
                 for prev_issuance in prev_issuances:
                     prev_qty += prev_issuance["quantity"]
+            if (prev_qty > 0):
+                logger.warning(
+                    f"PREV QTY FOR ASSET {issuance['asset']}: {prev_qty}"
+                )
         if issuance["status"] == "valid":
             filtered_issuance = {
                 # we are not adding the base64 string to the json string

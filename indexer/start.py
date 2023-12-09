@@ -1,11 +1,13 @@
-import server
 import os
 
-if os.path.exists('.env'): # this is for debugging or when not running app in docker
+if os.path.exists('.env'):
+    print('Found .env file. Loading environment variables')
     with open('.env') as f:
         for line in f:
             key, value = line.strip().split('=')
             os.environ[key] = value
+
+import server
 
 log_file = 'log.file'
 db = server.initialize( log_file=log_file, backend_password='rpc', backend_user='rpc' )
