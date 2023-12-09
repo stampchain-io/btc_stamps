@@ -480,7 +480,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
     if (issuance is not None):
         filtered_dispenser = {
             "source": dispenser["source"],
-            "origin": dispenser["origin"],
+            "origin": dispenser.get("origin", dispenser["source"]),
             "tx_hash": dispenser["tx_hash"],
             "block_index": dispenser["block_index"],
             "cpid": dispenser["asset"],
@@ -494,7 +494,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
         filtered_send = {
             "cpid": dispenser["asset"],
             "quantity": dispenser["escrow_quantity"],
-            "source": dispenser["origin"],
+            "source": dispenser.get("origin", dispenser["source"]),
             "destination": dispenser["source"],
             "satoshirate": dispenser["satoshirate"],
             "memo": "dispenser",

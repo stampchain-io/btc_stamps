@@ -288,7 +288,6 @@ def get_tx_info2(
         elif asm[0] == 'OP_RETURN':
             is_op_return = True
             pass #Just ignore.
-    
     if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
         chunk = b''
         for pubkey in pubkeys_compiled:
@@ -384,7 +383,9 @@ def decode_checkmultisig(ctx, chunk):
                 pass
         if destination is None:
             try:
-                destination = CBitcoinAddress.from_taproot_scriptPubKey(script_pubkey)
+                destination = CBitcoinAddress.from_taproot_scriptPubKey(
+                    script_pubkey
+                )
             except Exception:
                 pass
         if destination is None:
