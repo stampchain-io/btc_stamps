@@ -7,11 +7,11 @@ def insert_into_sends_table(cursor, send):
         """
         INSERT INTO sends
         (
-            `from`, `to`, `cpid`, `tick`, `memo`, `quantity`,
+            `from`, `to`, `cpid`, `tick`, `memo`,`satoshirate`, `quantity`,
             `tx_hash`, `tx_index`, `block_index`
         )
         VALUES
-        (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             send.get('from', None),
@@ -19,6 +19,7 @@ def insert_into_sends_table(cursor, send):
             send.get('cpid', None),
             send.get('tick', None),
             send.get('memo', "send"),
+            send.get('satoshirate', None),
             send.get('quantity'),
             send.get('tx_hash'),
             send.get('tx_index'),
@@ -150,6 +151,7 @@ def parse_tx_to_send_table(db, cursor, sends, tx):
                 'tick': send.get('tick', None),
                 'memo': send.get('memo', "send"),
                 'quantity': send.get('quantity'),
+                'satoshirate': send.get('satoshirate', None),
                 'tx_hash': send.get('tx_hash'),
                 'tx_index': tx.get('tx_index'),
                 'block_index': send.get('block_index'),

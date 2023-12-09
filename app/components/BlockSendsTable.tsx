@@ -33,6 +33,7 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
             <th scope="col" class="px-6 py-3">Cpid</th>
             <th scope="col" class="px-6 py-3">Tick</th>
             <th scope="col" class="px-6 py-3">Qty</th>
+            <th scope="col" class="px-6 py-3">Unitary price</th>
             <th scope="col" class="px-6 py-3">Memo</th>
             <th scope="col" class="px-6 py-3">Tx_hash</th>
             <th scope="col" class="px-6 py-3">Tx_index</th>
@@ -60,6 +61,13 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
                   {send.tick ? send.tick : "NULL"}
                 </td>
                 <td class="px-6 py-4 text-sm">{send.quantity}</td>
+                <td class="px-6 py-4 text-sm">
+                  {
+                    send.satoshirate ?
+                      `${send.satoshirate / 100000000} BTC` :
+                      '0 BTC'
+                  }
+                </td>
                 <td class="px-6 py-4 text-sm">{send.memo}</td>
                 <td class="px-6 py-4 text-sm">{short_address(send.tx_hash)}</td>
                 <td class="px-6 py-4 text-sm">{send.tx_index}</td>

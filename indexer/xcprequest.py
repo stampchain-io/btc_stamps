@@ -483,6 +483,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
     )
     issuance = cursor.fetchone()
     if (issuance is not None):
+        price = dispenser.get('satoshirate', None)
         filtered_dispenser = {
             "source": dispenser["source"],
             "origin": dispenser.get("origin", dispenser["source"]),
@@ -492,7 +493,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
             "escrow_quantity": dispenser["escrow_quantity"],
             "give_quantity": dispenser["give_quantity"],
             "give_remaining": dispenser["give_remaining"],
-            "satoshirate":  dispenser["satoshirate"],
+            "satoshirate": price,
             "status": dispenser["status"],
             "oracle_address": dispenser["oracle_address"],
         }
@@ -501,7 +502,7 @@ def check_for_stamp_dispensers(dispenser, cursor):
             "quantity": dispenser["escrow_quantity"],
             "source": dispenser.get("origin", dispenser["source"]),
             "destination": dispenser["source"],
-            "satoshirate": dispenser["satoshirate"],
+            "satoshirate": price,
             "memo": "dispenser",
             "tx_hash": dispenser["tx_hash"],
             "block_index": dispenser["block_index"]
@@ -521,13 +522,13 @@ def check_for_stamp_dispenses(dispense, cursor):
             "SELECT satoshirate FROM dispensers WHERE tx_hash = %s",
             (dispense["dispenser_tx_hash"],)
         )
-        satoshirate = cursor.fetchone()[0]
+        price = cursor.fetchone()[0]
         filtered_send = {
             "cpid": dispense["asset"],
             "quantity": dispense["dispense_quantity"],
             "source": dispense["source"],
             "destination": dispense["destination"],
-            "satoshirate": satoshirate,
+            "satoshirate": price,
             "memo": "dispense",
             "tx_hash": dispense["tx_hash"],
             "block_index": dispense["block_index"]
@@ -551,6 +552,7 @@ def check_for_stamp_send(send, cursor):
                 "destination": send["destination"],
                 "memo": send.get("memo", "send"),
                 "status": send["status"],
+                "satoshirate": send.get('satoshirate'),
                 "tx_hash": send["tx_hash"],
                 "block_index": send["block_index"],
                 "message_index": send["msg_index"]
