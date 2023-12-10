@@ -637,19 +637,6 @@ def parse_send(send):
     return filtered_send
 
 
-# DEPRECATED
-#  def get_stamp_issuances(issuances):
-#      stamp_issuances = []
-#      for issuance in issuances:
-#          filtered_issuance = check_for_stamp_issuance(issuance)
-#          if (filtered_issuance is None):
-#              continue
-#          stamp_issuances.append(
-#              json.loads(json.dumps(filtered_issuance))
-#          )
-#      return stamp_issuances
-
-
 def get_stamp_sends(sends, db):
     cursor = db.cursor()
     stamp_sends = []

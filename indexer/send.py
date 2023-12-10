@@ -262,7 +262,7 @@ def parse_send_to_balance_table_to(cursor, send):
         raise e
 
 
-def parse_send_to_balance_table_from( cursor, send):
+def parse_send_to_balance_table_from(cursor, send):
     try:
         insert_into_balances_table(
             cursor=cursor,
