@@ -458,21 +458,21 @@ def parse_base64_from_description(description):
 
 def check_for_stamp_issuance(issuance, cursor):
     description = issuance["description"]
-    if (
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (issuance["asset"],)
+    )
+    issuances = cursor.fetchall()
+    if ((
         description is not None and
         description.lower().find("stamp:") != -1
-    ):
+    ) or len(issuances) > 0):
         prev_qty = 0
         prev_sends = None
         (
             stamp_base64,
             stamp_mimetype
         ) = parse_base64_from_description(description)
-        cursor.execute(
-            f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
-            (issuance["asset"],)
-        )
-        issuances = cursor.fetchall()
         if (len(issuances) == 0):
             prev_issuances = get_all_prev_issuances_for_cpid_and_block(
                 cpid=issuance["asset"],
@@ -493,6 +493,7 @@ def check_for_stamp_issuance(issuance, cursor):
                     ]
                     for send in prev_sends:
                         send['block_index'] = issuance["block_index"]
+                        send['memo'] = "previous issuance send"
                         insert_into_sends_table(
                             cursor=cursor,
                             send=send
@@ -511,7 +512,7 @@ def check_for_stamp_issuance(issuance, cursor):
                 # in issuances, this is parsed when going to StampTable
                 "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
                 "quantity": (
-                    issuance["quantity"] + prev_qty
+                    issuance["quantity"]
                     if prev_sends and len(prev_sends) == 0
                     else issuance["quantity"]
                 ),
@@ -635,19 +636,6 @@ def parse_send(send):
         "message_index": send["msg_index"]
     }
     return filtered_send
-
-
-# DEPRECATED
-#  def get_stamp_issuances(issuances):
-#      stamp_issuances = []
-#      for issuance in issuances:
-#          filtered_issuance = check_for_stamp_issuance(issuance)
-#          if (filtered_issuance is None):
-#              continue
-#          stamp_issuances.append(
-#              json.loads(json.dumps(filtered_issuance))
-#          )
-#      return stamp_issuances
 
 
 def get_stamp_sends(sends, db):

@@ -2,49 +2,54 @@
 // This file SHOULD be checked into source version control.
 // This file is automatically updated during development when running `dev.ts`.
 
-import * as $0 from "./routes/_404.tsx";
-import * as $1 from "./routes/_app.tsx";
-import * as $2 from "./routes/api/v2/block/[block_index].ts";
-import * as $3 from "./routes/api/v2/block/block_count/[...number].ts";
-import * as $4 from "./routes/api/v2/block/related/[block_index].ts";
-import * as $5 from "./routes/api/v2/cursed/[id].ts";
-import * as $6 from "./routes/api/v2/cursed/block/[block_index].ts";
-import * as $7 from "./routes/api/v2/cursed/ident/[ident].ts";
-import * as $8 from "./routes/api/v2/cursed/index.ts";
-import * as $9 from "./routes/api/v2/issuances/[id].ts";
-import * as $10 from "./routes/api/v2/stamps/[id].ts";
-import * as $11 from "./routes/api/v2/stamps/block/[block_index].ts";
-import * as $12 from "./routes/api/v2/stamps/ident/[ident].ts";
-import * as $13 from "./routes/api/v2/stamps/index.ts";
-import * as $14 from "./routes/block/[id].tsx";
-import * as $15 from "./routes/content/[...imgpath].tsx";
-import * as $16 from "./routes/index.tsx";
-import * as $$0 from "./islands/BlockSelector.tsx";
+import * as $_404 from "./routes/_404.tsx";
+import * as $_app from "./routes/_app.tsx";
+import * as $api_v2_block_block_index_ from "./routes/api/v2/block/[block_index].ts";
+import * as $api_v2_block_block_count_number_ from "./routes/api/v2/block/block_count/[...number].ts";
+import * as $api_v2_block_related_block_index_ from "./routes/api/v2/block/related/[block_index].ts";
+import * as $api_v2_cursed_id_ from "./routes/api/v2/cursed/[id].ts";
+import * as $api_v2_cursed_block_block_index_ from "./routes/api/v2/cursed/block/[block_index].ts";
+import * as $api_v2_cursed_ident_ident_ from "./routes/api/v2/cursed/ident/[ident].ts";
+import * as $api_v2_cursed_index from "./routes/api/v2/cursed/index.ts";
+import * as $api_v2_issuances_id_ from "./routes/api/v2/issuances/[id].ts";
+import * as $api_v2_stamps_id_ from "./routes/api/v2/stamps/[id].ts";
+import * as $api_v2_stamps_block_block_index_ from "./routes/api/v2/stamps/block/[block_index].ts";
+import * as $api_v2_stamps_ident_ident_ from "./routes/api/v2/stamps/ident/[ident].ts";
+import * as $api_v2_stamps_index from "./routes/api/v2/stamps/index.ts";
+import * as $block_id_ from "./routes/block/[id].tsx";
+import * as $content_imgpath_ from "./routes/content/[...imgpath].tsx";
+import * as $index from "./routes/index.tsx";
+import * as $BlockSelector from "./islands/BlockSelector.tsx";
+import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
   routes: {
-    "./routes/_404.tsx": $0,
-    "./routes/_app.tsx": $1,
-    "./routes/api/v2/block/[block_index].ts": $2,
-    "./routes/api/v2/block/block_count/[...number].ts": $3,
-    "./routes/api/v2/block/related/[block_index].ts": $4,
-    "./routes/api/v2/cursed/[id].ts": $5,
-    "./routes/api/v2/cursed/block/[block_index].ts": $6,
-    "./routes/api/v2/cursed/ident/[ident].ts": $7,
-    "./routes/api/v2/cursed/index.ts": $8,
-    "./routes/api/v2/issuances/[id].ts": $9,
-    "./routes/api/v2/stamps/[id].ts": $10,
-    "./routes/api/v2/stamps/block/[block_index].ts": $11,
-    "./routes/api/v2/stamps/ident/[ident].ts": $12,
-    "./routes/api/v2/stamps/index.ts": $13,
-    "./routes/block/[id].tsx": $14,
-    "./routes/content/[...imgpath].tsx": $15,
-    "./routes/index.tsx": $16,
+    "./routes/_404.tsx": $_404,
+    "./routes/_app.tsx": $_app,
+    "./routes/api/v2/block/[block_index].ts": $api_v2_block_block_index_,
+    "./routes/api/v2/block/block_count/[...number].ts":
+      $api_v2_block_block_count_number_,
+    "./routes/api/v2/block/related/[block_index].ts":
+      $api_v2_block_related_block_index_,
+    "./routes/api/v2/cursed/[id].ts": $api_v2_cursed_id_,
+    "./routes/api/v2/cursed/block/[block_index].ts":
+      $api_v2_cursed_block_block_index_,
+    "./routes/api/v2/cursed/ident/[ident].ts": $api_v2_cursed_ident_ident_,
+    "./routes/api/v2/cursed/index.ts": $api_v2_cursed_index,
+    "./routes/api/v2/issuances/[id].ts": $api_v2_issuances_id_,
+    "./routes/api/v2/stamps/[id].ts": $api_v2_stamps_id_,
+    "./routes/api/v2/stamps/block/[block_index].ts":
+      $api_v2_stamps_block_block_index_,
+    "./routes/api/v2/stamps/ident/[ident].ts": $api_v2_stamps_ident_ident_,
+    "./routes/api/v2/stamps/index.ts": $api_v2_stamps_index,
+    "./routes/block/[id].tsx": $block_id_,
+    "./routes/content/[...imgpath].tsx": $content_imgpath_,
+    "./routes/index.tsx": $index,
   },
   islands: {
-    "./islands/BlockSelector.tsx": $$0,
+    "./islands/BlockSelector.tsx": $BlockSelector,
   },
   baseUrl: import.meta.url,
-};
+} satisfies Manifest;
 
 export default manifest;
