@@ -506,16 +506,19 @@ def check_for_stamp_issuance(issuance, cursor):
                             cursor=cursor,
                             send=send
                         )
+        if prev_sends and len(prev_sends) == 0:
+            quantity = issuance["quantity"]
+        elif prev_sends and len(prev_sends) != 0:
+            quantity = issuance["quantity"] + prev_qty
+        else:
+            quantity = issuance["quantity"]
+
         if issuance["status"] == "valid":
             filtered_issuance = {
                 # we are not adding the base64 string to the json string
                 # in issuances, this is parsed when going to StampTable
                 "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
-                "quantity": (
-                    issuance["quantity"]
-                    if prev_sends and len(prev_sends) == 0
-                    else issuance["quantity"]
-                ),
+                "quantity": quantity,
                 "divisible": issuance["divisible"],
                 "locked": issuance["locked"],
                 "source": issuance["source"],

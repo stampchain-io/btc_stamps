@@ -1,5 +1,3 @@
-import time
-
 import config
 import logging
 from send import (
@@ -65,7 +63,6 @@ def trigger_reparse_balances(cursor):
     )
     sends = cursor.fetchall()
     logger.warning(f"Reparse balances table from {len(sends)} sends")
-    time.sleep(5)
     for send in sends:
         parsed_send = parse_send_from_db(send)
         parse_send_to_balance_table_to(
