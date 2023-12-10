@@ -47,6 +47,10 @@ from send import (
     parse_tx_to_dispenser_table,
 )
 
+from reparse import (
+    check_to_reparse_balances
+)
+
 from src.exceptions import DecodeError, BTCOnlyError
 
 D = decimal.Decimal
@@ -685,7 +689,7 @@ def follow(db):
         if (block_index != config.BLOCK_FIRST and
                 not is_prev_block_parsed(db, block_index)):
             block_index -= 1
-
+        check_to_reparse_balances(cursor, block_index)
         # Get new blocks.
         if block_index <= block_count:
 

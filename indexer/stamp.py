@@ -51,6 +51,22 @@ def purge_block_db(db, block_index):
                    DELETE FROM {}
                    WHERE block_index >= %s
                     '''.format(config.STAMP_TABLE), (block_index,))
+    cursor.execute("""
+        DELETE FROM sends
+        WHERE block_index >= %s
+        """, (block_index,)
+    )
+    cursor.exucute(
+        """
+        DELETE FROM dispensers
+        WHERE block_index >= %s
+        """,
+        (block_index,)
+    )
+    # THIS WILL TRIGGER REPARSE FOR BALANCES TABLE FROM THE SENDS TABLE
+    cursor.execute(
+        "DELETE FROM balances"
+    )
     cursor.execute("COMMIT")
     cursor.close()
 
