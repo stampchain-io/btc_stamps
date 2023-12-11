@@ -13,9 +13,9 @@ log.set_logger(logger)  # set root logger
 
 
 def get_s3_objects(bucket_name, s3_client):
-    ''' this gets existing objects in S3 so we don't reupload existing files'''
+    ''' this gets existing objects in S3 so we don't reupload existing files which can add to AWS costs'''
     # TODO: Save this in a new table for future reference and to avoid having to fetch this every time. 
-    # will need to update the table ofc if a file is over-written or if we re-index with a new bg image ofc
+    # will need to update the table ofc if a file is over-written or if we re-index with a new bg image
     result = []
     paginator = s3_client.get_paginator('list_objects_v2')
     logger.info(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
