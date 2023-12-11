@@ -2,8 +2,12 @@ import boto3
 import config
 from botocore.exceptions import NoCredentialsError
 import logging
+from tqdm import tqdm
+
+import src.log as log
 
 logger = logging.getLogger(__name__)
+log.set_logger(logger)  # set root logger
 
 ''' this file is intended for optional file upload to AWS S3 - WIP - NOT IMPLEMENTED'''
 
@@ -12,14 +16,17 @@ def get_s3_objects(bucket_name, s3_client):
     ''' this gets existing objects in S3 so we don't reupload existing files'''
     result = []
     paginator = s3_client.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket=bucket_name)
-    
+    pages = paginator.paginate(Bucket=bucket_name, Prefix=config.AWS_S3_IMAGE_DIR)
+    logger.info(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
+    total_pages = len(list(pages))
+    print(f"Total number of pages expected: {total_pages}")
+
     for page in pages:
         if 'Contents' in page:
-            for obj in page['Contents']:
+            for obj in tqdm(page['Contents'], desc='Fetching S3 objects', unit=' object'):
                 s3_object = s3_client.head_object(Bucket=bucket_name, Key=obj['Key'])
                 result.append({'key': obj['Key'], 'md5': s3_object['ETag'].strip('"')})
-    
+
     return result
 
 
