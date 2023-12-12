@@ -63,7 +63,9 @@ def handle_cp_call_with_retry(func, params, block_index):
 
 def get_cp_version():
     try:
-        logger.info("Connecting to CP Node: {}".format(config.CP_RPC_URL))
+        logger.warning(
+            f"""Connecting to CP Node: {config.CP_RPC_URL}"""
+        )
         payload = create_payload("get_running_info", {})
         headers = {'content-type': 'application/json'}
         response = requests.post(
@@ -506,13 +508,11 @@ def check_for_stamp_issuance(issuance, cursor):
                             cursor=cursor,
                             send=send
                         )
-        if prev_sends and len(prev_sends) == 0:
-            quantity = issuance["quantity"]
-        elif prev_sends and len(prev_sends) != 0:
+        if prev_sends is None:
             quantity = issuance["quantity"] + prev_qty
         else:
             quantity = issuance["quantity"]
-
+        logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
         if issuance["status"] == "valid":
             filtered_issuance = {
                 # we are not adding the base64 string to the json string

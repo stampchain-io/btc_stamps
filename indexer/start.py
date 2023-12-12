@@ -1,7 +1,10 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 if os.path.exists('.env'):
-    print('Found .env file. Loading environment variables')
+    logger.warning('Found .env file. Loading environment variables')
     with open('.env') as f:
         for line in f:
             key, value = line.strip().split('=')

@@ -68,9 +68,25 @@ def insert_into_balances_table(cursor, send, op):
                     )
                 )
                 result = cursor.fetchone()
+                logger.warning(f"""
+                    cpid: {send.get('cpid')}
+                    tick: {send.get('tick')}
+                    from: {address}
+                    to: {send.get('to')}
+                    qty: {send.get('quantity')}
+                    balance: {result[0]}
+                """)
                 if result[0] < send.get('quantity'):
                     raise Exception(
-                        f"Not enough balance for {send.get('tx_hash')}"
+                        f"""
+                        Not enough balance for:
+                        cpid: {send.get('cpid')}
+                        tick: {send.get('tick')}
+                        from: {address}
+                        to: {send.get('to')}
+                        qty: {send.get('quantity')}
+                        balance: {result[0]}
+                        """
                     )
                 # FIXME: this is a problem for reorgs as we are not saving
                 # prev_quantity and prev_last_update
@@ -220,7 +236,10 @@ def parse_tx_to_dispenser_table(db, cursor, dispenser, tx):
 
 
 def parse_issuance_to_send_table(db, cursor, issuance, tx):
-    if (issuance['quantity'] == 0):
+    if (
+        issuance['quantity'] == 0
+        
+    ):
         return
     try:
         parsed_send = {

@@ -142,6 +142,8 @@ def check_change(protocol_change, change_name):
 
 
 def cp_version():
+    logger.warning("Checking for CP version")
     cp_version = get_cp_version()
+    logger.warning('Running counterparty-lib version {}'.format(cp_version))
     # FIXME: Finish version checking validation.
     return

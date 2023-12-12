@@ -214,7 +214,6 @@ def initialize(db):  # CHANGED TO MYSQL
         '''DELETE FROM transactions WHERE block_index < {}'''
         .format(config.BLOCK_FIRST)
     )
-
     cursor.close()
 
 
@@ -652,7 +651,6 @@ def follow(db):
     # Check software version.
     # check.software_version()
     check.cp_version()
-
     # initialize.
     initialize(db)
 
@@ -663,7 +661,7 @@ def follow(db):
     else:
         block_index = util.CURRENT_BLOCK_INDEX + 1
 
-    logger.info('Resuming parsing.')
+    logger.warning('Resuming parsing.')
     # Get index of last transaction.
     tx_index = get_next_tx_index(db)
     cursor = db.cursor()
