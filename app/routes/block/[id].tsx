@@ -1,6 +1,6 @@
 import { Handler, HandlerContext, Handlers, PageProps } from "$fresh/server.ts";
 import {
-  api_get_block_with_issuances,
+  api_get_block,
   api_get_last_block,
   api_get_related_blocks,
 } from "$lib/controller/block.ts";
@@ -24,7 +24,7 @@ export const handler: Handlers<BlockRow[]> = {
         headers: { Location: `/block/${last_block}` },
       });
     } else {
-      const block = await api_get_block_with_issuances(Number(ctx.params.id));
+      const block = await api_get_block(Number(ctx.params.id));
       const related_blocks = await api_get_related_blocks(
         Number(ctx.params.id),
       );

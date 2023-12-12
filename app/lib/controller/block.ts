@@ -7,7 +7,7 @@ import {
   get_related_blocks_with_client,
 } from "$lib/database/index.ts";
 
-export async function api_get_block_with_issuances(block_index: number) {
+export async function api_get_block(block_index: number) {
   try {
     const client = await connectDb();
     if (!client) {

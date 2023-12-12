@@ -182,6 +182,21 @@ export const get_issuances_by_block_index = async (block_index: number) => {
   );
 };
 
+// export const get_issuances_by_block_index_with_client = async (
+//   client: Client,
+//   block_index: number,
+// ) => {
+//   return await handleQueryWithClient(
+//     client,
+//     `
+//     SELECT * FROM StampTableV4
+//     WHERE block_index = ?
+//     ORDER BY tx_index;
+//     `,
+//     [block_index],
+//   );
+// };
+
 export const get_issuances_by_block_index_with_client = async (
   client: Client,
   block_index: number,
@@ -189,13 +204,21 @@ export const get_issuances_by_block_index_with_client = async (
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM StampTableV4
-    WHERE block_index = ?
-    ORDER BY tx_index;
+    SELECT st.*, num.stamp AS stamp
+    FROM StampTableV4 st
+    LEFT JOIN (
+        SELECT cpid, stamp
+        FROM StampTableV4
+        WHERE stamp IS NOT NULL
+    ) num ON st.cpid = num.cpid
+    WHERE st.block_index = ?
+    ORDER BY st.tx_index;
     `,
     [block_index],
   );
 };
+
+
 
 export const get_sends_by_block_index = async (block_index: number) => {
   return await handleQuery(

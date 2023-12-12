@@ -27,6 +27,7 @@ export default function BlockIssuancesTable(props: BlockIssuancesTableProps) {
             <tr>
               <th scope="col" class="px-6 py-3">Image</th>
               <th scope="col" class="px-6 py-3">Stamp</th>
+              <th scope="col" class="px-6 py-3">is_btc_stamp</th>
               <th scope="col" class="px-6 py-3">cpid</th>
               <th scope="col" class="px-6 py-3">Creator</th>
               <th scope="col" class="px-6 py-3">Divisible</th>
@@ -34,7 +35,6 @@ export default function BlockIssuancesTable(props: BlockIssuancesTableProps) {
               <th scope="col" class="px-6 py-3">Supply</th>
               <th scope="col" class="px-6 py-3">Keyburn</th>
               <th scope="col" class="px-6 py-3">Timestamp</th>
-              <th scope="col" class="px-6 py-3">is_btc_stamp</th>
               <th scope="col" class="px-6 py-3">is_reissuance</th>
             </tr>
           </thead>
@@ -42,10 +42,24 @@ export default function BlockIssuancesTable(props: BlockIssuancesTableProps) {
             {issuances.map((issuance: StampRow) => {
               return (
                 <tr class="odd:bg-white odd:dark:bg-gray-900 even:bg-gray-50 even:dark:bg-gray-800 border-b dark:border-gray-700">
-                  <td class="px-6 py-4">
+                  <td class="px-0.5 py-0.5">
                     <Stamp stamp={issuance} />
                   </td>
-                  <td class="px-6 py-4">{issuance.stamp}</td>
+                  <td class="px-6 py-4">{issuance.stamp ? issuance.stamp : 'CURSED'}</td>
+                  <td class="px-6 py-4 text-sm">
+                    {
+                    issuance.is_btc_stamp ?
+                      <img src="/img/btc_stamp_white.svg" width="42px" />
+                      :
+                      issuance.cpid.startsWith("A") ?
+                        <img  src="/img/cursed_white.svg" width="42px" />
+                        :
+                        <div class="flex flex-row gap-2">
+                          <img  src="/img/cursed_white.svg" width="42px" />
+                          <img  src="/img/named_white.svg" width="42px" />
+                        </div>
+                    }
+                  </td>
                   <td class="px-6 py-4 text-sm">{issuance.cpid}</td>
                   <td class="px-6 py-4 text-sm">
                     {issuance.creator_name ?? short_address(issuance.creator)}
@@ -55,7 +69,6 @@ export default function BlockIssuancesTable(props: BlockIssuancesTableProps) {
                   <td class="px-6 py-4 text-sm">{issuance.supply}</td>
                   <td class="px-6 py-4 text-sm">{issuance.keyburn ? "true" : "false"}</td>
                   <td class="px-6 py-4 text-sm">{dayjs(Number(block_info.block_time) * 1000).fromNow()}</td>
-                  <td class="px-6 py-4 text-sm">{issuance.is_btc_stamp ? "true" : "false"}</td>
                   <td class="px-6 py-4 text-sm">{issuance.is_reissue ? "true" : "false"}</td>
                 </tr>
               );

@@ -28,6 +28,7 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
           <tr>
             <th scope="col" class="px-6 py-3">Image</th>
             <th scope="col" class="px-6 py-3">Stamp</th>
+            <th scope="col" class="px-6 py-3">Is_btc_stamp</th>
             <th scope="col" class="px-6 py-3">From</th>
             <th scope="col" class="px-6 py-3">To</th>
             <th scope="col" class="px-6 py-3">Cpid</th>
@@ -44,11 +45,25 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
           {sends.map((send: SendRow) => {
             return (
               <tr class="odd:bg-white odd:dark:bg-gray-900 even:bg-gray-50 even:dark:bg-gray-800 border-b dark:border-gray-700">
-                <td class="px-6 py-4">
+                <td class="px-0.5 py-0.5">
                   <Stamp stamp={send} />
                 </td>
                 <td class="px-6 py-4">
                   {send.stamp ? send.stamp : "CURSED"}
+                </td>
+                <td class="px-6 py-4">
+                  {
+                    send.is_btc_stamp ?
+                      <img src="/img/btc_stamp_white.svg" width="42px" />
+                      :
+                      send.cpid.startsWith("A") ?
+                        <img src="/img/cursed_white.svg" width="42px" />
+                        :
+                        <div class="flex flex-row gap-2">
+                          <img src="/img/cursed_white.svg" width="42px" />
+                          <img src="/img/named_white.svg" width="42px" />
+                        </div>
+                  }
                 </td>
                 <td class="px-6 py-4">
                   {send.from ? short_address(send.from) : "NULL"}
