@@ -269,7 +269,7 @@ def parse_issuance_to_send_table(db, cursor, issuance, tx):
         and issuance['transfer'] is True
     ):
         from_address = issuance['source']
-        quantity = get_balance_for_address(
+        quantity += get_balance_for_address(
             cursor=cursor,
             address=from_address,
             cpid=issuance.get('cpid', None),
