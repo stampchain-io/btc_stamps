@@ -86,6 +86,7 @@ def insert_into_balances_table(cursor, send, op):
                         to: {send.get('to')}
                         qty: {send.get('quantity')}
                         balance: {result[0]}
+                        block_index: {send.get('block_index')}
                         """
                     )
                 # FIXME: this is a problem for reorgs as we are not saving
@@ -256,51 +257,149 @@ def get_balance_for_address(cursor, address, cpid=None, tick=None):
         return 0
 
 
-def parse_issuance_to_send_table(db, cursor, issuance, tx):
-    if (
-        issuance['quantity'] == 0
-        and issuance['issuer'] == issuance['source']
-    ):
-        return
-    from_address = None
-    quantity = issuance['quantity']
-    if (
-        issuance['issuer'] != issuance['source']
-        and issuance['transfer'] is True
-    ):
-        from_address = issuance['source']
-        quantity += get_balance_for_address(
-            cursor=cursor,
-            address=from_address,
-            cpid=issuance.get('cpid', None),
-            tick=issuance.get('tick', None)
-        )
-        logger.warning(f"""
-            cpid: {issuance.get('cpid')}
-            tick: {issuance.get('tick')}
-            from: {from_address}
-            to: {issuance.get('source')}
-            qty: {quantity}
-        """)
-    try:
-        parsed_send = {
-            'from': from_address,
+def parse_normal_issuance_to_send_table(cursor, issuance, tx):
+    parsed_send = {
+            'from': None,
             'to': issuance.get('issuer'),
             'cpid': issuance.get('cpid', None),
             'tick': issuance.get('tick', None),
             'memo': "issuance",
-            'quantity': quantity,
+            'quantity': issuance['quantity'],
             'tx_hash': issuance['tx_hash'],
             'tx_index': tx['tx_index'],
             'block_index': tx['block_index'],
-        }
-        insert_into_sends_table(
+    }
+    insert_into_sends_table(
+        cursor=cursor,
+        send=parsed_send
+    )
+    parse_send_to_balance_table_to(
+        cursor=cursor,
+        send=parsed_send
+    )
+
+
+def parse_issuance_with_transfer_with_quantity_to_send_table(
+    cursor, issuance, tx
+):
+    parsed_issuance_send = {
+        'from': None,
+        'to': issuance.get('issuer'),
+        'cpid': issuance.get('cpid', None),
+        'tick': issuance.get('tick', None),
+        'memo': "issuance",
+        'quantity': issuance['quantity'],
+        'tx_hash': issuance['tx_hash'],
+        'tx_index': tx['tx_index'],
+        'block_index': tx['block_index'],
+    }
+    insert_into_sends_table(
+        cursor=cursor,
+        send=parsed_issuance_send
+    )
+    parse_send_to_balance_table_to(
+        cursor=cursor,
+        send=parsed_issuance_send
+    )
+    from_address = issuance['issuer']
+    quantity = get_balance_for_address(
+        cursor=cursor,
+        address=from_address,
+        cpid=issuance.get('cpid', None),
+        tick=issuance.get('tick', None)
+    )
+    parsed_transfer_send = {
+        'from': from_address,
+        'to': issuance.get('source'),
+        'cpid': issuance.get('cpid', None),
+        'tick': issuance.get('tick', None),
+        'memo': "issuance",
+        'quantity': quantity,
+        'tx_hash': issuance['tx_hash'],
+        'tx_index': tx['tx_index'],
+        'block_index': tx['block_index'],
+    }
+    insert_into_sends_table(
+        cursor=cursor,
+        send=parsed_transfer_send
+    )
+    parse_send_to_balance_table_to(
+        cursor=cursor,
+        send=parsed_transfer_send
+    )
+    parse_send_to_balance_table_from(
+        cursor=cursor,
+        send=parsed_transfer_send
+    )
+
+
+def parse_issuance_with_transfer_without_quantity_to_send_table(
+    cursor, issuance, tx
+):
+    from_address = issuance['issuer']
+    quantity = get_balance_for_address(
+        cursor=cursor,
+        address=from_address,
+        cpid=issuance.get('cpid', None),
+        tick=issuance.get('tick', None)
+    )
+    parsed_send = {
+        'from': from_address,
+        'to': issuance.get('source'),
+        'cpid': issuance.get('cpid', None),
+        'tick': issuance.get('tick', None),
+        'memo': "issuance",
+        'quantity': quantity,
+        'tx_hash': issuance['tx_hash'],
+        'tx_index': tx['tx_index'],
+        'block_index': tx['block_index'],
+    }
+    insert_into_sends_table(
+        cursor=cursor,
+        send=parsed_send
+    )
+    parse_send_to_balance_table_to(
+        cursor=cursor,
+        send=parsed_send
+    )
+    parse_send_to_balance_table_from(
+        cursor=cursor,
+        send=parsed_send
+    )
+
+
+def parse_issuance_to_send_table(db, cursor, issuance, tx):
+    if (
+        issuance['quantity'] == 0
+        and issuance['issuer'] == issuance['source']
+        and issuance['transfer'] is False
+    ):
+        return
+    try:
+        if (
+            issuance['issuer'] != issuance['source']
+            and issuance['transfer'] is True
+            and issuance['quantity'] > 0
+        ):
+            return parse_issuance_with_transfer_with_quantity_to_send_table(
+                cursor=cursor,
+                issuance=issuance,
+                tx=tx
+            )
+        elif (
+            issuance['issuer'] != issuance['source']
+            and issuance['transfer'] is True
+            and issuance['quantity'] == 0
+        ):
+            return parse_issuance_with_transfer_without_quantity_to_send_table(
+                cursor=cursor,
+                issuance=issuance,
+                tx=tx
+            )
+        return parse_normal_issuance_to_send_table(
             cursor=cursor,
-            send=parsed_send
-        )
-        parse_send_to_balance_table_to(
-            cursor=cursor,
-            send=parsed_send
+            issuance=issuance,
+            tx=tx
         )
     except Exception as e:
         logger.error(f"parse_issuance_to_send_table: {e}")
