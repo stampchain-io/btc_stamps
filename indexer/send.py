@@ -235,20 +235,61 @@ def parse_tx_to_dispenser_table(db, cursor, dispenser, tx):
         raise e
 
 
+def get_balance_for_address(cursor, address, cpid=None, tick=None):
+    cursor.execute(
+        """
+        SELECT `quantity` FROM balances
+        WHERE `address` = %s
+        AND `cpid` <=> %s
+        AND `tick` <=> %s
+        """,
+        (
+            address,
+            cpid,
+            tick,
+        )
+    )
+    result = cursor.fetchone()
+    if result:
+        return result[0]
+    else:
+        return 0
+
+
 def parse_issuance_to_send_table(db, cursor, issuance, tx):
     if (
         issuance['quantity'] == 0
-        
+        and issuance['issuer'] == issuance['source']
     ):
         return
+    from_address = None
+    quantity = issuance['quantity']
+    if (
+        issuance['issuer'] != issuance['source']
+        and issuance['transfer'] is True
+    ):
+        from_address = issuance['source']
+        quantity = get_balance_for_address(
+            cursor=cursor,
+            address=from_address,
+            cpid=issuance.get('cpid', None),
+            tick=issuance.get('tick', None)
+        )
+        logger.warning(f"""
+            cpid: {issuance.get('cpid')}
+            tick: {issuance.get('tick')}
+            from: {from_address}
+            to: {issuance.get('source')}
+            qty: {quantity}
+        """)
     try:
         parsed_send = {
-            'from': None,
-            'to': issuance.get('source'),
+            'from': from_address,
+            'to': issuance.get('issuer'),
             'cpid': issuance.get('cpid', None),
             'tick': issuance.get('tick', None),
             'memo': "issuance",
-            'quantity': issuance['quantity'],
+            'quantity': quantity,
             'tx_hash': issuance['tx_hash'],
             'tx_index': tx['tx_index'],
             'block_index': tx['block_index'],
