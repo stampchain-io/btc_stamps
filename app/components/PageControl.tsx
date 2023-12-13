@@ -12,7 +12,8 @@ export function PageControl({ page, pages, page_size }: { page: number, pages: n
         <a
           href={`/stamp?page=${p}&limit=${page_size}`}
           f-partial={`/stamp?page=${p}&limit=${page_size}`}
-          class={`flex items-center justify-center px-3 h-8 leading-tight ${currentPage === p ? 'text-white bg-blue-500' : 'text-gray-500 bg-white'} border border-gray-300 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white`}
+          class={`flex items-center justify-center px-3 h-8 leading-tight font-medium hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-white
+            ${currentPage === p ? 'bg-white text-gray-800 dark:bg-gray-400 dark:text-black font-semibold' : 'text-gray-500 bg-white dark:text-gray-400 dark:bg-gray-800'}`}
         >
           {p}
         </a>
@@ -25,9 +26,18 @@ export function PageControl({ page, pages, page_size }: { page: number, pages: n
       <ul class="inline-flex items-center -space-x-px text-sm">
         <li>
           <a
+            href={`/stamp?page=1&limit=${page_size}`}
+            f-partial={`/stamp?page=1&limit=${page_size}`}
+            class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-r-0 border-gray-300 rounded-s-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+          >
+            {"<<"}
+          </a>
+        </li>
+        <li>
+          <a
             href={`/stamp?page=${Math.max(1, currentPage - 1)}&limit=${page_size}`}
             f-partial={`/stamp?page=${Math.max(1, currentPage - 1)}&limit=${page_size}`}
-            class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-r-0 border-gray-300 rounded-s-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+            class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-r-0 border-gray-300 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
           >
             {"<"}
           </a>
@@ -37,9 +47,18 @@ export function PageControl({ page, pages, page_size }: { page: number, pages: n
           <a
             href={`/stamp?page=${Math.min(totalPages, currentPage + 1)}&limit=${page_size}`}
             f-partial={`/stamp?page=${Math.min(totalPages, currentPage + 1)}&limit=${page_size}`}
-            class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-gray-300 rounded-e-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+            class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
           >
             {">"}
+          </a>
+        </li>
+        <li>
+          <a
+            href={`/stamp?page=${totalPages}&limit=${page_size}`}
+            f-partial={`/stamp?page=${totalPages}&limit=${page_size}`}
+            class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-l-0 border-gray-300 rounded-e-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+          >
+            {">>"}
           </a>
         </li>
       </ul>
