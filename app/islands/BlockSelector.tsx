@@ -10,7 +10,6 @@ interface BlockProps {
   block: BlockRow;
   selected: Signal<BlockRow>;
 }
-
 export default function Block(props: BlockProps) {
   const { block, selected } = props;
   function handleClick() {
@@ -18,26 +17,29 @@ export default function Block(props: BlockProps) {
   }
 
   const isSelected = selected.value === block;
+  const displayAddress = window.innerWidth >= 640 ? short_address(block.block_hash, 8) : short_address(block.block_hash, 16);
 
   return (
     <a
       href={`/block/${block.block_index}`}
-      class={`${
-        isSelected
-          ? "bg-white text-gray-700"
-          : "bg-gray-700 text-white"
-      } shadow-md outline-none focus:outline-none active:outline-none rounded overflow-hidden transition transform hover:shadow-lg sm:rounded-lg`}
+      class={`${isSelected
+          ? "bg-blue-100 text-gray-800" : "bg-gray-800 text-blue-100"
+        } transition-all transform hover:shadow-xl
+        rounded-lg overflow-hidden flex flex-col justify-between p-3 sm:p-4 m-2
+        cursor-pointer hover:bg-gray-700 hover:text-blue-200`}
       onclick={handleClick}
     >
-      <div class="text-center font-semibold p-1 text-xs sm:text-lg">
-        <p>{block.block_index}</p>
-        <p class="font-normal text-xs">{short_address(block.block_hash)}</p>
+      <div class="flex items-center justify-between text-sm sm:text-base">
+        <h3 class="font-bold">Block {block.block_index}</h3>
+        <span>{dayjs(Number(block.block_time) * 1000).fromNow()}</span>
       </div>
-      <div class="text-center text-xs p-1 sm:text-sm">
-        {dayjs(Number(block.block_time) * 1000).fromNow()}
+      <div class="mt-1 mb-2">
+        <p class="truncate">{displayAddress}</p>
+      </div>
+      <div class="flex items-center justify-between text-xs sm:text-sm">
+        <span>Issuances: {block.issuances}</span>
+        <span>Sends: {block.sends}</span>
       </div>
     </a>
   );
 }
-
-

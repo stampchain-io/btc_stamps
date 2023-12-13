@@ -10,7 +10,8 @@ interface BlockRow {
   txlist_hash: string;
   messages_hash: string;
   indexed: 1;
-  tx_count?: number;
+  issuances?: number;
+  sends?: number;
 }
 interface StampRow {
   stamp: number | null;

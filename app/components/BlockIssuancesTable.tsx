@@ -27,7 +27,7 @@ export default function BlockIssuancesTable(props: BlockIssuancesTableProps) {
             <tr>
               <th scope="col" class="px-6 py-3">Image</th>
               <th scope="col" class="px-6 py-3">Stamp</th>
-              <th scope="col" class="px-6 py-3">is_btc_stamp</th>
+              <th scope="col" class="px-6 py-3">Kind</th>
               <th scope="col" class="px-6 py-3">cpid</th>
               <th scope="col" class="px-6 py-3">Creator</th>
               <th scope="col" class="px-6 py-3">Divisible</th>
@@ -45,7 +45,7 @@ export default function BlockIssuancesTable(props: BlockIssuancesTableProps) {
                   <td class="px-0.5 py-0.5">
                     <Stamp stamp={issuance} />
                   </td>
-                  <td class="px-6 py-4">{issuance.stamp ? issuance.stamp : 'CURSED'}</td>
+                  <td class="px-6 py-4">{issuance.stamp >= 0 ? issuance.stamp : 'CURSED'}</td>
                   <td class="px-6 py-4 text-sm">
                     {
                     issuance.is_btc_stamp ?

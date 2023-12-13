@@ -28,7 +28,7 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
           <tr>
             <th scope="col" class="px-6 py-3">Image</th>
             <th scope="col" class="px-6 py-3">Stamp</th>
-            <th scope="col" class="px-6 py-3">Is_btc_stamp</th>
+            <th scope="col" class="px-6 py-3">Kind</th>
             <th scope="col" class="px-6 py-3">From</th>
             <th scope="col" class="px-6 py-3">To</th>
             <th scope="col" class="px-6 py-3">Cpid</th>
@@ -49,7 +49,7 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
                   <Stamp stamp={send} />
                 </td>
                 <td class="px-6 py-4">
-                  {send.stamp ? send.stamp : "CURSED"}
+                  {send.stamp >= 0 ? send.stamp : "CURSED"}
                 </td>
                 <td class="px-6 py-4">
                   {

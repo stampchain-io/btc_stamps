@@ -35,8 +35,8 @@ export const get_suffix_from_mimetype = (mimetype: string) => {
   return suffix;
 };
 
-export const short_address = (address: string) => {
-  return address.slice(0, 6) + "..." + address.slice(-6);
+export const short_address = (address: string, number=6) => {
+  return address.slice(0, number) + "..." + address.slice(-number);
 };
 
 export const getMimeType = (extension: string): string => {

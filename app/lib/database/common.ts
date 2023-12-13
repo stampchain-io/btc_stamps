@@ -153,18 +153,30 @@ export const get_related_blocks_with_client = async (
     [block_index, block_index],
   );
   const populated = blocks?.rows?.map(async (block) => {
-    const tx_info_from_block = await handleQueryWithClient(
+    const issuances_from_block = await handleQueryWithClient(
       client,
       `
-      SELECT COUNT(*) AS tx_count
+      SELECT COUNT(*) AS issuances
       FROM StampTableV4
       WHERE block_index = ?;
       `,
       [block.block_index],
     );
+
+    const sends_from_block = await handleQueryWithClient(
+      client,
+      `
+      SELECT COUNT(*) AS sends
+      FROM sends
+      WHERE block_index = ?;
+      `,
+      [block.block_index],
+    );
+
     return {
       ...block,
-      tx_count: tx_info_from_block.rows[0]["tx_count"] ?? 0,
+      issuances: issuances_from_block.rows[0]["issuances"] ?? 0,
+      sends: sends_from_block.rows[0]["sends"] ?? 0,
     };
   });
   const result = await Promise.all(populated.reverse());
@@ -204,12 +216,13 @@ export const get_issuances_by_block_index_with_client = async (
   return await handleQueryWithClient(
     client,
     `
-    SELECT st.*, num.stamp AS stamp
+    SELECT st.*, num.stamp AS stamp, num.is_btc_stamp AS is_btc_stamp
     FROM StampTableV4 st
     LEFT JOIN (
-        SELECT cpid, stamp
+        SELECT cpid, stamp, is_btc_stamp
         FROM StampTableV4
         WHERE stamp IS NOT NULL
+        AND is_btc_stamp IS NOT NULL
     ) num ON st.cpid = num.cpid
     WHERE st.block_index = ?
     ORDER BY st.tx_index;
