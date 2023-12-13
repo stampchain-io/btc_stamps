@@ -7,8 +7,9 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
     return (
       <iframe
         width="100%"
-        src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)
-          }`}
+        src={
+          `/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`
+        }
         onError={(e) => {
           e.currentTarget.src = stamp.stamp_url;
         }}
@@ -33,8 +34,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
     <img
       width="100%"
       style={{ imageRendering: "pixelated", objectFit: "contain" }}
-      src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)
-        }`}
+      src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`}
       onError={(e) => {
         e.currentTarget.src = `/content/not-available.png`;
       }}

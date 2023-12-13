@@ -34,6 +34,7 @@ export {
   get_total_stamps_by_ident,
   get_total_stamps_by_ident_with_client,
   get_total_stamps_with_client,
+  get_resumed_stamps_by_page_with_client,
 } from "./stamps.ts";
 
 export {

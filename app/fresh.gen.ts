@@ -19,6 +19,7 @@ import * as $api_v2_stamps_index from "./routes/api/v2/stamps/index.ts";
 import * as $block_id_ from "./routes/block/[id].tsx";
 import * as $content_imgpath_ from "./routes/content/[...imgpath].tsx";
 import * as $index from "./routes/index.tsx";
+import * as $stamp_index from "./routes/stamp/index.tsx";
 import * as $BlockSelector from "./islands/BlockSelector.tsx";
 import { type Manifest } from "$fresh/server.ts";
 
@@ -45,6 +46,7 @@ const manifest = {
     "./routes/block/[id].tsx": $block_id_,
     "./routes/content/[...imgpath].tsx": $content_imgpath_,
     "./routes/index.tsx": $index,
+    "./routes/stamp/index.tsx": $stamp_index,
   },
   islands: {
     "./islands/BlockSelector.tsx": $BlockSelector,

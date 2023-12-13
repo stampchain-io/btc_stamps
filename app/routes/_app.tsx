@@ -10,7 +10,10 @@ export default function App({ Component }: AppProps) {
         <link rel="stylesheet" href="/styles.css" />
       </head>
       <body class="bg-black">
+      <div class="px-2 py-8 mx-auto bg-[#000000] flex flex-col md:gap-4 overflow-auto max-w-6xl">
+        <h1 class="text-2xl text-center text-[#ffffff]">Bitcoin Stamps</h1>
         <Component />
+      </div>
       </body>
     </html>
   );
