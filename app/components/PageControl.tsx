@@ -11,6 +11,7 @@ export function PageControl({ page, pages, page_size }: { page: number, pages: n
       <li key={p}>
         <a
           href={`/stamp?page=${p}&limit=${page_size}`}
+          f-partial={`/stamp?page=${p}&limit=${page_size}`}
           class={`flex items-center justify-center px-3 h-8 leading-tight ${currentPage === p ? 'text-white bg-blue-500' : 'text-gray-500 bg-white'} border border-gray-300 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white`}
         >
           {p}
@@ -25,18 +26,20 @@ export function PageControl({ page, pages, page_size }: { page: number, pages: n
         <li>
           <a
             href={`/stamp?page=${Math.max(1, currentPage - 1)}&limit=${page_size}`}
+            f-partial={`/stamp?page=${Math.max(1, currentPage - 1)}&limit=${page_size}`}
             class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-r-0 border-gray-300 rounded-s-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
           >
-            Previous
+            {"<"}
           </a>
         </li>
         {pageItems}
         <li>
           <a
             href={`/stamp?page=${Math.min(totalPages, currentPage + 1)}&limit=${page_size}`}
+            f-partial={`/stamp?page=${Math.min(totalPages, currentPage + 1)}&limit=${page_size}`}
             class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-gray-300 rounded-e-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
           >
-            Next
+            {">"}
           </a>
         </li>
       </ul>
