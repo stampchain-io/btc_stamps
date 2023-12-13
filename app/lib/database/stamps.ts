@@ -85,7 +85,7 @@ export const get_resumed_stamps_by_page_with_client = async (client: Client, lim
     SELECT stamp, cpid, creator, creator_name, tx_hash, stamp_mimetype, supply, divisible, locked
     FROM StampTableV4
     WHERE is_btc_stamp IS NOT NULL
-    ORDER BY stamp ${order}
+    ORDER BY tx_index ${order}
     LIMIT ? OFFSET ?;
     `,
     [limit, offset]
