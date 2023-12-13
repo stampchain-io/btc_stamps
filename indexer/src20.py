@@ -308,10 +308,10 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, block_index, desti
                     valid_src20_in_block.append(src20_dict)
                     return
                 else:
-                    logger.debug(f"Skipping DEPLOY for {src20_dict['tick']} because a prior DEPLOY exists")
+                    logger.debug(f"Invalid {src20_dict['tick']} DEPLOY - prior DEPLOY exists")
                     return
             else:
-                logger.debug(f"Skipping DEPLOY for {src20_dict['tick']} because max or lim is not an integer or >0")
+                logger.debug(f"Invalid {src20_dict['tick']} DEPLOY -  max or lim is not an integer or >0")
                 return
 
         elif src20_dict['op'] == 'MINT':
@@ -326,17 +326,17 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, block_index, desti
                     total_deployed = get_total_minted(db, src20_dict['tick'], valid_src20_in_block)
 
                     if total_deployed > deploy_max:
-                        logger.debug(f"Skipping MINT for {src20_dict['tick']} because total deployed {total_deployed} is greater than deploy_max {deploy_max}")
+                        logger.debug(f"Invalid {src20_dict['tick']} MINT - total deployed {total_deployed} > deploy_max {deploy_max}")
                         return
                     elif total_deployed + src20_dict['amt'] > deploy_max:
                         src20_dict['amt'] = deploy_max - total_deployed
-                        logger.debug(f"Reducing MINT for {src20_dict['tick']} because total deployed {total_deployed} + amt {src20_dict['tick']} is greater than deploy_max {deploy_max}")
+                        logger.debug(f"Reducing {src20_dict['tick']} MINT - total deployed {total_deployed} + amt {src20_dict['atm']} > deploy_max {deploy_max}")
 
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
                     return
                 else:
-                    logger.debug(f"Skipping Valid MINT for {src20_dict['tick']} because no valid DEPLOY exists")
+                    logger.debug(f"Invalid {src20_dict['tick']} MINT - no valid DEPLOY exists")
                     return
 
         elif src20_dict['op'] == 'TRANSFER':  
@@ -355,10 +355,10 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, block_index, desti
                             valid_src20_in_block.append(src20_dict)
                             return
                         else:
-                            logger.debug(f"Skipping Valid TRANSFER for {src20_dict['tick']} because total_balance {total_balance} is less than xfer amt {src20_dict['amt']}")
+                            logger.debug(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {total_balance} < xfer amt {src20_dict['amt']}")
                             return
                     else:
-                        logger.debug(f"Skipping Valid TRANSFER for {src20_dict['tick']} because no balance exists for {src20_dict['creator']}")
+                        logger.debug(f"Invalid {src20_dict['tick']} TRANSFER - no balance for {src20_dict['creator']}")
                         return
         
         # TODO: Update balance table
