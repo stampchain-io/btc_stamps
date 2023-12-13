@@ -412,11 +412,12 @@ def parse_issuance_to_send_table(db, cursor, issuance, tx):
             and issuance['transfer'] is True
             and issuance['quantity'] == 0
         ):
-            return parse_issuance_with_transfer_without_quantity_to_send_table(
-                cursor=cursor,
-                issuance=issuance,
-                tx=tx
-            )
+            return
+            # return parse_issuance_with_transfer_without_quantity_to_send_table(
+            #     cursor=cursor,
+            #     issuance=issuance,
+            #     tx=tx
+            # )
         return parse_normal_issuance_to_send_table(
             cursor=cursor,
             issuance=issuance,
