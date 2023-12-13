@@ -308,36 +308,36 @@ def parse_issuance_with_transfer_with_quantity_to_send_table(
             cursor=cursor,
             send=parsed_issuance_send
         )
-        from_address = issuance['issuer']
-        quantity = get_balance_for_address(
-            cursor=cursor,
-            address=from_address,
-            cpid=issuance.get('cpid', None),
-            tick=issuance.get('tick', None)
-        )
-        parsed_transfer_send = {
-            'from': from_address,
-            'to': issuance.get('source'),
-            'cpid': issuance.get('cpid', None),
-            'tick': issuance.get('tick', None),
-            'memo': "issuance",
-            'quantity': quantity,
-            'tx_hash': issuance['tx_hash'],
-            'tx_index': tx['tx_index'],
-            'block_index': tx['block_index'],
-        }
-        insert_into_sends_table(
-            cursor=cursor,
-            send=parsed_transfer_send
-        )
-        parse_send_to_balance_table_to(
-            cursor=cursor,
-            send=parsed_transfer_send
-        )
-        parse_send_to_balance_table_from(
-            cursor=cursor,
-            send=parsed_transfer_send
-        )
+        #  from_address = issuance['issuer']
+        #  quantity = get_balance_for_address(
+        #      cursor=cursor,
+        #      address=from_address,
+        #      cpid=issuance.get('cpid', None),
+        #      tick=issuance.get('tick', None)
+        #  )
+        #  parsed_transfer_send = {
+        #      'from': from_address,
+        #      'to': issuance.get('source'),
+        #      'cpid': issuance.get('cpid', None),
+        #      'tick': issuance.get('tick', None),
+        #      'memo': "issuance",
+        #      'quantity': quantity,
+        #      'tx_hash': issuance['tx_hash'],
+        #      'tx_index': tx['tx_index'],
+        #      'block_index': tx['block_index'],
+        #  }
+        #  insert_into_sends_table(
+        #      cursor=cursor,
+        #      send=parsed_transfer_send
+        #  )
+        #  parse_send_to_balance_table_to(
+        #      cursor=cursor,
+        #      send=parsed_transfer_send
+        #  )
+        #  parse_send_to_balance_table_from(
+        #      cursor=cursor,
+        #      send=parsed_transfer_send
+        #  )
     except Exception as e:
         logger.error(
             f"parse_issuance_with_transfer_with_quantity_to_send_table: {e}"
