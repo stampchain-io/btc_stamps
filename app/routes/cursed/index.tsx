@@ -5,7 +5,7 @@ import { api_get_stamps } from "$lib/controller/stamp.ts";
 import { PageControl } from "$components/PageControl.tsx";
 import { StampCard } from "$components/StampCard.tsx";
 
-type StampPageProps = {
+type CursedPageProps = {
   params: {
     stamps: StampRow[];
     total: number;
@@ -33,7 +33,7 @@ export const handler: Handlers<StampRow> = {
   },
 };
 
-export default function StampPage(props: StampPageProps) {
+export default function StampPage(props: CursedPageProps) {
   const { stamps, total, page, pages, page_size } = props.data;
   return (
     <div class="w-full flex flex-col items-center">
