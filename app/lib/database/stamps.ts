@@ -77,6 +77,7 @@ export const get_stamps_by_page_with_client = async (client: Client, limit = 100
 };
 
 export const get_resumed_stamps_by_page_with_client = async (client: Client, limit = 1000, page = 1, order="DESC") => {
+  order = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
   return await handleQueryWithClient(
     client,

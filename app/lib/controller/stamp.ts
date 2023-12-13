@@ -5,11 +5,10 @@ import {
   get_total_stamps_with_client,
 } from "$lib/database/index.ts";
 
-export async function api_get_stamps(page: number=0, page_size: number=1000) {
+export async function api_get_stamps(page: number=0, page_size: number=1000, order: "DESC"|"ASC"="DESC") {
   try {
     const client = await connectDb();
-    //const stamps = await get_stamps_by_page_with_client(client, page_size, page);
-    const stamps = await get_resumed_stamps_by_page_with_client(client, page_size, page);
+    const stamps = await get_resumed_stamps_by_page_with_client(client, page_size, page, order);
     if (!stamps) {
       throw new Error("No stamps found");
     }
