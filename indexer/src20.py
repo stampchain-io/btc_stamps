@@ -1,9 +1,11 @@
 from decimal import Decimal, InvalidOperation
 import json
 import logging
-from config import TICK_PATTERN_LIST
+from config import TICK_PATTERN_LIST, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALANCES_TABLE
+import src.log as log
 
 logger = logging.getLogger(__name__)
+log.set_logger(logger)  # set root logger
 
 
 def build_src20_svg_string(cursor, src_20_dict):
@@ -127,3 +129,221 @@ def check_format(input_string, tx_hash):
         return None
 
     return None
+
+
+def get_first_src20_deploy_lim_max(db, tick, processed_in_block):
+    with db.cursor() as src20_cursor:
+        src20_cursor.execute("""
+            SELECT
+                lim, max
+            FROM
+                {SRC20_VALID_TABLE}
+            WHERE
+                tick = %s
+                AND op = 'DEPLOY'
+                AND p = 'SRC-20'
+            ORDER BY
+                block_index ASC
+            LIMIT 1
+        """, (tick,))
+        result = src20_cursor.fetchone()
+
+        if result:
+            lim, max = result
+            return lim, max
+        else:
+            return get_first_src20_deploy_lim_max_in_block(processed_in_block, tick)
+
+
+def get_first_src20_deploy_lim_max_in_block(processed_in_block, tick):
+    if len(processed_in_block) > 0:
+        for item in processed_in_block:
+            if item["tick"] == tick and item["op"] == 'DEPLOY':
+                return item["lim"], item["max"]
+    return None, None
+
+
+def get_total_minted(db, tick, processed_in_block):
+    total_minted_db = get_total_minted_from_db(db, tick)
+    total_minted_block = get_total_minted_from_block(processed_in_block, tick)
+    return total_minted_db + total_minted_block
+
+
+def get_total_minted_from_db(db, tick):
+    with db.cursor() as src20_cursor:
+        src20_cursor.execute("""
+            SELECT
+                SUM(amt) AS total_minted
+            FROM
+                {SRC20_VALID_TABLE}
+            WHERE
+                tick = %s
+                AND op = 'MINT'
+        """, (tick,))
+        result = src20_cursor.fetchone()
+
+        if result:
+            total_minted = result[0]
+            return total_minted
+        else:
+            return 0
+
+
+def get_total_minted_from_block(processed_in_block, tick):
+    total_minted = 0
+    if len(processed_in_block) > 0:
+        for item in processed_in_block:
+            if item["tick"] == tick:
+                if item["op"] == 'MINT':
+                    total_minted += item["amt"]
+    return total_minted
+
+
+def get_total_balance(db, tick, source, processed_in_block):
+    total_balance_db = get_total_balance_from_db(db, tick, source)
+    total_balance_block = get_total_balance_from_block(processed_in_block, tick, source)
+    return total_balance_db + total_balance_block
+
+
+def get_total_balance_from_db(db, tick, source):
+    with db.cursor() as src20_cursor:
+        src20_cursor.execute("""
+            SELECT
+                SUM(amt) AS total_balance
+            FROM
+                {SRC20_VALID_TABLE}
+            WHERE
+                tick = %s
+                AND ((source = %s AND op = 'MINT') OR (destination = %s AND op = 'TRANSFER'))
+        """, tick, source, source)
+        result = src20_cursor.fetchone()
+        if result:
+            total_balance = result[0]
+            return total_balance
+        else:
+            return 0
+
+def get_total_balance_from_block(processed_in_block, tick, source):
+    total_balance = 0
+    if len(processed_in_block) > 0:
+        for item in processed_in_block:
+            if item["tick"] == tick:
+                if item["op"] == 'MINT' and item["source"] == source:
+                    total_balance += item["amt"]
+                elif item["op"] == 'TRANSFER' and item["destination"] == source:
+                    total_balance += item["amt"]
+    return total_balance
+
+
+def insert_into_src20_table(db, table_name, tx_hash, amt, block_index, source, dec, lim, max, op, p, tick, destination):
+    with db.cursor() as src20_cursor:
+        src20_cursor.execute(f"""
+            INSERT INTO {table_name} (tx_hash, amt, block_index, creator, deci, lim, max, op, p, tick, destination)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                amt = VALUES(amt),
+                block_index = VALUES(block_index),
+                creator = VALUES(creator),
+                deci = VALUES(deci),
+                lim = VALUES(lim),
+                max = VALUES(max),
+                op = VALUES(op),
+                p = VALUES(p),
+                tick = VALUES(tick),
+                destination = VALUES(destination)
+        """, (tx_hash, amt, block_index, source, dec, lim, max, op, p, tick, destination))
+
+
+def build_valid_tokens_dict(tx_hash, src20_dict):
+    valid_tokens_dict = {
+        'tx_hash': tx_hash,
+        'tick': src20_dict.get('tick'),
+        'op': src20_dict.get('op'),
+        'lim': src20_dict.get('lim'),
+        'max': src20_dict.get('max'),
+        'dec': src20_dict.get('dec'),
+    }
+    return valid_tokens_dict
+
+    
+def insert_into_src20_tables(db, src20_dict, source, tx_hash, block_index, destination, valid_src20_in_block):
+    ''' this is all SRC-20 Tokens that pass check_format '''
+    
+    amt = src20_dict.get('amt', None)
+    op = src20_dict.get('op', None)
+    p = src20_dict.get('p', None)
+    tick = src20_dict.get('tick', None)
+    max = src20_dict.get('max', None) # MAX, LIM fields are integers only
+    lim = src20_dict.get('lim', None)
+    dec = src20_dict.get('dec', '18') 
+
+    try:
+        # No additional validation here, we are just dumping in all valid SRC-20 tokens for additional verification later
+        insert_into_src20_table(db, SRC20_TABLE, tx_hash, amt, block_index, source, dec, lim, max, op, p, tick, destination)
+
+        if src20_dict.get('op') == 'DEPLOY':
+            if tick and isinstance(max, int) and isinstance(lim, int):
+                deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, tick, valid_src20_in_block)
+
+                if deploy_lim and deploy_max:
+                    insert_into_src20_table(db, SRC20_VALID_TABLE, tx_hash, amt, block_index, source, dec, lim, max, op, p, tick, destination)
+                    valid_tokens_dict = build_valid_tokens_dict(tx_hash, src20_dict)
+                    valid_src20_in_block.append(valid_tokens_dict)
+                    return
+                else:
+                    logger.debug(f"Skipping DEPLOY for {src20_dict.get('tick')} because a prior DEPLOY exists")
+                    return
+            else:
+                logger.debug(f"Skipping DEPLOY for {src20_dict.get('tick')} because max or lim is not an integer")
+                return
+
+        elif src20_dict.get('op') == 'MINT':
+            if tick and amt:  
+                deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, tick, valid_src20_in_block)
+                if deploy_lim and deploy_max and amt > 0:
+                    
+                    amt = deploy_lim if amt > deploy_lim else amt # this reduces the amt if it's over the Mint limit 
+                    total_deployed = get_total_minted(db, tick, valid_src20_in_block)
+
+                    if total_deployed > deploy_max:
+                        logger.debug(f"Skipping MINT for {src20_dict.get('tick')} because total deployed {total_deployed} is greater than deploy_max {deploy_max}")
+                        return
+                    elif total_deployed + amt > deploy_max:
+                        amt = deploy_max - total_deployed
+                        logger.debug(f"Reducing MINT for {src20_dict.get('tick')} because total deployed {total_deployed} + amt {amt} is greater than deploy_max {deploy_max}")
+
+                    insert_into_src20_table(db, SRC20_VALID_TABLE, tx_hash, amt, block_index, source, dec, lim, max, op, p, tick, destination)
+                    valid_tokens_dict = build_valid_tokens_dict(tx_hash, src20_dict)
+                    valid_src20_in_block.append(valid_tokens_dict)
+                    return
+                else:
+                    logger.debug(f"Skipping Valid MINT for {src20_dict.get('tick')} because no DEPLOY exists")
+                    return
+        
+        elif src20_dict.get('op') == 'TRANSFER':  
+            # check if transfer after deploy AND after mint for source/creator address, validate qty is below lim and source/creators prior balance, insert to valid table
+            if tick and amt:
+                deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, tick, valid_src20_in_block)
+                if deploy_lim and deploy_max: # we found a valid deploy
+                    if deploy_lim is not None and amt > 0:
+                            # this is after a deploy, now check the users balance from SRC20_BALANCE_TABLE
+                        total_balance = get_total_balance(db, tick, source, valid_src20_in_block)
+
+                        if total_balance > 0 and total_balance >= amt:
+                            insert_into_src20_table(db, SRC20_VALID_TABLE, tx_hash, amt, block_index, source, dec, lim, max, op, p, tick, destination)
+                            valid_tokens_dict = build_valid_tokens_dict(tx_hash, src20_dict)
+                            valid_src20_in_block.append(valid_tokens_dict)
+                            return
+                        else:
+                            logger.debug(f"Skipping Valid TRANSFER for {tick} because total_balance {total_balance} is less than amt {amt}")
+                            return
+                    else:
+                        logger.debug(f"Skipping Valid TRANSFER for {tick} because no balance exists for {source}")
+                        return
+        
+        ## update user balance table, or just build api queries from those in get_total_balance?
+
+    except Exception as e:
+        print(f"Error inserting data into src tables: {e}")
+        return None
+    

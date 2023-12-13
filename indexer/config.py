@@ -44,6 +44,10 @@ else:
 RPC_BATCH_SIZE = 20     # A 1 MB block can hold about 4200 transactions.
 
 STAMP_TABLE = "StampTableV4"
+SRC20_TABLE = "SRC20"
+SRC20_VALID_TABLE = "SRC20Valid"
+SRC20_BALANCES_TABLE = "SRC20Balances"
+
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ['SRC-721', 'SRC-20']
 INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'json']
