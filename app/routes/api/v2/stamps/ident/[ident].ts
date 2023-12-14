@@ -20,7 +20,6 @@ export const handler = async (req: Request, ctx: HandlerContext): Response => {
     const client = await connectDb();
     const data = await get_stamps_by_ident_with_client(client, ident.toUpperCase(), limit, page);
     const total = await get_total_stamps_by_ident_with_client(client, ident.toUpperCase());
-    console.log({ total });
     const last_block = await get_last_block_with_client(client);
     let body = JSON.stringify({
       ident: ident.toUpperCase(),
