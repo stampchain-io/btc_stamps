@@ -73,18 +73,6 @@ def is_prev_block_parsed(db, block_index):
     else:
         purge_block_db(db, block_index - 1)
         return False
-    
-
-def get_creator_name(block_cursor, address):
-    block_cursor.execute(f'''
-        SELECT creator FROM creator
-        WHERE address = %s 
-    ''', (address,))
-    result = block_cursor.fetchone()
-    if result and result[0]:
-        return result[0]
-    else:
-        return None
 
 
 def base62_encode(num):
@@ -374,8 +362,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
-    creator_name = get_creator_name(stamp_cursor, source)
-
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
         block_index < config.CP_SRC20_BLOCK_END
@@ -456,7 +442,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         stamp_number: {stamp_number}
         ident: {ident}
         keyburn: {keyburn}
-        creator_name: {creator_name}
         file_suffix: {file_suffix}
         is valid src20 in cp: {valid_cp_src20}
         is valid src 20: {valid_src20}
@@ -477,7 +462,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
-        "creator_name": creator_name,
         "asset_longname": stamp.get('asset_longname'),
         "creator": source,
         "divisible": stamp.get('divisible'),
@@ -511,10 +495,10 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         message_index, stamp_base64,
                         stamp_mimetype, stamp_url, supply, timestamp,
                         tx_hash, tx_index, src_data, ident,
-                        creator_name, stamp_hash,
-                        is_btc_stamp, is_reissue, file_hash, is_valid_base64
+                        stamp_hash, is_btc_stamp, is_reissue,
+                        file_hash, is_valid_base64
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
                         parsed['cpid'], parsed['asset_longname'],
@@ -526,7 +510,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         parsed['supply'], parsed['timestamp'],
                         parsed['tx_hash'], parsed['tx_index'],
                         parsed['src_data'], parsed['ident'],
-                        parsed['creator_name'],
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
                         parsed['is_reissue'], parsed['file_hash'],
                         parsed['is_valid_base64']
