@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.image-rendering-pixelated {
+    image-rendering: pixelated;
+    background-image: url(/img/transparent-bg.png);
+    background-size: 3px;
+}

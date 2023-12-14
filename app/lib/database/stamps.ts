@@ -76,6 +76,22 @@ export const get_stamps_by_page_with_client = async (client: Client, limit = 100
   );
 };
 
+export const get_resumed_stamps_by_page_with_client = async (client: Client, limit = 1000, page = 1, order="DESC") => {
+  order = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
+  return await handleQueryWithClient(
+    client,
+    `
+    SELECT stamp, cpid, creator, creator_name, tx_hash, stamp_mimetype, supply, divisible, locked
+    FROM StampTableV4
+    WHERE is_btc_stamp IS NOT NULL
+    ORDER BY tx_index ${order}
+    LIMIT ? OFFSET ?;
+    `,
+    [limit, offset]
+  );
+};
+
 export const get_stamps_by_block_index = async (block_index: number) => {
   return await handleQuery(
     `
@@ -117,7 +133,6 @@ export const get_stamps_by_ident = async (ident: SUBPROTOCOLS, limit = 1000, pag
 
 export const get_stamps_by_ident_with_client = async (client: Client, ident: SUBPROTOCOLS, limit = 1000, page = 0) => {
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
-  console.log({ ident, limit, offset })
   return await handleQueryWithClient(
     client,
     `
