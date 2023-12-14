@@ -87,7 +87,7 @@ def check_format(input_string, tx_hash):
             ''' If the keys and values in the  string does not meet the requirements for src-20 we do not return or save the data in the Stamptable '''
             tick_value = input_dict.get("tick")
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_LIST) or len(tick_value) > 5:
-                logger.warning("EXCLUSION: did not match tick pattern", input_dict)
+                logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
                 return False
 
             deploy_keys = {"op", "tick", "max", "lim"}
