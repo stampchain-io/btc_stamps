@@ -2,7 +2,7 @@ import dayjs from "$dayjs/";
 import relativeTime from "$dayjs/plugin/relativeTime";
 
 import {short_address} from "utils/util.ts";
-import { StampKind } from "$/islands/StampKind.tsx";
+import { StampKind } from "$/components/StampKind.tsx";
 
 dayjs.extend(relativeTime);
 

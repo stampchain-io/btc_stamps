@@ -2,7 +2,7 @@ import dayjs from "$dayjs/";
 import relativeTime from "$dayjs/plugin/relativeTime";
 
 import Stamp from "$/components/Stamp.tsx";
-import { StampKind } from "$/islands/StampKind.tsx";
+import { StampKind } from "$/components/StampKind.tsx";
 
 import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
 

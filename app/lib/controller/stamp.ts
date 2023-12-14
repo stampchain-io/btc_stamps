@@ -52,6 +52,6 @@ export async function api_get_stamp(id: string) {
     };
   } catch (error) {
     console.error(error);
-    throw error;
+    return null;
   }
 }

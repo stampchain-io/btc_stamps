@@ -14,7 +14,11 @@ type StampPageProps = {
 export const handler: Handlers<StampRow> = {
   async GET(req: Request, ctx: HandlerContext) {
     const { id } = ctx.params;
-    const { stamp, total, holders } = await api_get_stamp(id);
+    const res = await api_get_stamp(id);
+    if (!res) {
+      return ctx.renderNotFound();
+    }
+    const { stamp, holders, total } = res;
     const data = {
       stamp,
       holders,
@@ -32,8 +36,7 @@ export default function StampPage(props: StampPageProps) {
         <img
           class="w-full h-full max-w-none object-cover image-rendering-pixelated rounded-lg"
           alt={`Stamp No. ${stamp.stamp}`}
-          src={"/not-available.png"}
-          //src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`}
+          src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`}
           onError={(e) => {
             e.currentTarget.src = `/content/not-available.png`;
           }}

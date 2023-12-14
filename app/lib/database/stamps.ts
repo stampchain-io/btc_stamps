@@ -211,6 +211,7 @@ export const get_stamp_with_client = async (client: Client, id: string) => {
   } else {
     data = await get_issuances_by_identifier_with_client(client, id);
   }
+  if (!data) return null;
   const stamp =  summarize_issuances(data.rows);
   return stamp;
 }

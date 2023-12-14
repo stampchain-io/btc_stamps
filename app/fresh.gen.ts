@@ -23,7 +23,6 @@ import * as $index from "./routes/index.tsx";
 import * as $stamp_id_ from "./routes/stamp/[id].tsx";
 import * as $stamp_index from "./routes/stamp/index.tsx";
 import * as $BlockSelector from "./islands/BlockSelector.tsx";
-import * as $StampKind from "./islands/StampKind.tsx";
 import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
@@ -55,7 +54,6 @@ const manifest = {
   },
   islands: {
     "./islands/BlockSelector.tsx": $BlockSelector,
-    "./islands/StampKind.tsx": $StampKind,
   },
   baseUrl: import.meta.url,
 } satisfies Manifest;
