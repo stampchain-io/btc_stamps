@@ -145,10 +145,8 @@ def getblock(block_hash): # returns a hex string
 
 
 def getcblock(block_hash):
-    # print('getblock', block_hash)
     block_hex = getblock(block_hash)
     return CBlock.deserialize(bytes.fromhex(block_hex))
-    # return CBlock.deserialize(util.unhexlify(block_hex)) # prior
 
 
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
@@ -177,7 +175,6 @@ def get_tx_list(block):
 
         tx_hash_list.append(tx_hash)
         raw_transactions[tx_hash] = bitcoinlib.core.b2x(raw)
-    # print("tx_hash_list: ", tx_hash_list) # debug
     return (tx_hash_list, raw_transactions)
 
 
