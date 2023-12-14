@@ -27,9 +27,13 @@ export function StampInfo({ stamp }: { stamp: StampRow }) {
         </p>
       </div>
       <div class="flex justify-around truncate border-b border-t">
-        <p>
+        <a
+          href={`https://xchain.io/asset/${stamp.cpid}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           CPID: {stamp.cpid}
-        </p>
+        </a>
       </div>
       <div class="flex justify-around truncate border-b border-t">
         <p>

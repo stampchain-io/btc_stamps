@@ -5,7 +5,7 @@ export function StampCard({ stamp, kind = 'stamp' }: { stamp: StampRow, kind: "c
 
   return (
     <a href={`/stamp/${stamp.tx_hash}`}
-      class="border rounded-lg text-center text-sm"
+      class="border rounded-lg text-center text-sm uppercase"
       >
       <div class="relative pb-[100%] w-full overflow-hidden">
         <img
@@ -32,6 +32,9 @@ export function StampCard({ stamp, kind = 'stamp' }: { stamp: StampRow, kind: "c
             }
           </p>
         </div>
+        <p class="text-gray-200 border-b">
+          {stamp.cpid}
+        </p>
         <p class="text-gray-200">
           Creator: {
             stamp.creator_name ?
