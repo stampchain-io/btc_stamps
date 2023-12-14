@@ -17,6 +17,8 @@ export {
   get_related_blocks_with_client,
   get_sends_by_block_index,
   get_sends_by_block_index_with_client,
+  get_sends_for_cpid,
+  get_sends_for_cpid_with_client,
 } from "./common.ts";
 
 export {

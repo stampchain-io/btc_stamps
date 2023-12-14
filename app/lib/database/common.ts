@@ -1,6 +1,6 @@
 import { Client } from "$mysql/mod.ts";
 import { handleQuery, handleQueryWithClient, summarize_issuances } from "./index.ts";
-import { STAMP_TABLE } from "constants"
+import { STAMP_TABLE, SEND_TABLE, BLOCK_TABLE } from "constants"
 import { get_balances } from "utils/xcp.ts"
 
 export const get_block_info = async (block_index: number) => {
@@ -431,4 +431,22 @@ export const get_balances_by_address_with_client = async (
   }
 };
 
+export const get_sends_for_cpid = async (cpid: string) => {
+  const query = `
+    SELECT s.*, b.block_time FROM ${SEND_TABLE} AS s
+    LEFT JOIN ${BLOCK_TABLE} AS b ON s.block_index = b.block_index
+    WHERE s.cpid = ?
+    ORDER BY s.tx_index;
+  `;
+  return await handleQuery(query, [cpid]);
+}
 
+export const get_sends_for_cpid_with_client = async (client: Client, cpid: string) => {
+  const query = `
+    SELECT s.*, b.block_time FROM ${SEND_TABLE} AS s
+    LEFT JOIN ${BLOCK_TABLE} AS b ON s.block_index = b.block_index
+    WHERE s.cpid = ?
+    ORDER BY s.tx_index;
+  `;
+  return await handleQueryWithClient(client, query, [cpid]);
+}

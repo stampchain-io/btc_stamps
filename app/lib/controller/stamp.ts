@@ -4,6 +4,7 @@ import {
   get_resumed_stamps_by_page_with_client,
   get_total_stamps_with_client,
   get_cpid_from_identifier_with_client,
+  get_sends_for_cpid_with_client,
 } from "$lib/database/index.ts";
 
 import { get_holders} from "utils/xcp.ts"
@@ -15,7 +16,7 @@ export async function api_get_stamps(page: number=0, page_size: number=1000, ord
     if (!stamps) {
       throw new Error("No stamps found");
     }
-    const total = await get_total_stamps_with_client(client);;
+    const total = await get_total_stamps_with_client(client);
     return {
       stamps: stamps.rows,
       total: total.rows[0].total,
@@ -40,6 +41,7 @@ export async function api_get_stamp(id: string) {
     const cpid_result = await get_cpid_from_identifier_with_client(client, id);
     const cpid = cpid_result.rows[0].cpid;
     const holders = await get_holders(cpid);
+    const sends = await get_sends_for_cpid_with_client(client, cpid);
     return {
       stamp: stamp,
       holders: holders.map((holder: any) => {
@@ -48,6 +50,7 @@ export async function api_get_stamp(id: string) {
           quantity: holder.divisible ? holder.quantity / 100000000 : holder.quantity,
         }
       }),
+      sends: sends.rows,
       total: total.rows[0].total
     };
   } catch (error) {
