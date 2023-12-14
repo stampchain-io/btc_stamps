@@ -17,19 +17,22 @@ CREATE TABLE IF NOT EXISTS blocks (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS transactions (
-  `tx_index` INT PRIMARY KEY,
-  `tx_hash` VARCHAR(64) UNIQUE,
+  `tx_index` INT,
+  `tx_hash` VARCHAR(64),
   `block_index` INT,
   `block_hash` VARCHAR(64),
   `block_time` INT,
-  `source` NVARCHAR(64),
-  `destination` LONGTEXT,
+  `source` VARCHAR(64),
+  `destination` TEXT,
   `btc_amount` BIGINT,
   `fee` BIGINT,
-  `data` LONGTEXT,
+  `data` MEDIUMTEXT,
   `supported` BIT DEFAULT 1,
   `keyburn` tinyint(1) DEFAULT NULL,
-  FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
+  PRIMARY KEY (`tx_index`, `tx_hash`),
+  UNIQUE (`tx_hash`),
+  INDEX `block_hash_index` (`block_index`, `block_hash`),
+  CONSTRAINT transactions_blocks_fk FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
@@ -48,20 +51,23 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `supply` bigint DEFAULT NULL,
   `timestamp` timestamp NULL DEFAULT NULL,
   `tx_hash` varchar(64) NOT NULL,
-  `tx_index` bigint DEFAULT NULL,
+  `tx_index` int NOT NULL,
   `src_data` json DEFAULT NULL,
   `ident` varchar(16) DEFAULT NULL,
-  `creator_name` varchar(255) DEFAULT NULL,
   `stamp_hash` varchar(255) DEFAULT NULL,
   `is_btc_stamp` tinyint(1) DEFAULT NULL,
   `is_reissue` tinyint(1) DEFAULT NULL,
   `file_hash` varchar(255) DEFAULT NULL,
   `is_valid_base64` tinyint(1) DEFAULT NULL,
-  PRIMARY KEY (`tx_hash`),
-  KEY `cpid_index` (`cpid`),
+  PRIMARY KEY (`tx_index`, `tx_hash`),
+  UNIQUE `tx_hash` (`tx_hash`),
+  UNIQUE `stamp_hash` (`stamp_hash`),
+  INDEX `cpid_index` (`cpid`),
+  INDEX `creator_index` (`creator`),
+  INDEX `block_index` (`block_index`),
+  INDEX `is_btc_stamp_index` (`is_btc_stamp`),
   FOREIGN KEY (`tx_hash`) REFERENCES transactions(`tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 CREATE TABLE IF NOT EXISTS `srcbackground` (
   `tick` varchar(16) NOT NULL,
   `base64` mediumtext,
@@ -73,7 +79,7 @@ CREATE TABLE IF NOT EXISTS `srcbackground` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `dispensers` (
-  `tx_index` int DEFAULT NULL,
+  `tx_index` int,
   `tx_hash` varchar(64) NOT NULL,
   `block_index` int DEFAULT NULL,
   `source` varchar(255) DEFAULT NULL,
@@ -87,24 +93,10 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
   `oracle_address` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`tx_hash`),
   UNIQUE KEY `tx_hash` (`tx_hash`),
-  KEY `cpid` (`cpid`),
-  CONSTRAINT `dispensers_ibfk_1` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4` (`cpid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-USE `btc_stamps`;
-CREATE TABLE IF NOT EXISTS `sends` (
-  `from` varchar(255) DEFAULT NULL,
-  `to` varchar(255) DEFAULT NULL,
-  `cpid` varchar(255) DEFAULT NULL,
-  `tick` varchar(255) DEFAULT NULL,
-  `memo` varchar(255) DEFAULT NULL,
-  `satoshirate` bigint DEFAULT NULL,
-  `quantity` bigint DEFAULT NULL,
-  `tx_hash` NVARCHAR(64),
-  `tx_index` int DEFAULT NULL,
-  `block_index` int DEFAULT NULL,
-  KEY `index_name` (`cpid`,`tick`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  INDEX `block_index` (`block_index`), 
+  INDEX `cpid_index` (`cpid`),
+  FOREIGN KEY (`cpid`) REFERENCES `StampTableV4` (`cpid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `sends` (
   `from` varchar(255) DEFAULT NULL,
@@ -115,17 +107,20 @@ CREATE TABLE IF NOT EXISTS `sends` (
   `satoshirate` bigint DEFAULT NULL,
   `quantity` bigint DEFAULT NULL,
   `tx_hash` VARCHAR(64),
-  `tx_index` int DEFAULT NULL,
-  `block_index` int DEFAULT NULL,
+  `tx_index` int,
+  `block_index` int,
+  PRIMARY KEY (`tx_hash`),
+  INDEX `block_index` (`block_index`), 
   KEY `index_name` (`cpid`,`tick`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-USE `btc_stamps`;
 CREATE TABLE IF NOT EXISTS `cp_wallet` (
   `address` varchar(255) DEFAULT NULL,
   `cpid` varchar(255) DEFAULT NULL,
   `quantity` bigint DEFAULT NULL,
-  KEY `index_name` (`address`,`cpid`)
+  KEY `index_name` (`address`,`cpid`),
+  INDEX `cpid_index` (`cpid`),
+  INDEX `address_index` (`address`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `creator` (
@@ -135,8 +130,8 @@ CREATE TABLE IF NOT EXISTS `creator` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC20` (
-  `tx_hash` VARCHAR(64)) NOT NULL,
-  `tx_index` int DEFAULT NULL,
+  `tx_hash` VARCHAR(64) NOT NULL,
+  `tx_index` int NOT NULL,
   `block_index` int DEFAULT NULL,
   `p` varchar(32) DEFAULT NULL,
   `op` varchar(32) DEFAULT NULL,
@@ -147,14 +142,14 @@ CREATE TABLE IF NOT EXISTS `SRC20` (
   `lim` BIGINT UNSIGNED DEFAULT NULL,
   `max` BIGINT UNSIGNED DEFAULT NULL,
   `destination` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`tx_hash`),
-  CONSTRAINT `fk_SRC20_transactions` FOREIGN KEY (`tx_hash`) REFERENCES `transactions` (`tx_hash`),
+  PRIMARY KEY (`tx_index`, `tx_hash`),
+  CONSTRAINT `fk_SRC20_transactions` FOREIGN KEY (`tx_hash`, `tx_index`) REFERENCES `transactions` (`tx_hash`, `tx_index`),
   CONSTRAINT `fk_SRC20_stamps` FOREIGN KEY (`tx_hash`) REFERENCES `StampTableV4` (`tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `tx_hash` VARCHAR(64) NOT NULL,
-  `tx_index` int DEFAULT NULL,
+  `tx_index` int NOT NULL,
   `block_index` int DEFAULT NULL,
   `p` varchar(32) DEFAULT NULL,
   `op` varchar(32) DEFAULT NULL,
@@ -165,8 +160,10 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `lim` BIGINT UNSIGNED DEFAULT NULL,
   `max` BIGINT UNSIGNED DEFAULT NULL,
   `destination` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`tx_hash`),
-  CONSTRAINT `fk_SRC20Valid_transactions` FOREIGN KEY (`tx_hash`) REFERENCES `transactions` (`tx_hash`),
-  CONSTRAINT `fk_SRC20Valid_stamps` FOREIGN KEY (`tx_hash`) REFERENCES `StampTableV4` (`tx_hash`)
+  PRIMARY KEY (`tx_index`, `tx_hash`),
+  INDEX `tick` (`tick`), 
+  INDEX `creator` (`creator`), 
+  INDEX `block_index` (`block_index`),
+  CONSTRAINT `fk_SRC20Valid_transactions` FOREIGN KEY (`tx_index`, `tx_hash`) REFERENCES `transactions` (`tx_index`, `tx_hash`),
+  CONSTRAINT `fk_SRC20Valid_stamps` FOREIGN KEY (`tx_index`, `tx_hash`) REFERENCES `StampTableV4` (`tx_index`, `tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
