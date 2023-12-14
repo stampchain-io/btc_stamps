@@ -15,6 +15,7 @@
   - [TODO] Migrate all the logic from enpoints to its own file to be reused by
     pages and endpoint
 
+
 # EXPLORER:
 
 - [WIP] Retrieve images from the static/stamps folder

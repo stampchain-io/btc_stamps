@@ -2,11 +2,12 @@ import {
   connectDb,
   get_block_info_with_client,
   get_issuances_by_block_index_with_client,
+  get_sends_by_block_index_with_client,
   get_last_block_with_client,
   get_related_blocks_with_client,
 } from "$lib/database/index.ts";
 
-export async function api_get_block_with_issuances(block_index: number) {
+export async function api_get_block(block_index: number) {
   try {
     const client = await connectDb();
     if (!client) {
@@ -20,13 +21,19 @@ export async function api_get_block_with_issuances(block_index: number) {
     if (!last_block || !last_block?.rows?.length) {
       throw new Error("Could not get last block");
     }
-    const data = await get_issuances_by_block_index_with_client(
+    const issuances = await get_issuances_by_block_index_with_client(
+      client,
+      block_index,
+    );
+
+    const sends = await get_sends_by_block_index_with_client(
       client,
       block_index,
     );
     const response = {
       block_info: block_info.rows[0],
-      data: data.rows,
+      issuances: issuances.rows,
+      sends: sends.rows,
       last_block: last_block.rows[0]["last_block"],
     };
     client.close();
