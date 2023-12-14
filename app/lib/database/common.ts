@@ -307,7 +307,8 @@ export const get_issuances_by_stamp_with_client = async (
     `,
     [stamp],
   );
-  const cpid = issuances.rows[0].cpid;
+  const cpid = issuances?.rows[0]?.cpid;
+  if (!cpid) return null;
   issuances = await handleQueryWithClient(
     client,
     `
