@@ -2,6 +2,8 @@ import { api_get_stamp } from "$lib/controller/stamp.ts";
 import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
 
 import { StampInfo } from "$components/StampInfo.tsx";
+import { StampHistory } from "$components/StampHistory.tsx";
+import { Stamp } from "$components/Stamp.tsx";
 
 
 type StampPageProps = {
@@ -18,43 +20,38 @@ export const handler: Handlers<StampRow> = {
     if (!res) {
       return ctx.renderNotFound();
     }
-    const { stamp, holders, total } = res;
+    const { stamp, holders, total, sends } = res;
     const data = {
       stamp,
       holders,
+      sends,
       total,
     }
     return await ctx.render(data);
   },
 };
-
 export default function StampPage(props: StampPageProps) {
-  const { stamp, total } = props.data;
+  const { stamp, sends, holders, total } = props.data;
+
   return (
-    <div class="grid grid-col-1 sm:grid-cols-2 gap-2">
-      <div>
-        <img
-          class="w-full h-full max-w-none object-cover image-rendering-pixelated rounded-lg"
-          alt={`Stamp No. ${stamp.stamp}`}
-          src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`}
-          onError={(e) => {
-            e.currentTarget.src = `/content/not-available.png`;
-          }}
-        />
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+      {/* Stamp Component */}
+      <div class="flex flex-col items-center justify-center order-1 sm:order-1">
+        <Stamp stamp={stamp} className="w-full" />
       </div>
-      {/* HISTORY */}
-      <div class="text-gray-200">
-        <StampInfo stamp={stamp} />
-      </div>
-        <StampInfo stamp={stamp} />
-      <div>
 
+      {/* Stamp History Component */}
+      <div class="order-3 sm:order-2 text-gray-200">
+        <StampHistory holders={holders} sends={sends} className="w-full" />
       </div>
-      {/* DISPENSERS */}
-      <div>
 
+      {/* Stamp Info Component */}
+      <div class="order-2 sm:order-3">
+        <StampInfo stamp={stamp} className="w-full" />
       </div>
+
+      {/* Otros componentes aquí */}
+      {/* ... */}
     </div>
   );
-
 }
