@@ -16,8 +16,18 @@ def build_src20_svg_string(cursor, src_20_dict):
 
 # query the srcbackground mysql table for these columns tick, base64, font_size, text_color, unicode, p
 def get_srcbackground_data(cursor, tick):
-    query = "SELECT base64, IFNULL(font_size, '30px') as font_size, IFNULL(text_color, 'white') as text_color FROM srcbackground WHERE UPPER(tick) = UPPER(%s) AND UPPER(p) = UPPER(%s)"
-    cursor.execute(query, (tick.upper(), "SRC-20"))
+    query = """
+        SELECT
+            base64,
+            CASE WHEN font_size IS NULL OR font_size = '' THEN '30px' ELSE font_size END AS font_size,
+            CASE WHEN text_color IS NULL OR text_color = '' THEN 'white' ELSE text_color END AS text_color
+        FROM
+            srcbackground
+        WHERE
+            UPPER(tick) = UPPER(%s)
+            AND UPPER(p) = UPPER(%s)
+    """
+    cursor.execute(query, (tick.upper(), "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
     result = cursor.fetchone()
     if result:
         base64, font_size, text_color = result

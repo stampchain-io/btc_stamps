@@ -2,24 +2,33 @@ import boto3
 import config
 from botocore.exceptions import NoCredentialsError
 import logging
+from tqdm import tqdm
+
+import src.log as log
 
 logger = logging.getLogger(__name__)
+log.set_logger(logger)  # set root logger
 
 ''' this file is intended for optional file upload to AWS S3 - WIP - NOT IMPLEMENTED'''
 
 
 def get_s3_objects(bucket_name, s3_client):
-    ''' this gets existing objects in S3 so we don't reupload existing files'''
+    ''' this gets existing objects in S3 so we don't reupload existing files which can add to AWS costs'''
+    # TODO: Save this in a new table for future reference and to avoid having to fetch this every time. 
+    # will need to update the table ofc if a file is over-written or if we re-index with a new bg image
     result = []
     paginator = s3_client.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket=bucket_name)
-    
-    for page in pages:
+    logger.info(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
+    pages = list(paginator.paginate(Bucket=bucket_name, Prefix=config.AWS_S3_IMAGE_DIR))
+    total_pages = len(pages)
+    current_page = 0
+
+    for current_page, page in enumerate(pages, start=1):
         if 'Contents' in page:
-            for obj in page['Contents']:
+            for obj in tqdm(page['Contents'], desc=f'Fetching S3 objects (Page {current_page}/{total_pages})', unit=' object', bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'):
                 s3_object = s3_client.head_object(Bucket=bucket_name, Key=obj['Key'])
                 result.append({'key': obj['Key'], 'md5': s3_object['ETag'].strip('"')})
-    
+
     return result
 
 
@@ -59,11 +68,13 @@ def check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
         if s3_file_path not in [obj['key'] for obj in config.S3_OBJECTS] or any(obj['key'] == s3_file_path and obj['md5'] != file_obj_md5 for obj in config.S3_OBJECTS):
             try:
                 file_obj.seek(0)
+                logger.debug(f"Uploading {filename} with hash {file_obj_md5} to S3...")
                 upload_file_to_s3(file_obj, config.AWS_S3_BUCKETNAME, s3_file_path, config.AWS_S3_CLIENT, content_type=mime_type)
             except Exception as e:
                 logger.warning(f"ERROR: Unable to upload", filename, "to S3. Error:", e)
         elif s3_file_path in [obj['key'] for obj in config.S3_OBJECTS]:
             try:
+                logger.info(f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload and invalidating Cloudfront cache.")
                 invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
             except Exception as e:
                 logger.warning(f"ERROR: Unable to invalidate S3 file. Error:", e)
