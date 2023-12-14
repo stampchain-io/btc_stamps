@@ -117,7 +117,6 @@ def get_src721_svg_string(src721_title, src721_desc, block_cursor):
 
 def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     # Initialize the SVG string
-    # svg = f'<div><svg xmlns="http://www.w3.org/2000/svg" viewbox="{tmp_collection_object["viewbox"]}" style="image-rendering:{tmp_collection_object["image-rendering"]}">'
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_collection_object["image-rendering"]}; width: 420px; height: 420px;">
             <foreignObject width="100%" height="100%">
             <style>img {{position:absolute;width:100%;height:100%;}}</style>
@@ -126,8 +125,12 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
             <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
 
     for i in range(len(tmp_nft_object["ts"])):
-        image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
-        svg += f'<img src="{image_src_base64}"/>'
+        if i < len(tmp_collection_object['t' + str(i) + '-img']) and tmp_nft_object['ts'][i] < len(tmp_collection_object['t' + str(i) + '-img']):
+            image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
+            svg += f'<img src="{image_src_base64}"/>'
+        else:
+            continue
+    
     svg += "</div></foreignObject></svg>"
     
     return textwrap.dedent(svg)

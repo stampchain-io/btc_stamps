@@ -1,5 +1,7 @@
 import { Client } from "$mysql/mod.ts";
-import { handleQuery, handleQueryWithClient } from "./index.ts";
+import { handleQuery, handleQueryWithClient, summarize_issuances } from "./index.ts";
+import { STAMP_TABLE } from "constants"
+import { get_balances } from "utils/xcp.ts"
 
 export const get_block_info = async (block_index: number) => {
   return await handleQuery(
@@ -61,7 +63,7 @@ export const get_last_x_blocks = async (num = 10) => {
     const tx_info_from_block = await handleQuery(
       `
       SELECT COUNT(*) AS tx_count
-      FROM StampTableV4
+      FROM ${STAMP_TABLE}
       WHERE block_index = ?;
       `,
       [block.block_index],
@@ -93,7 +95,7 @@ export const get_last_x_blocks_with_client = async (
       client,
       `
       SELECT COUNT(*) AS tx_count
-      FROM StampTableV4
+      FROM ${STAMP_TABLE}
       WHERE block_index = ?;
       `,
       [block.block_index],
@@ -123,7 +125,7 @@ export const get_related_blocks = async (
     const tx_info_from_block = await handleQuery(
       `
       SELECT COUNT(*) AS tx_count
-      FROM StampTableV4
+      FROM ${STAMP_TABLE}
       WHERE block_index = ?;
       `,
       [block.block_index],
@@ -157,7 +159,7 @@ export const get_related_blocks_with_client = async (
       client,
       `
       SELECT COUNT(*) AS issuances
-      FROM StampTableV4
+      FROM ${STAMP_TABLE}
       WHERE block_index = ?;
       `,
       [block.block_index],
@@ -186,7 +188,7 @@ export const get_related_blocks_with_client = async (
 export const get_issuances_by_block_index = async (block_index: number) => {
   return await handleQuery(
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE block_index = ?
     ORDER BY tx_index;
     `,
@@ -201,7 +203,7 @@ export const get_issuances_by_block_index = async (block_index: number) => {
 //   return await handleQueryWithClient(
 //     client,
 //     `
-//     SELECT * FROM StampTableV4
+//     SELECT * FROM ${STAMP_TABLE}
 //     WHERE block_index = ?
 //     ORDER BY tx_index;
 //     `,
@@ -217,10 +219,10 @@ export const get_issuances_by_block_index_with_client = async (
     client,
     `
     SELECT st.*, num.stamp AS stamp, num.is_btc_stamp AS is_btc_stamp
-    FROM StampTableV4 st
+    FROM ${STAMP_TABLE} st
     LEFT JOIN (
         SELECT cpid, stamp, is_btc_stamp
-        FROM StampTableV4
+        FROM ${STAMP_TABLE}
         WHERE stamp IS NOT NULL
         AND is_btc_stamp IS NOT NULL
     ) num ON st.cpid = num.cpid
@@ -238,11 +240,11 @@ export const get_sends_by_block_index = async (block_index: number) => {
     `
     SELECT s.*, st.*
     FROM sends s
-    JOIN StampTableV4 st ON s.cpid = st.cpid
+    JOIN ${STAMP_TABLE} st ON s.cpid = st.cpid
     WHERE s.block_index = ?
       AND st.is_valid_base64 = true
       AND st.block_index = (SELECT MIN(block_index) 
-                            FROM StampTableV4 
+                            FROM ${STAMP_TABLE} 
                             WHERE cpid = s.cpid 
                               AND is_valid_base64 = 1)
     ORDER BY s.tx_index;
@@ -260,11 +262,11 @@ export const get_sends_by_block_index_with_client = async (
     `
     SELECT s.*, st.*
     FROM sends s
-    JOIN StampTableV4 st ON s.cpid = st.cpid
+    JOIN ${STAMP_TABLE} st ON s.cpid = st.cpid
     WHERE s.block_index = ?
       AND st.is_valid_base64 = true
       AND st.block_index = (SELECT MIN(block_index) 
-                            FROM StampTableV4 
+                            FROM ${STAMP_TABLE} 
                             WHERE cpid = s.cpid 
                               AND is_valid_base64 = 1)
     ORDER BY s.tx_index;
@@ -276,7 +278,7 @@ export const get_sends_by_block_index_with_client = async (
 export const get_issuances_by_stamp = async (stamp: number) => {
   let issuances = await handleQuery(
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE stamp = ?
     ORDER BY tx_index;
     `,
@@ -285,7 +287,7 @@ export const get_issuances_by_stamp = async (stamp: number) => {
   const cpid = issuances.rows[0].cpid;
   issuances = await handleQuery(
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE (cpid = ?)
     ORDER BY tx_index;
     `,
@@ -301,7 +303,7 @@ export const get_issuances_by_stamp_with_client = async (
   let issuances = await handleQueryWithClient(
     client,
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE stamp = ?
     ORDER BY tx_index;
     `,
@@ -311,7 +313,7 @@ export const get_issuances_by_stamp_with_client = async (
   issuances = await handleQueryWithClient(
     client,
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE (cpid = ?)
     ORDER BY tx_index;
     `,
@@ -323,7 +325,7 @@ export const get_issuances_by_stamp_with_client = async (
 export const get_issuances_by_identifier = async (identifier: string) => {
   let issuances = await handleQuery(
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?)
     ORDER BY tx_index;
     `,
@@ -332,7 +334,7 @@ export const get_issuances_by_identifier = async (identifier: string) => {
   const cpid = issuances.rows[0].cpid;
   issuances = await handleQuery(
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE (cpid = ?)
     ORDER BY tx_index;
     `,
@@ -348,7 +350,7 @@ export const get_issuances_by_identifier_with_client = async (
   let issuances = await handleQueryWithClient(
     client,
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?)
     ORDER BY tx_index;
     `,
@@ -358,7 +360,7 @@ export const get_issuances_by_identifier_with_client = async (
   issuances = await handleQueryWithClient(
     client,
     `
-    SELECT * FROM StampTableV4
+    SELECT * FROM ${STAMP_TABLE}
     WHERE (cpid = ?)
     ORDER BY tx_index;
     `,
@@ -366,3 +368,66 @@ export const get_issuances_by_identifier_with_client = async (
   );
   return issuances;
 };
+
+export const get_balances_by_address = async (address: string) => {
+  try {
+    const xcp_balances = await get_balances(address);
+    const assets = xcp_balances.map(balance => balance.asset);
+
+    const query = `SELECT * FROM ${STAMP_TABLE} WHERE cpid IN (${assets.map(() => `?`).join(',')})`;
+    const balances = await handleQuery(query, assets);
+
+    const grouped = balances.rows.reduce((acc, cur) => {
+      acc[cur.cpid] = acc[cur.cpid] || [];
+      acc[cur.cpid].push(cur);
+      return acc;
+    }, {});
+
+    const summarized = Object.keys(grouped).map(key => summarize_issuances(grouped[key]));
+
+    return summarized.map(summary => {
+      const xcp_balance = xcp_balances.find(balance => balance.asset === summary.cpid);
+      return {
+        ...summary,
+        balance: xcp_balance ? xcp_balance.quantity : 0,
+      };
+    });
+  } catch (error) {
+    console.error("Error al obtener balances:", error);
+    return [];
+  }
+};
+
+export const get_balances_by_address_with_client = async (
+  client: Client,
+  address: string
+) => {
+  try {
+    const xcp_balances = await get_balances(address);
+    const assets = xcp_balances.map(balance => balance.asset);
+
+    const query = `SELECT * FROM ${STAMP_TABLE} WHERE cpid IN (${assets.map(() => `?`).join(',')})`;
+    const balances = await handleQueryWithClient(client, query, assets);
+
+    const grouped = balances.rows.reduce((acc, cur) => {
+      acc[cur.cpid] = acc[cur.cpid] || [];
+      acc[cur.cpid].push(cur);
+      return acc;
+    }, {});
+
+    const summarized = Object.keys(grouped).map(key => summarize_issuances(grouped[key]));
+
+    return summarized.map(summary => {
+      const xcp_balance = xcp_balances.find(balance => balance.asset === summary.cpid);
+      return {
+        ...summary,
+        balance: xcp_balance ? xcp_balance.quantity : 0,
+      };
+    });
+  } catch (error) {
+    console.error("Error getting balances: ", error);
+    return [];
+  }
+};
+
+

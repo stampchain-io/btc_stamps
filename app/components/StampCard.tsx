@@ -1,7 +1,6 @@
 import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
 
-export function StampCard({ stamp, kind = 'stamp' }: { stamp: StampRow, kind: "cursed" | "stamp" }) {
-  console.log(stamp);
+export function StampCard({ stamp, kind = 'stamp' }: { stamp: StampRow, kind: "cursed" | "stamp" | "named" }) {
 
   return (
     <a href={`/stamp/${stamp.tx_hash}`}

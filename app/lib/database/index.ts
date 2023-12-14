@@ -35,6 +35,9 @@ export {
   get_total_stamps_by_ident_with_client,
   get_total_stamps_with_client,
   get_resumed_stamps_by_page_with_client,
+  get_stamp_with_client,
+  get_cpid_from_identifier_with_client,
+  get_cpid_from_identifier,
 } from "./stamps.ts";
 
 export {
@@ -44,6 +47,7 @@ export {
   get_cursed_by_ident_with_client,
   get_cursed_by_page,
   get_cursed_by_page_with_client,
+  get_resumed_cursed_by_page_with_client,
   get_total_cursed,
   get_total_cursed_by_ident,
   get_total_cursed_by_ident_with_client,

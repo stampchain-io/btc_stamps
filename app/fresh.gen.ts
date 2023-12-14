@@ -20,8 +20,10 @@ import * as $block_id_ from "./routes/block/[id].tsx";
 import * as $content_imgpath_ from "./routes/content/[...imgpath].tsx";
 import * as $cursed_index from "./routes/cursed/index.tsx";
 import * as $index from "./routes/index.tsx";
+import * as $stamp_id_ from "./routes/stamp/[id].tsx";
 import * as $stamp_index from "./routes/stamp/index.tsx";
 import * as $BlockSelector from "./islands/BlockSelector.tsx";
+import * as $StampKind from "./islands/StampKind.tsx";
 import { type Manifest } from "$fresh/server.ts";
 
 const manifest = {
@@ -48,10 +50,12 @@ const manifest = {
     "./routes/content/[...imgpath].tsx": $content_imgpath_,
     "./routes/cursed/index.tsx": $cursed_index,
     "./routes/index.tsx": $index,
+    "./routes/stamp/[id].tsx": $stamp_id_,
     "./routes/stamp/index.tsx": $stamp_index,
   },
   islands: {
     "./islands/BlockSelector.tsx": $BlockSelector,
+    "./islands/StampKind.tsx": $StampKind,
   },
   baseUrl: import.meta.url,
 } satisfies Manifest;

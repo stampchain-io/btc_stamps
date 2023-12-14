@@ -1,6 +1,6 @@
 import { Partial } from "$fresh/runtime.ts";
 
-import { api_get_stamps } from "$lib/controller/stamp.ts";
+import { api_get_cursed } from "$lib/controller/cursed.ts";
 
 import { PageControl } from "$components/PageControl.tsx";
 import { StampCard } from "$components/StampCard.tsx";
@@ -21,7 +21,7 @@ export const handler: Handlers<StampRow> = {
     const page = parseInt(url.searchParams.get('page') || '1');
     const page_size = parseInt(url.searchParams.get('limit') || '1000');
     const order = url.searchParams.get('order')?.toUpperCase() || 'DESC';
-    const { stamps, total, pages, page: pag, page_size: limit } = await api_get_stamps(page, page_size, order);
+    const { stamps, total, pages, page: pag, page_size: limit } = await api_get_cursed(page, page_size, order);
     const data = {
       stamps,
       total,
