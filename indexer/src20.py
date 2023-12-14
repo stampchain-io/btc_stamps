@@ -241,6 +241,7 @@ def insert_into_src20_table(db, table_name, src20_dict):
         src20_cursor.execute(f"""
             INSERT INTO {table_name} (
                 tx_hash,
+                tx_index,
                 amt,
                 block_index,
                 creator,
@@ -281,11 +282,12 @@ def insert_into_src20_table(db, table_name, src20_dict):
         ))
 
     
-def insert_into_src20_tables(db, src20_dict, source, tx_hash, block_index, destination, valid_src20_in_block):
+def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, destination, valid_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
     
     src20_dict['creator'] = source
     src20_dict['tx_hash'] = tx_hash
+    src20_dict['tx_index'] = tx_index
     src20_dict['block_index'] = block_index
     src20_dict['destination'] = destination
     src20_dict.setdefault('dec', '18')

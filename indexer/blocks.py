@@ -556,7 +556,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
             data = str(stamp_send)
             source = str(stamp_send[0]['source'])
             destination = ','.join(send['destination'] for send in stamp_send)
-        logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
+        logger.info('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
                 tx_index,
@@ -813,6 +813,7 @@ def follow(db):
                     sys.exit()
 
                 processed_in_block= []
+                valid_src20_in_block = []
                 for tx_hash in txhash_list:
                     stamp_issuance = filter_issuances_by_tx_hash(
                         stamp_issuances, tx_hash
@@ -844,11 +845,10 @@ def follow(db):
                         stamp_send=stamp_send,
                     )
                     if (stamp_send is None):
-                        # stamptable is using the same cursor and will commit
-                        # when the block is complete
+                        # commits when the block is complete 
+                        # parsing all trx in the block
                         parse_tx_to_stamp_table(
                             db,
-                            block_cursor,
                             tx_hash,
                             source,
                             destination,
@@ -861,7 +861,8 @@ def follow(db):
                             block_index,
                             block_time,
                             is_op_return,
-                            processed_in_block
+                            processed_in_block,
+                            valid_src20_in_block
                         )
                         if (stamp_issuance is not None):
                             parse_issuance_to_send_table(
@@ -893,11 +894,12 @@ def follow(db):
                             )
 
                 try:
-                    block_cursor.execute("COMMIT")
-                    update_parsed_block(block_index, db)
+                    db.commit()
+                    update_parsed_block(db, block_index)
                 except Exception as e:
                     print("Error message:", e)
-                    block_cursor.execute("ROLLBACK")
+                    db.rollback()
+                    db.close()
                     sys.exit()
 
             logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s%s)' % (

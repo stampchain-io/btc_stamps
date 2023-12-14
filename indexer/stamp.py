@@ -16,7 +16,11 @@ import io
 import config
 from xcprequest import parse_base64_from_description
 from src721 import validate_src721_and_process
-from src20 import check_format, build_src20_svg_string
+from src20 import (
+    check_format,
+    build_src20_svg_string,
+    insert_into_src20_tables
+)
 import traceback
 from src.aws import check_existing_and_upload_to_s3
 
@@ -163,8 +167,7 @@ def decode_base64(base64_string, block_index):
                 return image_data, True
             except Exception as e3:
                 # If all decoding attempts fail, print an error message and return None
-                print(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
-                # print(base64_string)
+                logger.info(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
                 return None, None
 
 
@@ -179,8 +182,7 @@ def decode_base64_with_repair(base64_string):
         return image_data
 
     except Exception as e:
-        print(f"EXCLUSION: Invalid base64 image string: {e}")
-        # print(base64_string)
+        logger.info(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e}")
         return None
 
 
@@ -264,13 +266,13 @@ def zlib_decompress(compressed_data):
         # FIXME: we will need to return the json_string to import into the srcx table or import from here
         return ident, file_suffix, json_string
     except zlib.error:
-        print("EXCLUSION: Error decompressing zlib data")
+        logger.info(f"EXCLUSION: Error decompressing zlib data")
         return 'UNKNOWN', 'zlib', compressed_data
     except msgpack.exceptions.ExtraData:
-        print("EXCLUSION: Error decoding MessagePack data")
+        logger.info(f"EXCLUSION: Error decoding MessagePack data")
         return 'UNKNOWN', 'zlib', compressed_data
     except TypeError:
-        print("EXCLUSION: The decoded data is not JSON-compatible")
+        logger.info(f"EXCLUSION: The decoded data is not JSON-compatible")
         return 'UNKNOWN', 'zlib', compressed_data
 
 
@@ -358,11 +360,12 @@ def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue): 
     return is_btc_stamp, is_reissue
 
 
-def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return,  processed_in_block):
+def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
+                            tx_index, block_index, block_time, is_op_return,  processed_in_block, valid_src20_in_block):
     (file_suffix, filename, src_data, is_reissue, file_obj_md5, src_20_dict, src_20_string, is_btc_stamp, ident, is_valid_base64) = (
         None, None, None, None, None, None, None, None, None, None
     )
+    stamp_cursor = db.cursor()
     if data is None or data == '':
         return
     stamp = convert_to_json(data)
@@ -371,7 +374,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
     (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
-    creator_name = get_creator_name(block_cursor, source)
+    creator_name = get_creator_name(stamp_cursor, source)
 
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
@@ -398,7 +401,8 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         if src_20_string:
             src_20_dict = decoded_base64
             is_btc_stamp = 1
-            decoded_base64 = build_src20_svg_string(block_cursor, src_20_string)
+            insert_into_src20_tables(db, src_20_string, source, tx_hash, tx_index, block_index, destination, valid_src20_in_block)
+            decoded_base64 = build_src20_svg_string(stamp_cursor, src_20_string)
             file_suffix = 'svg'
         elif valid_src20 and not src_20_dict:
             return
@@ -407,7 +411,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         src_data = decoded_base64
         is_btc_stamp = 1
         # TODO: add a list of src721 tx to build for each block like we do with dupe on block below.
-        (svg_output, file_suffix) = validate_src721_and_process(src_data, block_cursor)
+        (svg_output, file_suffix) = validate_src721_and_process(src_data, stamp_cursor)
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
@@ -421,7 +425,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         is_btc_stamp = 1
 
     if cpid: 
-        is_btc_stamp, is_reissue = check_reissue(block_cursor, cpid, is_btc_stamp, processed_in_block)
+        is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
 
     if cpid and (is_btc_stamp or is_reissue):
         processed_stamps_dict = {
@@ -500,7 +504,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
         "is_valid_base64": is_valid_base64,
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
     # logger.debug(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
-    block_cursor.execute(f'''
+    stamp_cursor.execute(f'''
                     INSERT INTO {config.STAMP_TABLE}(
                         stamp, block_index, cpid, asset_longname,
                         creator, divisible, keyburn, locked,
@@ -527,7 +531,7 @@ def parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_
                         parsed['is_reissue'], parsed['file_hash'],
                         parsed['is_valid_base64']
                     ))
-
+    stamp_cursor.close()
 
 def get_next_stamp_number(db):
     """Return index of next transaction."""
@@ -566,7 +570,7 @@ def get_fileobj_and_md5(decoded_base64):
 def store_files(filename, decoded_base64, mime_type):
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
     if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID:
-        print("uploading to aws")  # FIXME: there may be cases where we want both aws and disk storage
+        logger.info(f"uploading {filename} to aws")  # FIXME: there may be cases where we want both aws and disk storage
         check_existing_and_upload_to_s3(
             filename, mime_type, file_obj, file_obj_md5
         )
@@ -577,10 +581,10 @@ def store_files(filename, decoded_base64, mime_type):
 
 def store_files_to_disk(filename, decoded_base64):
     if decoded_base64 is None:
-        logger.warning("decoded_base64 is None")
+        logger.info(f"decoded_base64 is None")
         return
     if filename is None:
-        logger.warning("filename is None")
+        logger.info(f"filename is None")
         return
     try:
         cwd = os.path.abspath(os.getcwd())
@@ -594,11 +598,11 @@ def store_files_to_disk(filename, decoded_base64):
         raise
 
 
-def update_parsed_block(block_index, db):
-    db.ping(reconnect=True)
+def update_parsed_block(db, block_index,):
     cursor = db.cursor()
     cursor.execute('''
                     UPDATE blocks SET indexed = 1
                     WHERE block_index = %s
                     ''', (block_index,))
-    cursor.execute("COMMIT")
+    db.commit()
+    cursor.close()

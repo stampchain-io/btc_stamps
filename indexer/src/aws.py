@@ -56,7 +56,7 @@ def upload_file_to_s3(file_obj_or_path, bucket_name, s3_file_path, s3_client, co
         else:
             s3_client.upload_file(file_obj_or_path, bucket_name, s3_file_path, ExtraArgs=extra_args)
     except Exception as e:
-        print(f"failure uploading to aws {e}")
+        logger.warning(f"failure uploading to aws {e}")
 
 
 def check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5):
