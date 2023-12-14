@@ -1,12 +1,12 @@
 import { get_suffix_from_mimetype } from "$lib/utils/util.ts";
-import { BASE_URL } from "$lib/utils/constants.ts";
 
-export const Stamp = ({ stamp }: { stamp: StampRow }) => {
+export const Stamp = ({ stamp, className }: { stamp: StampRow, className:string }) => {
 
   if (stamp.stamp_mimetype === "text/html") {
     return (
       <iframe
         width="100%"
+        class={`${className}`}
         src={
           `/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`
         }
@@ -21,7 +21,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
     return (
       <img
         width="100%"
-        style={{ imageRendering: "pixelated" }}
+        class={`${className} w-full h-full max-w-none object-contain image-rendering-pixelated rounded-lg`}
         src={`/content/not-available.png`}
         onError={(e) => {
           e.currentTarget.src = `/content/not-available.png`;
@@ -33,7 +33,7 @@ export const Stamp = ({ stamp }: { stamp: StampRow }) => {
   return (
     <img
       width="100%"
-      style={{ imageRendering: "pixelated", objectFit: "contain" }}
+      class={`${className} w-full h-full max-w-none object-contain image-rendering-pixelated rounded-lg`}
       src={`/content/${stamp.tx_hash}.${get_suffix_from_mimetype(stamp.stamp_mimetype)}`}
       onError={(e) => {
         e.currentTarget.src = `/content/not-available.png`;

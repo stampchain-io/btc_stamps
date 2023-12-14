@@ -52,6 +52,12 @@ interface SendRow {
   block_index: number;
 }
 
+interface HolderRow {
+  address: string;
+  quantity: number;
+  divisible: number;
+}
+
 interface BlockInfo {
   block_info: BlockRow;
   issuances: StampRow[];

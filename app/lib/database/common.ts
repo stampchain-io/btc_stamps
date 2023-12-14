@@ -1,5 +1,7 @@
 import { Client } from "$mysql/mod.ts";
-import { handleQuery, handleQueryWithClient } from "./index.ts";
+import { handleQuery, handleQueryWithClient, summarize_issuances } from "./index.ts";
+import { STAMP_TABLE, SEND_TABLE, BLOCK_TABLE } from "constants"
+import { get_balances } from "utils/xcp.ts"
 
 export const get_block_info = async (block_index: number) => {
   return await handleQuery(
@@ -367,3 +369,84 @@ export const get_issuances_by_identifier_with_client = async (
   );
   return issuances;
 };
+
+export const get_balances_by_address = async (address: string) => {
+  try {
+    const xcp_balances = await get_balances(address);
+    const assets = xcp_balances.map(balance => balance.asset);
+
+    const query = `SELECT * FROM ${STAMP_TABLE} WHERE cpid IN (${assets.map(() => `?`).join(',')})`;
+    const balances = await handleQuery(query, assets);
+
+    const grouped = balances.rows.reduce((acc, cur) => {
+      acc[cur.cpid] = acc[cur.cpid] || [];
+      acc[cur.cpid].push(cur);
+      return acc;
+    }, {});
+
+    const summarized = Object.keys(grouped).map(key => summarize_issuances(grouped[key]));
+
+    return summarized.map(summary => {
+      const xcp_balance = xcp_balances.find(balance => balance.asset === summary.cpid);
+      return {
+        ...summary,
+        balance: xcp_balance ? xcp_balance.quantity : 0,
+      };
+    });
+  } catch (error) {
+    console.error("Error al obtener balances:", error);
+    return [];
+  }
+};
+
+export const get_balances_by_address_with_client = async (
+  client: Client,
+  address: string
+) => {
+  try {
+    const xcp_balances = await get_balances(address);
+    const assets = xcp_balances.map(balance => balance.asset);
+
+    const query = `SELECT * FROM ${STAMP_TABLE} WHERE cpid IN (${assets.map(() => `?`).join(',')})`;
+    const balances = await handleQueryWithClient(client, query, assets);
+
+    const grouped = balances.rows.reduce((acc, cur) => {
+      acc[cur.cpid] = acc[cur.cpid] || [];
+      acc[cur.cpid].push(cur);
+      return acc;
+    }, {});
+
+    const summarized = Object.keys(grouped).map(key => summarize_issuances(grouped[key]));
+
+    return summarized.map(summary => {
+      const xcp_balance = xcp_balances.find(balance => balance.asset === summary.cpid);
+      return {
+        ...summary,
+        balance: xcp_balance ? xcp_balance.quantity : 0,
+      };
+    });
+  } catch (error) {
+    console.error("Error getting balances: ", error);
+    return [];
+  }
+};
+
+export const get_sends_for_cpid = async (cpid: string) => {
+  const query = `
+    SELECT s.*, b.block_time FROM ${SEND_TABLE} AS s
+    LEFT JOIN ${BLOCK_TABLE} AS b ON s.block_index = b.block_index
+    WHERE s.cpid = ?
+    ORDER BY s.tx_index;
+  `;
+  return await handleQuery(query, [cpid]);
+}
+
+export const get_sends_for_cpid_with_client = async (client: Client, cpid: string) => {
+  const query = `
+    SELECT s.*, b.block_time FROM ${SEND_TABLE} AS s
+    LEFT JOIN ${BLOCK_TABLE} AS b ON s.block_index = b.block_index
+    WHERE s.cpid = ?
+    ORDER BY s.tx_index;
+  `;
+  return await handleQueryWithClient(client, query, [cpid]);
+}
