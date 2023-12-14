@@ -3,6 +3,7 @@ import relativeTime from "$dayjs/plugin/relativeTime";
 
 import { get_suffix_from_mimetype, short_address } from "$lib/utils/util.ts";
 import Stamp from "$/components/Stamp.tsx";
+import { StampKind } from "$/components/StampKind.tsx";
 
 dayjs.extend(relativeTime);
 
@@ -43,6 +44,8 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
         </thead>
         <tbody>
           {sends.map((send: SendRow) => {
+            const kind = send.is_btc_stamp ? "stamp" : send.cpid.startsWith("A") ? "cursed" : "named"
+
             return (
               <tr class="odd:bg-white odd:dark:bg-gray-900 even:bg-gray-50 even:dark:bg-gray-800 border-b dark:border-gray-700">
                 <td class="px-0.5 py-0.5">
@@ -52,18 +55,7 @@ export default function BlockSendsTable(props: BlockSendsTableProps) {
                   {send.stamp >= 0 ? send.stamp : "CURSED"}
                 </td>
                 <td class="px-6 py-4">
-                  {
-                    send.is_btc_stamp ?
-                      <img src="/img/btc_stamp_white.svg" width="42px" />
-                      :
-                      send.cpid.startsWith("A") ?
-                        <img src="/img/cursed_white.svg" width="42px" />
-                        :
-                        <div class="flex flex-row gap-2">
-                          <img src="/img/cursed_white.svg" width="42px" />
-                          <img src="/img/named_white.svg" width="42px" />
-                        </div>
-                  }
+                  <StampKind kind={kind} />
                 </td>
                 <td class="px-6 py-4">
                   {send.from ? short_address(send.from) : "NULL"}

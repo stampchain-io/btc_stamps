@@ -188,3 +188,44 @@ export const get_stamp_by_identifier_with_client = async (client: Client, identi
     [identifier, identifier, identifier]
   );
 };
+
+export const get_stamp = async (id: string) => {
+  if (!isNaN(Number(id))) {
+    return await get_stamp_by_stamp(Number(id));
+  } else {
+    return await get_stamp_by_identifier(id);
+  }
+}
+
+export const get_stamp_with_client = async (client: Client, id: string) => {
+  let data;
+  if (!isNaN(Number(id))) {
+    data = await get_issuances_by_stamp_with_client(client, Number(id));
+  } else {
+    data = await get_issuances_by_identifier_with_client(client, id);
+  }
+  if (!data) return null;
+  const stamp =  summarize_issuances(data.rows);
+  return stamp;
+}
+
+export const get_cpid_from_identifier = async (identifier: string) => {
+  return await handleQuery(
+    `
+    SELECT cpid FROM ${STAMP_TABLE}
+    WHERE (cpid = ? OR tx_hash = ? OR stamp = ?);
+    `,
+    [identifier, identifier, identifier]
+  );
+}
+
+export const get_cpid_from_identifier_with_client = async (client: Client, identifier: string) => {
+  return await handleQueryWithClient(
+    client,
+    `
+    SELECT cpid FROM ${STAMP_TABLE}
+    WHERE (cpid = ? OR tx_hash = ? OR stamp = ?);
+    `,
+    [identifier, identifier, identifier]
+  );
+}
