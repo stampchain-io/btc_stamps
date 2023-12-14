@@ -15,6 +15,8 @@ export {
   get_last_x_blocks_with_client,
   get_related_blocks,
   get_related_blocks_with_client,
+  get_sends_by_block_index,
+  get_sends_by_block_index_with_client,
 } from "./common.ts";
 
 export {
@@ -32,6 +34,7 @@ export {
   get_total_stamps_by_ident,
   get_total_stamps_by_ident_with_client,
   get_total_stamps_with_client,
+  get_resumed_stamps_by_page_with_client,
 } from "./stamps.ts";
 
 export {

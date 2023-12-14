@@ -10,7 +10,8 @@ interface BlockRow {
   txlist_hash: string;
   messages_hash: string;
   indexed: 1;
-  tx_count?: number;
+  issuances?: number;
+  sends?: number;
 }
 interface StampRow {
   stamp: number | null;
@@ -39,7 +40,20 @@ interface StampRow {
   file_hash: string;
 }
 
+interface SendRow {
+  from: string;
+  to: string;
+  cpid: string|null;
+  tick: string|null;
+  memo: string;
+  quantity: BigInt;
+  tx_hash: string;
+  tx_index: number;
+  block_index: number;
+}
+
 interface BlockInfo {
   block_info: BlockRow;
-  data: StampRow[];
+  issuances: StampRow[];
+  sends: SendRow[];
 }
