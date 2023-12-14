@@ -4,6 +4,9 @@ import config
 import requests
 import logging
 import src.util as util
+from send import (
+    insert_into_sends_table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +61,9 @@ def handle_cp_call_with_retry(func, params, block_index):
 
 def get_cp_version():
     try:
-        logger.info("Connecting to CP Node: {}".format(config.CP_RPC_URL))
+        logger.warning(
+            f"""Connecting to CP Node: {config.CP_RPC_URL}"""
+        )
         payload = create_payload("get_running_info", {})
         headers = {'content-type': 'application/json'}
         response = requests.post(
@@ -120,6 +125,21 @@ def get_issuances(params={}):
     return json.loads(response.text)["result"]
 
 
+def get_sends(params={}):
+    payload = create_payload(
+        "get_sends",
+        params
+    )
+    headers = {'content-type': 'application/json'}
+    response = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers=headers,
+        auth=auth
+    )
+    return json.loads(response.text)["result"]
+
+
 def get_block(params={}):
     payload = create_payload(
         "get_blocks",
@@ -133,6 +153,21 @@ def get_block(params={}):
         auth=auth
     )
     return json.loads(response.text)["result"]
+
+
+def get_sends_for_cpid_before_block(cpid, block_index):
+    return handle_cp_call_with_retry(
+        func=get_sends,
+        params={
+            "filters": {
+                "field": "asset",
+                "op": "==",
+                "value": cpid
+            },
+            "end_block": block_index
+        },
+        block_index=block_index
+    )
 
 
 def get_issuances_by_block(block_index):
@@ -149,6 +184,36 @@ def get_issuances_by_block(block_index):
     )
 
 
+def get_dispensers_by_block(params):
+    payload = create_payload(
+        "get_dispensers",
+        params
+    )
+    headers = {'content-type': 'application/json'}
+    response = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers=headers,
+        auth=auth
+    )
+    return json.loads(response.text)["result"]
+
+
+def get_dispenses_by_block(params):
+    payload = create_payload(
+        "get_dispenses",
+        params
+    )
+    headers = {'content-type': 'application/json'}
+    response = requests.post(
+        url,
+        data=json.dumps(payload),
+        headers=headers,
+        auth=auth
+    )
+    return json.loads(response.text)["result"]
+
+
 def get_all_tx_by_block(block_index):
     return handle_cp_call_with_retry(
         func=get_block,
@@ -159,10 +224,60 @@ def get_all_tx_by_block(block_index):
     )
 
 
+def get_all_dispensers_by_block(block_index):
+    return handle_cp_call_with_retry(
+        func=get_dispensers_by_block,
+        params={
+            "filters": {
+                "field": "block_index",
+                "op": "==",
+                "value": block_index
+            }
+        },
+        block_index=block_index
+    )
+
+
+def get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
+    return handle_cp_call_with_retry(
+        func=get_issuances,
+        params={
+            "filters": [
+                {
+                    "field": "block_index",
+                    "op": "<",
+                    "value": block_index
+                },
+                {
+                    "field": "asset",
+                    "op": "==",
+                    "value": cpid
+                }
+            ]
+        },
+        block_index=block_index
+    )
+
+
+def get_all_dispenses_by_block(block_index):
+    return handle_cp_call_with_retry(
+        func=get_dispenses_by_block,
+        params={
+            "filters": {
+                "field": "block_index",
+                "op": "==",
+                "value": block_index
+            }
+        },
+        block_index=block_index
+    )
+
+
 def parse_issuances_and_sends_from_block(block_data, db):
     issuances, sends = [], []
     cursor = db.cursor()
     block_data = json.loads(json.dumps(block_data[0]))
+    dividends = []
     for tx in block_data['_messages']:
         tx_data = json.loads(tx.get('bindings'))
         tx_data['msg_index'] = tx.get('message_index')
@@ -175,7 +290,8 @@ def parse_issuances_and_sends_from_block(block_data, db):
                 tx_data.get('status', 'invalid') == 'valid'
             ):
                 stamp_issuance = check_for_stamp_issuance(
-                    issuance=tx_data
+                    issuance=tx_data,
+                    cursor=cursor
                 )
                 if stamp_issuance is not None:
                     issuances.append(
@@ -196,12 +312,112 @@ def parse_issuances_and_sends_from_block(block_data, db):
                     sends.append(
                         stamp_send
                     )
+        if (
+            tx.get("command") == 'insert'
+            and (
+                (
+                    tx.get('category') == 'debits'
+                    or tx.get('category') == 'credits'
+                )
+                and tx_data.get('action') == 'dividend'
+            )
+        ):
+            dividend = check_for_stamp_dividend(
+                dividend=tx_data,
+                type=tx.get('category'),
+                cursor=cursor
+            )
+            if (dividend is not None):
+                dividends.append(
+                    dividend
+                )
     cursor.close()
+    filtered_dividends = convert_dividends_to_sends(dividends)
+    sends.extend(filtered_dividends)
     return {
         "block_index": block_data["block_index"],
         "issuances": issuances,
         "sends": sends
     }
+
+
+def check_for_stamp_dividend(dividend, type, cursor):
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (dividend["asset"],)
+    )
+    issuance = cursor.fetchone()
+    if (issuance is not None):
+        filtered_dividend = {
+            "cpid": dividend["asset"],
+            "quantity": dividend["quantity"],
+            "address": dividend["address"],
+            "memo": "dividend",
+            "tx_hash": dividend["event"],
+            "block_index": dividend["block_index"],
+            "type": type
+        }
+        return filtered_dividend
+    return None
+
+
+def convert_dividends_to_sends(dividends):
+    sends = []
+    source = None
+    for dividend in dividends:
+        if dividend["type"] == "debits":
+            source = dividend["address"]
+    for dividend in dividends:
+        if dividend["type"] == "credits":
+            send = {
+                "cpid": dividend["cpid"],
+                "quantity": dividend["quantity"],
+                "source": source,
+                "destination": dividend["address"],
+                "memo": dividend["memo"],
+                "tx_hash": dividend["tx_hash"],
+                "block_index": dividend["block_index"]
+            }
+            sends.append(send)
+    return sends
+
+
+def parse_dispensers_from_block(dispensers, db):
+    stamp_dispensers, dispensers_sends = [], []
+    cursor = db.cursor()
+    for dispenser in dispensers:
+        stamp_dispenser, dispenser_send = check_for_stamp_dispensers(
+            dispenser=dispenser,
+            cursor=cursor
+        )
+        if stamp_dispenser and dispenser_send is not None:
+            stamp_dispensers.append(
+                stamp_dispenser
+            )
+            dispensers_sends.append(
+                dispenser_send
+            )
+    cursor.close()
+    return {
+        "dispensers": stamp_dispensers,
+        "sends": dispensers_sends
+    }
+
+
+def parse_dispenses_from_block(dispenses, db):
+    dispenses_sends = []
+    cursor = db.cursor()
+    for dispense in dispenses:
+        dispense_send = check_for_stamp_dispenses(
+            dispense=dispense,
+            cursor=cursor
+        )
+        if dispense_send is not None:
+            dispenses_sends.append(
+                dispense_send
+            )
+    cursor.close()
+    return dispenses_sends
 
 
 def parse_base64_from_description(description):
@@ -240,23 +456,59 @@ def parse_base64_from_description(description):
         return None, None
 
 
-def check_for_stamp_issuance(issuance):
+def check_for_stamp_issuance(issuance, cursor):
     description = issuance["description"]
-    if (
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (issuance["asset"],)
+    )
+    issuances = cursor.fetchall()
+    if ((
         description is not None and
         description.lower().find("stamp:") != -1
-    ):
+    ) or len(issuances) > 0):
+        prev_qty = 0
+        prev_sends = None
         (
             stamp_base64,
             stamp_mimetype
         ) = parse_base64_from_description(description)
-
+        if (len(issuances) == 0):
+            prev_issuances = get_all_prev_issuances_for_cpid_and_block(
+                cpid=issuance["asset"],
+                block_index=issuance["block_index"]
+            )
+            if len(prev_issuances) > 0:
+                for prev_issuance in prev_issuances:
+                    prev_qty += prev_issuance["quantity"]
+            if (prev_qty > 0):
+                sends = get_sends_for_cpid_before_block(
+                    cpid=issuance["asset"],
+                    block_index=issuance["block_index"]
+                )
+                if len(sends) > 0:
+                    prev_sends = [
+                        parse_send(send)
+                        for send in sends
+                    ]
+                    for send in prev_sends:
+                        send['block_index'] = issuance["block_index"]
+                        send['memo'] = "previous issuance send"
+                        insert_into_sends_table(
+                            cursor=cursor,
+                            send=send
+                        )
+        if prev_sends is None:
+            quantity = issuance["quantity"] + prev_qty
+        else:
+            quantity = issuance["quantity"]
+        logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
         if issuance["status"] == "valid":
             filtered_issuance = {
                 # we are not adding the base64 string to the json string
                 # in issuances, this is parsed when going to StampTable
                 "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
-                "quantity": issuance["quantity"],
+                "quantity": quantity,
                 "divisible": issuance["divisible"],
                 "locked": issuance["locked"],
                 "source": issuance["source"],
@@ -268,13 +520,74 @@ def check_for_stamp_issuance(issuance):
                 "asset_longname": (
                     issuance["asset_longname"]
                     if "asset_longname" in issuance
-                    else ""
+                    else ""  # TODO change to NULL
                 ),
                 "tx_hash": issuance["tx_hash"],
                 "message_index": issuance["msg_index"],
                 "stamp_mimetype": stamp_mimetype
             }
             return filtered_issuance
+    return None
+
+
+def check_for_stamp_dispensers(dispenser, cursor):
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (dispenser["asset"],)
+    )
+    issuance = cursor.fetchone()
+    if (issuance is not None):
+        price = dispenser.get('satoshirate', None)
+        filtered_dispenser = {
+            "source": dispenser["source"],
+            "origin": dispenser.get("origin", dispenser["source"]),
+            "tx_hash": dispenser["tx_hash"],
+            "block_index": dispenser["block_index"],
+            "cpid": dispenser["asset"],
+            "escrow_quantity": dispenser["escrow_quantity"],
+            "give_quantity": dispenser["give_quantity"],
+            "give_remaining": dispenser["give_remaining"],
+            "satoshirate": price,
+            "status": dispenser["status"],
+            "oracle_address": dispenser["oracle_address"],
+        }
+        filtered_send = {
+            "cpid": dispenser["asset"],
+            "quantity": dispenser["escrow_quantity"],
+            "source": dispenser.get("origin", dispenser["source"]),
+            "destination": dispenser["source"],
+            "satoshirate": price,
+            "memo": "dispenser",
+            "tx_hash": dispenser["tx_hash"],
+            "block_index": dispenser["block_index"]
+        }
+        return filtered_dispenser, filtered_send
+    return None, None
+
+
+def check_for_stamp_dispenses(dispense, cursor):
+    cursor.execute(
+        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
+        (dispense["asset"],)
+    )
+    issuance = cursor.fetchone()
+    if (issuance is not None):
+        cursor.execute(
+            "SELECT satoshirate FROM dispensers WHERE tx_hash = %s",
+            (dispense["dispenser_tx_hash"],)
+        )
+        price = cursor.fetchone()[0]
+        filtered_send = {
+            "cpid": dispense["asset"],
+            "quantity": dispense["dispense_quantity"],
+            "source": dispense["source"],
+            "destination": dispense["destination"],
+            "satoshirate": price,
+            "memo": "dispense",
+            "tx_hash": dispense["tx_hash"],
+            "block_index": dispense["block_index"]
+        }
+        return filtered_send
     return None
 
 
@@ -291,8 +604,9 @@ def check_for_stamp_send(send, cursor):
                 "quantity": send["quantity"],
                 "source": send["source"],
                 "destination": send["destination"],
-                "memo": send["memo"],
+                "memo": send.get("memo", "send"),
                 "status": send["status"],
+                "satoshirate": send.get('satoshirate'),
                 "tx_hash": send["tx_hash"],
                 "block_index": send["block_index"],
                 "message_index": send["msg_index"]
@@ -301,16 +615,20 @@ def check_for_stamp_send(send, cursor):
     return None
 
 
-def get_stamp_issuances(issuances):
-    stamp_issuances = []
-    for issuance in issuances:
-        filtered_issuance = check_for_stamp_issuance(issuance)
-        if (filtered_issuance is None):
-            continue
-        stamp_issuances.append(
-            json.loads(json.dumps(filtered_issuance))
-        )
-    return stamp_issuances
+def parse_send(send):
+    filtered_send = {
+        "cpid": send["asset"],
+        "quantity": send["quantity"],
+        "from": send["source"],
+        "to": send["destination"],
+        "memo": send.get("memo", "send"),
+        "status": send["status"],
+        "satoshirate": send.get('satoshirate'),
+        "tx_hash": send["tx_hash"],
+        "block_index": send["block_index"],
+        "message_index": send["msg_index"]
+    }
+    return filtered_send
 
 
 def get_stamp_sends(sends, db):
@@ -330,3 +648,24 @@ def filter_issuances_by_tx_hash(issuances, tx_hash):
         issuance for issuance in issuances if issuance["tx_hash"] == tx_hash
     ]
     return filtered_issuances[0] if filtered_issuances else None
+
+
+def filter_sends_by_tx_hash(sends, tx_hash):
+    filtered_sends = [
+        send for send in sends if send["tx_hash"] == tx_hash
+    ]
+    return filtered_sends if filtered_sends else None
+
+
+def filter_dispensers_by_tx_hash(dispensers, tx_hash):
+    filtered_disp = [
+        disp for disp in dispensers if disp["tx_hash"] == tx_hash
+    ]
+    return filtered_disp[0] if filtered_disp else None
+
+
+def filter_txs_by_tx_hash(txs, tx_hash):
+    filtered_txs = [
+        tx for tx in txs if tx["tx_hash"] == tx_hash
+    ]
+    return filtered_txs if filtered_txs else None

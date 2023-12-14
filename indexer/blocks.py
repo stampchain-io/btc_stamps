@@ -15,7 +15,6 @@ from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 import pymysql as mysql
 
-
 import config
 import src.exceptions as exceptions
 import src.util as util
@@ -24,17 +23,27 @@ import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
 from xcprequest import (
-    get_issuances_by_block,
-    get_stamp_issuances,
     get_all_tx_by_block,
+    get_all_dispensers_by_block,
+    get_all_dispenses_by_block,
     parse_issuances_and_sends_from_block,
-    filter_issuances_by_tx_hash
+    parse_dispensers_from_block,
+    parse_dispenses_from_block,
+    filter_sends_by_tx_hash,
+    filter_issuances_by_tx_hash,
+    filter_dispensers_by_tx_hash,
 )
 from stamp import (
     is_prev_block_parsed,
     purge_block_db,
     parse_tx_to_stamp_table,
     update_parsed_block,
+)
+
+from send import (
+    parse_tx_to_send_table,
+    parse_issuance_to_send_table,
+    parse_tx_to_dispenser_table,
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -342,7 +351,7 @@ def get_tx_info2(
             pass
     if source is None:
         raise DecodeError('unknown source address type')
-    
+
     # this is detecting keyburn for CP as well :) 
     # print("source =", source, "destinations =", destinations, "btc_amount =", btc_amount, "fee =", round(fee), "data =", data, "keyburn", keyburn, "\n")
     return source, destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return
@@ -513,7 +522,7 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
+def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None):
     assert type(tx_hash) is str
     cursor = db.cursor()
     # check if the incoming tx_hash from txhash_list is already in the trx table
@@ -525,16 +534,28 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     # Get the important details about each transaction.
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
-    source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return = \
-        get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
-    
+    (
+        source,
+        destination,
+        btc_amount,
+        fee,
+        data,
+        decoded_tx,
+        keyburn,
+        is_op_return
+    ) = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
+
     assert block_index == util.CURRENT_BLOCK_INDEX
 
-    if source and (data or destination) or stamp_issuance:
+    if source and (data or destination) or stamp_issuance or stamp_send:
         if stamp_issuance is not None:
             data = str(stamp_issuance)
             source = str(stamp_issuance['source'])
             destination = str(stamp_issuance['issuer'])
+        if stamp_send is not None:
+            data = str(stamp_send)
+            source = str(stamp_send[0]['source'])
+            destination = ','.join(send['destination'] for send in stamp_send)
         logger.debug('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
         cursor.execute(
             '''INSERT INTO transactions (
@@ -574,7 +595,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 def last_db_index(db):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
-    
+
     try:
         # Get the last block index from the SQLite database.
         cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)''')
@@ -669,8 +690,7 @@ def follow(db):
 
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
-            #  issuances = get_issuances_by_block(current_index)
-            #  stamp_issuances = get_stamp_issuances(issuances)
+
             block_data_from_xcp = get_all_tx_by_block(block_index=block_index)
             parsed_block_data = parse_issuances_and_sends_from_block(
                 block_data=block_data_from_xcp,
@@ -678,8 +698,31 @@ def follow(db):
             )
             stamp_issuances = parsed_block_data['issuances']
             stamp_sends = parsed_block_data['sends']
+            block_dispensers_from_xcp = get_all_dispensers_by_block(
+                block_index=block_index
+            )
+            parsed_stamp_dispensers = parse_dispensers_from_block(
+                dispensers=block_dispensers_from_xcp,
+                db=db
+            )
+            stamp_dispensers = parsed_stamp_dispensers['dispensers']
+            stamp_sends += parsed_stamp_dispensers['sends']
+            block_dispenses_from_xcp = get_all_dispenses_by_block(
+                block_index=block_index
+            )
+            stamp_dispenses = parse_dispenses_from_block(
+                dispenses=block_dispenses_from_xcp,
+                db=db
+            )
+            stamp_sends += stamp_dispenses
             logger.warning(
-                f"""XCP Block {block_index}\n- {len(stamp_issuances)} issuances\n- {len(stamp_sends)} sends."""
+                f"""
+                XCP Block {block_index}
+                - {len(stamp_issuances)} issuances
+                - {len(stamp_sends)} sends
+                - {len(stamp_dispensers)} dispensers
+                - {len(stamp_dispenses)} dispenses
+                """
             )
             if block_count - block_index < 100:
                 requires_rollback = False
@@ -771,11 +814,84 @@ def follow(db):
 
                 processed_in_block= []
                 for tx_hash in txhash_list:
-                    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
+                    stamp_issuance = filter_issuances_by_tx_hash(
+                        stamp_issuances, tx_hash
+                    )
+                    stamp_send = filter_sends_by_tx_hash(stamp_sends, tx_hash)
+                    stamp_dispenser = filter_dispensers_by_tx_hash(
+                        stamp_dispensers, tx_hash
+                    )
                     tx_hex = raw_transactions[tx_hash]
-                    tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return  = list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex, stamp_issuance=stamp_issuance)
-                    # stamptable is using the same cursor and will commit when the block is complete
-                    parse_tx_to_stamp_table(db, block_cursor, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, tx_index, block_index, block_time, is_op_return, processed_in_block)
+                    (
+                        tx_index,
+                        source,
+                        destination,
+                        btc_amount,
+                        fee,
+                        data,
+                        decoded_tx,
+                        keyburn,
+                        is_op_return
+                    ) = list_tx(
+                        db,
+                        block_hash,
+                        block_index,
+                        block_time,
+                        tx_hash,
+                        tx_index,
+                        tx_hex,
+                        stamp_issuance=stamp_issuance,
+                        stamp_send=stamp_send,
+                    )
+                    if (stamp_send is None):
+                        # stamptable is using the same cursor and will commit
+                        # when the block is complete
+                        parse_tx_to_stamp_table(
+                            db,
+                            block_cursor,
+                            tx_hash,
+                            source,
+                            destination,
+                            btc_amount,
+                            fee,
+                            data,
+                            decoded_tx,
+                            keyburn,
+                            tx_index,
+                            block_index,
+                            block_time,
+                            is_op_return,
+                            processed_in_block
+                        )
+                        if (stamp_issuance is not None):
+                            parse_issuance_to_send_table(
+                                db=db,
+                                cursor=block_cursor,
+                                issuance=stamp_issuance,
+                                tx={
+                                    "tx_index": tx_index,
+                                    "block_index": block_index
+                                }
+                            )
+                    else:
+                        parse_tx_to_send_table(
+                            db=db,
+                            cursor=block_cursor,
+                            sends=stamp_send,
+                            tx={
+                                "tx_index": tx_index,
+                            }
+                        )
+                        if (stamp_dispenser is not None):
+                            parse_tx_to_dispenser_table(
+                                db=db,
+                                cursor=block_cursor,
+                                dispenser=stamp_dispenser,
+                                tx={
+                                    "tx_index": tx_index,
+                                }
+                            )
+
                 try:
                     block_cursor.execute("COMMIT")
                     update_parsed_block(block_index, db)
