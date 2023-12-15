@@ -109,7 +109,6 @@ CREATE TABLE IF NOT EXISTS `sends` (
   `tx_hash` VARCHAR(64),
   `tx_index` int,
   `block_index` int,
-  PRIMARY KEY (`tx_hash`),
   INDEX `block_index` (`block_index`), 
   KEY `index_name` (`cpid`,`tick`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
