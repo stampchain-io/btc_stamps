@@ -1,7 +1,6 @@
 import dayjs from "$dayjs/";
 import relativeTime from "$dayjs/plugin/relativeTime";
 
-import { short_address } from "$lib/utils/util.ts";
 import BlockHeaderTable from "$/components/BlockHeaderTable.tsx";
 import BlockIssuancesTable from "$/components/BlockIssuancesTable.tsx";
 import BlockSendsTable from "$/components/BlockSendsTable.tsx";
