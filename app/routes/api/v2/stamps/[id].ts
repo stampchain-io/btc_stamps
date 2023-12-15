@@ -18,7 +18,7 @@ export const handler = async (_req: Request, ctx: HandlerContext): Response => {
       data = await get_issuances_by_identifier_with_client(client, id);
     }
     const last_block = await get_last_block_with_client(client);
-    const stamp = await summarize_issuances(data.rows);
+    const stamp =  summarize_issuances(data.rows);
     client.close();
     let body = JSON.stringify({
       data: stamp,

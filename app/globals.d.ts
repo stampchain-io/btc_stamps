@@ -63,3 +63,13 @@ interface BlockInfo {
   issuances: StampRow[];
   sends: SendRow[];
 }
+
+interface XCPParams {
+  filters?: {
+    field: string;
+    op: string;
+    value: string;
+  }[];
+  address?: string;
+  asset?: string;
+}
