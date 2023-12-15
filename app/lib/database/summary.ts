@@ -1,6 +1,4 @@
-import { get_issuances_by_identifier } from "./index.ts"
-
-export const summarize_issuances = async (issuances: StampRow[]) => {
+export const summarize_issuances = (issuances: StampRow[]) => {
     const summary = {
         ...issuances[0],
     };

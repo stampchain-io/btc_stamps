@@ -27,6 +27,8 @@
     "$lib/": "./lib/",
     "$islands/": "./islands/",
     "$components/": "./components/",
+    "constants": "./lib/utils/constants.ts",
+    "utils/": "./lib/utils/",
     "$/": "./"
   },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" }
