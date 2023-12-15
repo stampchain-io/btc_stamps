@@ -60,10 +60,12 @@ export const get_stamps_by_page = async (limit = 1000, page = 0) => {
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE is_btc_stamp IS NOT NULL
-    ORDER BY stamp
-    LIMIT ? OFFSET ?;
+      SELECT st.*, cr.creator AS creator_name
+      FROM ${STAMP_TABLE} AS st
+      LEFT JOIN creator AS cr ON st.creator = cr.address
+      WHERE st.is_btc_stamp IS NOT NULL
+      ORDER BY st.stamp
+      LIMIT ? OFFSET ?;
     `,
     [limit, offset]
   );
@@ -74,10 +76,12 @@ export const get_stamps_by_page_with_client = async (client: Client, limit = 100
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE is_btc_stamp IS NOT NULL
-    ORDER BY stamp
-    LIMIT ? OFFSET ?;
+      SELECT st.*, cr.creator AS creator_name
+      FROM ${STAMP_TABLE} AS st
+      LEFT JOIN creator AS cr ON st.creator = cr.address
+      WHERE st.is_btc_stamp IS NOT NULL
+      ORDER BY st.stamp
+      LIMIT ? OFFSET ?;
     `,
     [limit, offset]
   );
@@ -89,10 +93,11 @@ export const get_resumed_stamps_by_page_with_client = async (client: Client, lim
   return await handleQueryWithClient(
     client,
     `
-    SELECT stamp, cpid, creator, creator_name, tx_hash, stamp_mimetype, supply, divisible, locked
-    FROM ${STAMP_TABLE}
-    WHERE is_btc_stamp IS NOT NULL
-    ORDER BY tx_index ${order}
+    SELECT st.stamp, st.cpid, st.creator, cr.creator AS creator_name, st.tx_hash, st.stamp_mimetype, st.supply, st.divisible, st.locked
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.is_btc_stamp IS NOT NULL
+    ORDER BY st.tx_index ${order}
     LIMIT ? OFFSET ?;
     `,
     [limit, offset]
@@ -102,9 +107,11 @@ export const get_resumed_stamps_by_page_with_client = async (client: Client, lim
 export const get_stamps_by_block_index = async (block_index: number) => {
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE block_index = ?
-    AND is_btc_stamp IS NOT NULL
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.block_index = ?
+    AND st.is_btc_stamp IS NOT NULL
     ORDER BY stamp
     `,
     [block_index]
@@ -115,9 +122,11 @@ export const get_stamps_by_block_index_with_client = async (client: Client, bloc
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE block_index = ?
-    AND is_btc_stamp IS NOT NULL
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.block_index = ?
+    AND st.is_btc_stamp IS NOT NULL
     ORDER BY stamp
     `,
     [block_index]
@@ -128,10 +137,12 @@ export const get_stamps_by_ident = async (ident: SUBPROTOCOLS, limit = 1000, pag
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE ident = ?
-    AND is_btc_stamp IS NOT NULL
-    ORDER BY stamp
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.ident = ?
+    AND st.is_btc_stamp IS NOT NULL
+    ORDER BY st.stamp
     LIMIT ? OFFSET ?;
     `,
     [ident, limit, offset]
@@ -143,10 +154,12 @@ export const get_stamps_by_ident_with_client = async (client: Client, ident: SUB
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE ident = ?
-    AND is_btc_stamp IS NOT NULL
-    ORDER BY stamp
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.ident = ?
+    AND st.is_btc_stamp IS NOT NULL
+    ORDER BY st.stamp
     LIMIT ? OFFSET ?;
     `,
     [ident, limit, offset]
@@ -156,9 +169,11 @@ export const get_stamps_by_ident_with_client = async (client: Client, ident: SUB
 export const get_stamp_by_stamp = async (stamp: number) => {
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE stamp = ?
-    ORDER BY tx_index;
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.stamp = ?
+    ORDER BY st.tx_index;
     `,
     [stamp]
   );
@@ -168,8 +183,11 @@ export const get_stamp_by_stamp_with_client = async (client: Client, stamp: numb
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE stamp = ?;
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.stamp = ?
+    ORDER BY st.tx_index;
     `,
     [stamp]
   );
@@ -178,8 +196,10 @@ export const get_stamp_by_stamp_with_client = async (client: Client, stamp: numb
 export const get_stamp_by_identifier = async (identifier: string) => {
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?);
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE}
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE (st.cpid = ? OR st.tx_hash = ? OR st.stamp_hash = ?);
     `,
     [identifier, identifier, identifier]
   );
@@ -189,8 +209,10 @@ export const get_stamp_by_identifier_with_client = async (client: Client, identi
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE (cpid = ? OR tx_hash = ? OR stamp_hash = ?);
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE}
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE (st.cpid = ? OR st.tx_hash = ? OR st.stamp_hash = ?);
     `,
     [identifier, identifier, identifier]
   );
@@ -212,7 +234,7 @@ export const get_stamp_with_client = async (client: Client, id: string) => {
     data = await get_issuances_by_identifier_with_client(client, id);
   }
   if (!data) return null;
-  const stamp =  summarize_issuances(data.rows);
+  const stamp = summarize_issuances(data.rows);
   return stamp;
 }
 

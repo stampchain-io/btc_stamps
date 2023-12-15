@@ -58,10 +58,12 @@ export const get_cursed_by_page = async (limit = 1000, page = 0) => {
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creators AS cr ON st.creator = cr.address
+    WHERE st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index
     LIMIT ? OFFSET ?;
     `,
     [limit, offset]
@@ -73,10 +75,12 @@ export const get_cursed_by_page_with_client = async (client: Client, limit = 100
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index
     LIMIT ? OFFSET ?;
     `,
     [limit, offset]
@@ -89,11 +93,12 @@ export const get_resumed_cursed_by_page_with_client = async (client: Client, lim
   return await handleQueryWithClient(
     client,
     `
-    SELECT stamp, cpid, creator, creator_name, tx_hash, stamp_mimetype, supply, divisible, locked
-    FROM ${STAMP_TABLE}
-    WHERE is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index ${order}
+    SELECT st.stamp, st.cpid, st.creator, cr.creator AS creator_name, st.tx_hash, st.stamp_mimetype, st.supply, st.divisible, st.locked
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index ${order}
     LIMIT ? OFFSET ?;
     `,
     [limit, offset]
@@ -103,11 +108,13 @@ export const get_resumed_cursed_by_page_with_client = async (client: Client, lim
 export const get_cursed_by_block_index = async (block_index: number) => {
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE block_index = ?
-    AND is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.block_index = ?
+    AND st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index
     `,
     [block_index]
   );
@@ -117,11 +124,13 @@ export const get_cursed_by_block_index_with_client = async (client: Client, bloc
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE block_index = ?
-    AND is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE} AS st
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.block_index = ?
+    AND st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index
     `,
     [block_index]
   );
@@ -131,11 +140,13 @@ export const get_cursed_by_ident = async (ident: SUBPROTOCOLS, limit = 1000, pag
   const offset = limit && page ? Number(limit) * (Number(page) - 1) : 0;
   return await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE ident = ?
-    AND is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE}
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.ident = ?
+    AND st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index
     LIMIT ? OFFSET ?;
     `,
     [ident, limit, offset]
@@ -147,11 +158,13 @@ export const get_cursed_by_ident_with_client = async (client: Client, ident: SUB
   return await handleQueryWithClient(
     client,
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE ident = ?
-    AND is_btc_stamp IS NULL
-    AND is_reissue IS NULL
-    ORDER BY tx_index
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE}
+    LEFT JOIN creator AS cr ON st.creator = cr.address
+    WHERE st.ident = ?
+    AND st.is_btc_stamp IS NULL
+    AND st.is_reissue IS NULL
+    ORDER BY st.tx_index
     LIMIT ? OFFSET ?;
     `,
     [ident, limit, offset]
@@ -161,9 +174,10 @@ export const get_cursed_by_ident_with_client = async (client: Client, ident: SUB
 export const get_cursed_by_stamp = async (stamp: number) => {
   const issuances = await handleQuery(
     `
-    SELECT * FROM ${STAMP_TABLE}
-    WHERE stamp = ?
-    ORDER BY tx_index;
+    SELECT st.*, cr.creator AS creator_name
+    FROM ${STAMP_TABLE}
+    WHERE st.stamp = ?
+    ORDER BY st.tx_index;
     `,
     [stamp]
   );
