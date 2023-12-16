@@ -276,6 +276,14 @@ def insert_into_src20_table(db, table_name, src20_dict):
             src20_dict.get("block_time")
         ))
 
+def is_number(s):
+    ''' commas or invalid chars in the string are not allowed '''
+    # '1bca62a4309e0c02c1a7feff053a1071b2c63c99aad237bf6b69cc0f01a784f1' is a tx with a comma in amt which will be invalid
+    try:
+        Decimal(s)
+        return True
+    except InvalidOperation:
+        return False
     
 def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
@@ -294,8 +302,12 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
         elif key in ['p', 'tick', 'op']:
             src20_dict[key] = value.upper()
         elif key in ['max', 'lim']:
+            if not is_number(value):
+                return
             src20_dict[key] = int(value)
         elif key == 'amt':
+            if not is_number(value):
+                return
             src20_dict[key] = Decimal(value)
     try:
         insert_into_src20_table(db, SRC20_TABLE, src20_dict)
