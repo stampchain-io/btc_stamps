@@ -303,8 +303,9 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
             src20_dict[key] = value.upper()
         elif key in ['max', 'lim']:
             if not is_number(value):
-                return
-            src20_dict[key] = int(value)
+                return # its possible we still want to save in SRC20Table but will need to change the row type to varchar
+                # float to int for 1.00 for max value in '18b808259a56004da679161145efeb223b06ea19486babd480d4885d942dd450'
+            src20_dict[key] = int(float(value))
         elif key == 'amt':
             if not is_number(value):
                 return
