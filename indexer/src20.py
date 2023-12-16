@@ -337,7 +337,7 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                         return
                     elif Decimal(total_deployed) + Decimal(src20_dict['amt']) > Decimal(deploy_max):
                         src20_dict['amt'] = Decimal(deploy_max) - Decimal(total_deployed)
-                        logger.info(f"Reducing {src20_dict['tick']} MINT - total deployed {total_deployed} + amt {src20_dict['atm']} > deploy_max {deploy_max}")
+                        logger.info(f"Reducing {src20_dict['tick']} MINT - total deployed {total_deployed} + amt {src20_dict['amt']} > deploy_max {deploy_max}")
 
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
