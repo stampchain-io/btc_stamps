@@ -1,12 +1,6 @@
-import os
+from dotenv import load_dotenv
 
-if os.path.exists('.env'):
-    print('Found .env file. Loading environment variables')
-    with open('.env') as f:
-        for line in f:
-            key, value = line.strip().split('=')
-            os.environ[key] = value
-            print(f'Loaded {key}={value}')
+load_dotenv()
 
 import server
 
