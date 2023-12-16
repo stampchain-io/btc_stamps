@@ -22,6 +22,7 @@ import check
 import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
+import src.log as log
 from xcprequest import (
     get_all_tx_by_block,
     get_all_dispensers_by_block,
@@ -46,11 +47,15 @@ from send import (
     parse_tx_to_dispenser_table,
 )
 
+from src20 import (
+    update_src20_balances,
+)
+
 from src.exceptions import DecodeError, BTCOnlyError
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
-
+log.set_logger(logger)  
 
 def parse_block(db, block_index, block_time,
                 previous_ledger_hash=None, ledger_hash=None,
@@ -570,7 +575,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
                 fee,
                 data,
                 keyburn
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+            ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)''',
             (
                 tx_index,
                 tx_hash,
@@ -661,7 +666,7 @@ def follow(db):
     logger.info('Resuming parsing.')
     # Get index of last transaction.
     tx_index = get_next_tx_index(db)
-    cursor = db.cursor()
+
 
     # a reorg can happen without the block count increasing, or even for that
     # matter, with the block count decreasing. This should only delay
@@ -729,7 +734,7 @@ def follow(db):
                 while True:
                     if current_index == config.BLOCK_FIRST:
                         break
-                    logger.debug(
+                    logger.info(
                         f'Checking that block {current_index} is not orphan.'
                     )
                     # Backend parent hash.
@@ -738,13 +743,14 @@ def follow(db):
                     backend_parent = bitcoinlib.core.b2lx(
                         current_cblock.hashPrevBlock
                     )
-
-                    test_query = '''
+                    cursor = db.cursor()
+                    block_query = '''
                     SELECT * FROM blocks WHERE block_index = %s
                     '''
-                    cursor.execute(test_query, (current_index - 1,))
+                    cursor.execute(block_query, (current_index - 1,))
                     blocks = cursor.fetchall()
                     columns = [desc[0] for desc in cursor.description]
+                    cursor.close()
                     blocks_dict = [dict(zip(columns, row)) for row in blocks]
                     if len(blocks_dict) != 1:  # For empty DB.
                         break
@@ -782,49 +788,72 @@ def follow(db):
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
             block_time = cblock.nTime
             txhash_list, raw_transactions = backend.get_tx_list(cblock)
-            with db:
-                block_cursor = db.cursor()
-                util.CURRENT_BLOCK_INDEX = block_index
+            block_cursor = db.cursor()
+            util.CURRENT_BLOCK_INDEX = block_index
 
-                logger.warning('Inserting MySQL Block: {}'.format(block_index))
-                new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
-                block_query = '''INSERT INTO blocks(
-                                    block_index,
-                                    block_hash,
-                                    block_time,
-                                    previous_block_hash,
-                                    difficulty,
-                                    ledger_hash,
-                                    txlist_hash,
-                                    messages_hash
-                                    ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)'''
-                args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty), new_ledger_hash, new_txlist_hash, new_messages_hash)
+            logger.warning('Inserting MySQL Block: {}'.format(block_index))
+            new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
+            block_query = '''INSERT INTO blocks(
+                                block_index,
+                                block_hash,
+                                block_time,
+                                previous_block_hash,
+                                difficulty,
+                                ledger_hash,
+                                txlist_hash,
+                                messages_hash
+                                ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s,%s,%s,%s)'''
+            args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty), new_ledger_hash, new_txlist_hash, new_messages_hash)
 
-                try:
-                    block_cursor.execute("START TRANSACTION")
-                    block_cursor.execute(block_query, args)
-                except mysql.IntegrityError:
-                    print("block already exists in mysql")
-                    sys.exit()
-                except Exception as e:
-                    print("Error executing query:", block_query)
-                    print("Arguments:", args)
-                    print("Error message:", e)
-                    sys.exit()
+            try:
+                block_cursor.execute(block_query, args)
+            except mysql.IntegrityError:
+                print("block already exists in mysql")
+                sys.exit()
+            except Exception as e:
+                print("Error executing query:", block_query)
+                print("Arguments:", args)
+                print("Error message:", e)
+                sys.exit()
 
-                processed_in_block= []
-                valid_src20_in_block = []
-                for tx_hash in txhash_list:
-                    stamp_issuance = filter_issuances_by_tx_hash(
-                        stamp_issuances, tx_hash
-                    )
-                    stamp_send = filter_sends_by_tx_hash(stamp_sends, tx_hash)
-                    stamp_dispenser = filter_dispensers_by_tx_hash(
-                        stamp_dispensers, tx_hash
-                    )
-                    tx_hex = raw_transactions[tx_hash]
-                    (
-                        tx_index,
+            processed_in_block= []
+            valid_src20_in_block = []
+            for tx_hash in txhash_list:
+                stamp_issuance = filter_issuances_by_tx_hash(
+                    stamp_issuances, tx_hash
+                )
+                stamp_send = filter_sends_by_tx_hash(stamp_sends, tx_hash)
+                stamp_dispenser = filter_dispensers_by_tx_hash(
+                    stamp_dispensers, tx_hash
+                )
+                tx_hex = raw_transactions[tx_hash]
+                (
+                    tx_index,
+                    source,
+                    destination,
+                    btc_amount,
+                    fee,
+                    data,
+                    decoded_tx,
+                    keyburn,
+                    is_op_return
+                ) = list_tx(
+                    db,
+                    block_hash,
+                    block_index,
+                    block_time,
+                    tx_hash,
+                    tx_index,
+                    tx_hex,
+                    stamp_issuance=stamp_issuance,
+                    stamp_send=stamp_send,
+                )
+                if (stamp_send is None):
+                    # commits when the block is complete 
+                    # parsing all trx in the block
+                    parse_tx_to_stamp_table(
+                        db,
+                        tx_hash,
                         source,
                         destination,
                         btc_amount,
@@ -832,75 +861,52 @@ def follow(db):
                         data,
                         decoded_tx,
                         keyburn,
-                        is_op_return
-                    ) = list_tx(
-                        db,
-                        block_hash,
+                        tx_index,
                         block_index,
                         block_time,
-                        tx_hash,
-                        tx_index,
-                        tx_hex,
-                        stamp_issuance=stamp_issuance,
-                        stamp_send=stamp_send,
+                        is_op_return,
+                        processed_in_block,
+                        valid_src20_in_block
                     )
-                    if (stamp_send is None):
-                        # commits when the block is complete 
-                        # parsing all trx in the block
-                        parse_tx_to_stamp_table(
-                            db,
-                            tx_hash,
-                            source,
-                            destination,
-                            btc_amount,
-                            fee,
-                            data,
-                            decoded_tx,
-                            keyburn,
-                            tx_index,
-                            block_index,
-                            block_time,
-                            is_op_return,
-                            processed_in_block,
-                            valid_src20_in_block
-                        )
-                        if (stamp_issuance is not None):
-                            parse_issuance_to_send_table(
-                                db=db,
-                                cursor=block_cursor,
-                                issuance=stamp_issuance,
-                                tx={
-                                    "tx_index": tx_index,
-                                    "block_index": block_index
-                                }
-                            )
-                    else:
-                        parse_tx_to_send_table(
+                    if (stamp_issuance is not None):
+                        parse_issuance_to_send_table(
                             db=db,
                             cursor=block_cursor,
-                            sends=stamp_send,
+                            issuance=stamp_issuance,
+                            tx={
+                                "tx_index": tx_index,
+                                "block_index": block_index
+                            }
+                        )
+                else:
+                    parse_tx_to_send_table(
+                        db=db,
+                        cursor=block_cursor,
+                        sends=stamp_send,
+                        tx={
+                            "tx_index": tx_index,
+                        }
+                    )
+                    if (stamp_dispenser is not None):
+                        parse_tx_to_dispenser_table(
+                            db=db,
+                            cursor=block_cursor,
+                            dispenser=stamp_dispenser,
                             tx={
                                 "tx_index": tx_index,
                             }
                         )
-                        if (stamp_dispenser is not None):
-                            parse_tx_to_dispenser_table(
-                                db=db,
-                                cursor=block_cursor,
-                                dispenser=stamp_dispenser,
-                                tx={
-                                    "tx_index": tx_index,
-                                }
-                            )
+            if valid_src20_in_block:
+                update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
-                try:
-                    db.commit()
-                    update_parsed_block(db, block_index)
-                except Exception as e:
-                    print("Error message:", e)
-                    db.rollback()
-                    db.close()
-                    sys.exit()
+            try:
+                db.commit()
+                update_parsed_block(db, block_index)
+            except Exception as e:
+                print("Error message:", e)
+                db.rollback()
+                db.close()
+                sys.exit()
 
             logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
