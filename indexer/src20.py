@@ -445,12 +445,11 @@ def update_balances(db, balance_updates, block_index, block_time):
                 VALUES (%s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s)
                 ON DUPLICATE KEY UPDATE
                     amt = amt + VALUES(amt),
-                    block_time = FROM_UNIXTIME(block_time(%s)),
                     last_update = VALUES(last_update)
-            """, (id_field, balance_dict['creator'], balance_dict['tick'], net_change, block_index, block_time, 'SRC-20', block_time))
+            """, (id_field, balance_dict['creator'], balance_dict['tick'], net_change, block_index, block_time, 'SRC-20'))
         
         except Exception as e:
-            logger.error(f"Error updating balances table: {e}")
+            logger.error("Error updating balances table:", e)
             raise e
 
     cursor.close()
