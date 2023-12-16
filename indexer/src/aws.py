@@ -75,7 +75,9 @@ def check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
         elif s3_file_path in [obj['key'] for obj in config.S3_OBJECTS]:
             try:
                 logger.info(f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload and invalidating Cloudfront cache.")
-                invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
+                # FIXME: need a var to enable this if needed on a reparse
+                # this is an expensive operation to do on multiple re inexes
+                # invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
             except Exception as e:
                 logger.warning(f"ERROR: Unable to invalidate S3 file. Error:", e)
     except NoCredentialsError as e:
