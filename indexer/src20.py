@@ -76,6 +76,13 @@ def sort_keys(key):
 
 def check_format(input_string, tx_hash):
     try:
+        # if the p value of is not SRC-20 return 
+        # string to dict in '72fa9dacfd96d5ac604349a7e7435d484a2dac664c32cd60fcf49eb4bdcb52f4'
+        if input_string is not None:
+            input_dict = json.loads(input_string)
+            if input_dict.get("p", "").upper() != "SRC-20" or input_dict.get("p") is None:
+                # '50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1'
+                return None
         if isinstance(input_string, dict):
             input_string = json.dumps(input_string) # FIXME: chaos with all the data types, need to normalize higher up
         if isinstance(input_string, bytes):
@@ -303,8 +310,8 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
             src20_dict[key] = value.upper()
         elif key in ['max', 'lim']:
             if not is_number(value):
-                return # its possible we still want to save in SRC20Table but will need to change the row type to varchar
-                # float to int for 1.00 for max value in '18b808259a56004da679161145efeb223b06ea19486babd480d4885d942dd450'
+                return # possible we want to save in SRC20Table - will need to change row type to varchar
+                # string float to int for  max (decimal) value in '18b808259a56004da679161145efeb223b06ea19486babd480d4885d942dd450'
             src20_dict[key] = int(float(value))
         elif key == 'amt':
             if not is_number(value):
@@ -345,13 +352,13 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                     src20_dict['amt'] = Decimal(deploy_lim) if src20_dict['amt'] > Decimal(deploy_lim) else src20_dict['amt']
                     total_deployed = get_total_minted(db, src20_dict['tick'], valid_src20_in_block)
 
-                    if total_deployed > deploy_max:
-                        logger.info(f"Invalid {src20_dict['tick']} MINT - total deployed {total_deployed} > deploy_max {deploy_max}")
-                        return
-                    elif Decimal(total_deployed) + Decimal(src20_dict['amt']) > Decimal(deploy_max):
+                    if Decimal(total_deployed) + Decimal(src20_dict['amt']) > Decimal(deploy_max):
                         src20_dict['amt'] = Decimal(deploy_max) - Decimal(total_deployed)
-                        logger.info(f"Reducing {src20_dict['tick']} MINT - total deployed {total_deployed} + amt {src20_dict['amt']} > deploy_max {deploy_max}")
-
+                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_deployed} + amt {src20_dict['amt']} > deploy_max {deploy_max}")
+                    elif total_deployed > deploy_max:
+                        logger.info(f"Invalid {src20_dict['tick']} OVERMINTMINT - total deployed {total_deployed} > deploy_max {deploy_max}")
+                        return
+                    
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
                     return
