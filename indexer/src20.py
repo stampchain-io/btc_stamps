@@ -83,6 +83,8 @@ def check_format(input_string, tx_hash):
             if input_dict.get("p", "").upper() != "SRC-20" or input_dict.get("p") is None:
                 # '50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1'
                 return None
+        else:
+            return None  # not sure how the none string could make it here?
         if isinstance(input_string, dict):
             input_string = json.dumps(input_string) # FIXME: chaos with all the data types, need to normalize higher up
         if isinstance(input_string, bytes):
@@ -350,13 +352,15 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 if deploy_lim and deploy_max:
                     
                     src20_dict['amt'] = Decimal(deploy_lim) if src20_dict['amt'] > Decimal(deploy_lim) else src20_dict['amt']
-                    total_deployed = get_total_minted(db, src20_dict['tick'], valid_src20_in_block)
+                    total_minted = get_total_minted(db, src20_dict['tick'], valid_src20_in_block)
 
-                    if Decimal(total_deployed) + Decimal(src20_dict['amt']) > Decimal(deploy_max):
-                        src20_dict['amt'] = Decimal(deploy_max) - Decimal(total_deployed)
-                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_deployed} + amt {src20_dict['amt']} > deploy_max {deploy_max}")
-                    elif total_deployed > deploy_max:
-                        logger.info(f"Invalid {src20_dict['tick']} OVERMINTMINT - total deployed {total_deployed} > deploy_max {deploy_max}")
+                    if Decimal(total_minted) + Decimal(src20_dict['amt']) > Decimal(deploy_max):
+                        src20_dict['amt'] = Decimal(deploy_max) - Decimal(total_minted)
+                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max}")
+                        if src20_dict['amt'] == Decimal('0'):
+                            return
+                    elif total_minted > deploy_max:
+                        logger.info(f"Invalid {src20_dict['tick']} OVERMINTMINT - total deployed {total_minted} > deploy_max {deploy_max}")
                         return
                     
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
@@ -405,7 +409,7 @@ def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
                 if balance_dict is None:
                     balance_dict = {
                         'tick': src20_dict['tick'],
-                        'creator': src20_dict['creator'],
+                        'creator': src20_dict['destination'],
                         'credit': Decimal(src20_dict['amt']),
                         'debit': Decimal(0)
                     }
