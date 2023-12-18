@@ -385,9 +385,10 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         src20_string = check_format(src20_string, tx_hash)
         if src20_string:
             is_btc_stamp = 1
+            src20_virgin = src20_string
             insert_into_src20_tables(db, src20_string, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block)
             # TODO: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
-            decoded_base64 = build_src20_svg_string(stamp_cursor, src20_string)
+            decoded_base64 = build_src20_svg_string(stamp_cursor, src20_virgin)
             file_suffix = 'svg'
         else:
             # invalid src-20 don't save
