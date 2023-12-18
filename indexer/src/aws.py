@@ -64,21 +64,24 @@ def check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
     if mime_type is None:
         mime_type = 'binary/octet-stream'
 
-    try:
-        if s3_file_path not in [obj['key'] for obj in config.S3_OBJECTS] or any(obj['key'] == s3_file_path and obj['md5'] != file_obj_md5 for obj in config.S3_OBJECTS):
+    existing_obj = next((obj for obj in config.S3_OBJECTS if obj['key'] == s3_file_path), None)
+    if existing_obj:
+        if existing_obj['md5'] == file_obj_md5:
+            logger.debug(f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload.")
+        else:
             try:
                 file_obj.seek(0)
-                logger.debug(f"Uploading {filename} with hash {file_obj_md5} to S3...")
+                logger.debug(f"Uploading {filename} with changed hash {file_obj_md5} to S3...")
                 upload_file_to_s3(file_obj, config.AWS_S3_BUCKETNAME, s3_file_path, config.AWS_S3_CLIENT, content_type=mime_type)
+                if config.AWS_CLOUDFRONT_DISTRIBUTION_ID:
+                    logger.debug(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
+                    invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
             except Exception as e:
-                logger.warning(f"ERROR: Unable to upload", filename, "to S3. Error:", e)
-        elif s3_file_path in [obj['key'] for obj in config.S3_OBJECTS]:
-            try:
-                logger.info(f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload and invalidating Cloudfront cache.")
-                # FIXME: need a var to enable this if needed on a reparse
-                # this is an expensive operation to do on multiple re inexes
-                # invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
-            except Exception as e:
-                logger.warning(f"ERROR: Unable to invalidate S3 file. Error:", e)
-    except NoCredentialsError as e:
-        logger.warning(f"ERROR: Unable to upload", filename, "to S3. Error:", e)
+                logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
+    else:
+        try:
+            file_obj.seek(0)
+            logger.debug(f"Uploading new {filename} with hash {file_obj_md5} to S3...")
+            upload_file_to_s3(file_obj, config.AWS_S3_BUCKETNAME, s3_file_path, config.AWS_S3_CLIENT, content_type=mime_type)
+        except Exception as e:
+            logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
