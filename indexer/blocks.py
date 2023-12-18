@@ -76,22 +76,27 @@ def parse_block(db, block_index, block_time,
     logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
 
     txlist = []
-    for tx in txes: # this should be empty unless we are reparsing a block - not implemented
+    for tx in txes:
         # print("tx", tx) # DEBUG
         try:
             # parse_tx(db, tx)
+
             # adding this block so we can add items that don't decode # was below in data field
-            if tx['data'] is not None:
-                data = binascii.hexlify(tx['data']).decode('UTF-8')
+            if tx[config.TXS_FIELDS_POSITION['data']] is not None:
+                # data = binascii.hexlify(tx[config.TXS_FIELDS_POSITION['data']]) # .encode('UTF-8')).decode('UTF-8')
+                data = tx[config.TXS_FIELDS_POSITION['data']]
                 print("decoding data", data)
             else:
                 data = ''
-
-            txlist.append('{}{}{}{}{}{}'.format(tx['tx_hash'], tx['source'], tx['destination'],
-                                                tx['btc_amount'], tx['fee'],
+            
+            txlist.append('{}{}{}{}{}{}'.format(tx[config.TXS_FIELDS_POSITION['tx_index']],
+                                                tx[config.TXS_FIELDS_POSITION['tx_hash']],
+                                                tx[config.TXS_FIELDS_POSITION['block_index']],
+                                                tx[config.TXS_FIELDS_POSITION['block_hash']],
+                                                tx[config.TXS_FIELDS_POSITION['block_time']],
                                                 data))
         except exceptions.ParseTransactionError as e:
-            logger.warn('ParseTransactionError for tx %s: %s' % (tx['tx_hash'], e))
+            logger.warn('ParseTransactionError for tx %s: %s' % (tx[config.TXS_FIELDS_POSITION['tx_index']], e))
             raise e
 
     cursor.close()
@@ -99,13 +104,12 @@ def parse_block(db, block_index, block_time,
     # Calculate consensus hashes.
     # TODO: need to update these functions to use MySQL - these appear to be part of the block reorg checks - needs to be done before deprecating sqlite 
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
-    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, [])
-    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, [])
+    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
+    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
-def initialize(db):  # CHANGED TO MYSQL
-    # print(db) # DEBUG
+def initialize(db):
     """initialize data, create and populate the database."""
     cursor = db.cursor() 
 
