@@ -167,7 +167,6 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   INDEX `block_index` (`block_index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-
 CREATE TABLE IF NOT EXISTS `balances` (
   `id` VARCHAR(255) NOT NULL,
   `address` varchar(64) NOT NULL,
@@ -186,8 +185,8 @@ CREATE TABLE IF NOT EXISTS `balances` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS s3objects (
-    id VARCHAR(255) NOT NULL,
-    path_key VARCHAR(255) NOT NULL,
-    md5 VARCHAR(255) NOT NULL,
+    `id` VARCHAR(255) NOT NULL,
+    `path_key` VARCHAR(255) NOT NULL,
+    `md5` VARCHAR(255) NOT NULL,
     PRIMARY KEY (id)
-);
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
