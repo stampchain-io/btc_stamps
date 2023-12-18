@@ -370,12 +370,14 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                     
                     if src20_dict['amt'] > deploy_lim:
                         src20_dict['amt'] = deploy_lim
+                        src20_dict['status'] = f'OML; REDUCED TO: {deploy_lim}'
                         logger.info(f"Reducing {src20_dict['tick']} OVER MINT LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
                     
                     mint_available = Decimal(deploy_max) - Decimal(total_minted)
 
                     if src20_dict['amt'] > mint_available:
                         src20_dict['amt'] = mint_available
+                        src20_dict['status'] = f'OMA; REDUCED TO: {mint_available}'
                         logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max} remaining {mint_available} ")
 
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
