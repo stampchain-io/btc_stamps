@@ -12,6 +12,8 @@ CP_BLOCK_COUNT = None
 
 CURRENT_BLOCK_INDEX = None # resolves to blocks.last_db_index(db)
 
+BLOCK_LEDGER = []
+BLOCK_MESSAGES = []
 
 def chunkify(l, n):
     n = max(1, n)
