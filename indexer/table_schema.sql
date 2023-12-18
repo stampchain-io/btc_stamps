@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS `SRC20` (
   `max` BIGINT UNSIGNED DEFAULT NULL,
   `destination` varchar(255) DEFAULT NULL,
   `block_time` datetime DEFAULT NULL,
+  `status` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`tx_index`, `tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -183,3 +184,10 @@ CREATE TABLE IF NOT EXISTS `balances` (
   INDEX `address` (`address`),
   INDEX `tick` (`tick`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS s3objects (
+    id VARCHAR(255) NOT NULL,
+    path_key VARCHAR(255) NOT NULL,
+    md5 VARCHAR(255) NOT NULL,
+    PRIMARY KEY (id)
+);
