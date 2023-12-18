@@ -285,6 +285,7 @@ def insert_into_src20_table(db, table_name, src20_dict):
             src20_dict.get("block_time")
         ))
 
+
 def is_number(s):
     ''' commas or invalid chars in the string are not allowed '''
     # '1bca62a4309e0c02c1a7feff053a1071b2c63c99aad237bf6b69cc0f01a784f1' is a tx with a comma in amt which will be invalid
@@ -293,6 +294,26 @@ def is_number(s):
         return True
     except InvalidOperation:
         return False
+
+
+def process_src20_values(src20_dict):
+    ''' this validates all numbers in the string and invalidates those with commas, etc. '''
+    for key, value in src20_dict.items():
+        if value == '':
+            src20_dict[key] = None
+        elif key in ['p', 'tick', 'op']:
+            src20_dict[key] = value.upper()
+        elif key in ['max', 'lim']:
+            if not is_number(value):
+                return # NOTE: possible we want to save in SRC20Table - will need to change row type to varchar if so
+                # string float to int for  max (decimal) value in '18b808259a56004da679161145efeb223b06ea19486babd480d4885d942dd450'
+            src20_dict[key] = int(float(value))
+        elif key == 'amt':
+            if not is_number(value):
+                return
+            src20_dict[key] = Decimal(value)
+    return src20_dict
+
     
 def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
@@ -305,20 +326,10 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
     src20_dict['destination'] = destination
     src20_dict.setdefault('dec', '18')
 
-    for key, value in src20_dict.items():
-        if value == '':
-            src20_dict[key] = None
-        elif key in ['p', 'tick', 'op']:
-            src20_dict[key] = value.upper()
-        elif key in ['max', 'lim']:
-            if not is_number(value):
-                return # possible we want to save in SRC20Table - will need to change row type to varchar
-                # string float to int for  max (decimal) value in '18b808259a56004da679161145efeb223b06ea19486babd480d4885d942dd450'
-            src20_dict[key] = int(float(value))
-        elif key == 'amt':
-            if not is_number(value):
-                return
-            src20_dict[key] = Decimal(value)
+    src20_dict = process_src20_values(src20_dict)
+    if src20_dict is None:
+        return
+
     try:
         insert_into_src20_table(db, SRC20_TABLE, src20_dict)
 
@@ -349,20 +360,24 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 Decimal(src20_dict['amt']) > Decimal('0')
             ):
                 deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
+                total_minted = get_total_minted(db, src20_dict['tick'], valid_src20_in_block)
+                
                 if deploy_lim and deploy_max:
-                    
-                    src20_dict['amt'] = Decimal(deploy_lim) if src20_dict['amt'] > Decimal(deploy_lim) else src20_dict['amt']
-                    total_minted = get_total_minted(db, src20_dict['tick'], valid_src20_in_block)
-
-                    if Decimal(total_minted) + Decimal(src20_dict['amt']) > Decimal(deploy_max):
-                        src20_dict['amt'] = Decimal(deploy_max) - Decimal(total_minted)
-                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max}")
-                        if src20_dict['amt'] == Decimal('0'):
-                            return
-                    elif total_minted > deploy_max:
+     
+                    if total_minted > deploy_max:
                         logger.info(f"Invalid {src20_dict['tick']} OVERMINTMINT - total deployed {total_minted} > deploy_max {deploy_max}")
                         return
                     
+                    if src20_dict['amt'] > deploy_lim:
+                        src20_dict['amt'] = deploy_lim
+                        logger.info(f"Reducing {src20_dict['tick']} OVER MINT LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
+                    
+                    mint_available = Decimal(deploy_max) - Decimal(total_minted)
+
+                    if src20_dict['amt'] > mint_available:
+                        src20_dict['amt'] = mint_available
+                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max} remaining {mint_available} ")
+
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
                     return
