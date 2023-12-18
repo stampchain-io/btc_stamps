@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `max` BIGINT UNSIGNED DEFAULT NULL,
   `destination` varchar(255) DEFAULT NULL,
   `block_time` datetime DEFAULT NULL,
+  `status` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`tx_index`, `tx_hash`),
   INDEX `tick` (`tick`), 
   INDEX `creator` (`creator`), 
