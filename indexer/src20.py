@@ -264,10 +264,11 @@ def insert_into_src20_table(db, table_name, src20_dict):
                 p,
                 tick,
                 destination,
-                block_time
+                block_time,
+                status
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
         """, (
             src20_dict.get("tx_hash"),
@@ -282,7 +283,8 @@ def insert_into_src20_table(db, table_name, src20_dict):
             src20_dict.get("p"),
             src20_dict.get("tick"),
             src20_dict.get("destination"),
-            src20_dict.get("block_time")
+            src20_dict.get("block_time"),
+            src20_dict.get("status")
         ))
 
 
