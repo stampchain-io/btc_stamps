@@ -117,6 +117,19 @@ BLOCK_FIELDS_POSITION = {
     'indexed': 8
 }
 
+TXS_FIELDS_POSITION={
+    'tx_index':0,
+    'tx_hash':1,
+    'block_index':2,
+    'block_hash':3,
+    'block_time':4,
+    'source':5,
+    'destination':6,
+    'btc_amount':7,
+    'fee':8,
+    'data':9
+}
+
 TICK_PATTERN_LIST = {
     regex.compile(r'((\p{Emoji_Presentation})|(\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?))|[\p{Punctuation}\p{Symbol}\w~!@#$%^&*()_=<>?]')
 }
