@@ -362,7 +362,7 @@ def start_all(db):
     connect_to_backend()
 
     if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
-        config.S3_OBJECTS = get_s3_objects(config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
+        config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
     # Server.
     blocks.follow(db)
