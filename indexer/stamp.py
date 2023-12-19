@@ -23,7 +23,9 @@ from src20 import (
     insert_into_src20_tables
 )
 import traceback
-from src.aws import check_existing_and_upload_to_s3
+from src.aws import (
+    check_existing_and_upload_to_s3,
+)
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -387,7 +389,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             is_btc_stamp = 1
             src20_virgin = src20_string
             insert_into_src20_tables(db, src20_string, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block)
-            # TODO: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
+            # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
             decoded_base64 = build_src20_svg_string(stamp_cursor, src20_virgin)
             file_suffix = 'svg'
         else:
@@ -435,7 +437,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         if type(decoded_base64) is str:
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
-        file_obj_md5 = store_files(filename, decoded_base64, stamp_mimetype)
+        file_obj_md5 = store_files(db, filename, decoded_base64, stamp_mimetype)
 
     logger.warning(f'''
         block_index: {block_index}
@@ -554,12 +556,12 @@ def get_fileobj_and_md5(decoded_base64):
         raise
 
 
-def store_files(filename, decoded_base64, mime_type):
+def store_files(db, filename, decoded_base64, mime_type):
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
     if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID:
         logger.info(f"uploading {filename} to aws")  # FIXME: there may be cases where we want both aws and disk storage
         check_existing_and_upload_to_s3(
-            filename, mime_type, file_obj, file_obj_md5
+            db, filename, mime_type, file_obj, file_obj_md5
         )
     else:
         store_files_to_disk(filename, decoded_base64)
