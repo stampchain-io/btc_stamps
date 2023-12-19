@@ -78,13 +78,14 @@ def check_format(input_string, tx_hash):
     try:
         # if the p value of is not SRC-20 return 
         # string to dict in '72fa9dacfd96d5ac604349a7e7435d484a2dac664c32cd60fcf49eb4bdcb52f4'
-        if input_string is not None:
-            input_dict = json.loads(input_string)
-            if input_dict.get("p", "").upper() != "SRC-20" or input_dict.get("p") is None:
-                # '50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1'
-                return None
-        else:
-            return None  # not sure how the none string could make it here?
+        # removing for debug the following may have broken numbering
+        # if input_string is not None:
+        #     input_dict = json.loads(input_string)
+        #     if input_dict.get("p", "").upper() != "SRC-20" or input_dict.get("p") is None:
+        #         # '50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1'
+        #         return None
+        # else:
+        #     return None  # not sure how the none string could make it here?
         if isinstance(input_string, dict):
             input_string = json.dumps(input_string) # FIXME: chaos with all the data types, need to normalize higher up
         if isinstance(input_string, bytes):
@@ -268,7 +269,7 @@ def insert_into_src20_table(db, table_name, src20_dict):
                 status
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s
             )
         """, (
             src20_dict.get("tx_hash"),
@@ -328,12 +329,12 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
     src20_dict['destination'] = destination
     src20_dict.setdefault('dec', '18')
 
-    src20_dict = process_src20_values(src20_dict)
-    if src20_dict is None:
-        return
-
     try:
         insert_into_src20_table(db, SRC20_TABLE, src20_dict)
+
+        src20_dict = process_src20_values(src20_dict)
+        if src20_dict is None:
+            return
 
         if src20_dict['op'] == 'DEPLOY':
             if (
@@ -371,15 +372,15 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                         return
                     
                     if src20_dict['amt'] > deploy_lim:
+                        src20_dict['status'] = f'OML; REDUCED FROM: {src20_dict["amt"]}, TO: {deploy_lim}'
                         src20_dict['amt'] = deploy_lim
-                        src20_dict['status'] = f'OML; REDUCED TO: {deploy_lim}'
                         logger.info(f"Reducing {src20_dict['tick']} OVER MINT LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
                     
                     mint_available = Decimal(deploy_max) - Decimal(total_minted)
 
                     if src20_dict['amt'] > mint_available:
+                        src20_dict['status'] = f'OMA; REDUCED FROM: {src20_dict["amt"]}, TO: {mint_available}'
                         src20_dict['amt'] = mint_available
-                        src20_dict['status'] = f'OMA; REDUCED TO: {mint_available}'
                         logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max} remaining {mint_available} ")
 
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
