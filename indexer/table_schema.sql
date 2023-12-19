@@ -162,7 +162,8 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `block_time` datetime DEFAULT NULL,
   `status` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`tx_index`, `tx_hash`),
-  INDEX `tick` (`tick`), 
+  INDEX `tick` (`tick`),
+  INDEX `op` (`op`),
   INDEX `creator` (`creator`), 
   INDEX `block_index` (`block_index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
