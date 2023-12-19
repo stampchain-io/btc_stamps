@@ -379,8 +379,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         and keyburn == 1
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
-
-
     if valid_src20:
         if src20_string is None and decode_base64 and valid_cp_src20:
             src20_string = decoded_base64
@@ -391,6 +389,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             insert_into_src20_tables(db, src20_string, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block)
             # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
             decoded_base64 = build_src20_svg_string(stamp_cursor, src20_virgin)
+            src20_string = src20_virgin
             file_suffix = 'svg'
         else:
             # invalid src-20 don't save
@@ -485,7 +484,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         "tx_hash": tx_hash,
         "tx_index": tx_index,
         "src_data": (
-            json.dumps(src20_string) if src20_string is not None and (valid_src20 or valid_src721) else None
+            json.dumps(str(src20_string)) if src20_string is not None and (valid_src20 or valid_src721) else None
         ),
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
