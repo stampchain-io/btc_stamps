@@ -52,7 +52,6 @@ def main(file_names=file_names, mysql_conn=mysql_conn):
                                 ''', (tick))
         if mysql_cursor.rowcount == 0:
             print(f"Tick '{tick}' deploy does not exist in the database.")
-            continue
 
         with open(file_name, 'rb') as f:
             background_bytestring = f.read()
