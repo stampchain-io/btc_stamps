@@ -77,12 +77,15 @@ for row in result:
     balances_amt = row[4]
 
     if src_steve_block_index == balances_last_update and src_steve_amt != balances_amt:
-        output.append(f"ERROR: Mismatch for id {id_value}. {src_steve_block_index} / {src_steve_block_index}. SRC_STEVE amt: {src_steve_amt}. Balances amt: {balances_amt}")
+        if src_steve_amt < balances_amt:
+            output.append(f"ERROR: id {id_value}, balance {balances_amt} / {src_steve_amt} SRC_STEVE amt is less than balances amt")
+        else:
+            output.append(f"ERROR: id {id_value}, balance {balances_amt} / {src_steve_amt} SRC_STEVE amt is greater than balances amt")
     elif src_steve_block_index == balances_last_update and src_steve_amt == balances_amt:
         output.append(f"MATCH: id {id_value}, balance {balances_amt}")
     elif src_steve_block_index < balances_last_update:
         if balances_amt != src_steve_amt:
-            output.append(f"WARN: id {id_value}, balance {balances_amt} / {src_steve_amt} BLOCKS NOT Matching YET S: {src_steve_block_index} / Balances {balances_last_update}")
+            output.append(f"ERROR: id {id_value}, balance {balances_amt} / {src_steve_amt} BLOCKS NOT Matching S: {src_steve_block_index} / Balances {balances_last_update}")
     elif src_steve_block_index != balances_last_update:
         output.append(f"INFO: block index not matching {id_value}. Steve update: {src_steve_block_index}. Balances update: {balances_last_update}")
     else:
