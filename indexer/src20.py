@@ -341,21 +341,25 @@ def is_number(s):
 
 def process_src20_values(src20_dict):
     ''' this validates all numbers in the string and invalidates those with commas, etc. '''
+    updated_dict = {}
     for key, value in src20_dict.items():
         if value == '':
-            src20_dict[key] = None
+            updated_dict[key] = None
         elif key in ['p', 'tick', 'op']:
-            src20_dict[key] = value.upper()
+            updated_dict[key] = value.upper()
         elif key in ['max', 'lim']:
             if not is_number(value):
-                src20_dict[key] = None
-                src20_dict['status'] = f'NN: {key} not NUM'
-            src20_dict[key] = int(Decimal(value))
+                updated_dict[key] = None
+                updated_dict['status'] = f'NN: {key} not NUM'
+            else:
+                updated_dict[key] = int(Decimal(value))
         elif key == 'amt':
             if not is_number(value):
-                src20_dict[key] = None
-                src20_dict['status'] = f'NN: {key} not NUM'
-            src20_dict[key] = Decimal(value)
+                updated_dict[key] = None
+                updated_dict['status'] = f'NN: {key} not NUM'
+            else:
+                updated_dict[key] = Decimal(value)
+    src20_dict.update(updated_dict)
     return src20_dict
 
     
