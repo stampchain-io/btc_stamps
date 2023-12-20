@@ -350,13 +350,19 @@ def process_src20_values(src20_dict):
         elif key in ['max', 'lim']:
             if not is_number(value):
                 updated_dict[key] = None
-                updated_dict['status'] = f'NN: {key} not NUM'
+                if 'status' in updated_dict:
+                    updated_dict['status'] += f', NN: {key} not NUM'
+                else:
+                    updated_dict['status'] = f'NN: {key} not NUM'
             else:
                 updated_dict[key] = int(Decimal(value))
         elif key == 'amt':
             if not is_number(value):
                 updated_dict[key] = None
-                updated_dict['status'] = f'NN: {key} not NUM'
+                if 'status' in updated_dict:
+                    updated_dict['status'] += f', NN: {key} not NUM'
+                else:
+                    updated_dict['status'] = f'NN: {key} not NUM'
             else:
                 updated_dict[key] = Decimal(value)
     src20_dict.update(updated_dict)
