@@ -14,6 +14,8 @@ log.set_logger(logger)  # set root logger
 
 def get_s3_objects(db, bucket_name, s3_client):
     ''' this gets existing objects in S3 so we don't reupload existing files which can add to AWS costs'''
+
+    logger.info(f"Checking for existing S3 objects in bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
     cursor.execute("SELECT path_key, md5 FROM s3objects")
     results = cursor.fetchall() or []
@@ -33,9 +35,9 @@ def get_s3_objects(db, bucket_name, s3_client):
                 for obj in tqdm(page['Contents'], desc=f'Fetching S3 objects (Page {current_page}/{total_pages})', unit=' object', bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'):
                     s3_object = s3_client.head_object(Bucket=bucket_name, Key=obj['Key'])
                     results.append({'key': obj['Key'], 'md5': s3_object['ETag'].strip('"')})
+        logger.info(f"Found {len(results)} existing S3 objects")
 
     if results:
-        logger.info(f"Found {len(results)} existing S3 objects")
         add_s3_objects_to_db(db, results)
     else:
         logger.info(f"No existing S3 objects found")
