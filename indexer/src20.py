@@ -406,13 +406,13 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 Decimal(src20_dict['amt']) > Decimal('0')
             ):
                 deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
-                # total_minted is either the last value of total_minted in the dict OR
-                # all values in the db
-                total_minted = get_running_mint_total(db, valid_src20_in_block, src20_dict['tick'])
-                mint_available = Decimal(deploy_max) - Decimal(total_minted)
-                
                 
                 if deploy_lim and deploy_max:
+                    deploy_lim = min(deploy_lim, deploy_max) # deploy_lim cannot be > deploy_max
+                    total_minted = get_running_mint_total(db, valid_src20_in_block, src20_dict['tick'])
+                    mint_available = Decimal(deploy_max) - Decimal(total_minted)
+                    if mint_available <= 0:
+                        return
      
                     if total_minted > deploy_max:
                         logger.info(f"Invalid {src20_dict['tick']} OVERMINTMINT - total deployed {total_minted} > deploy_max {deploy_max}")
