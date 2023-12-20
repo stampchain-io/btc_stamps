@@ -264,7 +264,7 @@ def initialize_config(
 
 def initialize_tables(db):
     try:
-        logger.info("initializing tables...")
+        logger.warning("initializing tables...")
         cursor = db.cursor()
         with open('table_schema.sql', 'r') as file:
             sql_script = file.read()
@@ -325,7 +325,7 @@ def import_csv_data(cursor, csv_file, insert_query):
 
 
 def initialize_db():
-    print("initialize_db")
+    logger.warning("Initializing database...")
     if config.FORCE:
         logger.warning('THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.')
 
