@@ -76,30 +76,21 @@ def sort_keys(key):
 
 def check_format(input_string, tx_hash):
     try:
-        # if the p value of is not SRC-20 return 
-        # string to dict in '72fa9dacfd96d5ac604349a7e7435d484a2dac664c32cd60fcf49eb4bdcb52f4'
-        # removing for debug the following may have broken numbering
-        # if input_string is not None:
-        #     input_dict = json.loads(input_string)
-        #     if input_dict.get("p", "").upper() != "SRC-20" or input_dict.get("p") is None:
-        #         # '50aeb77245a9483a5b077e4e7506c331dc2f628c22046e7d2b4c6ad6c6236ae1'
-        #         return None
-        # else:
-        #     return None  # not sure how the none string could make it here?
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode('utf-8')
-            input_dict = json.loads(input_string)
+            elif isinstance(input_string, str):
+                input_dict = json.loads(input_string)
+            elif isinstance(input_string, dict):
+                input_dict = input_string
         except (json.JSONDecodeError, TypeError):
-            input_dict = None
+            raise
 
+        if input_dict.get('s') is not None:
+            print("found s") # DEBUG
         if input_dict.get("p") == "src-721":
             return input_dict
-        
-        if input_dict.get('s') is not None:
-            print("found s")
-
-        if input_dict.get("p") == "src-20":
+        elif input_dict.get("p") == "src-20":
             ''' If the keys and values in the  string does not meet the requirements for src-20 we do not return or save the data in the Stamptable '''
             tick_value = input_dict.get("tick")
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_LIST) or len(tick_value) > 5:
@@ -184,12 +175,6 @@ def get_first_src20_deploy_lim_max_in_block(processed_blocks, tick):
     return None, None
 
 
-def get_total_minted(db, tick, processed_in_block):
-    total_minted_db = get_total_minted_from_db(db, tick)
-    # total_minted_block = get_total_minted_from_block(processed_in_block, tick)
-    return total_minted_db + total_minted_block
-
-
 def get_total_minted_from_db(db, tick):
     ''' this may be a relatively heavy operation compared to pulling from 
     the balances table it's  mostly for debug but perhaps also for a 
@@ -222,16 +207,23 @@ def get_running_mint_total(db, processed_in_block, tick):
 
     return Decimal(total_minted)
 
+# get_running_user_balance(db, src20_dict['tick'], src20_dict['creator'], src20_dict['destination'], valid_src20_in_block)
+def get_running_user_balance(db, tick, creator, processed_in_block):
+    total_balance = 0
+    if len(processed_in_block) > 0:
+        for item in reversed(processed_in_block):
+            if  item["creator"] == creator and item["tick"] == tick and "total_balance" in item:
+                total_balance = item["total_balance"]
+                break
+    if total_balance == 0:
+        total_balance = get_total_user_balance_from_db(db, tick, creator)
+    return Decimal(total_balance)
 
-def get_total_balance(db, tick, source, processed_in_block):
-    ''' another relatively heavy operation. Only suitable for 
-        validating the balance table. Perhaps every x blocks.'''
-    total_balance_db = get_total_balance_from_db(db, tick, source)
-    total_balance_block = get_total_balance_from_block(processed_in_block, tick, source)
-    return total_balance_db + total_balance_block
 
-
-def get_total_balance_from_db(db, tick, address):
+def get_total_user_balance_from_db(db, tick, creator):
+    ''' another heavy operation to be running on every creator/tick pair
+        this is for validation, the speedy version should pull from the balances table 
+        keep in mind balance table is not commited on each transaction '''
     total_balance = Decimal('0')
     with db.cursor() as src20_cursor:
         src20_cursor.execute(f"""
@@ -244,34 +236,20 @@ def get_total_balance_from_db(db, tick, address):
                 {SRC20_VALID_TABLE}
             WHERE
                 tick = %s
-                AND ((source = %s AND op = 'MINT') OR (destination = %s AND op = 'TRANSFER') OR (creator = %s AND op = 'TRANSFER'))
-        """, (tick, address, address))
+                AND ((destination = %s AND op = 'MINT') OR (destination = %s AND op = 'TRANSFER') OR (creator = %s AND op = 'TRANSFER'))
+        """, (tick, creator, creator, creator))
         results = src20_cursor.fetchall()
         for result in results:
-            amt = Decimal(result[0])
-            op = result[1]
-            destination = result[2]
-            creator = result[3]
-            if op == 'MINT' and destination == address:
-                total_balance += amt
-            elif op == 'TRANSFER' and destination == address:
-                total_balance += amt
-            elif op == 'TRANSFER' and creator == address:
-                total_balance -= amt
-    return total_balance
-
-
-def get_total_balance_from_block(processed_in_block, tick, address):
-    total_balance = Decimal('0')
-    if len(processed_in_block) > 0:
-        for item in processed_in_block:
-            if item["tick"] == tick:
-                if item["op"] == 'MINT' and item["destination"] == address:
-                    total_balance += Decimal(item["amt"])
-                elif item["op"] == 'TRANSFER' and item["destination"] == address:
-                    total_balance += Decimal(item["amt"])
-                elif item["op"] == 'TRANSFER' and item["creator"] == address:
-                    total_balance -= Decimal(item["amt"])
+            q_amt = Decimal(result[0])
+            q_op = result[1]
+            q_destination = result[2]
+            q_creator = result[3]
+            if q_op == 'MINT' and q_destination == creator:
+                total_balance += q_amt
+            elif q_op == 'TRANSFER' and q_destination == creator:
+                total_balance += q_amt
+            elif q_op == 'TRANSFER' and q_creator == creator:
+                total_balance -= q_amt
     return total_balance
 
 
@@ -420,6 +398,9 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 if deploy_lim and deploy_max:
                     deploy_lim = min(deploy_lim, deploy_max) # deploy_lim cannot be > deploy_max
                     total_minted = get_running_mint_total(db, valid_src20_in_block, src20_dict['tick'])
+                    # TODO: Possibly commit to balances table in a separate db connection to avoid the full
+                    # query on the SRC20Valid Table each time. Will need to rollback changes on balances if block does not commit
+                    total_balance = get_running_user_balance(db, src20_dict['tick'], src20_dict['creator'], valid_src20_in_block)
                     mint_available = Decimal(deploy_max) - Decimal(total_minted)
                     if mint_available <= 0:
                         return
@@ -440,9 +421,11 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                         src20_dict['amt'] = mint_available
                         logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max} remaining {mint_available} ")
 
-                    running_total = int(total_minted) + int(src20_dict['amt'])
-                    src20_dict['status'] = f'OK: {running_total} of {deploy_max}'
-                    src20_dict['total_minted'] = running_total
+                    running_total_mint = int(total_minted) + int(src20_dict['amt'])
+                    running_user_balance = Decimal(total_balance) + Decimal(src20_dict['amt'])
+                    src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}'
+                    src20_dict['total_minted'] = running_total_mint
+                    src20_dict['total_balance'] = running_user_balance
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
                     return
@@ -462,12 +445,15 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 Decimal(src20_dict['amt']) > Decimal('0')
             ):
                 deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
-                if deploy_lim and deploy_max: # found a valid deploy transfer is ok if balance is > amt
-                    if deploy_lim is not None and Decimal(src20_dict['amt']) > Decimal('0'):
+                if deploy_lim and deploy_max:
+                    if deploy_lim is not None:
 
-                        total_balance = get_total_balance(db, src20_dict['tick'], src20_dict['destination'], valid_src20_in_block)
+                        total_balance = get_running_user_balance(db, src20_dict['tick'], src20_dict['creator'], valid_src20_in_block)
 
                         if Decimal(total_balance) > Decimal('0') and Decimal(total_balance) >= Decimal(src20_dict['amt']):
+                            running_user_balance = Decimal(total_balance) - Decimal(src20_dict['amt'])
+                            src20_dict['total_balance'] = running_user_balance
+                            src20_dict['status'] = f'New Balance: {running_user_balance}'
                             insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                             valid_src20_in_block.append(src20_dict)
                             return
