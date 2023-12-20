@@ -812,7 +812,7 @@ def follow(db):
             try:
                 block_cursor.execute(block_query, args)
             except mysql.IntegrityError:
-                print("block already exists in mysql")
+                print(f"block {block_index} already exists in mysql") # TODO: this may be ok if we are doing a reparse
                 sys.exit()
             except Exception as e:
                 print("Error executing query:", block_query)

@@ -380,7 +380,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
     if valid_src20:
-        if src20_string is None and decode_base64 and valid_cp_src20:
+        if src20_string is None and decoded_base64:
             src20_string = decoded_base64
         src20_string = check_format(src20_string, tx_hash)
         if src20_string:
