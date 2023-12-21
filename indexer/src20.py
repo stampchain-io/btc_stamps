@@ -39,20 +39,20 @@ def get_srcbackground_data(cursor, tick):
 
 
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
-    # remove the s field so we don't add it to the image - this is sale price data
-    s_val = input_dict.get("s", None)
-    input_dict.pop("s", None)
-    
-    sorted_keys = sorted(input_dict.keys(), key=sort_keys)
-    pretty_json = json.dumps({k: input_dict[k] for k in sorted_keys}, indent=1, separators=(',', ': '), sort_keys=False, ensure_ascii=False, default=str)
+    dict_to_use = {
+        "p": input_dict.get("p", None),
+        "op": input_dict.get("op", None),
+        "tick": input_dict.get("tick", None),
+        "amt": input_dict.get("amt", None),
+    }
+    sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
+    pretty_json = json.dumps({k: dict_to_use[k] for k in sorted_keys}, indent=1, separators=(',', ': '), sort_keys=False, ensure_ascii=False, default=str)
 
     if base64 is not None:
         svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420"><foreignObject font-size="{font_size}" width="100%" height="100%"><p xmlns="http://www.w3.org/1999/xhtml" style="background-image: url(data:{base64});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;"><pre>{pretty_json}</pre></p></foreignObject></svg>"""
     else:
         svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420"><foreignObject font-size="30px" width="100%" height="100%"><p xmlns="http://www.w3.org/1999/xhtml" style="background: rgb(149,56,182); background: linear-gradient(138deg, rgba(149,56,182,1) 23%, rgba(0,56,255,1) 100%);padding:20px;margin:0px;width:1000px;height:1000px;"><pre>{pretty_json}</pre></p></foreignObject></svg>"""
     img_data = svg_output.encode('utf-8')
-
-    input_dict["s"] = s_val
 
     return img_data
 
@@ -87,7 +87,7 @@ def check_format(input_string, tx_hash):
             raise
 
         if input_dict.get('s') is not None:
-            print("found s") # DEBUG
+            print("found s") # DEBUG '0.00047252' '0.00001' '0.26' '0.01'
         if input_dict.get("p") == "src-721":
             return input_dict
         elif input_dict.get("p") == "src-20":
