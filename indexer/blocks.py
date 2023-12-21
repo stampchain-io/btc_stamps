@@ -400,7 +400,7 @@ def decode_checkmultisig(ctx, chunk):
         if destination is None:
             raise DecodeError('unknown address type')
 
-        return destination, data
+        return str(destination), data
     else:
         return None, data
 
