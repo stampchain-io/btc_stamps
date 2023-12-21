@@ -311,7 +311,7 @@ def get_tx_info2(
                 return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
             else:
                 raise DecodeError('unrecognized output type')
-        assert new_destination is not None and new_data is not None  # removing this might not get a dest for cp trx?
+        assert new_destination is not None and new_data is not None
         if new_data is not None:
             data += new_data
             destinations = (str(new_destination))
@@ -345,12 +345,12 @@ def get_tx_info2(
     # Decode the address associated with the output.
     # print("prev_vout.scriptPubKey: ", prev_vout_script_pubkey, "\n")
     try:
-        source = str(CBitcoinAddress.from_scriptPubKey(prev_vout_script_pubkey)) #needed to add srt here or we get P2SHAddress('address') output - this is handled differently than destinations
+        source = CBitcoinAddress.from_scriptPubKey(prev_vout_script_pubkey).split("'")[1]
     except Exception:
         pass
     if source is None:
         try:
-            source = CBitcoinAddress(decode_p2w(prev_vout_script_pubkey)[0]) # not sure if the Cbitcoinaaddress is needed here
+            source = decode_p2w(prev_vout_script_pubkey)[0]
         except Exception:
             pass
     if source is None:
@@ -384,7 +384,7 @@ def decode_checkmultisig(ctx, chunk):
         destination = None
 
         try:
-            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey)
+            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey).split("'")[1]
         except Exception:
             pass
         if destination is None:
@@ -400,7 +400,7 @@ def decode_checkmultisig(ctx, chunk):
         if destination is None:
             raise DecodeError('unknown address type')
 
-        return str(destination), data
+        return destination, data
     else:
         return None, data
 
