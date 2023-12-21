@@ -3,6 +3,7 @@ import json
 import logging
 from config import TICK_PATTERN_LIST, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALANCES_TABLE
 import src.log as log
+import re
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -307,18 +308,37 @@ def insert_into_src20_table(db, table_name, src20_dict):
         ))
 
 
+import re
+
 def is_number(s):
-    ''' commas or invalid chars in the string are not allowed '''
-    # '1bca62a4309e0c02c1a7feff053a1071b2c63c99aad237bf6b69cc0f01a784f1' is a tx with a comma in amt which will be invalid
-    try:
-        Decimal(s)
-        return True
-    except InvalidOperation:
-        return False
+    '''
+    Check if the input string is a valid number.
+
+    Args:
+        s (str): The input string to be checked.
+
+    Returns:
+        bool: True if the input string is a valid number, False otherwise.
+    '''
+    pattern = r'^[-+]?[0-9]*\.?[0-9]+$'
+    return bool(re.match(pattern, s))
 
 
 def process_src20_values(src20_dict):
-    ''' this validates all numbers in the string and invalidates those with commas, etc. '''
+    ''' 
+    This function processes the values in the src20_dict dictionary and performs the following operations:
+    - Validates all numbers in the string and invalidates those with commas, etc.
+    - Converts certain keys to uppercase.
+    - Converts 'max' and 'lim' values to integers.
+    - Converts 'amt' values to Decimal.
+    - updates or adds the 'status' key regarding any invalidations
+
+    Args:
+        src20_dict (dict): A dictionary containing the source 20 values.
+
+    Returns:
+        dict: The updated src20_dict dictionary with processed values.
+    '''
     updated_dict = {}
     for key, value in src20_dict.items():
         if value == '':
@@ -359,7 +379,6 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
     src20_dict.setdefault('dec', '18')
 
     try:
-
         src20_dict = process_src20_values(src20_dict)
         insert_into_src20_table(db, SRC20_TABLE, src20_dict)
 
@@ -426,6 +445,8 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                     src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}'
                     src20_dict['total_minted'] = running_total_mint
                     src20_dict['total_balance'] = running_user_balance
+                    if tx_hash == 'acc72ba4abbc3883b1bfe26954a2de2a4f91e70e9f1cf57c875918e204f34bc8':
+                        print('here')
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
                     return
