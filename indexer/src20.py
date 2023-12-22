@@ -321,7 +321,7 @@ def is_number(s):
         bool: True if the input string is a valid number, False otherwise.
     '''
     pattern = r'^[-+]?[0-9]*\.?[0-9]+$'
-    return bool(re.match(pattern, s))
+    return bool(re.match(pattern, str(s)))
 
 
 def process_src20_values(src20_dict):
@@ -445,8 +445,6 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                     src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}'
                     src20_dict['total_minted'] = running_total_mint
                     src20_dict['total_balance'] = running_user_balance
-                    if tx_hash == 'acc72ba4abbc3883b1bfe26954a2de2a4f91e70e9f1cf57c875918e204f34bc8':
-                        print('here')
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
                     return
