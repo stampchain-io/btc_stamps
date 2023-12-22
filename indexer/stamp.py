@@ -105,33 +105,38 @@ def get_cpid(stamp, block_index, tx_hash):
     return cpid, create_base62_hash(tx_hash, str(block_index), 20)
 
 
-def clean_and_load_json(json_string):
-    try:
-        return json.loads(json_string)
-    except json.JSONDecodeError:
-        json_string = json_string.replace("'", '"')
-        json_string = json_string.replace("None", "null")
-        json_string = json_string.replace("\\x00", "") # remove null bytes
-        return json.loads(json_string)
+def clean_json_string(json_string):
+    json_string = json_string.replace("'", '"')
+    json_string = json_string.replace("None", "null")
+    json_string = json_string.replace("\\x00", "") # remove null bytes
+    json_string = json.dumps(json.loads(json_string), ensure_ascii=False)
+    return json_string
 
 
-def convert_to_json(input_data):
-    # FIXME: this function needs simplification
-    if isinstance (input_data, bytes):
-        input_string = input_data.decode(' utf-8')
-    elif isinstance (input_data, str):
-        input_string = input_data
-    elif isinstance (input_data, dict):
-        input_string = json.dumps(input_data)
-        return clean_and_load_json(input_string)
+def convert_to_dict_or_string(input_data, output_format='dict'):
     try:
         if isinstance(input_data, bytes):
-            input_string = input_data.decode('utf-8')
-        elif isinstance(input_data, str):
-            input_string = input_data
-        dictionary = ast.literal_eval(input_string)
-        json_string = json.dumps(dictionary)
-        return clean_and_load_json(json_string)
+            input_data = input_data.decode('utf-8')
+
+        if isinstance(input_data, str): 
+            # Check if input_data is a string representation of a dictionary
+            try:
+                input_data = ast.literal_eval(input_data)
+            except ValueError:
+                raise  # DEBUG - this should not be hit any more with fix in check_decoded_data_fetch_ident
+
+        if isinstance(input_data, dict):
+            # input_data is a dictionary, so convert it directly to a JSON string or return as a dictionary
+            if output_format == 'dict':
+                return input_data
+            elif output_format == 'string':
+                # json_string = json.dumps(input_data)
+                json_string = json.dumps(input_data, ensure_ascii=False)
+                return clean_json_string(json_string)
+            else:
+                return f"Invalid output format: {output_format}"
+        else:
+            return f"An error occurred: input_data is not a dictionary, string, or bytes"
     except Exception as e:
         return f"An error occurred: {e}"
 
@@ -178,6 +183,20 @@ def decode_base64_with_repair(base64_string):
 
 
 def get_src_or_img_from_data(stamp, block_index):
+    """
+    Extracts the source or image data from the given stamp dictionary object.
+
+    Args:
+        stamp (dict): The stamp object.
+        block_index (int): The block index.
+
+    Returns:
+        tuple: A tuple containing the extracted data in the following order:
+            - decoded_base64 (str or None): The decoded base64 data.
+            - base64_string (str or None): The original base64 string.
+            - stamp_mimetype (str or None): The MIME type of the stamp.
+            - is_valid_base64 (bool or None): Indicates if the base64 data is valid.
+    """
     stamp_mimetype, decoded_base64, is_valid_base64 = None, None, None
     if 'description' not in stamp:
         if 'p' in stamp or 'P' in stamp and stamp.get('p').upper() == 'SRC-20':
@@ -233,6 +252,19 @@ def is_json_string(s):
 
 
 def reformat_src_string_get_ident(decoded_data):
+    """
+    Reformat the source JSON string and extract the identifier and file suffix.
+
+    This function takes a decoded data string as input and reformats it by converting all keys in the JSON object to lowercase.
+    It then checks if the reformatted data has a key 'p' (protocol) that matches one of the supported sub-protocols defined in the 'config' module.
+    If a match is found, it extracts the identifier from the 'p' key and sets the file suffix to 'json'. Otherwise, it sets the file suffix to None and the identifier to 'UNKNOWN'.
+
+    Args:
+        decoded_data (str): The decoded data string.
+
+    Returns:
+        tuple: A tuple containing the identifier and file suffix.
+    """
     decoded_data = json.loads(decoded_data)
     decoded_data = {k.lower(): v for k, v in decoded_data.items()}
     if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
@@ -265,19 +297,32 @@ def zlib_decompress(compressed_data):
 
 
 def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
-    ''' this can come in as a json string or text (in the case of svg's)'''
+    '''
+    Check the decoded data and fetch the identifier and file suffix.
+
+    Parameters:
+        decoded_data (bytes or dict or str): The decoded data, which can be a bytes object, a dictionary, or a string.
+        block_index (int): The block index.
+        ident (str): The identifier.
+
+    Returns:
+        tuple: A tuple containing the identifier(STAMP, SRC-20/721), file suffix, and the decoded base64 data.
+        If decoded base64 is a string it returns a dict
+
+    Raises:
+        Exception: If an error occurs during the process.
+
+    '''
     file_suffix = None
     if type(decoded_data) is bytes:
         try:
             decoded_data = decoded_data.decode('utf-8') 
         except Exception as e:
             pass
-    if (type(decoded_data) is dict): # NOTE: src-20 are coming in as dict here, ripe for cleanup
-        decoded_string = json.dumps(decoded_data)
-        ident, file_suffix = reformat_src_string_get_ident(decoded_string)
+    if (type(decoded_data) is dict):
+        ident, file_suffix = reformat_src_string_get_ident(decoded_data)
     elif (type(decoded_data) is str and is_json_string(decoded_data)):
         ident, file_suffix = reformat_src_string_get_ident(decoded_data)
-        # FIXME: we will need to return the json_string to import into the srcx table or import from here
     else:
         try:
             if decoded_data and type(decoded_data) is str:
@@ -356,12 +401,14 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     stamp_cursor = db.cursor()
     if data is None or data == '':
         return
-    stamp = convert_to_json(data)
+    stamp = convert_to_dict_or_string(data, output_format='dict')
     decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
     (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-
+    if decoded_base64 is None or decoded_base64 == '':
+        return
+    
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
         block_index < config.CP_SRC20_BLOCK_END
@@ -380,21 +427,17 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
     if valid_src20:
-        if src20_string is None and decoded_base64:
-            src20_string = decoded_base64
-        src20_string = check_format(src20_string, tx_hash)
-        if src20_string:
+        src20_dict = check_format(decoded_base64, tx_hash)
+        if src20_dict is not None:
+            src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
-            src20_virgin = src20_string
-            insert_into_src20_tables(db, src20_string, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block)
-            # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
-            decoded_base64 = build_src20_svg_string(stamp_cursor, src20_virgin)
-            src20_string = src20_virgin
+            decoded_base64 = build_src20_svg_string(stamp_cursor, src20_dict)
             file_suffix = 'svg'
+            insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block)
+            # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
         else:
-            # invalid src-20 don't save
             return
-
+        
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
@@ -460,9 +503,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         is_valid_base64: {is_valid_base64}
     ''')
 
-    if src20_string is not None:
-        src20_string = {str(k): v if k != 'amt' else str(v) for k, v in src20_string.items()}
-        
     parsed = {
         "stamp": stamp_number,
         "block_index": block_index,
@@ -483,9 +523,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ).strftime('%Y-%m-%d %H:%M:%S'),
         "tx_hash": tx_hash,
         "tx_index": tx_index,
-        "src_data": (
-            json.dumps(str(src20_string)) if src20_string is not None and (valid_src20 or valid_src721) else None
-        ),
+        "src_data": src20_string,
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
         "is_reissue": is_reissue,
@@ -557,7 +595,8 @@ def get_fileobj_and_md5(decoded_base64):
 
 def store_files(db, filename, decoded_base64, mime_type):
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
-    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID:
+    if (config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and
+        config.AWS_S3_BUCKETNAME and config.AWS_S3_IMAGE_DIR):
         logger.info(f"uploading {filename} to aws")  # FIXME: there may be cases where we want both aws and disk storage
         check_existing_and_upload_to_s3(
             db, filename, mime_type, file_obj, file_obj_md5
