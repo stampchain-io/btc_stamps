@@ -76,6 +76,26 @@ def sort_keys(key):
 
 
 def check_format(input_string, tx_hash):
+    """
+    Check the format of the json string and return a dictionary if it meets the requirements for src-20.
+    This is the original function to determine inclusion/exclusion as a valid stamp. 
+    It is not used to validate user balances or full validitiy of the actual values in the string.
+    If this does not evaluate to True the transaction is not saved to the stamp table.
+    Edit with caution as this can impact stamp numbering.
+
+
+    Args:
+        input_string (str or bytes or dict): The input string to be checked.
+        tx_hash (str): The transaction hash associated with the input string.
+
+    Returns:
+        dict or None: If the input string meets the requirements for src-20, a dictionary representing the input string is returned.
+                     Otherwise, None is returned.
+
+    Raises:
+        json.JSONDecodeError: If the input string cannot be decoded as JSON.
+
+    """
     try:
         try:
             if isinstance(input_string, bytes):
@@ -87,12 +107,9 @@ def check_format(input_string, tx_hash):
         except (json.JSONDecodeError, TypeError):
             raise
 
-        if input_dict.get('s') is not None:
-            print("found s") # DEBUG '0.00047252' '0.00001' '0.26' '0.01'
         if input_dict.get("p") == "src-721":
             return input_dict
         elif input_dict.get("p") == "src-20":
-            ''' If the keys and values in the  string does not meet the requirements for src-20 we do not return or save the data in the Stamptable '''
             tick_value = input_dict.get("tick")
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_LIST) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
