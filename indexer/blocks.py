@@ -24,9 +24,7 @@ import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
 from xcprequest import (
-    get_all_tx_by_block,
-    get_all_dispensers_by_block,
-    get_all_dispenses_by_block,
+    get_xcp_block_data,
     parse_issuances_and_sends_from_block,
     parse_dispensers_from_block,
     parse_dispenses_from_block,
@@ -701,25 +699,19 @@ def follow(db):
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
 
-            block_data_from_xcp = get_all_tx_by_block(block_index=block_index)
+            [block_data_from_xcp, block_dispensers_from_xcp, block_dispenses_from_xcp] = get_xcp_block_data(block_index)
             parsed_block_data = parse_issuances_and_sends_from_block(
                 block_data=block_data_from_xcp,
                 db=db
             )
             stamp_issuances = parsed_block_data['issuances']
             stamp_sends = parsed_block_data['sends']
-            block_dispensers_from_xcp = get_all_dispensers_by_block(
-                block_index=block_index
-            )
             parsed_stamp_dispensers = parse_dispensers_from_block(
                 dispensers=block_dispensers_from_xcp,
                 db=db
             )
             stamp_dispensers = parsed_stamp_dispensers['dispensers']
             stamp_sends += parsed_stamp_dispensers['sends']
-            block_dispenses_from_xcp = get_all_dispenses_by_block(
-                block_index=block_index
-            )
             stamp_dispenses = parse_dispenses_from_block(
                 dispenses=block_dispenses_from_xcp,
                 db=db
@@ -918,5 +910,4 @@ def follow(db):
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
                 new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
                 (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
-            block_count = backend.getblockcount()
             block_index += 1
