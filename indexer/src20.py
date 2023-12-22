@@ -225,7 +225,6 @@ def get_running_mint_total(db, processed_in_block, tick):
 
     return Decimal(total_minted)
 
-# get_running_user_balance(db, src20_dict['tick'], src20_dict['creator'], src20_dict['destination'], valid_src20_in_block)
 def get_running_user_balance(db, tick, creator, processed_in_block):
     total_balance = 0
     if len(processed_in_block) > 0:
@@ -234,7 +233,7 @@ def get_running_user_balance(db, tick, creator, processed_in_block):
                 total_balance = item["total_balance"]
                 break
     if total_balance == 0:
-        total_balance = get_total_user_balance_from_db(db, tick, creator)
+        total_balance, _, _ = get_total_user_balance_from_db(db, tick, creator)
     return Decimal(total_balance)
 
 
@@ -243,13 +242,17 @@ def get_total_user_balance_from_db(db, tick, creator):
         this is for validation, the speedy version should pull from the balances table 
         keep in mind balance table is not commited on each transaction '''
     total_balance = Decimal('0')
+    highest_block_index = 0  # Initialize highest_block_index to 0
+    q_block_time_unix = None
     with db.cursor() as src20_cursor:
         src20_cursor.execute(f"""
             SELECT
                 amt,
                 op,
                 destination,
-                creator
+                creator,
+                block_index,
+                UNIX_TIMESTAMP(block_time) AS block_time_unix
             FROM
                 {SRC20_VALID_TABLE}
             WHERE
@@ -262,13 +265,17 @@ def get_total_user_balance_from_db(db, tick, creator):
             q_op = result[1]
             q_destination = result[2]
             q_creator = result[3]
+            q_block_index = result[4]  # Retrieve block_index from the result
+            q_block_time_unix = result[5]  # Retrieve block_time as Unix time from the result
+            if q_block_index > highest_block_index:  # Update highest_block_index if necessary
+                highest_block_index = q_block_index
             if q_op == 'MINT' and q_destination == creator:
                 total_balance += q_amt
             elif q_op == 'TRANSFER' and q_destination == creator:
                 total_balance += q_amt
             elif q_op == 'TRANSFER' and q_creator == creator:
                 total_balance -= q_amt
-    return total_balance
+    return total_balance, highest_block_index, q_block_time_unix  # Return total_balance, highest_block_index, and q_block_time as Unix time
 
 
 def insert_into_src20_table(db, table_name, src20_dict):
@@ -325,8 +332,6 @@ def insert_into_src20_table(db, table_name, src20_dict):
         ))
 
 
-import re
-
 def is_number(s):
     '''
     Check if the input string is a valid number.
@@ -351,7 +356,7 @@ def process_src20_values(src20_dict):
     - updates or adds the 'status' key regarding any invalidations
 
     Args:
-        src20_dict (dict): A dictionary containing the source 20 values.
+        src20_dict (dict): A dictionary containing the src20 key value pairs.
 
     Returns:
         dict: The updated src20_dict dictionary with processed values.
@@ -432,30 +437,30 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
                 
                 if deploy_lim and deploy_max:
-                    deploy_lim = min(deploy_lim, deploy_max) # deploy_lim cannot be > deploy_max
-                    total_minted = get_running_mint_total(db, valid_src20_in_block, src20_dict['tick'])
+                    deploy_lim = int(min(deploy_lim, deploy_max)) # deploy_lim cannot be > deploy_max
+                    total_minted = int(get_running_mint_total(db, valid_src20_in_block, src20_dict['tick']))
                     # TODO: Possibly commit to balances table in a separate db connection to avoid the full
                     # query on the SRC20Valid Table each time. Will need to rollback changes on balances if block does not commit
                     total_balance = get_running_user_balance(db, src20_dict['tick'], src20_dict['creator'], valid_src20_in_block)
                     mint_available = Decimal(deploy_max) - Decimal(total_minted)
-                    if mint_available <= 0:
-                        return
      
-                    if total_minted > deploy_max:
-                        logger.info(f"Invalid {src20_dict['tick']} OVERMINTMINT - total deployed {total_minted} > deploy_max {deploy_max}")
-                        src20_dict['status'] = f'OM: Over Deploy Max'
+                    if total_minted >= deploy_max:
+                        logger.info(f" {src20_dict['tick']} OVERMINT: minted {total_minted} > max {deploy_max}")
+                        src20_dict['status'] = f'OM: Over Deploy Max: {total_minted} >= {deploy_max}'
                         insert_into_src20_table(db, SRC20_TABLE, src20_dict)
                         return
                     
                     if src20_dict['amt'] > deploy_lim:
                         src20_dict['status'] = f'OML: FROM {src20_dict["amt"]} TO {deploy_lim}'
                         src20_dict['amt'] = deploy_lim
-                        logger.info(f"Reducing {src20_dict['tick']} OVER MINT LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
+                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
+                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT: LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
                     
                     if src20_dict['amt'] > mint_available:
                         src20_dict['status'] = f'OMA:  FROM: {src20_dict["amt"]} TO: {mint_available}'
                         src20_dict['amt'] = mint_available
-                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT - total deployed {total_minted} + amt {src20_dict['amt']} > deploy_max {deploy_max} remaining {mint_available} ")
+                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
+                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
 
                     running_total_mint = int(total_minted) + int(src20_dict['amt'])
                     running_user_balance = Decimal(total_balance) + Decimal(src20_dict['amt'])
