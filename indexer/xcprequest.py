@@ -1,3 +1,4 @@
+import asyncio
 import time
 import json
 import config
@@ -214,7 +215,7 @@ def get_dispenses_by_block(params):
     return json.loads(response.text)["result"]
 
 
-def get_all_tx_by_block(block_index):
+def _get_all_tx_by_block(block_index):
     return handle_cp_call_with_retry(
         func=get_block,
         params={
@@ -224,7 +225,7 @@ def get_all_tx_by_block(block_index):
     )
 
 
-def get_all_dispensers_by_block(block_index):
+def _get_all_dispensers_by_block(block_index):
     return handle_cp_call_with_retry(
         func=get_dispensers_by_block,
         params={
@@ -259,7 +260,7 @@ def get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
     )
 
 
-def get_all_dispenses_by_block(block_index):
+def _get_all_dispenses_by_block(block_index):
     return handle_cp_call_with_retry(
         func=get_dispenses_by_block,
         params={
@@ -271,6 +272,21 @@ def get_all_dispenses_by_block(block_index):
         },
         block_index=block_index
     )
+
+
+def get_xcp_block_data(block_index):
+    async def async_get_xcp_block_data(_block_index):
+        getters = [
+            _get_all_tx_by_block,
+            _get_all_dispensers_by_block,
+            _get_all_dispenses_by_block
+        ]
+        loop = asyncio.get_event_loop()
+        queries = [loop.run_in_executor(None, func, _block_index) for func in getters]
+
+        return await asyncio.gather(*queries)
+
+    return asyncio.run(async_get_xcp_block_data(block_index))
 
 
 def parse_issuances_and_sends_from_block(block_data, db):
