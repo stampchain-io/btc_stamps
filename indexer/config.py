@@ -59,7 +59,7 @@ BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN audio
 # Keep as ref
 # BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) transaction on btc
 # CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
-# CP_SRC720_BLOCK_START = 799434
+# CP_SRC721_BLOCK_START = 799434
 # FIRST_KEYBURN_BLOCK = 784978
 
 TESTNET = None
