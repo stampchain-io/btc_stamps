@@ -446,7 +446,7 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
      
                     if total_minted >= deploy_max:
                         logger.info(f" {src20_dict['tick']} OVERMINT: minted {total_minted} > max {deploy_max}")
-                        src20_dict['status'] = f'OM: Over Deploy Max: {total_minted} >= {deploy_max}'
+                        src20_dict['status'] = f'OM: Over Max: {total_minted} >= {deploy_max}'
                         insert_into_src20_table(db, SRC20_TABLE, src20_dict)
                         return
                     
