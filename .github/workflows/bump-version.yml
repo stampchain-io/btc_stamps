@@ -60,14 +60,15 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: elgohr/Github-Release-Action@20231116201936
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.NEW_VERSION }}
-          release_name: Release ${{ env.NEW_VERSION }}
+          name: Release ${{ env.NEW_VERSION }}
+          generate_release_notes: True
           body: |
-            Changes in this Release
-            - Auto-generated release from GitHub Actions
+            Changes in this Release:
+          append_body: True
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
