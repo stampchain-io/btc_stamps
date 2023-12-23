@@ -53,6 +53,7 @@ jobs:
             git tag ${{ env.NEW_VERSION }}
             git push origin HEAD:${{ github.ref }}
             git push origin --tags
+          fi
 
       - name: Create Release
         id: create_release
