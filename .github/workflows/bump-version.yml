@@ -32,19 +32,17 @@ jobs:
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
           git config --global user.name "${{ env.GIT_USER_NAME }}"
 
-      - name: Bump version
+      - name: Bump version for dev branch
+        if: github.ref == 'refs/heads/dev'
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            bump2version build
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            bump2version minor --serialize "v{major}.{minor}.{patch}"
-          fi
+          bump2version build
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
-      - name: Show Git Status and Changes
+      - name: Bump version for main branch
+        if: github.ref == 'refs/heads/main'
         run: |
-          git status
-          git diff
+          bump2version minor --serialize "v{major}.{minor}.{patch}"
+          echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Push changes
         run: |
