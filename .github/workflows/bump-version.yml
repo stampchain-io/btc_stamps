@@ -17,8 +17,8 @@ jobs:
 
       - name: Bump version and create tag
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             bump2version patch
             echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
