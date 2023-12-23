@@ -1,10 +1,3 @@
-name: Bump version
-on:
-  push:
-    branches:
-      - dev
-      - main
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,30 +16,19 @@ jobs:
           pip install bump2version
 
       - name: Bump version and create tag
-        id: bump_version_patch
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            bump2version patch
-          else
-            bump2version build
-          fi
-          echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
-
-      - name: Bump version and create tag
-        id: bump_version_build
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            bump2version --no-tag release
-          else
-            bump2version --no-tag build
-          fi
-          echo "NEW_VERSION=$(bump2version --dry-run --list build | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
-
-      - name: Push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git commit -am "Bump version to ${{ env.NEW_VERSION }}"
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            bump2version patch
+            echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
+          else
+            bump2version build
+            echo "NEW_VERSION=$(bump2version --dry-run --list build | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
+          fi
+
+      - name: Push changes
+        run: |
           git tag ${{ env.NEW_VERSION }}
           git push origin HEAD:${{ github.ref }}
           git push origin --tags
