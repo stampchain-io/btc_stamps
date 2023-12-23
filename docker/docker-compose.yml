@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: mysql:latest
+    image: mysql:8.2.0
     platform: ${DOCKER_PLATFORM}
     volumes:
       - ./db_data:/var/lib/mysql
@@ -16,13 +16,13 @@ services:
       - "3306:3306"
 
   adminer:
-    image: adminer
+    image: adminer:4.8.1
     restart: always
     ports:
       - "3030:8080"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.2.3
     depends_on:
       - db
     ports:
