@@ -58,6 +58,13 @@ jobs:
             git push origin --tags
           fi
 
+      - name: Generate Release Notes
+        id: generate_notes
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${{ env.NEW_VERSION }}^)
+          RELEASE_NOTES=$(git log $PREVIOUS_TAG..${{ env.NEW_VERSION }} --pretty=format:"- %s")
+          echo "RELEASE_NOTES=$RELEASE_NOTES" >> $GITHUB_ENV
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -68,8 +75,8 @@ jobs:
           name: Release ${{ env.NEW_VERSION }}
           generate_release_notes: True
           body: |
-            Changes in this Release
-            - Auto-generated release from GitHub Actions
+            Changes in this Release:
+            ${{ env.RELEASE_NOTES }}
           append_body: True
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
