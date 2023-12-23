@@ -7,3 +7,4 @@ db_data/
 files/
 indexer/.env
 .vscode/
+.idea/
