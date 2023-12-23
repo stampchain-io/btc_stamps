@@ -1,4 +1,4 @@
-# Bitcoin Stamps (SRC-20) Indexer / API / Explorer 
+# Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
 The Bitcoin Stamps protocol was initially developed using Counterparty (XCP) on Bitcoin as an immutable storage layer for NFT art (Classic Stamps). It now includes its own separate protocol outside of XCP called SRC-20 which creates transactions directly onto Bitcoin without the XCP transaction layer. This repo supports both Classic Stamps and direct to BTC SRC-20 tokens which are both considered part of Bitcoin Stamps. Bitcoin Stamps are permanently stored in the Bitcoin UTXO set and cannot be pruned from the blockchain. This permanence comes at a price through Bitcoin transaction fees that don't benefit from the witness data discount. The Bitcoin Stamps protocol is intended for use cases where permanence is required and the cost of the transaction is of little concern.
 
