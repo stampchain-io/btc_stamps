@@ -23,7 +23,7 @@ jobs:
           pip install bump2version
 
       - name: Bump version and create tag
-        id: bump_version
+        id: bump_version_patch
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             bump2version patch
@@ -33,7 +33,7 @@ jobs:
           echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
 
       - name: Bump version and create tag
-        id: bump_version
+        id: bump_version_build
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             bump2version --no-tag release
