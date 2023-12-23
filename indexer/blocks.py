@@ -11,9 +11,9 @@ import decimal
 import logging
 import http
 import bitcoin as bitcoinlib
+import pymysql as mysql
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
-import pymysql as mysql
 
 import config
 import src.exceptions as exceptions
@@ -39,6 +39,7 @@ from stamp import (
     purge_block_db,
     parse_tx_to_stamp_table,
     update_parsed_block,
+    rebuild_balances
 )
 
 from send import (
@@ -783,6 +784,7 @@ def follow(db):
                     )
                     # Rollback.
                     purge_block_db(db, current_index)
+                    rebuild_balances(db)
                     requires_rollback = False
                     continue
 
