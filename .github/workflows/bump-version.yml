@@ -32,25 +32,14 @@ jobs:
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
           git config --global user.name "${{ env.GIT_USER_NAME }}"
 
-      - name: Bump version and create tag
-        id: bump_version_patch
+      - name: Bump version
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            bump2version patch
-          else
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
             bump2version build
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            bump2version minor --serialize "v{major}.{minor}.{patch}"
           fi
-          echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
-
-      - name: Bump version and create tag
-        id: bump_version_build
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            bump2version --no-tag release
-          else
-            bump2version --no-tag build
-          fi
-          echo "NEW_VERSION=$(bump2version --dry-run --list build | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
+          echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Show Git Status and Changes
         run: |
@@ -66,7 +55,6 @@ jobs:
             git tag ${{ env.NEW_VERSION }}
             git push origin HEAD:${{ github.ref }}
             git push origin --tags
-          fi
 
       - name: Create Release
         id: create_release
