@@ -71,4 +71,3 @@ jobs:
             - Auto-generated release from GitHub Actions
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
-
