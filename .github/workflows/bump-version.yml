@@ -30,7 +30,7 @@ jobs:
           else
             bump2version build
           fi
-        echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,"^.*=",,)" >> $GITHUB_ENV
+          echo "NEW_VERSION=$(bump2version --dry-run --list patch | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
 
       - name: Bump version and create tag
         id: bump_version
@@ -40,7 +40,7 @@ jobs:
           else
             bump2version --no-tag build
           fi
-          echo "NEW_VERSION=$(bump2version --dry-run --list build | grep current_version | sed -r s,"^.*=",,)" >> $GITHUB_ENV
+          echo "NEW_VERSION=$(bump2version --dry-run --list build | grep current_version | sed -r s,'^.*=',,)" >> $GITHUB_ENV
 
       - name: Push changes
         run: |
