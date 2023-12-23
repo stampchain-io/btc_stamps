@@ -11,9 +11,9 @@ import decimal
 import logging
 import http
 import bitcoin as bitcoinlib
+import pymysql as mysql
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
-import pymysql as mysql
 
 import config
 import src.exceptions as exceptions
@@ -24,9 +24,7 @@ import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
 from xcprequest import (
-    get_all_tx_by_block,
-    get_all_dispensers_by_block,
-    get_all_dispenses_by_block,
+    get_xcp_block_data,
     parse_issuances_and_sends_from_block,
     parse_dispensers_from_block,
     parse_dispenses_from_block,
@@ -39,6 +37,7 @@ from stamp import (
     purge_block_db,
     parse_tx_to_stamp_table,
     update_parsed_block,
+    rebuild_balances
 )
 
 from send import (
@@ -76,22 +75,27 @@ def parse_block(db, block_index, block_time,
     logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
 
     txlist = []
-    for tx in txes: # this should be empty unless we are reparsing a block - not implemented
+    for tx in txes:
         # print("tx", tx) # DEBUG
         try:
             # parse_tx(db, tx)
+
             # adding this block so we can add items that don't decode # was below in data field
-            if tx['data'] is not None:
-                data = binascii.hexlify(tx['data']).decode('UTF-8')
+            if tx[config.TXS_FIELDS_POSITION['data']] is not None:
+                # data = binascii.hexlify(tx[config.TXS_FIELDS_POSITION['data']]) # .encode('UTF-8')).decode('UTF-8')
+                data = tx[config.TXS_FIELDS_POSITION['data']]
                 print("decoding data", data)
             else:
                 data = ''
-
-            txlist.append('{}{}{}{}{}{}'.format(tx['tx_hash'], tx['source'], tx['destination'],
-                                                tx['btc_amount'], tx['fee'],
+            
+            txlist.append('{}{}{}{}{}{}'.format(tx[config.TXS_FIELDS_POSITION['tx_index']],
+                                                tx[config.TXS_FIELDS_POSITION['tx_hash']],
+                                                tx[config.TXS_FIELDS_POSITION['block_index']],
+                                                tx[config.TXS_FIELDS_POSITION['block_hash']],
+                                                tx[config.TXS_FIELDS_POSITION['block_time']],
                                                 data))
         except exceptions.ParseTransactionError as e:
-            logger.warn('ParseTransactionError for tx %s: %s' % (tx['tx_hash'], e))
+            logger.warn('ParseTransactionError for tx %s: %s' % (tx[config.TXS_FIELDS_POSITION['tx_index']], e))
             raise e
 
     cursor.close()
@@ -99,13 +103,12 @@ def parse_block(db, block_index, block_time,
     # Calculate consensus hashes.
     # TODO: need to update these functions to use MySQL - these appear to be part of the block reorg checks - needs to be done before deprecating sqlite 
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
-    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, [])
-    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, [])
+    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
+    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
     return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
-def initialize(db):  # CHANGED TO MYSQL
-    # print(db) # DEBUG
+def initialize(db):
     """initialize data, create and populate the database."""
     cursor = db.cursor() 
 
@@ -307,7 +310,7 @@ def get_tx_info2(
                 return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
             else:
                 raise DecodeError('unrecognized output type')
-        assert new_destination is not None and new_data is not None  # removing this might not get a dest for cp trx?
+        assert new_destination is not None and new_data is not None
         if new_data is not None:
             data += new_data
             destinations = (str(new_destination))
@@ -341,12 +344,12 @@ def get_tx_info2(
     # Decode the address associated with the output.
     # print("prev_vout.scriptPubKey: ", prev_vout_script_pubkey, "\n")
     try:
-        source = str(CBitcoinAddress.from_scriptPubKey(prev_vout_script_pubkey)) #needed to add srt here or we get P2SHAddress('address') output - this is handled differently than destinations
+        source = CBitcoinAddress.from_scriptPubKey(prev_vout_script_pubkey).split("'")[1]
     except Exception:
         pass
     if source is None:
         try:
-            source = CBitcoinAddress(decode_p2w(prev_vout_script_pubkey)[0]) # not sure if the Cbitcoinaaddress is needed here
+            source = decode_p2w(prev_vout_script_pubkey)[0]
         except Exception:
             pass
     if source is None:
@@ -380,7 +383,7 @@ def decode_checkmultisig(ctx, chunk):
         destination = None
 
         try:
-            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey)
+            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey).split("'")[1]
         except Exception:
             pass
         if destination is None:
@@ -696,25 +699,19 @@ def follow(db):
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
 
-            block_data_from_xcp = get_all_tx_by_block(block_index=block_index)
+            [block_data_from_xcp, block_dispensers_from_xcp, block_dispenses_from_xcp] = get_xcp_block_data(block_index)
             parsed_block_data = parse_issuances_and_sends_from_block(
                 block_data=block_data_from_xcp,
                 db=db
             )
             stamp_issuances = parsed_block_data['issuances']
             stamp_sends = parsed_block_data['sends']
-            block_dispensers_from_xcp = get_all_dispensers_by_block(
-                block_index=block_index
-            )
             parsed_stamp_dispensers = parse_dispensers_from_block(
                 dispensers=block_dispensers_from_xcp,
                 db=db
             )
             stamp_dispensers = parsed_stamp_dispensers['dispensers']
             stamp_sends += parsed_stamp_dispensers['sends']
-            block_dispenses_from_xcp = get_all_dispenses_by_block(
-                block_index=block_index
-            )
             stamp_dispenses = parse_dispenses_from_block(
                 dispenses=block_dispenses_from_xcp,
                 db=db
@@ -779,6 +776,7 @@ def follow(db):
                     )
                     # Rollback.
                     purge_block_db(db, current_index)
+                    rebuild_balances(db)
                     requires_rollback = False
                     continue
 
@@ -808,7 +806,7 @@ def follow(db):
             try:
                 block_cursor.execute(block_query, args)
             except mysql.IntegrityError:
-                print("block already exists in mysql")
+                print(f"block {block_index} already exists in mysql") # TODO: this may be ok if we are doing a reparse
                 sys.exit()
             except Exception as e:
                 print("Error executing query:", block_query)
@@ -912,5 +910,4 @@ def follow(db):
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
                 new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
                 (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
-            block_count = backend.getblockcount()
             block_index += 1

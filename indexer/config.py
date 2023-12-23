@@ -56,10 +56,14 @@ CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction 
 CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN audio files
 
+# Consensus changes
+STRIP_WHITESPACE = 797200
+STOP_BASE64_REPAIR = 784550
+
 # Keep as ref
 # BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) transaction on btc
 # CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
-# CP_SRC720_BLOCK_START = 799434
+# CP_SRC721_BLOCK_START = 799434
 # FIRST_KEYBURN_BLOCK = 784978
 
 TESTNET = None
@@ -115,6 +119,19 @@ BLOCK_FIELDS_POSITION = {
     'txlist_hash': 6,
     'messages_hash': 7,
     'indexed': 8
+}
+
+TXS_FIELDS_POSITION={
+    'tx_index':0,
+    'tx_hash':1,
+    'block_index':2,
+    'block_hash':3,
+    'block_time':4,
+    'source':5,
+    'destination':6,
+    'btc_amount':7,
+    'fee':8,
+    'data':9
 }
 
 TICK_PATTERN_LIST = {
