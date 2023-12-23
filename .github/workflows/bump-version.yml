@@ -1,4 +1,3 @@
-
 name: Bump version
 on:
   push:
@@ -52,18 +51,11 @@ jobs:
           git push origin HEAD:${{ github.ref }}
           git push origin --tags
 
-      - name: Push changes
-        run: |
-          git commit -am "Bump version to ${{ env.NEW_VERSION }}" --author="GitHub Action <action@github.com>"
-          git tag ${{ env.NEW_VERSION }}
-          git push origin HEAD:${{ github.ref }}
-          git push origin --tags
-
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.NEW_VERSION }}
           release_name: Release ${{ env.NEW_VERSION }}
@@ -72,3 +64,4 @@ jobs:
             - Auto-generated release from GitHub Actions
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
+
