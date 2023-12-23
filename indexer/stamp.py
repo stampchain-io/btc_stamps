@@ -2,7 +2,6 @@ import logging
 import json
 import base64
 import pybase64
-from datetime import datetime
 import hashlib
 import magic
 import subprocess
@@ -12,6 +11,8 @@ import os
 import zlib
 import msgpack
 import io
+from datetime import datetime
+from decimal import Decimal
 
 import config
 import src.log as log
@@ -20,7 +21,9 @@ from src721 import validate_src721_and_process
 from src20 import (
     check_format,
     build_src20_svg_string,
-    insert_into_src20_tables
+    insert_into_src20_tables,
+    update_balances,
+    get_total_user_balance_from_db
 )
 import traceback
 from src.aws import (
@@ -30,52 +33,99 @@ from src.aws import (
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
+
 def purge_block_db(db, block_index):
-    """Purge block transactions from the database."""
-    db.ping(reconnect=True)
+    """Purge transactions from the database. This is for a reorg or
+        where transactions were partially commited. 
+
+    Args:
+        db (Database): The database object.
+        block_index (int): The block index from which to start purging.
+
+    Returns:
+        None
+    """
     cursor = db.cursor()
-    logger.warning(
-        "Purging txs from database after block: {}"
-        .format(block_index)
-    )
+
     cursor.execute('''
-                   DELETE FROM transactions
-                   WHERE block_index >= %s
-                   ''', (block_index,))
-    logger.warning(
-        "Purging blocks from database after block: {}"
-        .format(block_index)
-    )
-    cursor.execute('''
-                    DELETE FROM blocks
+                    DELETE FROM {}
                     WHERE block_index >= %s
-                    ''', (block_index,))
-    logger.warning(
-        "Purging stamps from database after block: {}"
-        .format(block_index)
-    )
-    cursor.execute('''
-                   DELETE FROM {}
-                   WHERE block_index >= %s
-                    '''.format(config.STAMP_TABLE), (block_index,))
-    cursor.execute("COMMIT")
+                    '''.format('dispensers'), (block_index,))
+    
+    tables = [
+        'transactions',
+        'blocks',
+        config.STAMP_TABLE,
+        'dispensers',
+        'SRC20',
+        'SRC20Valid'
+    ]
+
+    for table in tables:
+        logger.warning("Purging {} from database after block: {}".format(table, block_index))
+        cursor.execute('''
+                        DELETE FROM {}
+                        WHERE block_index >= %s
+                        '''.format(table), (block_index,))
+        
+    db.commit()
     cursor.close()
 
 
 def is_prev_block_parsed(db, block_index):
     block_fields = config.BLOCK_FIELDS_POSITION
-    db.ping(reconnect=True)
     cursor = db.cursor()
     cursor.execute('''
                    SELECT * FROM blocks
                    WHERE block_index = %s
                    ''', (block_index - 1,))
     block = cursor.fetchone()
+    cursor.close()
     if block[block_fields['indexed']] == 1:
         return True
     else:
         purge_block_db(db, block_index - 1)
+        rebuild_balances(db)
         return False
+
+
+def rebuild_balances(db):
+    cursor = db.cursor()
+
+    query = """
+    SELECT DISTINCT destination, tick
+    FROM SRC20Valid
+    WHERE op = 'TRANSFER' OR op = 'MINT'
+    """
+    cursor.execute(query)
+    src20_valid_unique = cursor.fetchall()
+
+    query = """
+    DELETE FROM balances
+    """
+    cursor.execute(query)
+
+    logger.warning("Purging and rebuilding {} table".format('balances'))
+    for src20_valid in src20_valid_unique:
+        balance_dict = None
+        balance_updates = []
+        address = src20_valid[0]
+        tick = src20_valid[1]
+
+        total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, address)
+        if balance_dict is None:
+            balance_dict = {
+                'tick': tick,
+                'creator': address,
+                'credit': total_balance,
+                'debit': Decimal(0)
+            }
+            balance_updates.append(balance_dict)
+
+            update_balances(db, balance_updates, last_update, block_time)
+
+    db.commit()
+    cursor.close()
 
 
 def base62_encode(num):
@@ -106,14 +156,41 @@ def get_cpid(stamp, block_index, tx_hash):
 
 
 def clean_json_string(json_string):
-    json_string = json_string.replace("'", '"')
-    json_string = json_string.replace("None", "null")
+    """
+    Cleans a JSON string by replacing single quotes with spaces and removing null bytes.
+    THis is so a proper string may be inserted into the Stamp Table. It is not used
+    for inclusion or inclusion of src-20 tokens. 
+    NOTE: this is only here because of the json data type on the Stamp Table 
+    converting this to medimtext will allow us to store malformed json strings
+    which doesn't matter a whole lot because we do validation later in the SRC20 Tables. 
+
+    Args:
+        json_string (str): The JSON string to be cleaned.
+
+    Returns:
+        str: The cleaned JSON string.
+    """
+    json_string = json_string.replace("'", ' ')
     json_string = json_string.replace("\\x00", "") # remove null bytes
-    json_string = json.dumps(json.loads(json_string), ensure_ascii=False)
     return json_string
 
 
 def convert_to_dict_or_string(input_data, output_format='dict'):
+    """
+    Convert the input data to a dictionary or a JSON string.
+
+    Args:
+        input_data (str, bytes, dict): The input data to be converted.
+        output_format (str, optional): The desired output format. Defaults to 'dict'.
+
+    Returns:
+        dict or str: The converted data in the specified output format.
+
+    Raises:
+        ValueError: If the input_data is a string representation of a dictionary but cannot be evaluated.
+        Exception: If an error occurs during the conversion process.
+
+    """
     try:
         if isinstance(input_data, bytes):
             input_data = input_data.decode('utf-8')
@@ -130,7 +207,6 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
             if output_format == 'dict':
                 return input_data
             elif output_format == 'string':
-                # json_string = json.dumps(input_data)
                 json_string = json.dumps(input_data, ensure_ascii=False)
                 return clean_json_string(json_string)
             else:
@@ -142,8 +218,19 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
 
 
 def decode_base64(base64_string, block_index):
-    ''' method on and after block 784550 - this will result in more invalid base64 strings since don't attempt repair of padding '''
-    if block_index <= 784550:
+    ''' 
+    Decode a base64 string into image data.
+    
+    Args:
+        base64_string (str): The base64 encoded string to decode.
+        block_index (int): The block index used for conditional decoding.
+        
+    Returns:
+        tuple: A tuple containing the decoded image data and a boolean indicating success.
+            - image_data (bytes): The decoded image data.
+            - success (bool): True if decoding is successful, False otherwise.
+    '''
+    if block_index <= config.STOP_BASE64_REPAIR:
         image_data = decode_base64_with_repair(base64_string)
         return image_data, True
     try:
@@ -223,6 +310,22 @@ def check_custom_suffix(bytestring_data):
 
 
 def get_file_suffix(bytestring_data, block_index):
+    """
+    Determines the file suffix based on the given bytestring data. The
+    block index is used to determine the consensus change when we attempted
+    repair on the base64 string for padding
+
+    Args:
+        bytestring_data (bytes): The bytestring data to analyze.
+        block_index (int): The block index.
+
+    Returns:
+        str: The file suffix.
+
+    Raises:
+        None
+
+    """
     if block_index > config.BMN_BLOCKSTART:
         if check_custom_suffix(bytestring_data):
             return 'bmn'
@@ -231,7 +334,7 @@ def get_file_suffix(bytestring_data, block_index):
         return 'json'
     except (json.JSONDecodeError, UnicodeDecodeError):
         # If it failed to decode as UTF-8 text, pass it to magic to determine the file type
-        if block_index > 797200: # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
+        if block_index > config.STRIP_WHITESPACE: # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
             file_type = magic.from_buffer(bytestring_data.lstrip(), mime=True)
         else:
             file_type = magic.from_buffer(bytestring_data, mime=True)
@@ -265,7 +368,8 @@ def reformat_src_string_get_ident(decoded_data):
     Returns:
         tuple: A tuple containing the identifier and file suffix.
     """
-    decoded_data = json.loads(decoded_data)
+    if not isinstance(decoded_data, dict):
+        decoded_data = json.loads(decoded_data)
     decoded_data = {k.lower(): v for k, v in decoded_data.items()}
     if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
         ident = decoded_data['p'].upper()
@@ -323,6 +427,7 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
         ident, file_suffix = reformat_src_string_get_ident(decoded_data)
     elif (type(decoded_data) is str and is_json_string(decoded_data)):
         ident, file_suffix = reformat_src_string_get_ident(decoded_data)
+        # FIXME: we will need to return the json_string to import into the srcx table or import from here
     else:
         try:
             if decoded_data and type(decoded_data) is str:

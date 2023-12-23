@@ -56,6 +56,10 @@ CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction 
 CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN audio files
 
+# Consensus changes
+STRIP_WHITESPACE = 797200
+STOP_BASE64_REPAIR = 784550
+
 # Keep as ref
 # BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) transaction on btc
 # CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
