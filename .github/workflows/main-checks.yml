@@ -8,8 +8,8 @@ on:
 
 jobs:
   deno-job:
-    uses: ./.github/workflows/checks/deno-check.yml
+    uses: ./.github/workflows/deno-check.yml
 
   python-job:
     needs: deno-job
-    uses: ./.github/workflows/checks/python-check.yml
+    uses: ./.github/workflows/python-check.yml
