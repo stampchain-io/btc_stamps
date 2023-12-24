@@ -363,12 +363,11 @@ def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, s
     """Inserts all sends and dispensers into the sends, dispenser and transaction database.
         NOTE: this inserts them all at the end of the transactions table so they will be out of sequence in the block  """
     try:
-        if stamp_sends is not None:
+        if stamp_sends: # NOTE: not sure hos multiple destinations are handled here
             for stamp_send in stamp_sends:
-                destinations = ','.join(send['destination'] for send in stamp_send)
                 tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
                                               block_hash, block_time, stamp_send['source'], 
-                                              destinations, None, None, str(stamp_send), None)
+                                              stamp_send['destination'], None, None, str(stamp_send), None)
                 parsed_send = {
                             'from': stamp_send.get('source'),
                             'to': stamp_send.get('destination'),
@@ -388,11 +387,11 @@ def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, s
                 )
                 sends_cursor.close()
                 
-        if stamp_dispensers is not None:
+        if stamp_dispensers:
             for stamp_dispenser in stamp_dispensers:
                 tx_index = insert_transaction(db, tx_index, stamp_dispenser['tx_hash'], block_index,
                                                block_hash, block_time, stamp_dispenser['source'], 
-                                               destinations, None, None, str(stamp_send), None)
+                                               None, None, None, str(stamp_send), None)
 
                 stamp_dispenser['tx_index'] = tx_index
                 dispenser_cursor = db.cursor()
@@ -543,7 +542,7 @@ def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_tim
         return tx_index + 1
 
 
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None, stamp_send=None):
+def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
     cursor = db.cursor()
     # check if the incoming tx_hash from txhash_list is already in the trx table
@@ -827,8 +826,7 @@ def follow(db):
                     tx_hash,
                     tx_index,
                     tx_hex,
-                    stamp_issuance=stamp_issuance,
-                    stamp_send=None,
+                    stamp_issuance=stamp_issuance
                 )
                     # commits when the block is complete 
                     # parsing all trx in the block
@@ -864,7 +862,7 @@ def follow(db):
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
             if stamp_sends is not None or stamp_dispensers is not None:
-                insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index + 1, stamp_sends=None, stamp_dispensers=None)
+                insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index + 1, stamp_sends=stamp_sends, stamp_dispensers=stamp_dispensers)
 
             try:
                 db.commit()
