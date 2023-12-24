@@ -12,8 +12,9 @@ import logging
 import http
 import bitcoin as bitcoinlib
 import pymysql as mysql
-from bitcoin.core.script import CScriptInvalidError
+from bitcoin.core.script import CScriptInvalidError, CScript
 from bitcoin.wallet import CBitcoinAddress
+from bitcoinlib.keys import pubkeyhash_to_addr
 
 import config
 import src.exceptions as exceptions
@@ -223,147 +224,121 @@ def initialize(db):
     cursor.close()
 
 
-def get_tx_info(tx_hex, block_parser=None, block_index=None, db=None, stamp_issuance=None):
-    """Get the transaction info.
-        Returns normalized None data for DecodeError and BTCOnlyError."""
+def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
+    """Get transaction information.
+    The destinations, if they exist, always come before the data output, and the change, if it exists, always comes after.
+    Include keyburn check on all transactions, not just src-20.
+    This function parses every transaction, not just stamps/src-20.
+    Returns normalized None data for DecodeError and BTCOnlyError.
+    """
     try:
         if not block_index:
             block_index = util.CURRENT_BLOCK_INDEX
-        return get_tx_info2(
-            tx_hex, block_parser=block_parser,
-            p2sh_support=True, p2sh_is_segwit=False, stamp_issuance=stamp_issuance
-        )
+        ctx = backend.deserialize(tx_hex)
+        pubkeys_compiled = []
+
+        # Ignore coinbase transactions.
+        if ctx.is_coinbase():
+            raise DecodeError('coinbase transaction')
+
+        destinations, btc_amount, fee, data, keyburn, is_op_return = [], 0, 0, b'', None, None
+
+        if stamp_issuance:
+            source = str(stamp_issuance['source'])
+            destination = str(stamp_issuance['issuer'])
+            data = str(stamp_issuance)
+
+        for vout in ctx.vout:
+            # asm is the bytestring of the vout values
+            # Fee is the input values minus output values.
+            output_value = vout.nValue
+            fee -= output_value
+            # Ignore transactions with invalid script.
+            try:
+                asm = script.get_asm(vout.scriptPubKey)
+            except CScriptInvalidError as e:
+                raise DecodeError(e)
+            if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
+                try:
+                    pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
+                    if keyburn_vout is not None: # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
+                        keyburn = keyburn_vout
+                    pubkeys_compiled += pubkeys
+                    # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
+                except:
+                    raise DecodeError('unrecognised output type')
+            elif asm[-1] == 'OP_CHECKSIG':
+                pass # FIXME: not certain if we need to check keyburn on OP_CHECKSIG
+                    # see 'A14845889080100805000'
+                    #   0: OP_DUP
+                    #   1: OP_HASH160
+                    #   3: OP_EQUALVERIFY
+                    #   4: OP_CHECKSIG
+            elif asm[0] == 'OP_RETURN':
+                is_op_return = True
+                pass
+
+        if stamp_issuance:
+            return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
+        
+        if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
+            chunk = b''
+            for pubkey in pubkeys_compiled:
+                chunk += pubkey[1:-1]       # Skip sign byte and nonce byte. ( this does the concatenation as well)
+            try:
+                src20_destination, src20_data = decode_checkmultisig(ctx, chunk) # this only decodes src-20 type trx
+            except:
+                if stamp_issuance:
+                    return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
+                else:
+                    raise DecodeError('unrecognized output type')
+            assert src20_destination is not None and src20_data is not None
+            if src20_data is not None:
+                data += src20_data
+                destinations = (str(src20_destination))
+
+        if not data:
+            raise BTCOnlyError('no data, not a stamp', ctx)
+
+        vin = ctx.vin[0]
+
+        prev_tx_hash = vin.prevout.hash
+        prev_tx_index = vin.prevout.n
+
+        # Get the full transaction data for the previous transaction.
+        prev_tx = backend.getrawtransaction(util.ib2h(prev_tx_hash))
+        prev_ctx = backend.deserialize(prev_tx)
+
+        # Get the output being spent by the input.
+        prev_vout = prev_ctx.vout[prev_tx_index]
+        prev_vout_script_pubkey = prev_vout.scriptPubKey
+
+        # Decode the address associated with the output.
+        source = decode_address(prev_vout_script_pubkey)
+
+        return str(source), destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return
+
     except DecodeError as e:
         return b'', None, None, None, None, None, None, None
     except BTCOnlyError as e:
         return b'', None, None, None, None, None, None, None
 
 
-def get_tx_info2(
-    tx_hex, block_parser=None, p2sh_support=False, p2sh_is_segwit=False, stamp_issuance=None
-):
-    """Get multisig transaction info.
-    The destinations, if they exists, always comes before the data output; the
-    change, if it exists, always comes after.
-    Updating to include keyburn check on all transactions, not just src-20
-    This is parsing every single transaction, not just those that are stamps/src-20
-    """
-
-    # Decode transaction binary.
-    ctx = backend.deserialize(tx_hex)
-    # deserialize does this: bitcoinlib.core.CTransaction.deserialize(binascii.unhexlify(tx_hex))
-    pubkeys_compiled = []
-
-    # Ignore coinbase transactions.
-    if ctx.is_coinbase():
-        raise DecodeError('coinbase transaction')
-
-    destinations, btc_amount, fee, data, keyburn, is_op_return = [], 0, 0, b'', None, None
-
-    if stamp_issuance:
-        source = str(stamp_issuance['source'])
-        destination = str(stamp_issuance['issuer'])
-        data = str(stamp_issuance)
-
-    # vout_count = len(ctx.vout) # number of outputs
-    for vout in ctx.vout:
-        # asm is the bytestring of the vout values
-        # Fee is the input values minus output values.
-        output_value = vout.nValue
-        fee -= output_value
-        # Ignore transactions with invalid script.
-        try:
-            asm = script.get_asm(vout.scriptPubKey)
-        except CScriptInvalidError as e:
-            raise DecodeError(e)
-        if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
-            try:
-                pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
-                if keyburn_vout is not None: # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
-                    keyburn = keyburn_vout
-                pubkeys_compiled += pubkeys
-                # print("pubkeys compiled: ", pubkeys_compiled)
-                # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
-            except:
-                # print("ctx: ", ctx)
-                raise DecodeError('unrecognised output type')
-        elif asm[-1] == 'OP_CHECKSIG':
-            pass # FIXME: not certain if we need to check keyburn on these
-                # see 'A14845889080100805000'
-                #   0: OP_DUP
-                #   1: OP_HASH160
-                #   3: OP_EQUALVERIFY
-                #   4: OP_CHECKSIG
-        elif asm[0] == 'OP_RETURN':
-            is_op_return = True
-            pass #Just ignore.
-    
-    if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the data
-        chunk = b''
-        for pubkey in pubkeys_compiled:
-            chunk += pubkey[1:-1]       # Skip sign byte and nonce byte. ( this does the concatenation as well)
-        try:
-            new_destination, new_data = decode_checkmultisig(ctx, chunk) # this only decodes src-20 type trx
-        except:
-            if stamp_issuance:
-                # returning since we parsed and got keyburn
-                return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
-            else:
-                raise DecodeError('unrecognized output type')
-        assert new_destination is not None and new_data is not None
-        if new_data is not None:
-            data += new_data
-            destinations = (str(new_destination))
-
-    source = None
-
-    if stamp_issuance:
-        return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
-
-    if not data:
-        raise BTCOnlyError('no data and not unspendable', ctx)
-
-    vin = ctx.vin[0]
-
-    prev_tx_hash = vin.prevout.hash
-    prev_tx_index = vin.prevout.n
-
-    # Get the full transaction data for the previous transaction.
-    if block_parser:
-        prev_tx = block_parser.read_raw_transaction(prev_tx_hash[::-1])
-        prev_ctx = backend.deserialize(prev_tx['__data__'])
-    else:
-        prev_tx = backend.getrawtransaction(util.ib2h(prev_tx_hash))
-        # prev_tx = backend.getrawtransaction(prev_tx_hash[::-1])
-        prev_ctx = backend.deserialize(prev_tx)
-
-    # Get the output being spent by the input.
-    prev_vout = prev_ctx.vout[prev_tx_index]
-    prev_vout_script_pubkey = prev_vout.scriptPubKey
-
-    # Decode the address associated with the output.
-    # print("prev_vout.scriptPubKey: ", prev_vout_script_pubkey, "\n")
+def decode_address(script_pubkey):
     try:
-        source = CBitcoinAddress.from_scriptPubKey(prev_vout_script_pubkey).split("'")[1]
-    except Exception:
-        pass
-    if source is None:
-        try:
-            source = decode_p2w(prev_vout_script_pubkey)[0]
-        except Exception:
-            pass
-    if source is None:
-        try:
-            source = CBitcoinAddress.from_taproot_scriptPubKey(prev_vout_script_pubkey)
-        except Exception:
-            pass
-    if source is None:
-        raise DecodeError('unknown source address type')
-
-    # this is detecting keyburn for CP as well :) 
-    # print("source =", source, "destinations =", destinations, "btc_amount =", btc_amount, "fee =", round(fee), "data =", data, "keyburn", keyburn, "\n")
-    return source, destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return
-
+        # Attempt standard address decoding
+        address = CBitcoinAddress.from_scriptPubKey(script_pubkey)
+        return str(address)
+    except Exception as e:
+        # Handle other types of addresses
+        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:  # Taproot check
+            # Extract the witness program for Taproot
+            witness_program = script_pubkey[2:]
+            # Decode as Bech32m address
+            return pubkeyhash_to_addr(witness_program, prefix='bc', encoding='bech32', witver=1)
+        else:
+            raise ValueError("Unsupported scriptPubKey format")
+        
 
 def decode_checkmultisig(ctx, chunk):
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
@@ -376,59 +351,16 @@ def decode_checkmultisig(ctx, chunk):
         if data_length != int(chunk_length, 16):
             raise DecodeError('invalid data length')
 
-        # destination = CBitcoinAddress.from_scriptPubKey(ctx.vout[0].scriptPubKey) # this was not decoding all address types
-
         script_pubkey = ctx.vout[0].scriptPubKey
-        # print("script_pubkey: ", script_pubkey)
-        destination = None
+        destination = decode_address(script_pubkey)
 
-        try:
-            destination = CBitcoinAddress.from_scriptPubKey(script_pubkey).split("'")[1]
-        except Exception:
-            pass
-        if destination is None:
-            try:
-                destination = decode_p2w(script_pubkey)[0]
-            except Exception:
-                pass
-        if destination is None:
-            try:
-                destination = CBitcoinAddress.from_taproot_scriptPubKey(script_pubkey)
-            except Exception:
-                pass
-        if destination is None:
-            raise DecodeError('unknown address type')
-
-        return destination, data
+        return str(destination), data
     else:
         return None, data
 
-# counterparty decoding for multisig
-# def decode_checkmultisig(asm, ctx):
-#     pubkeys, signatures_required = script.get_checkmultisig(asm)
-#     chunk = b''
-#     for pubkey in pubkeys[:-1]:     # (No data in last pubkey.)
-#         chunk += pubkey[1:-1]       # Skip sign byte and nonce byte.
-#     chunk = arc4_decrypt(chunk, ctx)
-#     if chunk[1:len(config.PREFIX) + 1] == config.PREFIX:        # Data
-#         # Padding byte in each output (instead of just in the last one) so that encoding methods may be mixed. Also, it’s just not very much data.
-#         chunk_length = chunk[0]
-#         chunk = chunk[1:chunk_length + 1]
-#         destination, data = None, chunk[len(config.PREFIX):]
-#     else:                                                       # Destination
-#         pubkeyhashes = [script.pubkey_to_pubkeyhash(pubkey) for pubkey in pubkeys]
-#         destination, data = script.construct_array(signatures_required, pubkeyhashes, len(pubkeyhashes)), None
-
-def decode_p2w(script_pubkey):  # This is used for stamps
-    try:
-        bech32 = bitcoinlib.bech32.CBech32Data.from_bytes(0, script_pubkey[2:22])
-        return str(bech32), None
-    except TypeError:
-        raise DecodeError('bech32 decoding error')
-
 
 def reinitialize(db, block_index=None):
-    ''' Not yet implemented for stamps need to swap to mysql and figure out what tables to drop! '''
+    ''' Not yet implemented for stamps  '''
 
     """Drop all predefined tables and initialize the database once again."""
     cursor = db.cursor()
@@ -539,7 +471,6 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if transactions:
         return tx_index
 
-    # Get the important details about each transaction.
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
     (
@@ -558,8 +489,10 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if source and (data or destination) or stamp_issuance or stamp_send:
         if stamp_issuance is not None:
             data = str(stamp_issuance)
-            source = str(stamp_issuance['source'])
-            destination = str(stamp_issuance['issuer'])
+            if source != stamp_issuance['source']:
+                raise Exception("source mismatch")
+            if destination != stamp_issuance['issuer']:
+                raise Exception("destination mismatch")
         if stamp_send is not None:
             data = str(stamp_send)
             source = str(stamp_send[0]['source'])
