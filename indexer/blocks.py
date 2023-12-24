@@ -363,7 +363,7 @@ def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, s
     """Inserts all sends and dispensers into the sends, dispenser and transaction database.
         NOTE: this inserts them all at the end of the transactions table so they will be out of sequence in the block  """
     try:
-        if stamp_send is not None:
+        if stamp_sends is not None:
             for stamp_send in stamp_sends:
                 destinations = ','.join(send['destination'] for send in stamp_send)
                 tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
@@ -397,6 +397,7 @@ def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, s
                 stamp_dispenser['tx_index'] = tx_index
                 dispenser_cursor = db.cursor()
                 insert_into_dispenser_table(dispenser_cursor, stamp_dispenser)
+                dispenser_cursor.close()
     except Exception as e:
         raise e
 
