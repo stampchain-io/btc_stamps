@@ -358,63 +358,47 @@ def decode_checkmultisig(ctx, chunk):
     else:
         return None, data
             
-        insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index + 1, stamp_sends=None, stamp_dispensers=None)
 
 def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=None, stamp_dispensers=None):
     """Inserts all sends and dispensers into the sends, dispenser and transaction database.
-        NOTE: this inserts them all at the end of the transactions table,  """
-    
-    # iterate through sends and dispensers here so we can insert into 
-    # transactions on sends as well which can evidently have a stamp tx and a send in the same tx_hash
-    # see b21a7fd319377d7678ea6ae99435fd664a8401ad72a699e522bdfce22e61558a
-    # stamp_send needs to insert tx and increment the tx_index appropriately . 
-    # also insert into the send_table ofc
-
-    if stamp_send is not None:
-        for stamp_send in stamp_sends:
-            destinations = ','.join(send['destination'] for send in stamp_send)
-            tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
-                                          block_hash, block_time, stamp_send['source'], 
-                                          destinations, None, None, str(stamp_send), None)
-            parsed_send = {
-                        'from': stamp_send.get('source'),
-                        'to': stamp_send.get('destination'),
-                        'cpid': stamp_send.get('cpid', None),
-                        'tick': stamp_send.get('tick', None),
-                        'memo': stamp_send.get('memo', "send"),
-                        'quantity': stamp_send.get('quantity'),
-                        'satoshirate': stamp_send.get('satoshirate', None),
-                        'tx_hash': stamp_send.get('tx_hash'),
-                        'tx_index': tx_index,
-                        'block_index': stamp_send.get('block_index'),
-                    }
-            sends_cursor = db.cursor()
-            insert_into_sends_table(
-                cursor=sends_cursor,
-                send=parsed_send
-            )
-            sends_cursor.close()
-            
-    if stamp_dispensers is not None:
-        for stamp_dispenser in stamp_dispensers:
-            tx_index = insert_transaction(db, tx_index, stamp_dispenser['tx_hash'], block_index,
-                                           block_hash, block_time, stamp_dispenser['source'], 
-                                           destinations, None, None, str(stamp_send), None)
-
-            stamp_dispenser['tx_index'] = tx_index
-            dispenser_cursor = db.cursor()
-            insert_into_dispenser_table(dispenser_cursor, stamp_dispenser)
-
-            if (stamp_issuance is not None):
-                parse_issuance_to_send_table(
-                    db=db,
-                    cursor=block_cursor,
-                    issuance=stamp_issuance,
-                    tx={
-                        "tx_index": tx_index,
-                        "block_index": block_index
-                    }
+        NOTE: this inserts them all at the end of the transactions table so they will be out of sequence in the block  """
+    try:
+        if stamp_send is not None:
+            for stamp_send in stamp_sends:
+                destinations = ','.join(send['destination'] for send in stamp_send)
+                tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
+                                              block_hash, block_time, stamp_send['source'], 
+                                              destinations, None, None, str(stamp_send), None)
+                parsed_send = {
+                            'from': stamp_send.get('source'),
+                            'to': stamp_send.get('destination'),
+                            'cpid': stamp_send.get('cpid', None),
+                            'tick': stamp_send.get('tick', None),
+                            'memo': stamp_send.get('memo', "send"),
+                            'quantity': stamp_send.get('quantity'),
+                            'satoshirate': stamp_send.get('satoshirate', None),
+                            'tx_hash': stamp_send.get('tx_hash'),
+                            'tx_index': tx_index,
+                            'block_index': stamp_send.get('block_index'),
+                        }
+                sends_cursor = db.cursor()
+                insert_into_sends_table(
+                    cursor=sends_cursor,
+                    send=parsed_send
                 )
+                sends_cursor.close()
+                
+        if stamp_dispensers is not None:
+            for stamp_dispenser in stamp_dispensers:
+                tx_index = insert_transaction(db, tx_index, stamp_dispenser['tx_hash'], block_index,
+                                               block_hash, block_time, stamp_dispenser['source'], 
+                                               destinations, None, None, str(stamp_send), None)
+
+                stamp_dispenser['tx_index'] = tx_index
+                dispenser_cursor = db.cursor()
+                insert_into_dispenser_table(dispenser_cursor, stamp_dispenser)
+    except Exception as e:
+        raise e
 
 
 def reinitialize(db, block_index=None):
@@ -607,7 +591,6 @@ def last_db_index(db):
     cursor = db.cursor()
 
     try:
-        # Get the last block index from the SQLite database.
         cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)''')
         blocks = cursor.fetchall()
         try:
@@ -820,8 +803,6 @@ def follow(db):
             valid_src20_in_block = []
 
             for tx_hash in txhash_list:
-                if tx_hash == 'b21a7fd319377d7678ea6ae99435fd664a8401ad72a699e522bdfce22e61558a':
-                    print("found it this one appears to be over-written in prod a sat xfer in dev a dispenser")
                 stamp_issuance = filter_issuances_by_tx_hash(
                     stamp_issuances, tx_hash
                 )
@@ -846,7 +827,7 @@ def follow(db):
                     tx_index,
                     tx_hex,
                     stamp_issuance=stamp_issuance,
-                    stamp_send=stamp_send,
+                    stamp_send=None,
                 )
                     # commits when the block is complete 
                     # parsing all trx in the block
