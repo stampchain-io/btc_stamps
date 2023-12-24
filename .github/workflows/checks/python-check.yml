@@ -1,0 +1,32 @@
+name: Python Check
+
+on:
+  workflow_call:
+
+jobs:
+  python-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+
+      - name: Install dependencies
+        run: |
+          cd indexer
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          cd indexer
+          pip install flake8
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+#      - name: Test with pytest
+#        run: |
+#          pip install pytest
+#          pytest
