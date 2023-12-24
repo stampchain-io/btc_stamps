@@ -29,9 +29,7 @@ from xcprequest import (
     parse_issuances_and_sends_from_block,
     parse_dispensers_from_block,
     parse_dispenses_from_block,
-    filter_sends_by_tx_hash,
     filter_issuances_by_tx_hash,
-    filter_dispensers_by_tx_hash,
 )
 from stamp import (
     is_prev_block_parsed,
@@ -42,9 +40,9 @@ from stamp import (
 )
 
 from send import (
-    parse_tx_to_send_table,
     parse_issuance_to_send_table,
-    parse_tx_to_dispenser_table,
+    insert_into_sends_table,
+    insert_into_dispenser_table,
 )
 
 from src20 import (
@@ -265,25 +263,6 @@ def process_vout(ctx, fee):
 
     return pubkeys_compiled, keyburn, is_op_return, fee
 
-def get_cp_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
-    try:
-        if not block_index:
-            block_index = util.CURRENT_BLOCK_INDEX
-        
-        destinations, btc_amount, fee, data, keyburn, is_op_return = [], 0, 0, b'', None, None
-        pubkeys_compiled = []
-
-        ctx = backend.deserialize(tx_hex)
-        _, keyburn, is_op_return, fee = process_vout(ctx, fee)
-
-        if stamp_issuance: # exit here if CP stamp, do not fetch source/destination
-            return source, destination, btc_amount, round(fee), data, ctx, keyburn, is_op_return
-        
-    except DecodeError as e:
-        return b'', None, None, None, None, None, None, None
-    except BTCOnlyError as e:
-        return b'', None, None, None, None, None, None, None
-
 
 def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
     """Get transaction information.
@@ -378,46 +357,53 @@ def decode_checkmultisig(ctx, chunk):
         return str(destination), data
     else:
         return None, data
+            
+        insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index + 1, stamp_sends=None, stamp_dispensers=None)
 
-def insert_sends_dispensers(db, block_index, block_hash, block_time, stamp_sends, stamp_dispensers, stamp_issuance):
+def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=None, stamp_dispensers=None):
     """Inserts all sends and dispensers into the sends, dispenser and transaction database.
         NOTE: this inserts them all at the end of the transactions table,  """
     
-        # WORK IN PROGRESS.  
-    
-            # iterate through sends and dispensers here so we can insert into 
-            # transactions on sends as well which can evidently have a stamp tx and a send in the same tx_hash
-            # see b21a7fd319377d7678ea6ae99435fd664a8401ad72a699e522bdfce22e61558a
-            for stamp_send in stamp_sends:
-                source = str(stamp_send[0]['source'])
-                destination = ','.join(send['destination'] for send in stamp_send)
-                data = str(stamp_send)
+    # iterate through sends and dispensers here so we can insert into 
+    # transactions on sends as well which can evidently have a stamp tx and a send in the same tx_hash
+    # see b21a7fd319377d7678ea6ae99435fd664a8401ad72a699e522bdfce22e61558a
+    # stamp_send needs to insert tx and increment the tx_index appropriately . 
+    # also insert into the send_table ofc
 
-            # stamp_send needs to insert tx and increment the tx_index appropriately . 
-            # also insert into the send_table ofc
-            stamp_send = filter_sends_by_tx_hash(stamp_sends, tx_hash)
-
-            # iterates all sends in the block to send table
-            parse_tx_to_send_table(
-                db=db,
-                cursor=block_cursor,
-                sends=stamp_send,
-                tx={
-                    "tx_index": tx_index,
-                }
-            )
-            stamp_dispenser = filter_dispensers_by_tx_hash(
-                    stamp_dispensers, tx_hash
-                )
-            if (stamp_dispenser is not None):
-                parse_tx_to_dispenser_table(
-                    db=db,
-                    cursor=block_cursor,
-                    dispenser=stamp_dispenser,
-                    tx={
-                        "tx_index": tx_index,
+    if stamp_send is not None:
+        for stamp_send in stamp_sends:
+            destinations = ','.join(send['destination'] for send in stamp_send)
+            tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
+                                          block_hash, block_time, stamp_send['source'], 
+                                          destinations, None, None, str(stamp_send), None)
+            parsed_send = {
+                        'from': stamp_send.get('source'),
+                        'to': stamp_send.get('destination'),
+                        'cpid': stamp_send.get('cpid', None),
+                        'tick': stamp_send.get('tick', None),
+                        'memo': stamp_send.get('memo', "send"),
+                        'quantity': stamp_send.get('quantity'),
+                        'satoshirate': stamp_send.get('satoshirate', None),
+                        'tx_hash': stamp_send.get('tx_hash'),
+                        'tx_index': tx_index,
+                        'block_index': stamp_send.get('block_index'),
                     }
-                )
+            sends_cursor = db.cursor()
+            insert_into_sends_table(
+                cursor=sends_cursor,
+                send=parsed_send
+            )
+            sends_cursor.close()
+            
+    if stamp_dispensers is not None:
+        for stamp_dispenser in stamp_dispensers:
+            tx_index = insert_transaction(db, tx_index, stamp_dispenser['tx_hash'], block_index,
+                                           block_hash, block_time, stamp_dispenser['source'], 
+                                           destinations, None, None, str(stamp_send), None)
+
+            stamp_dispenser['tx_index'] = tx_index
+            dispenser_cursor = db.cursor()
+            insert_into_dispenser_table(dispenser_cursor, stamp_dispenser)
 
             if (stamp_issuance is not None):
                 parse_issuance_to_send_table(
@@ -881,12 +867,22 @@ def follow(db):
                     processed_in_block,
                     valid_src20_in_block
                 )
-
+                if (stamp_issuance is not None):
+                    parse_issuance_to_send_table(
+                        db=db,
+                        cursor=block_cursor,
+                        issuance=stamp_issuance,
+                        tx={
+                            "tx_index": tx_index,
+                            "block_index": block_index
+                        }
+                    )
   
             if valid_src20_in_block:
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
-            insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=None, stamp_dispensers=None)
+            if stamp_sends is not None or stamp_dispensers is not None:
+                insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index + 1, stamp_sends=None, stamp_dispensers=None)
 
             try:
                 db.commit()
