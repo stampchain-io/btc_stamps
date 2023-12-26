@@ -8,6 +8,9 @@ import re
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
+DEPLOY_CACHE = {}
+TOTAL_MINTED_CACHE = {}
+
 
 def build_src20_svg_string(cursor, src_20_dict):
     from src721 import convert_to_dict
@@ -157,6 +160,8 @@ def check_format(input_string, tx_hash):
 
 
 def get_first_src20_deploy_lim_max(db, tick, processed_in_block):
+    if tick in DEPLOY_CACHE:
+        return DEPLOY_CACHE[tick]["lim"], DEPLOY_CACHE[tick]["max"]
     processed_blocks = {f"{item['tick']}-{item['op']}": item for item in processed_in_block}
 
     with db.cursor() as src20_cursor:
@@ -176,13 +181,15 @@ def get_first_src20_deploy_lim_max(db, tick, processed_in_block):
         result = src20_cursor.fetchone()
 
         if result:
-            lim, max = result
-            return lim, max
+            lim, max_value = result
+            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value}
+            return lim, max_value
         else:
-            lim, max = get_first_src20_deploy_lim_max_in_block(processed_blocks, tick)
-            if lim is None or max is None:
+            lim, max_value = get_first_src20_deploy_lim_max_in_block(processed_blocks, tick)
+            if lim is None or max_value is None:
                 return 0, 0
-            return lim, max
+            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value}
+            return lim, max_value
 
 
 def get_first_src20_deploy_lim_max_in_block(processed_blocks, tick):
@@ -197,6 +204,9 @@ def get_total_minted_from_db(db, tick):
     ''' this may be a relatively heavy operation compared to pulling from 
     the balances table it's  mostly for debug but perhaps also for a 
     x block comparision/validation of the balances table. '''
+    if tick in TOTAL_MINTED_CACHE:
+        return TOTAL_MINTED_CACHE[tick]
+
     total_minted = 0
     with db.cursor() as src20_cursor:
         src20_cursor.execute(f"""
@@ -210,6 +220,7 @@ def get_total_minted_from_db(db, tick):
         """, (tick,))
         for row in src20_cursor.fetchall():
             total_minted += row[0]
+    TOTAL_MINTED_CACHE[tick] = total_minted
     return total_minted
 
 
@@ -229,7 +240,7 @@ def get_running_user_balance(db, tick, creator, processed_in_block):
     total_balance = 0
     if len(processed_in_block) > 0:
         for item in reversed(processed_in_block):
-            if  item["creator"] == creator and item["tick"] == tick and "total_balance" in item:
+            if item["creator"] == creator and item["tick"] == tick and "total_balance" in item:
                 total_balance = item["total_balance"]
                 break
     if total_balance == 0:
@@ -279,6 +290,9 @@ def get_total_user_balance_from_db(db, tick, creator):
 
 
 def insert_into_src20_table(db, table_name, src20_dict):
+    if table_name == SRC20_VALID_TABLE and src20_dict.get("op") == "MINT":
+        TOTAL_MINTED_CACHE[src20_dict.get("tick")] += src20_dict.get("amt")
+
     with db.cursor() as src20_cursor:
         src20_cursor.execute(f"""
             INSERT INTO {table_name} (
@@ -402,7 +416,6 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
 
     try:
         src20_dict = process_src20_values(src20_dict)
-        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
 
         if src20_dict['op'] == 'DEPLOY':
             if (
@@ -417,17 +430,12 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 if not deploy_lim and not deploy_max:
                     insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
                     valid_src20_in_block.append(src20_dict)
-                    return
                 else:
                     logger.info(f"Invalid {src20_dict['tick']} DEPLOY - prior DEPLOY exists")
                     src20_dict['status'] = f'DE: prior {src20_dict["tick"]} DEPLOY exists'
-                    insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                    return
             else:
                 logger.info(f"Invalid {src20_dict['tick']} DEPLOY -  max or lim is not an integer or not >0")
                 src20_dict['status'] = f'NE: max or lim not INT or not >0'
-                insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                return
 
         elif src20_dict['op'] == 'MINT':
             if ( 
@@ -447,34 +455,29 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                     if total_minted >= deploy_max:
                         logger.info(f" {src20_dict['tick']} OVERMINT: minted {total_minted} > max {deploy_max}")
                         src20_dict['status'] = f'OM: Over Max: {total_minted} >= {deploy_max}'
-                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                        return
-                    
-                    if src20_dict['amt'] > deploy_lim:
-                        src20_dict['status'] = f'OML: FROM {src20_dict["amt"]} TO {deploy_lim}'
-                        src20_dict['amt'] = deploy_lim
-                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT: LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
-                    
-                    if src20_dict['amt'] > mint_available:
-                        src20_dict['status'] = f'OMA:  FROM: {src20_dict["amt"]} TO: {mint_available}'
-                        src20_dict['amt'] = mint_available
-                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                        logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
+                    else:
+                        if src20_dict['amt'] > deploy_lim:
+                            src20_dict['status'] = f'OML: FROM {src20_dict["amt"]} TO {deploy_lim}'
+                            src20_dict['amt'] = deploy_lim
+                            logger.info(f"Reducing {src20_dict['tick']} OVERMINT: LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
 
-                    running_total_mint = int(total_minted) + int(src20_dict['amt'])
-                    running_user_balance = Decimal(total_balance) + Decimal(src20_dict['amt'])
-                    src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}'
-                    src20_dict['total_minted'] = running_total_mint
-                    src20_dict['total_balance'] = running_user_balance
-                    insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
-                    valid_src20_in_block.append(src20_dict)
-                    return
+                        if src20_dict['amt'] > mint_available:
+                            src20_dict['status'] = f'OMA:  FROM: {src20_dict["amt"]} TO: {mint_available}'
+                            src20_dict['amt'] = mint_available
+                            logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
+
+                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
+                        running_total_mint = int(total_minted) + int(src20_dict['amt'])
+                        running_user_balance = Decimal(total_balance) + Decimal(src20_dict['amt'])
+                        src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}'
+                        src20_dict['total_minted'] = running_total_mint
+                        src20_dict['total_balance'] = running_user_balance
+                        insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
+                        valid_src20_in_block.append(src20_dict)
+                        return
                 else:
                     logger.info(f"Invalid {src20_dict['tick']} MINT - not > 0")
                     src20_dict['status'] = f'NM: No Deploy {src20_dict["tick"]}'
-                    insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                    return
             else:
                 logger.info(f"Invalid {src20_dict['tick']} MINT - amt is not a number or not >0")
 
@@ -492,6 +495,7 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                         total_balance = get_running_user_balance(db, src20_dict['tick'], src20_dict['creator'], valid_src20_in_block)
 
                         if Decimal(total_balance) > Decimal('0') and Decimal(total_balance) >= Decimal(src20_dict['amt']):
+                            insert_into_src20_table(db, SRC20_TABLE, src20_dict)
                             running_user_balance = Decimal(total_balance) - Decimal(src20_dict['amt'])
                             src20_dict['total_balance'] = running_user_balance
                             src20_dict['status'] = f'New Balance: {running_user_balance}'
@@ -501,14 +505,11 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                         else:
                             logger.info(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {total_balance} < xfer amt {src20_dict['amt']}")
                             src20_dict['status'] = f'BB: TRANSFER over user balance'
-                            insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                            return
                     else:
                         logger.info(f"Invalid {src20_dict['tick']} TRANSFER - no balance for {src20_dict['creator']}")
                         src20_dict['status'] = f'NB: TRANSFER no user balance'
-                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                        return
-        
+
+        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
     except Exception as e:
         logger.error(f"Error inserting data into src tables: {e}")
         raise e
@@ -566,7 +567,6 @@ def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
     if balance_updates:
         update_balances(db, balance_updates, block_index, block_time)
     return
-
 
 
 def update_balances(db, balance_updates, block_index, block_time):
