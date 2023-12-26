@@ -60,7 +60,6 @@ jobs:
       - name: Push changes
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
-            git tag ${{ env.NEW_VERSION }}
             git push origin HEAD:${{ github.ref }}
             git push origin --tags
           else
