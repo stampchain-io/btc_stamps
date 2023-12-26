@@ -43,7 +43,7 @@ jobs:
       - name: Bump version for dev branch
         if: github.ref == 'refs/heads/dev'
         run: |
-          bump2version build
+          bump2version --verbose build
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Bump version for main branch
