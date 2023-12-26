@@ -401,19 +401,20 @@ def convert_dividends_to_sends(dividends):
 def parse_dispensers_from_block(dispensers, db):
     stamp_dispensers, dispensers_sends = [], []
     cursor = db.cursor()
-    for dispenser in dispensers:
-        stamp_dispenser, dispenser_send = check_for_stamp_dispensers(
-            dispenser=dispenser,
-            cursor=cursor
-        )
-        if stamp_dispenser and dispenser_send is not None:
-            stamp_dispensers.append(
-                stamp_dispenser
+    if dispensers:
+        for dispenser in dispensers:
+            stamp_dispenser, dispenser_send = check_for_stamp_dispensers(
+                dispenser=dispenser,
+                cursor=cursor
             )
-            dispensers_sends.append(
-                dispenser_send
-            )
-    cursor.close()
+            if stamp_dispenser and dispenser_send is not None:
+                stamp_dispensers.append(
+                    stamp_dispenser
+                )
+                dispensers_sends.append(
+                    dispenser_send
+                )
+        cursor.close()
     return {
         "dispensers": stamp_dispensers,
         "sends": dispensers_sends
@@ -589,8 +590,8 @@ def check_for_stamp_dispenses(dispense, cursor):
     issuance = cursor.fetchone()
     if (issuance is not None):
         cursor.execute(
-            "SELECT satoshirate FROM dispensers WHERE tx_hash = %s",
-            (dispense["dispenser_tx_hash"],)
+            "SELECT satoshirate FROM dispensers WHERE source = %s",
+            (dispense["source"],)
         )
         price = cursor.fetchone()[0]
         filtered_send = {

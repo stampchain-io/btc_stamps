@@ -691,7 +691,7 @@ def follow(db):
             )
             stamp_issuances = parsed_block_data['issuances']
             stamp_sends = parsed_block_data['sends']
-            parsed_stamp_dispensers = parse_dispensers_from_block(
+            parsed_stamp_dispensers = parse_dispensers_from_block( # should we be using parsed_block_data[issuances] to look for stamps and dispensrs in same block
                 dispensers=block_dispensers_from_xcp,
                 db=db
             )
