@@ -511,8 +511,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
     (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-    if decoded_base64 is None or decoded_base64 == '':
-        return
+    # if decoded_base64 is None or decoded_base64 == '': # this changes numbering - was an attempt to speed up queries.
+    #     return
     
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
