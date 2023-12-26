@@ -396,6 +396,7 @@ def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, s
                 dispenser_cursor = db.cursor()
                 insert_into_dispenser_table(dispenser_cursor, stamp_dispenser)
                 dispenser_cursor.close()
+        return tx_index
     except Exception as e:
         raise e
 
@@ -862,7 +863,7 @@ def follow(db):
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
             if stamp_sends is not None or stamp_dispensers is not None:
-                insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index + 1, stamp_sends=stamp_sends, stamp_dispensers=stamp_dispensers)
+                tx_index = insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=stamp_sends, stamp_dispensers=stamp_dispensers)
 
             try:
                 db.commit()
