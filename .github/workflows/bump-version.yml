@@ -39,6 +39,7 @@ jobs:
         run: |
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
           git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
 
       - name: Get current commit hash
         id: get_commit
@@ -59,7 +60,6 @@ jobs:
       - name: Push changes
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
-            git config --global http.extraheader "AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}"
             git tag ${{ env.NEW_VERSION }}
             git push origin HEAD:${{ github.ref }}
             git push origin --tags
