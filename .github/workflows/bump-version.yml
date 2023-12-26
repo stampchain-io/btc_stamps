@@ -25,7 +25,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check if last commit was made by GitHub Actions
+        id: check_user
+        run: |
+          if git log -1 --pretty=format:'%ae' | grep -q "${{ env.GIT_USER_EMAIL }}"; then
+            echo "Last commit was made by GitHub Actions. Skipping workflow."
+            echo "skip=true" >> $GITHUB_ENV
+          else
+            echo "Last commit was not made by GitHub Actions. Running workflow."
+            echo "skip=false" >> $GITHUB_ENV
+          fi
+
       - name: Set up Python
+        if: env.skip == 'false'
         uses: actions/setup-python@v4
         with:
           python-version: 3.9
