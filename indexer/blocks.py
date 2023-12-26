@@ -347,7 +347,6 @@ def decode_checkmultisig(ctx, chunk):
         chunk_length = chunk[:2].hex() # the expected length of the string from the first 2 bytes
         data = chunk[len(config.PREFIX) + 2:].rstrip(b'\x00')
         data_length = len(chunk[2:].rstrip(b'\x00'))
-        # print("data_length: ", data_length, "chunk_length: ", int(chunk_length, 16))
         if data_length != int(chunk_length, 16):
             raise DecodeError('invalid data length')
 
@@ -544,15 +543,16 @@ def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_tim
 
 def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
-    cursor = db.cursor()
-    # check if the incoming tx_hash from txhash_list is already in the trx table
-    cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,)) # this will include all CP transactinos as well ofc
-    transactions = cursor.fetchall()
-    cursor.close()
-    if transactions:
-        # FIXME: for reparse this will be an issue since sends can create duplicate tx_hash
-        # for now this is ok because this will alwasy return None w/o reparse option
-        return tx_index 
+    # NOTE: removing this since the insert into tx table would fail if they already exists. may need to revise with reparsing.
+    # cursor = db.cursor()
+    # # check if the incoming tx_hash from txhash_list is already in the trx table
+    # cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,)) # this will include all CP transactinos as well ofc
+    # transactions = cursor.fetchall()
+    # cursor.close()
+    # if transactions:
+    #     # FIXME: for reparse this will be an issue since sends can create duplicate tx_hash
+    #     # for now this is ok because this will alwasy return None w/o reparse option
+    #     return tx_index 
     
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
