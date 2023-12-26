@@ -42,26 +42,27 @@ jobs:
 
       - name: Get current commit hash
         id: get_commit
-        run: echo "::set-output name=hash::$(git rev-parse HEAD)"
-
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_ENV
+      
       - name: Bump version for dev branch
         if: github.ref == 'refs/heads/dev'
         run: |
           bump2version --verbose build
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-
+      
       - name: Bump version for main branch
         if: github.ref == 'refs/heads/main'
         run: |
           bump2version minor --serialize "v{major}.{minor}.{patch}"
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-
+      
       - name: Push changes
         run: |
-          if [ "$(git rev-parse HEAD)" != "${{ steps.get_commit.outputs.hash }}" ]; then
+          if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
+            git config --global http.extraheader "AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}"
             git tag ${{ env.NEW_VERSION }}
-            git -c "http.extraheader=AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}" push origin HEAD:${{ github.ref }}
-            git -c "http.extraheader=AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}" push origin --tags
+            git push origin HEAD:${{ github.ref }}
+            git push origin --tags
           else
             echo "No new commit created."
           fi
