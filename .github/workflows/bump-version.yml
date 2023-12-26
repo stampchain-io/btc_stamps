@@ -60,8 +60,8 @@ jobs:
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ steps.get_commit.outputs.hash }}" ]; then
             git tag ${{ env.NEW_VERSION }}
-            git push origin HEAD:${{ github.ref }}
-            git push origin --tags
+            git -c "http.extraheader=AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}" push origin HEAD:${{ github.ref }}
+            git -c "http.extraheader=AUTHORIZATION: bearer ${{ secrets.GITHUB_TOKEN }}" push origin --tags
           else
             echo "No new commit created."
           fi
