@@ -1,4 +1,5 @@
 appdirs
+bitcoinlib
 colorlog
 sha3
 pycoin
