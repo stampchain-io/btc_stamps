@@ -44,33 +44,37 @@ jobs:
           python-version: 3.9
 
       - name: Install dependencies
+        if: env.skip == 'false'
         run: |
           python -m pip install --upgrade pip
           pip install bump2version
 
       - name: Configure Git
+        if: env.skip == 'false'
         run: |
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
           git config --global user.name "${{ env.GIT_USER_NAME }}"
           git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
     
       - name: Get current commit hash
+        if: env.skip == 'false'
         id: get_commit
         run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_ENV
       
       - name: Bump version for dev branch
-        if: github.ref == 'refs/heads/dev'
+        if: env.skip == 'false' && github.ref == 'refs/heads/dev'
         run: |
           bump2version --verbose build
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
       
       - name: Bump version for main branch
-        if: github.ref == 'refs/heads/main'
+        if: env.skip == 'false' && github.ref == 'refs/heads/main'
         run: |
           bump2version minor --serialize "v{major}.{minor}.{patch}"
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
       
       - name: Push changes
+        if: env.skip == 'false'
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
             git push origin HEAD:${{ github.ref }}
@@ -80,6 +84,7 @@ jobs:
           fi
 
       - name: Create Release
+        if: env.skip == 'false'
         id: create_release
         uses: softprops/action-gh-release@v1
         env:
