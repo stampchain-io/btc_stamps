@@ -538,8 +538,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(stamp_cursor, src20_dict)
             file_suffix = 'svg'
-            insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block)
-            # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
         else:
             return
         
@@ -562,6 +560,11 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
 
     if cpid: 
         is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
+
+    if valid_src20 and is_btc_stamp:
+        insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
+                                 valid_src20_in_block)
+        # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
 
     if cpid and (is_btc_stamp or is_reissue):
         processed_stamps_dict = {
