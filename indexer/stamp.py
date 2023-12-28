@@ -92,40 +92,49 @@ def is_prev_block_parsed(db, block_index):
 def rebuild_balances(db):
     cursor = db.cursor()
 
-    query = """
-    SELECT DISTINCT destination, tick
-    FROM SRC20Valid
-    WHERE op = 'TRANSFER' OR op = 'MINT'
-    """
-    cursor.execute(query)
-    src20_valid_unique = cursor.fetchall()
+    try:
+        db.begin()  # Start a transaction
 
-    query = """
-    DELETE FROM balances
-    """
-    cursor.execute(query)
+        query = """
+        SELECT DISTINCT destination, tick
+        FROM SRC20Valid
+        WHERE op = 'TRANSFER' OR op = 'MINT'
+        """
+        cursor.execute(query)
+        src20_valid_unique = cursor.fetchall()
 
-    logger.warning("Purging and rebuilding {} table".format('balances'))
-    for src20_valid in src20_valid_unique:
-        balance_dict = None
-        balance_updates = []
-        address = src20_valid[0]
-        tick = src20_valid[1]
+        query = """
+        DELETE FROM balances
+        """
+        cursor.execute(query)
 
-        total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, address)
-        if balance_dict is None:
-            balance_dict = {
-                'tick': tick,
-                'creator': address,
-                'credit': total_balance,
-                'debit': Decimal(0)
-            }
-            balance_updates.append(balance_dict)
+        logger.warning("Purging and rebuilding {} table".format('balances'))
+        for src20_valid in src20_valid_unique:
+            balance_dict = None
+            balance_updates = []
+            address = src20_valid[0]
+            tick = src20_valid[1]
 
-            update_balances(db, balance_updates, last_update, block_time)
+            total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, address)
+            if balance_dict is None:
+                balance_dict = {
+                    'tick': tick,
+                    'creator': address,
+                    'credit': total_balance,
+                    'debit': Decimal(0)
+                }
+                balance_updates.append(balance_dict)
 
-    db.commit()
-    cursor.close()
+                update_balances(db, balance_updates, last_update, block_time)
+
+        db.commit() 
+
+    except Exception as e:
+        db.rollback()
+        raise e
+
+    finally:
+        cursor.close()
 
 
 def base62_encode(num):
