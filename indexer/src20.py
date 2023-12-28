@@ -248,10 +248,10 @@ def get_running_user_balance(db, tick, creator, processed_in_block):
     return Decimal(total_balance)
 
 
-def get_total_user_balance_from_db(db, tick, creator):
+def get_total_user_balance_from_db(db, tick, address):
     ''' another heavy operation to be running on every creator/tick pair
         this is for validation, the speedy version should pull from the balances table 
-        keep in mind balance table is not commited on each transaction '''
+        keep in mind balance table is not committed on each transaction '''
     total_balance = Decimal('0')
     highest_block_index = 0  # Initialize highest_block_index to 0
     q_block_time_unix = None
@@ -268,25 +268,26 @@ def get_total_user_balance_from_db(db, tick, creator):
                 {SRC20_VALID_TABLE}
             WHERE
                 tick = %s
-                AND ((destination = %s AND op = 'MINT') OR (destination = %s AND op = 'TRANSFER') OR (creator = %s AND op = 'TRANSFER'))
-        """, (tick, creator, creator, creator))
+                AND ((destination = %s OR creator = %s) AND (op = 'TRANSFER' OR op = 'MINT'))
+            ORDER BY block_index
+                """, (tick, address, address))
         results = src20_cursor.fetchall()
         for result in results:
             q_amt = Decimal(result[0])
             q_op = result[1]
             q_destination = result[2]
             q_creator = result[3]
-            q_block_index = result[4]  # Retrieve block_index from the result
-            q_block_time_unix = result[5]  # Retrieve block_time as Unix time from the result
-            if q_block_index > highest_block_index:  # Update highest_block_index if necessary
+            q_block_index = result[4]
+            q_block_time_unix = result[5]
+            if q_block_index > highest_block_index:
                 highest_block_index = q_block_index
-            if q_op == 'MINT' and q_destination == creator:
+            if q_op == 'MINT' and q_destination == address:
                 total_balance += q_amt
-            elif q_op == 'TRANSFER' and q_destination == creator:
+            if q_op == 'TRANSFER' and q_destination == address:
                 total_balance += q_amt
-            elif q_op == 'TRANSFER' and q_creator == creator:
+            if q_op == 'TRANSFER' and q_creator == address:
                 total_balance -= q_amt
-    return total_balance, highest_block_index, q_block_time_unix  # Return total_balance, highest_block_index, and q_block_time as Unix time
+    return total_balance, highest_block_index, q_block_time_unix
 
 
 def insert_into_src20_table(db, table_name, src20_dict):
@@ -521,7 +522,7 @@ def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
     for src20_dict in valid_src20_in_block:
         try:
             if src20_dict['op'] == 'MINT':
-                balance_dict = next((item for item in balance_updates if item['tick'] == src20_dict['tick'] and item['creator'] == src20_dict['creator']), None)
+                balance_dict = next((item for item in balance_updates if item['tick'] == src20_dict['tick'] and item['creator'] == src20_dict['destination']), None)
                 if balance_dict is None:
                     balance_dict = {
                         'tick': src20_dict['tick'],
