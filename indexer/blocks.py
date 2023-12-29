@@ -6,7 +6,6 @@ Sieve blockchain for Stamp transactions, and add them to the database.
 
 import sys
 import time
-import binascii
 import decimal
 import logging
 import http
@@ -54,57 +53,6 @@ from src.exceptions import DecodeError, BTCOnlyError
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  
-
-def parse_block(db, block_index, block_time,
-                previous_ledger_hash=None, ledger_hash=None,
-                previous_txlist_hash=None, txlist_hash=None,
-                previous_messages_hash=None):
-    """Parse the block, return hash of new ledger, txlist and messages.
-    The unused arguments `ledger_hash` and `txlist_hash` are for the test suite.
-    """
-
-    assert block_index == util.CURRENT_BLOCK_INDEX
-
-    cursor = db.cursor()
-    db.ping(reconnect=True)
-    cursor.execute('''SELECT * FROM transactions \
-                      WHERE block_index=%s ORDER BY tx_index''',
-                   (block_index,))
-    txes = cursor.fetchall()
-    logger.warning("TX LENGTH FOR BLOCK {} BEFORE PARSING: {}".format(block_index,len(txes)))
-
-    txlist = []
-    for tx in txes:
-        # print("tx", tx) # DEBUG
-        try:
-            # parse_tx(db, tx)
-
-            # adding this block so we can add items that don't decode # was below in data field
-            if tx[config.TXS_FIELDS_POSITION['data']] is not None:
-                # data = binascii.hexlify(tx[config.TXS_FIELDS_POSITION['data']]) # .encode('UTF-8')).decode('UTF-8')
-                data = tx[config.TXS_FIELDS_POSITION['data']]
-                print("decoding data", data)
-            else:
-                data = ''
-            
-            txlist.append('{}{}{}{}{}{}'.format(tx[config.TXS_FIELDS_POSITION['tx_index']],
-                                                tx[config.TXS_FIELDS_POSITION['tx_hash']],
-                                                tx[config.TXS_FIELDS_POSITION['block_index']],
-                                                tx[config.TXS_FIELDS_POSITION['block_hash']],
-                                                tx[config.TXS_FIELDS_POSITION['block_time']],
-                                                data))
-        except exceptions.ParseTransactionError as e:
-            logger.warn('ParseTransactionError for tx %s: %s' % (tx[config.TXS_FIELDS_POSITION['tx_index']], e))
-            raise e
-
-    cursor.close()
-
-    # Calculate consensus hashes.
-    # TODO: need to update these functions to use MySQL - these appear to be part of the block reorg checks - needs to be done before deprecating sqlite 
-    new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist)
-    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, util.BLOCK_LEDGER)
-    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
-    return new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash
 
 
 def initialize(db):
@@ -483,8 +431,9 @@ def reparse(db, block_index=None, quiet=False):
             cursor.execute('''SELECT * FROM blocks ORDER BY block_index''')
             for block in cursor.fetchall():
                 util.CURRENT_BLOCK_INDEX = block['block_index']
+                # will need to fetch txhash_list here to parse for consensus hashes in parse_block
                 previous_ledger_hash, previous_txlist_hash, previous_messages_hash, previous_found_messages_hash = parse_block(
-                                                                         db, block['block_index'], block['block_time'],
+                                                                         db, block['block_index'], txhash_list=None,
                                                                          previous_ledger_hash=previous_ledger_hash,
                                                                          previous_txlist_hash=previous_txlist_hash,
                                                                          previous_messages_hash=previous_messages_hash)
@@ -776,18 +725,15 @@ def follow(db):
             util.CURRENT_BLOCK_INDEX = block_index
 
             logger.warning('Inserting MySQL Block: {}'.format(block_index))
-            new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, block_time)
+            # new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, txhash_list) #txhash_list will be all btc trx in the block
             block_query = '''INSERT INTO blocks(
                                 block_index,
                                 block_hash,
                                 block_time,
                                 previous_block_hash,
-                                difficulty,
-                                ledger_hash,
-                                txlist_hash,
-                                messages_hash
-                                ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s,%s,%s,%s)'''
-            args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty), new_ledger_hash, new_txlist_hash, new_messages_hash)
+                                difficulty
+                                ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)'''
+            args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty))
 
             try:
                 block_cursor.execute(block_query, args)
@@ -862,6 +808,18 @@ def follow(db):
             if valid_src20_in_block:
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
+            previous_ledger_hash, previous_txlist_hash, previous_messages_hash = None, None, None
+
+            txlist_content = str(valid_src20_in_block + processed_in_block)
+            new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
+            
+            ledger_content = str(stamp_sends + stamp_dispensers)
+            new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, ledger_content)
+                
+            # message hash for future use
+            # new_messages_hash, found_messages_hash = None, None
+            #  new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
+
             if stamp_sends is not None or stamp_dispensers is not None:
                 tx_index = insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=stamp_sends, stamp_dispensers=stamp_dispensers)
 
@@ -874,8 +832,8 @@ def follow(db):
                 db.close()
                 sys.exit()
 
-            logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s%s)' % (
+            logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
-                new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:],
-                (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
+                new_ledger_hash[-5:], new_txlist_hash[-5:],))#new_messages_hash[-5:],
+                # (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
             block_index += 1
