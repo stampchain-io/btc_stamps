@@ -166,7 +166,8 @@ def get_tx_list(block):
     tx_hash_list = []
 
     for ctx in block.vtx:
-        if util.enabled('correct_segwit_txids'):
+        if util.enabled('correct_segwit_txids'): # always enabled
+            # This differs from the transactions hash as given by GetHash. GetTxid excludes witness data, while GetHash includes it
             hsh = ctx.GetTxid()
         else:
             hsh = ctx.GetHash()

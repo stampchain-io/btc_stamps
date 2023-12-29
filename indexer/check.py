@@ -7,25 +7,13 @@ from xcprequest import get_cp_version
 
 logger = logging.getLogger(__name__)
 
-''' this is the consensus hash for counterparty. needs to be updated for stamps'''
+CONSENSUS_HASH_SEED = 'Through our eyes, the universe is perceiving itself. Through our ears, the universe is listening to its harmonies.'
 
-CONSENSUS_HASH_SEED = 'We can only see a short distance ahead, but we can see plenty there that needs to be done.'
+CONSENSUS_HASH_VERSION_MAINNET = 1
 
-CONSENSUS_HASH_VERSION_MAINNET = 2
-
-# TODO: https://github.com/stampchain-io/btc_stamps/issues/12 # NOTE: the txlist_hash is the same because we have not implemented in the consensus_hash check from balances StampTable, etc.
 CHECKPOINTS_MAINNET = {
-    config.BLOCK_FIRST_MAINNET: {'ledger_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7', 'txlist_hash': '766ff0a9039521e3628a79fa669477ade241fc4c0ae541c3eae97f34b547b0b7'},
-    779800: {'ledger_hash': '45b2b6391c08346a15a07cc7c8a270e917368141a2c1876bdb02752a0e127fa0', 'txlist_hash': '45b2b6391c08346a15a07cc7c8a270e917368141a2c1876bdb02752a0e127fa0'},
-    780000: {'ledger_hash': '59ac77426870194dad46425f54344a3e80ae2de28d9fe72cdb607173219bd27c', 'txlist_hash': '59ac77426870194dad46425f54344a3e80ae2de28d9fe72cdb607173219bd27c'},
-    785000: {'ledger_hash': 'a1f50cf22c62addc5b1c41c21fbc85b2e59a1c7e95acf306376f7bcc6a5ad045', 'txlist_hash': 'a1f50cf22c62addc5b1c41c21fbc85b2e59a1c7e95acf306376f7bcc6a5ad045'},
-    790000: {'ledger_hash': '2cf5d02635f4d91bc3e35ec27b120ad45f2c753f0e3d15cbbe01bedd09e33e72', 'txlist_hash': '2cf5d02635f4d91bc3e35ec27b120ad45f2c753f0e3d15cbbe01bedd09e33e72'},
-    795000: {'ledger_hash': 'e9cf3bcb17392954f03072b12908a58dd73b28e40e2e8d18d4d7ecc9d38131da', 'txlist_hash': 'e9cf3bcb17392954f03072b12908a58dd73b28e40e2e8d18d4d7ecc9d38131da'},
-    800000: {'ledger_hash': 'fd87fd227eaa2ea2374f1d5db632a7ffe92e1c01080f2c7d6a71ee00ff96a063', 'txlist_hash': 'fd87fd227eaa2ea2374f1d5db632a7ffe92e1c01080f2c7d6a71ee00ff96a063'},
-    805000: {'ledger_hash': '336896ddb26cb148237dd0b4abc43afdc6a7bf34cba6f7f0ae58545ae7e200f6', 'txlist_hash': '336896ddb26cb148237dd0b4abc43afdc6a7bf34cba6f7f0ae58545ae7e200f6'},
-    810000: {'ledger_hash': '9d4cdced353649d75d933791e70ce344bb2b397545b18cffe66c109a39ea1356', 'txlist_hash': '9d4cdced353649d75d933791e70ce344bb2b397545b18cffe66c109a39ea1356'},
-    815000: {'ledger_hash': 'e6891326abcc4e9ee27401f6c29cded4c57d123c942b408b91fcae1e0d952db2', 'txlist_hash': 'e6891326abcc4e9ee27401f6c29cded4c57d123c942b408b91fcae1e0d952db2'},
-    820000: {'ledger_hash': '9b24657edda4da25ba1ab1f03890238591f5219a0b5da1945a231872fbbb903f', 'txlist_hash': '9b24657edda4da25ba1ab1f03890238591f5219a0b5da1945a231872fbbb903f'}
+    config.BLOCK_FIRST_MAINNET: {'ledger_hash': 'f55ff4daaf67d34eea686f1869e49e06646bc2fc2590de8489ce16e9e537e5ca', 'txlist_hash': '54d3c971e7aa7cebab9cc07a1922e00c05ec3eb190f0384034719f268bffbf1b'},
+
     }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
@@ -78,11 +66,10 @@ def consensus_hash(db, field, previous_consensus_hash, content):
 
     calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
     # Verify hash (if already in database) or save hash (if not).
-    # NOTE: do not enforce this for messages_hashes, those are more informational (for now at least)
     cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index,))
     results = cursor.fetchall()
     if results:
-        found_hash = results[0][field]
+        found_hash = results[0][config.BLOCK_FIELDS_POSITION[field]]
     else:
         found_hash = None
     if found_hash and field != 'messages_hash':
