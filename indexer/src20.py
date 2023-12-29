@@ -477,7 +477,7 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                         valid_src20_in_block.append(src20_dict)
                         return
                 else:
-                    logger.info(f"Invalid {src20_dict['tick']} MINT - not > 0")
+                    logger.info(f"Invalid {src20_dict['tick']} MINT - no deploy_lim {deploy_lim} and deploy_max {deploy_max}")
                     src20_dict['status'] = f'NM: No Deploy {src20_dict["tick"]}'
             else:
                 logger.info(f"Invalid {src20_dict['tick']} MINT - amt is not a number or not >0")
