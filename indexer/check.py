@@ -13,7 +13,15 @@ CONSENSUS_HASH_VERSION_MAINNET = 1
 
 CHECKPOINTS_MAINNET = {
     config.BLOCK_FIRST_MAINNET: {'ledger_hash': 'f55ff4daaf67d34eea686f1869e49e06646bc2fc2590de8489ce16e9e537e5ca', 'txlist_hash': '54d3c971e7aa7cebab9cc07a1922e00c05ec3eb190f0384034719f268bffbf1b'},
-
+    780000: {'ledger_hash': '4fef3960cdd3b1909e6fecc3c82722ca9ba465d99182d2829f563f36d02191cc', 'txlist_hash': '175ccc866413d290ec0fe1b24c80226efb64522c94463c2d02e2b1d67982b009'},
+    785000: {'ledger_hash': '153445deef0575b4acb51d34bd7d375234754eeda64888cdcb25ee26653b3a3d', 'txlist_hash': 'f3f070fc2860c1b50eba6a32e9bd7b3aeea618a4dc6f5baae6520a2572d89296'},
+    790000: {'ledger_hash': '3896ff678bd8bc8fdc33d0223fc283b9259e8601240ef126f4fe46880e12b696', 'txlist_hash': '9ce603466a52c3bac450f6da28beb545411bf7ee89804c4077997b0c6c9fe9ca'},
+    795000: {'ledger_hash': '10af6f6ddca0684fd2b1b6014ba576b6d1c7dc75864ed014f4373127193e4ab0', 'txlist_hash': '7da124c0b7529bef2890adffcada3149ac577bd0f21d19aaa41e861bfc86d239'},
+    800000: {'ledger_hash': '794824a824de78069bc4479c6d26389ed5ae3ec237d52d6d79aa7cba9f615e9e', 'txlist_hash': '5f5eb91ace34334ec6ea70bda88b4c6d61f6be0694c9d625976e1fe2908972c6'},
+    805000: {'ledger_hash': '31a12358cc5f65f186e44826a21bc8f7ea08e6c19318724fd14b5dec87405470', 'txlist_hash': '0c24970e3101f86f77ea4cbb1796cfddad6517b266be43dcd65b2de39342cee0'},
+    810000: {'ledger_hash': '33b49e99bb4648deec1f737ff770ab60971b6fafecf9d4aaf2ae3df903918c35', 'txlist_hash': '422edb7f8145b605b74ed2e3ec466adce733bf45f0c30ca0f371c212bfdfc3e2'},
+    815000: {'ledger_hash': '5b35773ba45425454e1eadd266f9d514f846b3d84e85fcdc49edae9e08befb2b', 'txlist_hash': 'fef34b155e6d1b87e87ad876f60a48161c31297bebb8a8b5a2f4e406d563953d'},
+    820000: {'ledger_hash': '2eb433d136018498bfd535b6ac75b9b01fa7d373e3ab45f591a8038288e67c0c', 'txlist_hash': '57998f89eb5b3e494a083093541a2b43dab4e1ebc2158a26f02aada64fedc7a0'}
     }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
