@@ -284,7 +284,7 @@ def get_total_user_balance_from_db(db, tick, creator):
                 total_balance += q_amt
             elif q_op == 'TRANSFER' and q_destination == creator:
                 total_balance += q_amt
-            elif q_op == 'TRANSFER' and q_creator == creator:
+            if q_op == 'TRANSFER' and q_creator == creator:
                 total_balance -= q_amt
     return total_balance, highest_block_index, q_block_time_unix  # Return total_balance, highest_block_index, and q_block_time as Unix time
 

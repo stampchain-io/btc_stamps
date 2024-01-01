@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS blocks (
   UNIQUE (`previous_block_hash`),
   INDEX `block_index_idx` (`block_index`),
   INDEX `index_hash_idx` (`block_index`, `block_hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS transactions (
   `tx_index` INT,
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   UNIQUE (`tx_hash`),
   INDEX `block_hash_index` (`block_index`, `block_hash`),
   CONSTRAINT transactions_blocks_fk FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp` int DEFAULT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   INDEX `block_index` (`block_index`),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
   FOREIGN KEY (`tx_hash`) REFERENCES transactions(`tx_hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `srcbackground` (
   `tick` varchar(16) NOT NULL,
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS `srcbackground` (
   `unicode` varchar(16) DEFAULT NULL,
   `p` varchar(16) NOT NULL,
   PRIMARY KEY (`tick`,`p`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `dispensers` (
   `tx_index` int,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS `dispensers` (
   INDEX `block_index` (`block_index`), 
   INDEX `cpid_index` (`cpid`),
   FOREIGN KEY (`cpid`) REFERENCES `StampTableV4` (`cpid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `sends` (
   `from` varchar(255) DEFAULT NULL,
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS `sends` (
   `block_index` int,
   INDEX `block_index` (`block_index`), 
   KEY `index_name` (`cpid`,`tick`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `cp_wallet` (
   `address` varchar(255) DEFAULT NULL,
@@ -120,13 +120,13 @@ CREATE TABLE IF NOT EXISTS `cp_wallet` (
   KEY `index_name` (`address`,`cpid`),
   INDEX `cpid_index` (`cpid`),
   INDEX `address_index` (`address`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `creator` (
   `address` varchar(64) NOT NULL,
   `creator` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`address`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC20` (
   `tx_hash` VARCHAR(64) NOT NULL,
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS `SRC20` (
   `block_time` datetime DEFAULT NULL,
   `status` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`tx_index`, `tx_hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `tx_hash` VARCHAR(64) NOT NULL,
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   INDEX `op` (`op`),
   INDEX `creator` (`creator`), 
   INDEX `block_index` (`block_index`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `balances` (
   `id` VARCHAR(255) NOT NULL,
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS `balances` (
   INDEX `cpid` (`cpid`),
   INDEX `address` (`address`),
   INDEX `tick` (`tick`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS s3objects (
     `id` VARCHAR(255) NOT NULL,
@@ -191,4 +191,4 @@ CREATE TABLE IF NOT EXISTS s3objects (
     `md5` VARCHAR(255) NOT NULL,
     PRIMARY KEY (id),
     index `path_key` (`path_key`)
-)  ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;

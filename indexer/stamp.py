@@ -93,12 +93,12 @@ def rebuild_balances(db):
     cursor = db.cursor()
 
     query = """
-    SELECT DISTINCT destination, tick
+    SELECT op, creator, destination, tick, amt, block_time, block_index
     FROM SRC20Valid
     WHERE op = 'TRANSFER' OR op = 'MINT'
     """
     cursor.execute(query)
-    src20_valid_unique = cursor.fetchall()
+    src20_valid_list = cursor.fetchall()
 
     query = """
     DELETE FROM balances
@@ -106,23 +106,37 @@ def rebuild_balances(db):
     cursor.execute(query)
 
     logger.warning("Purging and rebuilding {} table".format('balances'))
-    for src20_valid in src20_valid_unique:
-        balance_dict = None
-        balance_updates = []
-        address = src20_valid[0]
-        tick = src20_valid[1]
+    all_balances = {}
+    for [op, creator, destination, tick, amt, block_time, block_index] in src20_valid_list:
+        destination_id = tick + '_' + destination
+        destination_amt = Decimal(0) if destination_id not in all_balances else all_balances[destination_id]['amt']
+        destination_amt += amt
 
-        total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, address)
-        if balance_dict is None:
-            balance_dict = {
+        all_balances[destination_id] = {
+            'tick': tick,
+            'address': destination,
+            'amt': destination_amt,
+            'last_update': block_index,
+            'block_time': block_time
+        }
+
+        if op == 'TRANSFER':
+            creator_id = tick + '_' + creator
+            creator_amt = Decimal(0) if creator_id not in all_balances else all_balances[creator_id]['amt']
+            creator_amt -= amt
+            all_balances[creator_id] = {
                 'tick': tick,
-                'creator': address,
-                'credit': total_balance,
-                'debit': Decimal(0)
+                'address': creator,
+                'amt': creator_amt,
+                'last_update': block_index,
+                'block_time': block_time
             }
-            balance_updates.append(balance_dict)
 
-            update_balances(db, balance_updates, last_update, block_time)
+    logger.warning("Inserting {} balances".format(len(all_balances)))
+
+    cursor.executemany('''INSERT INTO balances(id, tick, address, amt, last_update, block_time, p)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['address'], value['amt'],
+                        value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()])
 
     db.commit()
     cursor.close()
