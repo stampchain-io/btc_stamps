@@ -6,13 +6,12 @@ Sieve blockchain for Stamp transactions, and add them to the database.
 
 import sys
 import time
-import binascii
 import decimal
 import logging
 import http
 import bitcoin as bitcoinlib
 import pymysql as mysql
-from bitcoin.core.script import CScriptInvalidError, CScript
+from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 
@@ -24,13 +23,7 @@ import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
-from xcprequest import (
-    get_xcp_block_data,
-    parse_issuances_and_sends_from_block,
-    parse_dispensers_from_block,
-    parse_dispenses_from_block,
-    filter_issuances_by_tx_hash,
-)
+from xcprequest import get_xcp_block_data, filter_issuances_by_tx_hash
 from stamp import (
     is_prev_block_parsed,
     purge_block_db,
@@ -685,33 +678,8 @@ def follow(db):
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
 
-            [block_data_from_xcp, block_dispensers_from_xcp, block_dispenses_from_xcp] = get_xcp_block_data(block_index)
-            parsed_block_data = parse_issuances_and_sends_from_block(
-                block_data=block_data_from_xcp,
-                db=db
-            )
-            stamp_issuances = parsed_block_data['issuances']
-            stamp_sends = parsed_block_data['sends']
-            parsed_stamp_dispensers = parse_dispensers_from_block( # should we be using parsed_block_data[issuances] to look for stamps and dispensrs in same block
-                dispensers=block_dispensers_from_xcp,
-                db=db
-            )
-            stamp_dispensers = parsed_stamp_dispensers['dispensers']
-            stamp_sends += parsed_stamp_dispensers['sends']
-            stamp_dispenses = parse_dispenses_from_block(
-                dispenses=block_dispenses_from_xcp,
-                db=db
-            )
-            stamp_sends += stamp_dispenses
-            logger.warning(
-                f"""
-                XCP Block {block_index}
-                - {len(stamp_issuances)} issuances
-                - {len(stamp_sends)} sends
-                - {len(stamp_dispensers)} dispensers
-                - {len(stamp_dispenses)} dispenses
-                """
-            )
+            stamp_issuances, stamp_sends, stamp_dispensers = get_xcp_block_data(block_index, db)
+
             if block_count - block_index < 100:
                 requires_rollback = False
                 while True:
@@ -829,8 +797,8 @@ def follow(db):
                     tx_hex,
                     stamp_issuance=stamp_issuance
                 )
-                    # commits when the block is complete 
-                    # parsing all trx in the block
+                # commits when the block is complete
+                # parsing all trx in the block
                 parse_tx_to_stamp_table(
                     db,
                     tx_hash,
