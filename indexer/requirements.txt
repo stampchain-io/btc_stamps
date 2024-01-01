@@ -1,3 +1,30 @@
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+appdirs
+bitcoinlib
+colorlog
+sha3
+pycoin
+python-bitcoinlib
+python-bitcoinrpc
+regex
+pycryptodome
+requests
+cachetools
+pymysql
+python-docx
+cryptography
+pybase64
+python-magic
+boto3 # required if using AWS S3 for file storage
+msgpack
+tqdm
+python-dotenv
+#arweave-python-client # required for arweave storage
+ens-normalize
+=======
+>>>>>>> 756bc4e (added explicit versions for all python dependencies)
 appdirs==1.4.4
 bitcoinlib==0.6.13
 colorlog==6.8.0
