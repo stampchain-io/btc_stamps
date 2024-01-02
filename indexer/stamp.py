@@ -96,7 +96,7 @@ def rebuild_balances(db):
         db.begin()  # Start a transaction
 
         query = """
-        SELECT DISTINCT destination, tick
+        SELECT DISTINCT destination, tick, tick_hash
         FROM SRC20Valid
         WHERE op = 'TRANSFER' OR op = 'MINT'
         """
@@ -114,11 +114,13 @@ def rebuild_balances(db):
             balance_updates = []
             address = src20_valid[0]
             tick = src20_valid[1]
+            tick_hash = src20_valid[2]
 
-            total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, address)
+            total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, tick_hash, address)
             if balance_dict is None:
                 balance_dict = {
                     'tick': tick,
+                    'tick_hash': tick_hash,
                     'creator': address,
                     'credit': total_balance,
                     'debit': Decimal(0)
@@ -675,6 +677,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         parsed['is_valid_base64']
                     ))
     stamp_cursor.close()
+
 
 def get_next_stamp_number(db):
     """Return index of next transaction."""

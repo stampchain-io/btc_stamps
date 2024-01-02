@@ -26,7 +26,6 @@ def create_payload(method, params):
     base_payload["params"] = params
     return base_payload
 
-
 def handle_cp_call_with_retry(func, params, block_index):
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
@@ -50,9 +49,15 @@ def handle_cp_call_with_retry(func, params, block_index):
     data = None
     while data is None:
         try:
-            data = func(params=params)
-            if data is not None:
-                return data
+            if util.CP_BLOCK_COUNT is not None:
+                data = func(params=params)
+                if data is not None:
+                    return data
+            else:
+                logger.warning(
+                    "CP_BLOCK_COUNT is None. Sleeping to retry..."
+                )
+                time.sleep(config.BACKEND_POLL_INTERVAL)
         except Exception as e:
             logger.warning(
                 "Error getting issuances: {}\n Sleeping to retry...".format(e)
