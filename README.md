@@ -93,3 +93,29 @@ The Makefile is a wrapper for docker-compose commands and provides a more simpli
 Configure all environment variables for MySQL, Bitcoin Node, and Counterparty as indicated in `config.py`
 
 `python start.py` 
+
+
+# SRC-20 Normalization Standard
+
+Due to the nature of the character set accepted for SRC-20 tick names Bitcoin Stamps has adopted the ENSIP-15 Standard for character handling to determine valid/invalid tick names and ensure consistent results -  https://docs.ens.domains/ens-improvement-proposals/ensip-15-normalization-standard
+
+A SHA3-256 hash is generated based upon the normalized tick value to properly identify SRC-20 tokens.
+
+Because of the large number of characters in unicode, and the wide variety of scripts represented, inevitably there are different Unicode characters that are similar or even identical when shown in common fonts. This can be abused to trick users into thinking they are interacting with one token or resource, when in fact it is another. This is known as a homoglyph attack.
+
+See: 
+Python Library: https://github.com/namehash/ens-normalize-python
+
+Node Library: https://github.com/adraffy/ens-normalize.js
+
+## Other Notes
+
+When querying the MySQL database directly it may interpret the contents using utf-8 encoding. Note the indexer code will see the correct value for this output. 
+
+```
+select data from transactions where tx_hash = 'c28966f1bf851874bb260c8d96122036700651c4ec414fca000ca8089da3176';
+```
+
+
+
+
