@@ -416,6 +416,7 @@ def process_src20_values(src20_dict):
                 updated_dict['tick'] = ens_normalize(value)
                 updated_dict['tick_hash'] = create_tick_hash(value)
             except DisallowedSequence as e:
+                updated_dict['tick_hash'] = create_tick_hash('')
                 if 'status' in updated_dict:
                     updated_dict['status'] += f', {key} INVALID'
                 else:
