@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   `destination` TEXT COLLATE utf8mb4_bin,
   `btc_amount` BIGINT,
   `fee` BIGINT,
-  `data` MEDIUMTEXT,
+  `data` MEDIUMBLOB,
   `supported` BIT DEFAULT 1,
   `keyburn` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`tx_index`, `tx_hash`),
