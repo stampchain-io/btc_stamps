@@ -7,6 +7,7 @@ import appdirs
 import bitcoin as bitcoinlib
 import logging
 import csv
+import hashlib
 
 import src.log as log
 import config
@@ -97,6 +98,13 @@ def initialize_config(
     customnet=None, checkdb=False
 ):
 
+    try:
+        # validate the correct hashing algorithm
+        assert hashlib.sha3_256(''.encode()).hexdigest() == 'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a'
+    except AssertionError as e:
+        logger.error(f'SHA3 256 Hash Inconsistencies')
+        raise e
+    
     # Data directory
     data_dir = appdirs.user_data_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME, roaming=True)
     if not os.path.isdir(data_dir):
