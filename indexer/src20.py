@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 import json
 import logging
 from config import TICK_PATTERN_LIST, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALANCES_TABLE
+from ens_normalize import ens_normalize, DisallowedSequence
 import src.log as log
 import re
 import hashlib
@@ -14,8 +15,6 @@ TOTAL_MINTED_CACHE = {}
 
 
 def build_src20_svg_string(cursor, src_20_dict):
-    from src721 import convert_to_dict
-    src_20_dict = convert_to_dict(src_20_dict)
     background_base64, font_size, text_color = get_srcbackground_data(cursor, src_20_dict.get('tick'))
     svg_image_data = generate_srcbackground_svg(src_20_dict, background_base64, font_size, text_color)
     return svg_image_data
@@ -23,6 +22,17 @@ def build_src20_svg_string(cursor, src_20_dict):
 
 # query the srcbackground mysql table for these columns tick, base64, font_size, text_color, unicode, p
 def get_srcbackground_data(cursor, tick):
+    """
+    Retrieves the background image data for a given tick and p value.
+
+    Args:
+        cursor: The database cursor object.
+        tick: The tick value.
+
+    Returns:
+        A tuple containing the base64 image data, font size, and text color.
+        If no data is found, returns (None, None, None).
+    """
     query = """
         SELECT
             base64,
@@ -31,10 +41,10 @@ def get_srcbackground_data(cursor, tick):
         FROM
             srcbackground
         WHERE
-            UPPER(tick) = UPPER(%s)
-            AND UPPER(p) = UPPER(%s)
+            tick = %s
+            AND p = %s
     """
-    cursor.execute(query, (tick.upper(), "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
+    cursor.execute(query, (tick, "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
     result = cursor.fetchone()
     if result:
         base64, font_size, text_color = result
@@ -81,7 +91,7 @@ def sort_keys(key):
 
 def check_format(input_string, tx_hash):
     """
-    Check the format of the json string and return a dictionary if it meets the requirements for src-20.
+    Check the format of the SRC-20 json string and return a dictionary if it meets the validation reqs.
     This is the original function to determine inclusion/exclusion as a valid stamp. 
     It is not used to validate user balances or full validitiy of the actual values in the string.
     If this does not evaluate to True the transaction is not saved to the stamp table.
@@ -103,7 +113,7 @@ def check_format(input_string, tx_hash):
     try:
         try:
             if isinstance(input_string, bytes):
-                input_string = input_string.decode('utf-8')
+                input_string = repr(input_string)[2:-1] #debug: this was a utf-8 decoding which was changing the content of Unicode strings
             elif isinstance(input_string, str):
                 input_dict = json.loads(input_string)
             elif isinstance(input_string, dict):
@@ -369,10 +379,8 @@ def is_number(s):
 
 def create_tick_hash(tick):
     ''' 
-    This function creates a hash from the upper and lowercase tick string. This is used to create a unique id for the src20 token. 
-    It also determines if there are issues in a character that does not have an uppercase representation or lowercase. 
-    In lowercase 'ß' does not have a traditional uppercase equivalent
-    'ı' (lowercase dotless i) in turkish is uppercase 'I' (uppercase dotted i)
+    Create a SHA3-256 of the normalized tick value. This is the final NIST SHA3-256 implementation
+    not be be confused with Keccak-256 which is the Ethereum implementation of SHA3-256.
 
     Args:
         tick (str): The tick string to be hashed.
@@ -381,9 +389,7 @@ def create_tick_hash(tick):
         str: The hashed tick string.
     '''
 
-    tick = tick.upper() + tick.lower()
-
-    return hashlib.sha256(tick.encode('utf-8')).hexdigest()
+    return hashlib.sha3_256(tick.encode()).hexdigest()
 
 
 def process_src20_values(src20_dict):
@@ -406,8 +412,14 @@ def process_src20_values(src20_dict):
         if value == '':
             updated_dict[key] = None
         elif key in ['tick']:
-            updated_dict[key] = value.upper()
-            updated_dict['tick_hash'] = create_tick_hash(value)
+            try:
+                updated_dict['tick'] = ens_normalize(value)
+                updated_dict['tick_hash'] = create_tick_hash(value)
+            except DisallowedSequence as e:
+                if 'status' in updated_dict:
+                    updated_dict['status'] += f', {key} INVALID'
+                else:
+                    updated_dict['status'] = f'{key} INVALID'
         elif key in ['p', 'op']:
             updated_dict[key] = value.upper()
         elif key in ['max', 'lim']:
@@ -444,9 +456,9 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
     src20_dict.setdefault('dec', '18')
 
     try:
-        src20_dict = process_src20_values(src20_dict)
+        src20_dict = process_src20_values(src20_dict) # this does normalization of the tick patterns
 
-        if src20_dict['op'] == 'DEPLOY':
+        if src20_dict['op'] == 'DEPLOY' and src20_dict['tick_hash']:
             if (
                 src20_dict['tick'] and
                 (isinstance(src20_dict['max'], int) or isinstance(src20_dict['max'], str)) and
@@ -466,7 +478,7 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
                 logger.info(f"Invalid {src20_dict['tick']} DEPLOY -  max or lim is not an integer or not >0")
                 src20_dict['status'] = f'NE: max or lim not INT or not >0'
 
-        elif src20_dict['op'] == 'MINT':
+        elif src20_dict['op'] == 'MINT' and src20_dict['tick_hash']:
             if ( 
                 src20_dict['tick'] and src20_dict['amt'] and 
                 Decimal(src20_dict['amt']) > Decimal('0')
@@ -512,7 +524,7 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
 
         # Any transfer over the users balance at the time of transfer is considered invalid and will not impact either users balance
         # if wallet x has 1 KEVIN token and attempts to transfer 10000 KEVIN tokens to address y the entire transaction is invalid
-        elif src20_dict['op'] == 'TRANSFER':  
+        elif src20_dict['op'] == 'TRANSFER' and src20_dict['tick_hash']:  
             if ( 
                 src20_dict['tick'] and src20_dict['amt'] and 
                 Decimal(src20_dict['amt']) > Decimal('0')
