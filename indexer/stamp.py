@@ -586,6 +586,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         (cpid and cpid.startswith('A'))
         and (not is_op_return)
     ):
+        is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
 
     # if valid_src20 and is_btc_stamp:
