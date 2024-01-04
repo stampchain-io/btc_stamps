@@ -18,4 +18,5 @@ boto3 # required if using AWS S3 for file storage
 msgpack
 tqdm
 python-dotenv
+ens_normalize
 #arweave-python-client # required for arweave storage

@@ -488,9 +488,16 @@ def get_stamp_key(tx_hash):
 
 def check_reissue(block_cursor, cpid, is_btc_stamp, processed_in_block):
     ''' Validate if there was a prior valid stamp for cpid in the db or block and adust is_btc_stamp and is_reissue  '''
-    is_btc_stamp, is_reissue = check_reissue_in_db(block_cursor, cpid, is_btc_stamp)
-    is_btc_stamp, is_reissue = check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue)
-    return is_btc_stamp, is_reissue 
+    logger.warning(f"IS_BTC_STAMP: {is_btc_stamp} BEFORE CHECKING REISSUE IN DB AND BLOCK")
+    is_btc_stamp, is_reissue = check_reissue_in_db(
+        block_cursor, cpid, is_btc_stamp
+    )
+    logger.warning(f"IS_REISSUE: {is_reissue} IS_BTC_STAMP: {is_btc_stamp} AFTER CHECKING REISSUE IN DB")
+    is_btc_stamp, is_reissue = check_reissue_in_block(
+        processed_in_block, cpid, is_btc_stamp, is_reissue
+    )
+    logger.warning(f"IS_REISSUE: {is_reissue} IS_BTC_STAMP: {is_btc_stamp} AFTER CHECKING REISSUE IN DB AND BLOCK")
+    return is_btc_stamp, is_reissue
 
 
 def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
@@ -501,6 +508,7 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
     ''', (cpid,))
     reissue_results = block_cursor.fetchall()
     if len(reissue_results) > 0:
+        logger.warning(f"CHECKING REISSUE IN DB 1: {cpid}")
         for row in reissue_results:
             prior_is_btc_stamp, is_valid_base64 = row[0], row[1]
             if prior_is_btc_stamp or is_valid_base64:
@@ -509,11 +517,17 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
                 return is_btc_stamp, is_reissue
             else:
                 is_reissue = 1
+    if (
+        is_reissue is None and prior_is_btc_stamp is None
+    ):
+        logger.warning(f"CHECKING REISSUE IN DB 2: {cpid}")
+        is_btc_stamp = 1
     return is_btc_stamp, is_reissue
 
 
 def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue): # example: A7739951851191313000
     if len(processed_in_block) > 0:
+        logger.warning(f"CHECKING REISSUE IN BLOCK: {cpid}")
         for item in processed_in_block:
             if item["cpid"] == cpid:
                 if item["is_btc_stamp"] or item["is_valid_base64"]:
@@ -522,6 +536,8 @@ def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue): 
                     return is_btc_stamp, is_reissue
                 else:
                     is_reissue = 1
+    if (is_reissue is None and is_btc_stamp is None):
+        is_btc_stamp = 1
     return is_btc_stamp, is_reissue
 
 
@@ -563,15 +579,18 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         # it's possible we want to run through normalization first which happens in the insert_int_src20_tables
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
-            insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
-                            valid_src20_in_block)
+            insert_into_src20_tables(
+                db, src20_dict, source, tx_hash, tx_index,
+                block_index, block_time, destination,
+                valid_src20_in_block
+            )
             src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(stamp_cursor, src20_dict)
             file_suffix = 'svg'
         else:
             return
-        
+
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
@@ -584,10 +603,13 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
         and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
         (cpid and cpid.startswith('A'))
-        and (not is_op_return)
+        # and (not is_op_return)
     ):
-        is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
-
+        is_btc_stamp, is_reissue = check_reissue(
+            stamp_cursor, cpid, is_btc_stamp, processed_in_block
+        )
+    if (is_op_return and is_reissue is None):
+        is_btc_stamp = None
     # if valid_src20 and is_btc_stamp:
     #     src20_dict = insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
     #                              valid_src20_in_block)
@@ -602,7 +624,15 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         }
         processed_in_block.append(processed_stamps_dict)
 
-    stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
+    if is_btc_stamp:
+        logger.warning("IS BTC STAMP")
+        stamp_number = get_next_stamp_number(db)
+    elif is_btc_stamp is None and is_reissue is None:
+        logger.warning("IS CURSED STAMP")
+        stamp_number = get_next_cursed_number(db)
+    else:
+        logger.warning("IS REISSUE")
+        stamp_number = None
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
@@ -614,7 +644,9 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         if type(decoded_base64) is str:
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
-        file_obj_md5 = store_files(db, filename, decoded_base64, stamp_mimetype)
+        file_obj_md5 = store_files(
+            db, filename, decoded_base64, stamp_mimetype
+        )
 
     logger.warning(f'''
         block_index: {block_index}
@@ -713,6 +745,26 @@ def get_next_stamp_number(db):
     cursor.close()
 
     return stamp_number
+
+
+def get_next_cursed_number(db):
+    """Return index of next transaction."""
+    cursor = db.cursor()
+
+    cursor.execute(f'''
+        SELECT stamp FROM {config.STAMP_TABLE}
+        WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
+    ''')
+    cursed = cursor.fetchall()
+    if cursed:
+        assert len(cursed) == 1
+        cursed_number = cursed[0][0] - 1
+    else:
+        cursed_number = 0
+
+    cursor.close()
+
+    return cursed_number
 
 
 def get_fileobj_and_md5(decoded_base64):
