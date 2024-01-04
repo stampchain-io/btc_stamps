@@ -2,7 +2,6 @@ from decimal import Decimal, InvalidOperation
 import json
 import logging
 from config import TICK_PATTERN_LIST, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALANCES_TABLE
-from ens_normalize import ens_normalize, DisallowedSequence
 import src.log as log
 import re
 import hashlib
@@ -412,15 +411,8 @@ def process_src20_values(src20_dict):
         if value == '':
             updated_dict[key] = None
         elif key in ['tick']:
-            try:
-                updated_dict['tick'] = ens_normalize(value)
-                updated_dict['tick_hash'] = create_tick_hash(value)
-            except DisallowedSequence as e:
-                updated_dict['tick_hash'] = create_tick_hash('')
-                if 'status' in updated_dict:
-                    updated_dict['status'] += f', {key} INVALID'
-                else:
-                    updated_dict['status'] = f'{key} INVALID'
+            updated_dict['tick'] = value.lower()
+            updated_dict['tick_hash'] = create_tick_hash(value)
         elif key in ['p', 'op']:
             updated_dict[key] = value.upper()
         elif key in ['max', 'lim']:
