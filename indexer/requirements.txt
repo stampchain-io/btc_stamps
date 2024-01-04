@@ -19,4 +19,4 @@ msgpack==1.0.7
 tqdm==4.66.1
 python-dotenv==1.0.0
 #arweave-python-client==1.0.19 # required for arweave storage
-ens-normalize
+ens-normalize==3.0.7
