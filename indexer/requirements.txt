@@ -19,3 +19,4 @@ msgpack
 tqdm
 python-dotenv
 #arweave-python-client # required for arweave storage
+ens-normalize
