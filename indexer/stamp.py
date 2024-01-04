@@ -488,15 +488,12 @@ def get_stamp_key(tx_hash):
 
 def check_reissue(block_cursor, cpid, is_btc_stamp, processed_in_block):
     ''' Validate if there was a prior valid stamp for cpid in the db or block and adust is_btc_stamp and is_reissue  '''
-    logger.warning(f"IS_BTC_STAMP: {is_btc_stamp} BEFORE CHECKING REISSUE IN DB AND BLOCK")
     is_btc_stamp, is_reissue = check_reissue_in_db(
         block_cursor, cpid, is_btc_stamp
     )
-    logger.warning(f"IS_REISSUE: {is_reissue} IS_BTC_STAMP: {is_btc_stamp} AFTER CHECKING REISSUE IN DB")
     is_btc_stamp, is_reissue = check_reissue_in_block(
         processed_in_block, cpid, is_btc_stamp, is_reissue
     )
-    logger.warning(f"IS_REISSUE: {is_reissue} IS_BTC_STAMP: {is_btc_stamp} AFTER CHECKING REISSUE IN DB AND BLOCK")
     return is_btc_stamp, is_reissue
 
 
@@ -508,7 +505,6 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
     ''', (cpid,))
     reissue_results = block_cursor.fetchall()
     if len(reissue_results) > 0:
-        logger.warning(f"CHECKING REISSUE IN DB 1: {cpid}")
         for row in reissue_results:
             prior_is_btc_stamp, is_valid_base64 = row[0], row[1]
             if prior_is_btc_stamp or is_valid_base64:
@@ -520,14 +516,12 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
     if (
         is_reissue is None and prior_is_btc_stamp is None
     ):
-        logger.warning(f"CHECKING REISSUE IN DB 2: {cpid}")
         is_btc_stamp = 1
     return is_btc_stamp, is_reissue
 
 
 def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue): # example: A7739951851191313000
     if len(processed_in_block) > 0:
-        logger.warning(f"CHECKING REISSUE IN BLOCK: {cpid}")
         for item in processed_in_block:
             if item["cpid"] == cpid:
                 if item["is_btc_stamp"] or item["is_valid_base64"]:
