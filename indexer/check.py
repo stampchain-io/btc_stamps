@@ -12,8 +12,8 @@ CONSENSUS_HASH_SEED = 'Through our eyes, the universe is perceiving itself. Thro
 CONSENSUS_HASH_VERSION_MAINNET = 1
 
 CHECKPOINTS_MAINNET = {
-    config.BLOCK_FIRST_MAINNET: {'ledger_hash': 'f55ff4daaf67d34eea686f1869e49e06646bc2fc2590de8489ce16e9e537e5ca', 'txlist_hash': '54d3c971e7aa7cebab9cc07a1922e00c05ec3eb190f0384034719f268bffbf1b'},
-    780000: {'ledger_hash': '4fef3960cdd3b1909e6fecc3c82722ca9ba465d99182d2829f563f36d02191cc', 'txlist_hash': '175ccc866413d290ec0fe1b24c80226efb64522c94463c2d02e2b1d67982b009'},
+    #config.BLOCK_FIRST_MAINNET: {'ledger_hash': 'f55ff4daaf67d34eea686f1869e49e06646bc2fc2590de8489ce16e9e537e5ca', 'txlist_hash': '54d3c971e7aa7cebab9cc07a1922e00c05ec3eb190f0384034719f268bffbf1b'},
+    #780000: {'ledger_hash': '4fef3960cdd3b1909e6fecc3c82722ca9ba465d99182d2829f563f36d02191cc', 'txlist_hash': '175ccc866413d290ec0fe1b24c80226efb64522c94463c2d02e2b1d67982b009'},
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7

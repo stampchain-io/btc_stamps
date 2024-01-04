@@ -584,10 +584,13 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
         and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
         (cpid and cpid.startswith('A'))
-        and (not is_op_return)
+        #and (not is_op_return)
     ):
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
+
+    if (is_op_return and is_reissue is None):
+        is_btc_stamp = None
 
     # if valid_src20 and is_btc_stamp:
     #     src20_dict = insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
@@ -603,7 +606,12 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         }
         processed_in_block.append(processed_stamps_dict)
 
-    stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
+    if is_btc_stamp:
+        stamp_number = get_next_stamp_number(db)
+    elif is_btc_stamp is None and is_reissue is None:
+        stamp_number = get_next_cursed_number(db)
+    else:
+        stamp_number = None
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
@@ -714,6 +722,26 @@ def get_next_stamp_number(db):
     cursor.close()
 
     return stamp_number
+
+
+def get_next_cursed_number(db):
+    """Return index of next transaction."""
+    cursor = db.cursor()
+
+    cursor.execute(f'''
+        SELECT stamp FROM {config.STAMP_TABLE}
+        WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
+    ''')
+    cursed = cursor.fetchall()
+    if cursed:
+        assert len(cursed) == 1
+        cursed_number = cursed[0][0] - 1
+    else:
+        cursed_number = 0
+
+    cursor.close()
+
+    return cursed_number
 
 
 def get_fileobj_and_md5(decoded_base64):
