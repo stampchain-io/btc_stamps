@@ -5,7 +5,7 @@ packages = [
     "appdirs", "bitcoinlib", "colorlog", "sha3", "pycoin", "python-bitcoinlib",
     "python-bitcoinrpc", "regex", "pycryptodome", "requests", "cachetools",
     "pymysql", "python-docx", "cryptography", "pybase64", "python-magic",
-    "boto3", "msgpack", "tqdm", "python-dotenv", "arweave-python-client"
+    "boto3", "msgpack", "tqdm", "python-dotenv", "arweave-python-client", "ens-normalize",
 ]
 
 for package in packages:
