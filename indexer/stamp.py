@@ -11,6 +11,7 @@ import os
 import zlib
 import msgpack
 import io
+import binascii
 from datetime import datetime
 from decimal import Decimal
 
@@ -92,40 +93,51 @@ def is_prev_block_parsed(db, block_index):
 def rebuild_balances(db):
     cursor = db.cursor()
 
-    query = """
-    SELECT DISTINCT destination, tick
-    FROM SRC20Valid
-    WHERE op = 'TRANSFER' OR op = 'MINT'
-    """
-    cursor.execute(query)
-    src20_valid_unique = cursor.fetchall()
+    try:
+        db.begin()  # Start a transaction
 
-    query = """
-    DELETE FROM balances
-    """
-    cursor.execute(query)
+        query = """
+        SELECT DISTINCT destination, tick, tick_hash
+        FROM SRC20Valid
+        WHERE op = 'TRANSFER' OR op = 'MINT'
+        """
+        cursor.execute(query)
+        src20_valid_unique = cursor.fetchall()
 
-    logger.warning("Purging and rebuilding {} table".format('balances'))
-    for src20_valid in src20_valid_unique:
-        balance_dict = None
-        balance_updates = []
-        address = src20_valid[0]
-        tick = src20_valid[1]
+        query = """
+        DELETE FROM balances
+        """
+        cursor.execute(query)
 
-        total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, address)
-        if balance_dict is None:
-            balance_dict = {
-                'tick': tick,
-                'creator': address,
-                'credit': total_balance,
-                'debit': Decimal(0)
-            }
-            balance_updates.append(balance_dict)
+        logger.warning("Purging and rebuilding {} table".format('balances'))
+        for src20_valid in src20_valid_unique:
+            balance_dict = None
+            balance_updates = []
+            address = src20_valid[0]
+            tick = src20_valid[1]
+            tick_hash = src20_valid[2]
 
-            update_balances(db, balance_updates, last_update, block_time)
+            total_balance, last_update, block_time = get_total_user_balance_from_db(db, tick, tick_hash, address)
+            if balance_dict is None:
+                balance_dict = {
+                    'tick': tick,
+                    'tick_hash': tick_hash,
+                    'creator': address,
+                    'credit': total_balance,
+                    'debit': Decimal(0)
+                }
+                balance_updates.append(balance_dict)
 
-    db.commit()
-    cursor.close()
+                update_balances(db, balance_updates, last_update, block_time)
+
+        db.commit() 
+
+    except Exception as e:
+        db.rollback()
+        raise e
+
+    finally:
+        cursor.close()
 
 
 def base62_encode(num):
@@ -161,7 +173,7 @@ def clean_json_string(json_string):
     THis is so a proper string may be inserted into the Stamp Table. It is not used
     for inclusion or inclusion of src-20 tokens. 
     NOTE: this is only here because of the json data type on the Stamp Table 
-    converting this to medimtext will allow us to store malformed json strings
+    converting this to mediumblob will allow us to store malformed json strings
     which doesn't matter a whole lot because we do validation later in the SRC20 Tables. 
 
     Args:
@@ -178,6 +190,8 @@ def clean_json_string(json_string):
 def convert_to_dict_or_string(input_data, output_format='dict'):
     """
     Convert the input data to a dictionary or a JSON string.
+    Note this is not using encoding to convert the input string to utf-8 for example
+    this is because utf-8 will not represent all of our character sets properly
 
     Args:
         input_data (str, bytes, dict): The input data to be converted.
@@ -191,10 +205,23 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
         Exception: If an error occurs during the conversion process.
 
     """
+
+    def convert_decimal_to_string(obj):
+        if isinstance(obj, Decimal):
+            return str(obj)
+        raise TypeError
+
     try:
         if isinstance(input_data, bytes):
-            input_data = input_data.decode('utf-8')
+            try:
+                input_data = repr(input_data)[2:-1]
+            except Exception as e:
+                raise e
 
+            # a utf8 conversion for src-20 tokens can make invalid ticks valid: 
+            # .decode('utf-8') on c28966f1bf851874bb260c8d96122036700651c4ec414fca000ca8089da3176
+            # original: ,"tick":"S\xd0\xa2AMP"  conversion to: ,"tick":"STAMP"
+            # input_data = input_data.decode('utf-8')
         if isinstance(input_data, str): 
             # Check if input_data is a string representation of a dictionary
             try:
@@ -207,7 +234,7 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
             if output_format == 'dict':
                 return input_data
             elif output_format == 'string':
-                json_string = json.dumps(input_data, ensure_ascii=False)
+                json_string = json.dumps(input_data, ensure_ascii=False, default=convert_decimal_to_string)
                 return clean_json_string(json_string)
             else:
                 return f"Invalid output format: {output_format}"
@@ -532,8 +559,12 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
     if valid_src20:
+        # Note: check_format was the first implementation / consensus of validation
+        # it's possible we want to run through normalization first which happens in the insert_int_src20_tables
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
+            insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
+                            valid_src20_in_block)
             src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(stamp_cursor, src20_dict)
@@ -553,18 +584,18 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
         and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
         (cpid and cpid.startswith('A'))
-        and (not is_op_return)
-        or (file_suffix == 'json' and (valid_src20 or valid_src721))
+        #and (not is_op_return)
     ):
         is_btc_stamp = 1
-
-    if cpid: 
         is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
 
-    if valid_src20 and is_btc_stamp:
-        insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
-                                 valid_src20_in_block)
-        # NOTE: We may want to return the modified string if the mint was reduced for example or if it was invalid to identify in the image?
+    if (is_op_return and is_reissue is None):
+        is_btc_stamp = None
+
+    # if valid_src20 and is_btc_stamp:
+    #     src20_dict = insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
+    #                              valid_src20_in_block)
+        # NOTE: We may want to use the modified string if the mint was reduced for example or if it was invalid to identify in the image?
 
     if cpid and (is_btc_stamp or is_reissue):
         processed_stamps_dict = {
@@ -575,7 +606,12 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         }
         processed_in_block.append(processed_stamps_dict)
 
-    stamp_number = get_next_stamp_number(db) if is_btc_stamp else None
+    if is_btc_stamp:
+        stamp_number = get_next_stamp_number(db)
+    elif is_btc_stamp is None and is_reissue is None:
+        stamp_number = get_next_cursed_number(db)
+    else:
+        stamp_number = None
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
@@ -631,7 +667,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ).strftime('%Y-%m-%d %H:%M:%S'),
         "tx_hash": tx_hash,
         "tx_index": tx_index,
-        "src_data": src20_string,
+        "src_data": src20_string, # this is the un-normalized string
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
         "is_reissue": is_reissue,
@@ -645,10 +681,10 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         creator, divisible, keyburn, locked,
                         message_index, stamp_base64,
                         stamp_mimetype, stamp_url, supply, block_time,
-                        tx_hash, tx_index, src_data, ident,
+                        tx_hash, tx_index, ident,
                         stamp_hash, is_btc_stamp, is_reissue,
                         file_hash, is_valid_base64
-                        ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                        ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
@@ -660,12 +696,13 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         parsed['stamp_mimetype'], parsed['stamp_url'],
                         parsed['supply'], parsed['block_time'],
                         parsed['tx_hash'], parsed['tx_index'],
-                        parsed['src_data'], parsed['ident'],
+                        parsed['ident'],
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
                         parsed['is_reissue'], parsed['file_hash'],
                         parsed['is_valid_base64']
                     ))
     stamp_cursor.close()
+
 
 def get_next_stamp_number(db):
     """Return index of next transaction."""
@@ -685,6 +722,26 @@ def get_next_stamp_number(db):
     cursor.close()
 
     return stamp_number
+
+
+def get_next_cursed_number(db):
+    """Return index of next transaction."""
+    cursor = db.cursor()
+
+    cursor.execute(f'''
+        SELECT stamp FROM {config.STAMP_TABLE}
+        WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
+    ''')
+    cursed = cursor.fetchall()
+    if cursed:
+        assert len(cursed) == 1
+        cursed_number = cursed[0][0] - 1
+    else:
+        cursed_number = 0
+
+    cursor.close()
+
+    return cursed_number
 
 
 def get_fileobj_and_md5(decoded_base64):
