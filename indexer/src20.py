@@ -72,6 +72,16 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
 
 
 def matches_any_pattern(text, pattern_list):
+    """
+    Checks if the characters in the given text matches chars in the pattern list.
+
+    Args:
+        text (str): The text to be checked.
+        pattern_list (list): A list of regex patterns to match against.
+
+    Returns:
+        bool: True if all characters in the text matches the pattern list, False otherwise.
+    """
     matched = True
     for char in text:
         char_matched = any(pattern.fullmatch(char) for pattern in pattern_list)
@@ -412,7 +422,7 @@ def process_src20_values(src20_dict):
             updated_dict[key] = None
         elif key in ['tick']:
             updated_dict['tick'] = value.lower()
-            updated_dict['tick_hash'] = create_tick_hash(value)
+            updated_dict['tick_hash'] = create_tick_hash(value.lower())
         elif key in ['p', 'op']:
             updated_dict[key] = value.upper()
         elif key in ['max', 'lim']:
