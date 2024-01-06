@@ -2,6 +2,7 @@ __pycache__/
 log.file
 db
 */.DS_Store
+.DS_Store
 .env
 db_data/
 files/
