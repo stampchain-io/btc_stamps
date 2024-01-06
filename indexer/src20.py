@@ -53,12 +53,25 @@ def get_srcbackground_data(cursor, tick):
 
 
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
-    dict_to_use = {
-        "p": input_dict.get("p", None),
-        "op": input_dict.get("op", None),
-        "tick": input_dict.get("tick", None),
-        "amt": input_dict.get("amt", None),
-    }
+    if (input_dict.get("op").upper() == "DEPLOY"):
+        dict_to_use = {
+            "p": input_dict.get("p", None),
+            "op": input_dict.get("op", None),
+            "tick": input_dict.get("tick", None),
+            "max": input_dict.get("max", None),
+            "lim": input_dict.get("lim", None),
+        }
+    elif (
+        input_dict.get("op").upper() == "MINT"
+        or input_dict.get("op").upper() == "TRANSFER"
+    ):
+        dict_to_use = {
+            "p": input_dict.get("p", None),
+            "op": input_dict.get("op", None),
+            "tick": input_dict.get("tick", None),
+            "amt": input_dict.get("amt", None),
+        }
+
     sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
     pretty_json = json.dumps({k: dict_to_use[k] for k in sorted_keys}, indent=1, separators=(',', ': '), sort_keys=False, ensure_ascii=False, default=str)
 
