@@ -125,7 +125,7 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
             <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
 
     for i in range(len(tmp_nft_object["ts"])):
-        if i < len(tmp_collection_object['t' + str(i) + '-img']) and tmp_nft_object['ts'][i] < len(tmp_collection_object['t' + str(i) + '-img']):
+        if tmp_collection_object['t' + str(i) + '-img'] and tmp_nft_object['ts'][i] < len(tmp_collection_object['t' + str(i) + '-img']):
             image_src_base64 = f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
             svg += f'<img src="{image_src_base64}"/>'
         else:
