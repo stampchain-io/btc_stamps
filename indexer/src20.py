@@ -1,7 +1,7 @@
 from decimal import Decimal, InvalidOperation
 import json
 import logging
-from config import TICK_PATTERN_LIST, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALANCES_TABLE
+from config import TICK_PATTERN_SET, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALANCES_TABLE
 import src.log as log
 import re
 import hashlib
@@ -71,7 +71,7 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
     return img_data
 
 
-def matches_any_pattern(text, pattern_list):
+def matches_any_pattern(text, char_set):
     """
     Checks if the characters in the given text matches chars in the pattern list.
 
@@ -82,13 +82,10 @@ def matches_any_pattern(text, pattern_list):
     Returns:
         bool: True if all characters in the text matches the pattern list, False otherwise.
     """
-    matched = True
     for char in text:
-        char_matched = any(pattern.fullmatch(char) for pattern in pattern_list)
-        if not char_matched:
-            matched = False
-            break
-    return matched
+        if char not in char_set:
+            return False
+    return True
 
 
 def sort_keys(key):
@@ -96,6 +93,19 @@ def sort_keys(key):
     if key in priority_keys:
         return priority_keys.index(key)
     return len(priority_keys)
+
+
+def handle_tick_value(tick_value):
+    try:
+        # This will work if tick_value is a string representation of a bytestring
+        tick_value = tick_value.encode('latin-1').decode('utf-8')
+    except UnicodeEncodeError:
+        try:
+            # This will work if tick_value is a valid UTF-8 character or a combination of ASCII and UTF-8 characters
+            tick_value = tick_value.encode('utf-8').decode('utf-8')
+        except UnicodeEncodeError as e:
+            raise e
+    return tick_value
 
 
 def check_format(input_string, tx_hash):
@@ -122,7 +132,8 @@ def check_format(input_string, tx_hash):
     try:
         try:
             if isinstance(input_string, bytes):
-                input_string = repr(input_string)[2:-1] #debug: this was a utf-8 decoding which was changing the content of Unicode strings
+                input_string = input_string.decode('utf-8')
+                # input_string = repr(input_string)[2:-1] #debug: this was a utf-8 decoding which was changing the content of Unicode strings
             elif isinstance(input_string, str):
                 input_dict = json.loads(input_string)
             elif isinstance(input_string, dict):
@@ -134,7 +145,8 @@ def check_format(input_string, tx_hash):
             return input_dict
         elif input_dict.get("p") == "src-20":
             tick_value = input_dict.get("tick")
-            if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_LIST) or len(tick_value) > 5:
+            tick_value = handle_tick_value(tick_value)
+            if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
                 return None
 
