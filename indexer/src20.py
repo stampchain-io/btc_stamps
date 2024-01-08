@@ -52,24 +52,38 @@ def get_srcbackground_data(cursor, tick):
         return None, None, None
 
 
+def format_address(address):
+    return address[:4] + '...' + address[-4:]
+
+
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
     if (input_dict.get("op").upper() == "DEPLOY"):
         dict_to_use = {
             "p": input_dict.get("p", None),
             "op": input_dict.get("op", None),
             "tick": input_dict.get("tick", None),
+            "hash": format_address(input_dict.get("tick_hash", None)),
             "max": input_dict.get("max", None),
             "lim": input_dict.get("lim", None),
         }
     elif (
         input_dict.get("op").upper() == "MINT"
-        or input_dict.get("op").upper() == "TRANSFER"
     ):
         dict_to_use = {
             "p": input_dict.get("p", None),
             "op": input_dict.get("op", None),
             "tick": input_dict.get("tick", None),
             "amt": input_dict.get("amt", None),
+        }
+    elif (
+        input_dict.get("op").upper() == "TRANSFER"
+    ):
+        dict_to_use = {
+            "p": input_dict.get("p", None),
+            "op": input_dict.get("op", None),
+            "tick": input_dict.get("tick", None),
+            "amt": input_dict.get("amt", None),
+            "dest": format_address(input_dict.get("destination", None)),
         }
 
     sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
