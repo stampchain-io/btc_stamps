@@ -559,8 +559,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
     if valid_src20:
-        # Note: check_format was the first implementation / consensus of validation
-        # it's possible we want to run through normalization first which happens in the insert_int_src20_tables
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
             insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
@@ -591,11 +589,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
 
     if (is_op_return and is_reissue is None):
         is_btc_stamp = None
-
-    # if valid_src20 and is_btc_stamp:
-    #     src20_dict = insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
-    #                              valid_src20_in_block)
-        # NOTE: We may want to use the modified string if the mint was reduced for example or if it was invalid to identify in the image?
 
     if cpid and (is_btc_stamp or is_reissue):
         processed_stamps_dict = {
@@ -667,7 +660,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ).strftime('%Y-%m-%d %H:%M:%S'),
         "tx_hash": tx_hash,
         "tx_index": tx_index,
-        "src_data": src20_string, # this is the un-normalized string
+        "src_data": src_data,
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
         "is_reissue": is_reissue,
@@ -681,11 +674,11 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         creator, divisible, keyburn, locked,
                         message_index, stamp_base64,
                         stamp_mimetype, stamp_url, supply, block_time,
-                        tx_hash, tx_index, ident,
+                        tx_hash, tx_index, ident, src_data,
                         stamp_hash, is_btc_stamp, is_reissue,
                         file_hash, is_valid_base64
                         ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ''', (
                         parsed['stamp'], parsed['block_index'],
                         parsed['cpid'], parsed['asset_longname'],
@@ -696,7 +689,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
                         parsed['stamp_mimetype'], parsed['stamp_url'],
                         parsed['supply'], parsed['block_time'],
                         parsed['tx_hash'], parsed['tx_index'],
-                        parsed['ident'],
+                        parsed['ident'], parsed['src_data'],
                         parsed['stamp_hash'], parsed['is_btc_stamp'],
                         parsed['is_reissue'], parsed['file_hash'],
                         parsed['is_valid_base64']
