@@ -82,7 +82,6 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
             "op": input_dict.get("op", None),
             "tick": input_dict.get("tick", None),
             "amt": input_dict.get("amt", None),
-            "dest": format_address(input_dict.get("destination", None)),
         }
 
     sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
