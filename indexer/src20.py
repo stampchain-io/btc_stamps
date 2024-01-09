@@ -62,7 +62,6 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
             "p": input_dict.get("p", None),
             "op": input_dict.get("op", None),
             "tick": input_dict.get("tick", None),
-            "hash": format_address(input_dict.get("tick_hash", None)),
             "max": input_dict.get("max", None),
             "lim": input_dict.get("lim", None),
         }
