@@ -369,6 +369,15 @@ def get_file_suffix(bytestring_data, block_index):
 
 
 def is_json_string(s):
+    """
+    Check if a string is a valid JSON object.
+
+    Args:
+        s (str): The string to be checked.
+
+    Returns:
+        bool: True if the string is a valid JSON object, False otherwise.
+    """
     try:
         s = s.strip() 
         s = s.rstrip('\r\n')  
@@ -408,13 +417,29 @@ def reformat_src_string_get_ident(decoded_data):
 
 
 def zlib_decompress(compressed_data):
+    """
+    Decompresses zlib-compressed data and returns the decompressed data as a JSON string.
+
+    Args:
+        compressed_data (bytes): The zlib-compressed data to decompress.
+
+    Returns:
+        tuple: A tuple containing the identifier, file suffix, and JSON string of the decompressed data.
+            - identifier (str): The identifier of the decompressed data.
+            - file_suffix (str): The file suffix indicating the format of the decompressed data.
+            - json_string (str): The decompressed data as a JSON string.
+
+    Raises:
+        zlib.error: If there is an error decompressing the zlib data.
+        msgpack.exceptions.ExtraData: If there is an error decoding the MessagePack data.
+        TypeError: If the decoded data is not JSON-compatible.
+    """
     try:
         uncompressed_data = zlib.decompress(compressed_data) # suffix = plain /  Uncompressed data: b'\x85\xa1p\xa6src-20\xa2op\xa6deploy\xa4tick\xa4ordi\xa3max\xa821000000\xa3lim\xa41000'
         decoded_data = msgpack.unpackb(uncompressed_data) #  {'p': 'src-20', 'op': 'deploy', 'tick': 'kevin', 'max': '21000000', 'lim': '1000'}
         json_string = json.dumps(decoded_data)
         file_suffix = "json"
         ident, file_suffix = reformat_src_string_get_ident(json_string)
-        # FIXME: we will need to return the json_string to import into the srcx table or import from here
         return ident, file_suffix, json_string
     except zlib.error:
         logger.info(f"EXCLUSION: Error decompressing zlib data")
@@ -476,24 +501,38 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
     return ident, file_suffix, decoded_data
 
 
-# for debug / validation temporarily
-def get_stamp_key(tx_hash):
-    url = f"https://stampchain.io/api/stamps?tx_hash={tx_hash}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()  # Return the response as a JSON object
-    else:
-        return None  # Return None if the request was not successful
-
-
 def check_reissue(block_cursor, cpid, is_btc_stamp, processed_in_block):
-    ''' Validate if there was a prior valid stamp for cpid in the db or block and adust is_btc_stamp and is_reissue  '''
+    ''' 
+    Validate if there was a prior valid stamp for cpid in the db or block and adjust is_btc_stamp and is_reissue.
+
+    Parameters:
+    - block_cursor: The cursor for the database block.
+    - cpid: The unique identifier for the stamp.
+    - is_btc_stamp: A boolean indicating if the stamp is a BTC stamp.
+    - processed_in_block: A list of stamps processed in the block.
+
+    Returns:
+    - is_btc_stamp: The adjusted value of is_btc_stamp after checking for reissue.
+    - is_reissue: A boolean indicating if the stamp is a reissue.
+    '''
     is_btc_stamp, is_reissue = check_reissue_in_db(block_cursor, cpid, is_btc_stamp)
     is_btc_stamp, is_reissue = check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue)
-    return is_btc_stamp, is_reissue 
+    return is_btc_stamp, is_reissue
 
 
 def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
+    """
+    Check if there is a reissue in the database for a given cpid.
+
+    Parameters:
+    - block_cursor: The database cursor object.
+    - cpid: The cpid to check for reissue.
+    - is_btc_stamp: The current value of is_btc_stamp.
+
+    Returns:
+    - is_btc_stamp: The updated value of is_btc_stamp.
+    - is_reissue: The flag indicating if there is a reissue (1) or not (None).
+    """
     prior_is_btc_stamp, is_reissue = None, None
     block_cursor.execute(f'''
         SELECT is_btc_stamp, is_valid_base64 FROM {config.STAMP_TABLE}
@@ -512,7 +551,19 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp):
     return is_btc_stamp, is_reissue
 
 
-def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue): # example: A7739951851191313000
+def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue):
+    """
+    Check if a reissue is present in the processed block.
+
+    Args:
+        processed_in_block (list): List of items processed in the block.
+        cpid (str): CPID value to check.
+        is_btc_stamp (int): Flag indicating if the item is a BTC stamp.
+        is_reissue (int): Flag indicating if the item is a reissue.
+
+    Returns:
+        tuple: A tuple containing the updated values of is_btc_stamp and is_reissue.
+    """
     if len(processed_in_block) > 0:
         for item in processed_in_block:
             if item["cpid"] == cpid:
@@ -561,8 +612,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if valid_src20:
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
-            insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
-                            valid_src20_in_block)
             src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(stamp_cursor, src20_dict)
@@ -573,7 +622,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
-        # TODO: add a list of src721 tx to build for each block like we do with dupe on block below.
+        # TODO: add a list of src721 tx to build for each block like we do with processed_in_block below.
         (svg_output, file_suffix) = validate_src721_and_process(src_data, stamp_cursor)
         decoded_base64 = svg_output
         file_suffix = 'svg'
@@ -582,7 +631,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
         and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
         (cpid and cpid.startswith('A'))
-        #and (not is_op_return)
     ):
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(stamp_cursor, cpid, is_btc_stamp, processed_in_block)
@@ -605,6 +653,10 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         stamp_number = get_next_cursed_number(db)
     else:
         stamp_number = None
+
+    if valid_src20 and not is_reissue:
+        insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
+                valid_src20_in_block)
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
