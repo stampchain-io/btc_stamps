@@ -3,12 +3,14 @@ import pymysql as mysql
 from dotenv import load_dotenv
 import pymysql as mysql
 import os
+import codecs
+import re
 
 ''' temporary queries to validate against Steves balances table '''
 
-parent_dir = os.path.dirname(os.getcwd())
-dotenv_path = os.path.join(parent_dir, '.env')
-load_dotenv(dotenv_path)
+# parent_dir = os.path.dirname(os.getcwd())
+# dotenv_path = os.path.join(parent_dir, '.env')
+load_dotenv()
 
 # Connection parameters
 rds_host = os.environ.get('RDS_HOSTNAME')
@@ -18,7 +20,7 @@ rds_database = os.environ.get('RDS_DATABASE')
 
 
 print('rdshost:', rds_host)
-print('drs_user:', rds_user)
+print('rds_user:', rds_user)
 
 
 # Connect to the database
@@ -28,6 +30,20 @@ mysql_conn = mysql.connect(
     password=rds_password,
     database=rds_database
 )
+
+def convert_to_utf(row):
+    def convert(match):
+        return f"\\U{ord(match.group(0)):08X}"
+    
+    converted_row = []
+    for item in row:
+        if isinstance(item, str):
+            converted_item = re.sub(r'[^\x00-\x7F]', convert, item)
+            converted_row.append(converted_item)
+        else:
+            converted_row.append(item)
+    return tuple(converted_row)
+
 
 # Compare id, last_update, and amt fields
 cursor = mysql_conn.cursor()
@@ -76,116 +92,44 @@ print(f"Count of all rows in balances <= block {highest_block}:", result)
 
 # Query to output all rows that are in SRC_STEVE but NOT in balances where block_index is less than or equal to highest_block
 query = """
-SELECT SRC_STEVE.id, SRC_STEVE.block_index, SRC_STEVE.amt
+SELECT id, block_index, amt
 FROM SRC_STEVE
-LEFT JOIN balances ON SRC_STEVE.id = balances.id
-WHERE balances.id IS NULL AND SRC_STEVE.block_index <= %s
 """
+cursor.execute(query)
+src_steve_rows = cursor.fetchall()
 
-cursor.execute(query, (highest_block,))
-result = cursor.fetchall()
-print(f"Count of all rows in SRC_STEVE but NOT in balances where block_index is less than or equal to {highest_block}:", len(result))
-# print each row on a separate line:
-for row in result:
-    print(" ", row)
+converted_rows = [convert_to_utf(row) for row in src_steve_rows]
 
-# Query to output all rows that are in balances but NOT in SRC_STEVE where last_update is less than or equal to highest_block
+# Query to get all rows from balances / these already use unicode strings
 query = """
-SELECT balances.id, balances.last_update, balances.amt
+SELECT id, last_update, amt
 FROM balances
-LEFT JOIN SRC_STEVE ON balances.id = SRC_STEVE.id
-WHERE SRC_STEVE.id IS NULL AND balances.last_update <= %s
 """
-cursor.execute(query, (highest_block,))
-result = cursor.fetchall()
-print(f"Count of all rows in balances but NOT in SRC_STEVE where last_update is less than or equal to {highest_block}:", len(result))
-for row in result:
-    print(" ", row)
+cursor.execute(query)
+balances_rows = cursor.fetchall()
+
+# Convert rows to sets of tuples for faster lookup
+src_steve_set = set(converted_rows)
+balances_set = set(balances_rows)
+
+# Find rows that are in SRC_STEVE but not in balances
+difference = src_steve_set - balances_set
+
+# Convert the result back to a list of tuples
+difference_rows = list(difference)
+
+# Count the number of rows in SRC_STEVE but not in balances
+src_steve_not_in_balances_count = len(difference_rows)
+
+# Count the number of rows in balances but not in SRC_STEVE
+balances_not_in_src_steve_count = len(balances_rows) - len(difference_rows)
 
 
-# Query to compare id field
-query = """
-SELECT SRC_STEVE.id, SRC_STEVE.block_index, SRC_STEVE.amt, balances.last_update, balances.amt
-FROM SRC_STEVE
-JOIN balances ON SRC_STEVE.id = balances.id
-WHERE balances.last_update <= %s
-"""
-
-cursor.execute(query, (highest_block,))
-result = cursor.fetchall()
-print("Highest Block Compared:", highest_block)
-print("Count of all matched rows:", len(result))
+print(f"SRC_STEVE rows not in balances: {src_steve_not_in_balances_count}")
+print(f"balances rows not in SRC_STEVE: {balances_not_in_src_steve_count}")
 
 
-# Compare last_update and amt fields
-output = []
-
-for row in result:
-    id_value = row[0]
-    src_steve_block_index = row[1]
-    src_steve_amt = row[2]
-    balances_last_update = row[3]
-    balances_amt = row[4]
-
-    if src_steve_block_index == balances_last_update and src_steve_amt != balances_amt:
-        if src_steve_amt < balances_amt:
-            output.append(f"ERROR: id {id_value}, balance {balances_amt} / {src_steve_amt} SRC_STEVE amt is less than balances amt")
-        else:
-            output.append(f"ERROR: id {id_value}, balance {balances_amt} / {src_steve_amt} SRC_STEVE amt is greater than balances amt")
-    elif src_steve_block_index == balances_last_update and src_steve_amt == balances_amt:
-        output.append(f"MATCH: id {id_value}, balance {balances_amt}")
-    elif src_steve_block_index < balances_last_update:
-        if balances_amt != src_steve_amt:
-            output.append(f"WARN: id {id_value}, balance {balances_amt} / {src_steve_amt} BLOCKS NOT Matching S: {src_steve_block_index} / Balances {balances_last_update}")
-    elif src_steve_block_index != balances_last_update:
-        output.append(f"INFO: block index not matching {id_value}. Steve update: {src_steve_block_index}. Balances update: {balances_last_update}")
-    else:
-        output.append(f"ERROR: Unknown error for id {id_value}. Last update: {src_steve_block_index}. SRC_STEVE amt: {src_steve_amt}. Balances amt: {balances_amt}")
-
-# Sort the output list
-output.sort()
-match_count = 0
-error_count = 0
-warn_count = 0
-info_count = 0
-
-for message in output:
-    if message.startswith("MATCH"):
-        match_count += 1
-    elif message.startswith("ERROR"):
-        error_count += 1
-    elif message.startswith("WARN"):
-        warn_count += 1
-    elif message.startswith("INFO"):
-        info_count += 1
-
-print("Match count:", match_count)
-print("Error count:", error_count)
-print("Warn count:", warn_count)
-print("Info count:", info_count)
-
-# Output the sorted messages
-for message in output:
-    print(message)
-
-print("selecting missing balances")
-
-query = """
-SELECT SRC_STEVE.id, SRC_STEVE.block_index, SRC_STEVE.amt
-FROM SRC_STEVE
-LEFT JOIN balances ON SRC_STEVE.id = balances.id
-WHERE balances.id IS NULL AND SRC_STEVE.block_index < %s
-"""
-
-cursor.execute(query, (highest_block,))
-result = cursor.fetchall()
-
-# Output the result
-for row in result:
-    id_value = row[0]
-    src_steve_block_index = row[1]
-    src_steve_amt = row[2]
-    output.append(f"MISSING: id {id_value}, block index {src_steve_block_index}, amt {src_steve_amt}")
-
-cursor.close()
-mysql_conn.close()
+# find all matching rows between src_steve_set and balances_set
+matching_rows = src_steve_set & balances_set
+matching_rows_count = len(matching_rows)
+print(f"Matching rows between SRC_STEVE and balances: {matching_rows_count}")
