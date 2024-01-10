@@ -5,6 +5,7 @@ from config import TICK_PATTERN_SET, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALAN
 import src.log as log
 import re
 import hashlib
+import unicodedata
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -121,15 +122,22 @@ def sort_keys(key):
 
 
 def handle_tick_value(tick_value):
+    """
+    Converts the tick value to a UTF-8 encoded string and then to a Unicode escape string.
+
+    Args:
+        tick_value (str): The tick value to be converted.
+
+    Returns:
+        str: The converted tick value as a Unicode escape string.
+    """
     try:
         # This will work if tick_value is a string representation of a bytestring
         tick_value = tick_value.encode('latin-1').decode('utf-8')
     except UnicodeEncodeError:
-        try:
-            # This will work if tick_value is a valid UTF-8 character or a combination of ASCII and UTF-8 characters
-            tick_value = tick_value.encode('utf-8').decode('utf-8')
-        except UnicodeEncodeError as e:
-            raise e
+        # This will work if tick_value is a valid UTF-8 character or a combination of ASCII and UTF-8 characters
+        tick_value = tick_value.encode('utf-8').decode('utf-8')
+    # tick_value = tick_value.encode('unicode_escape').decode('utf-8')
     return tick_value
 
 
@@ -169,8 +177,7 @@ def check_format(input_string, tx_hash):
         if input_dict.get("p") == "src-721":
             return input_dict
         elif input_dict.get("p") == "src-20":
-            tick_value = input_dict.get("tick")
-            tick_value = handle_tick_value(tick_value)
+            tick_value = handle_tick_value(input_dict.get("tick"))
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
                 return None
@@ -285,7 +292,11 @@ def get_running_mint_total(db, processed_in_block, tick):
     total_minted = 0
     if len(processed_in_block) > 0:
         for item in reversed(processed_in_block):
-            if item["tick"] == tick and item["op"] == 'MINT' and "total_minted" in item:
+            if (
+                item["tick"] == tick
+                and item["op"] == 'MINT'
+                and "total_minted" in item
+            ):
                 total_minted = item["total_minted"]
                 break
     if total_minted == 0:
@@ -298,7 +309,12 @@ def get_running_user_balance(db, tick, tick_hash, creator, processed_in_block):
     total_balance = 0
     if len(processed_in_block) > 0:
         for item in reversed(processed_in_block):
-            if item["creator"] == creator and item["tick"] == tick and item["tick_hash"] == tick_hash and "total_balance" in item:
+            if (
+                item["creator"] == creator
+                and item["tick"] == tick
+                and item["tick_hash"] == tick_hash
+                and "total_balance" in item
+            ):
                 total_balance = item["total_balance"]
                 break
     if total_balance == 0:
@@ -483,6 +499,10 @@ def process_src20_values(src20_dict):
     src20_dict.update(updated_dict)
     return src20_dict
 
+
+def encode_non_ascii(text):
+    return ''.join(c.encode('unicode_escape').decode('utf-8') if ord(c) >= 128 else c for c in text)
+
     
 def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
@@ -494,6 +514,8 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
     src20_dict['block_time'] = block_time
     src20_dict['destination'] = destination
     src20_dict.setdefault('dec', '18')
+    tick_value = src20_dict.get('tick')
+    src20_dict["tick"] = encode_non_ascii(tick_value)
 
     try:
         src20_dict = process_src20_values(src20_dict) # this does normalization of the tick patterns
