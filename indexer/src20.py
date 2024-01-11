@@ -121,15 +121,15 @@ def sort_keys(key):
     return len(priority_keys)
 
 
-def handle_tick_value(tick_value):
+def convert_to_utf8_string(tick_value):
     """
-    Converts the tick value to a UTF-8 encoded string and then to a Unicode escape string.
+    Converts the tick value to a UTF-8 encoded string.
 
     Args:
         tick_value (str): The tick value to be converted.
 
     Returns:
-        str: The converted tick value as a Unicode escape string.
+        str: The converted tick value as a UTF-8 encoded string.
     """
     try:
         # This will work if tick_value is a string representation of a bytestring
@@ -137,7 +137,6 @@ def handle_tick_value(tick_value):
     except UnicodeEncodeError:
         # This will work if tick_value is a valid UTF-8 character or a combination of ASCII and UTF-8 characters
         tick_value = tick_value.encode('utf-8').decode('utf-8')
-    # tick_value = tick_value.encode('unicode_escape').decode('utf-8')
     return tick_value
 
 
@@ -177,7 +176,8 @@ def check_format(input_string, tx_hash):
         if input_dict.get("p") == "src-721":
             return input_dict
         elif input_dict.get("p") == "src-20":
-            tick_value = handle_tick_value(input_dict.get("tick"))
+            tick_value = convert_to_utf8_string(input_dict.get("tick"))
+            input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
                 return None
@@ -501,7 +501,16 @@ def process_src20_values(src20_dict):
 
 
 def encode_non_ascii(text):
-    return ''.join(c.encode('unicode_escape').decode('utf-8') if ord(c) >= 128 else c for c in text)
+    """
+    Encodes non-ASCII characters in the given text using unicode_escape encoding and then decodes it using utf-8 encoding.
+
+    Args:
+        text (str): The text to encode.
+
+    Returns:
+        str: The encoded and decoded text.
+    """
+    return text.encode('unicode_escape').decode('utf-8')
 
     
 def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
