@@ -33,7 +33,7 @@ mysql_conn = mysql.connect(
 
 def convert_to_utf(row):
     def convert(match):
-        return f"\\U{ord(match.group(0)):08X}"
+        return f"\\u{ord(match.group(0)):08x}"
     
     converted_row = []
     for item in row:
@@ -45,21 +45,8 @@ def convert_to_utf(row):
     return tuple(converted_row)
 
 
-# Compare id, last_update, and amt fields
 cursor = mysql_conn.cursor()
 
-# Query to get highest last_update value from balances
-query = """
-SELECT last_update
-FROM balances
-ORDER BY last_update DESC
-"""
-cursor.execute(query)
-highest_block = cursor.fetchone()[0]
-print("BALANCES: Highest block in table:", highest_block)
-# highest_block = 822825
-
-# Query to get the highest block_index value from SRC_STEVE
 query = """
 select block_index
 from SRC_STEVE
@@ -69,28 +56,7 @@ cursor.execute(query)
 highest_block = cursor.fetchone()[0]
 print("STEVE: Highest block in table:", highest_block)
 
-# Query to get all rows in SRC_STEVE <= highest_block
-query = """
-SELECT COUNT(*)
-FROM SRC_STEVE
-WHERE block_index <= %s
-"""
-cursor.execute(query, (highest_block,))
-result = cursor.fetchone()[0]
-print(f"Count of all rows in SRC_STEVE <= block {highest_block}:", result)
 
-# Query to count all rows in balances <= highest_block
-query = """
-SELECT COUNT(*)
-FROM balances
-WHERE last_update <= %s
-"""
-cursor.execute(query, (highest_block,))
-result = cursor.fetchone()[0]
-print(f"Count of all rows in balances <= block {highest_block}:", result)
-
-
-# Query to output all rows that are in SRC_STEVE but NOT in balances where block_index is less than or equal to highest_block
 query = """
 SELECT id, block_index, amt
 FROM SRC_STEVE
@@ -112,18 +78,32 @@ balances_rows = cursor.fetchall()
 src_steve_set = set(converted_rows)
 balances_set = set(balances_rows)
 
+#print count of all rows in src_steve_set
+print(f"Count of all rows in SRC_STEVE:", len(src_steve_set))
+print(f"Count of all rows in balances:", len(balances_set))
+
+highest_last_update = max(balances_set, key=lambda x: x[1])[1]
+highest_block_index = max(src_steve_set, key=lambda x: x[1])[1]
+print("Highest block in balances:", highest_last_update)
+print("Highest block in SRC_STEVE:", highest_block_index)
+
 # Find rows that are in SRC_STEVE but not in balances
 difference = src_steve_set - balances_set
 
 # Convert the result back to a list of tuples
 difference_rows = list(difference)
 
+#print rows that are in SRC_STEVE but not in balances
+print("SRC_STEVE rows not in balances:")
+for row in difference_rows:
+    if row[1] <= highest_last_update:
+        print(row)
+
 # Count the number of rows in SRC_STEVE but not in balances
 src_steve_not_in_balances_count = len(difference_rows)
 
 # Count the number of rows in balances but not in SRC_STEVE
 balances_not_in_src_steve_count = len(balances_rows) - len(difference_rows)
-
 
 print(f"SRC_STEVE rows not in balances: {src_steve_not_in_balances_count}")
 print(f"balances rows not in SRC_STEVE: {balances_not_in_src_steve_count}")
