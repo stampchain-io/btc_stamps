@@ -719,33 +719,37 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         "file_hash": file_obj_md5,
         "is_valid_base64": is_valid_base64,
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
-    # logger.debug(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
+    # logger.warning(f"parsed: {json.dumps(parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
+    insert_into_stamp_table(stamp_cursor, parsed)
+
+
+def insert_into_stamp_table(stamp_cursor, parsed):
     stamp_cursor.execute(f'''
-                    INSERT INTO {config.STAMP_TABLE}(
-                        stamp, block_index, cpid, asset_longname,
-                        creator, divisible, keyburn, locked,
-                        message_index, stamp_base64,
-                        stamp_mimetype, stamp_url, supply, block_time,
-                        tx_hash, tx_index, ident, src_data,
-                        stamp_hash, is_btc_stamp, is_reissue,
-                        file_hash, is_valid_base64
-                        ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ''', (
-                        parsed['stamp'], parsed['block_index'],
-                        parsed['cpid'], parsed['asset_longname'],
-                        parsed['creator'],
-                        parsed['divisible'], parsed['keyburn'],
-                        parsed['locked'], parsed['message_index'],
-                        parsed['stamp_base64'],
-                        parsed['stamp_mimetype'], parsed['stamp_url'],
-                        parsed['supply'], parsed['block_time'],
-                        parsed['tx_hash'], parsed['tx_index'],
-                        parsed['ident'], parsed['src_data'],
-                        parsed['stamp_hash'], parsed['is_btc_stamp'],
-                        parsed['is_reissue'], parsed['file_hash'],
-                        parsed['is_valid_base64']
-                    ))
+        INSERT INTO {config.STAMP_TABLE}(
+            stamp, block_index, cpid, asset_longname,
+            creator, divisible, keyburn, locked,
+            message_index, stamp_base64,
+            stamp_mimetype, stamp_url, supply, block_time,
+            tx_hash, tx_index, ident, src_data,
+            stamp_hash, is_btc_stamp, is_reissue,
+            file_hash, is_valid_base64
+        ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ''', (
+        parsed['stamp'], parsed['block_index'],
+        parsed['cpid'], parsed['asset_longname'],
+        parsed['creator'],
+        parsed['divisible'], parsed['keyburn'],
+        parsed['locked'], parsed['message_index'],
+        parsed['stamp_base64'],
+        parsed['stamp_mimetype'], parsed['stamp_url'],
+        parsed['supply'], parsed['block_time'],
+        parsed['tx_hash'], parsed['tx_index'],
+        parsed['ident'], parsed['src_data'],
+        parsed['stamp_hash'], parsed['is_btc_stamp'],
+        parsed['is_reissue'], parsed['file_hash'],
+        parsed['is_valid_base64']
+    ))
     stamp_cursor.close()
 
 
