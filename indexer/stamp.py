@@ -74,6 +74,16 @@ def purge_block_db(db, block_index):
 
 
 def is_prev_block_parsed(db, block_index):
+    """
+    Check if the previous block has been parsed and indexed.
+
+    Args:
+        db (DatabaseConnection): The database connection object.
+        block_index (int): The index of the current block.
+
+    Returns:
+        bool: True if the previous block has been parsed and indexed, False otherwise.
+    """
     block_fields = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
     cursor.execute('''
@@ -141,6 +151,15 @@ def rebuild_balances(db):
 
 
 def base62_encode(num):
+    """
+    Encodes a given number into a base62 string.
+
+    Args:
+        num (int): The number to be encoded.
+
+    Returns:
+        str: The base62 encoded string.
+    """
     chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     base = len(chars)
     if num == 0:
@@ -153,6 +172,20 @@ def base62_encode(num):
 
 
 def create_base62_hash(str1, str2, length=20):
+    """
+    Creates a base62 hash from two input strings.
+
+    Args:
+        str1 (str): The first input string.
+        str2 (str): The second input string.
+        length (int, optional): The desired length of the base62 hash. Must be between 12 and 20 characters. Defaults to 20.
+
+    Returns:
+        str: The base62 hash of the combined input strings, truncated to the specified length.
+    
+    Raises:
+        ValueError: If the length is not between 12 and 20 characters.
+    """
     if not 12 <= length <= 20:
         raise ValueError("Length must be between 12 and 20 characters")
     combined_str = str1 + "|" + str2
@@ -163,6 +196,18 @@ def create_base62_hash(str1, str2, length=20):
 
 
 def get_cpid(stamp, block_index, tx_hash):
+    """
+    Get the CPID (Counterpart Identifier aka ASSET) for a given stamp.
+
+    Args:
+        stamp (dict): The stamp dictionary.
+        block_index (int): The block index.
+        tx_hash (str): The transaction hash.
+
+    Returns:
+        tuple: A tuple containing the CPID and the base62 hash.
+
+    """
     cpid = stamp.get('cpid', None)
     return cpid, create_base62_hash(tx_hash, str(block_index), 20)
 
@@ -589,8 +634,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
     (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-    # if decoded_base64 is None or decoded_base64 == '': # this changes numbering - was an attempt to speed up queries.
-    #     return
     
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
