@@ -595,7 +595,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
         block_index < config.CP_SRC20_BLOCK_END
-        and keyburn == 1
+        and keyburn == 1 and stamp.get('quantity') == 0
     )
     valid_src20 = (
         valid_cp_src20 or
