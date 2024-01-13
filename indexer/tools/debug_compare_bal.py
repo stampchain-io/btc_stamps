@@ -93,11 +93,24 @@ difference = src_steve_set - balances_set
 # Convert the result back to a list of tuples
 difference_rows = list(difference)
 
+#Find rows that are in balances but not in SRC_STEVE
+balances_difference = balances_set - src_steve_set
+
+# Convert the result back to a list of tuples
+balances_rows_diff = list(balances_difference)
+
 #print rows that are in SRC_STEVE but not in balances
 print("SRC_STEVE rows not in balances:")
 for row in difference_rows:
     if row[1] <= highest_last_update:
         print(row)
+
+#print rows that are in balances but not in SRC_STEVE where row[2] > 0
+print("balances rows not in SRC_STEVE:")
+for row in balances_rows_diff:
+    if row[1] <= highest_last_update and row[2] > 0:
+        print(row)
+
 
 # Count the number of rows in SRC_STEVE but not in balances
 src_steve_not_in_balances_count = len(difference_rows)
