@@ -270,7 +270,7 @@ def get_xcp_block_data(block_index, db):
     async def async_get_xcp_block_data(_block_index):
         getters = [
             _get_all_tx_by_block,
-            # _get_all_dispensers_by_block,
+            _get_all_dispensers_by_block,
             _get_all_dispenses_by_block
         ]
         loop = asyncio.get_event_loop()
