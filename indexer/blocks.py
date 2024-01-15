@@ -308,7 +308,7 @@ def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, s
             for stamp_send in stamp_sends:
                 tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
                                               block_hash, block_time, stamp_send['source'], 
-                                              stamp_send['destination'], None, None, str(stamp_send), None)
+                                              stamp_send['destination'], None, None, str(stamp_send.get('cpid')), None)
                 parsed_send = {
                             'from': stamp_send.get('source'),
                             'to': stamp_send.get('destination'),
