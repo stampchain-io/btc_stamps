@@ -58,13 +58,20 @@ print("STEVE: Highest block in table:", highest_block)
 
 
 query = """
-SELECT id, block_index, amt
-FROM SRC_STEVE
+SELECT s.id, s.block_index, s.amt
+FROM SRC_STEVE s
+INNER JOIN (
+    SELECT id, MAX(block_index) AS max_block_index
+    FROM SRC_STEVE
+    GROUP BY id
+) m ON s.id = m.id AND s.block_index = m.max_block_index;
 """
 cursor.execute(query)
 src_steve_rows = cursor.fetchall()
 
 converted_rows = [convert_to_utf(row) for row in src_steve_rows]
+
+print(f"Count of rows in converted_rows:", len(converted_rows))
 
 # Query to get all rows from balances / these already use unicode strings
 query = """
