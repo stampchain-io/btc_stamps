@@ -633,15 +633,16 @@ def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
     for src20_dict in valid_src20_in_block:
         try:
             if src20_dict['op'] == 'MINT':
+                # Credit to destination (creator can be a mint service)
                 balance_dict = next((item for item in balance_updates if 
                                      item['tick'] == src20_dict['tick'] and 
                                      item['tick_hash'] == src20_dict['tick_hash'] and 
-                                     item['creator'] == src20_dict['destination']), None)
+                                     item['address'] == src20_dict['destination']), None)
                 if balance_dict is None:
                     balance_dict = {
                         'tick': src20_dict['tick'],
                         'tick_hash': src20_dict['tick_hash'],
-                        'creator': src20_dict['destination'],
+                        'address': src20_dict['destination'],
                         'credit': Decimal(src20_dict['amt']),
                         'debit': Decimal(0)
                     }
@@ -654,12 +655,12 @@ def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
                 balance_dict = next((item for item in balance_updates if 
                                      item['tick'] == src20_dict['tick'] and 
                                      item['tick_hash'] == src20_dict['tick_hash'] and 
-                                     item['creator'] == src20_dict['creator']), None)
+                                     item['address'] == src20_dict['creator']), None)
                 if balance_dict is None:
                     balance_dict = {
                         'tick': src20_dict['tick'],
                         'tick_hash': src20_dict['tick_hash'],
-                        'creator': src20_dict['creator'],
+                        'address': src20_dict['creator'],
                         'debit': Decimal(src20_dict['amt']),
                         'credit': Decimal(0)
                     }
@@ -671,12 +672,12 @@ def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
                 balance_dict = next((item for item in balance_updates if 
                                      item['tick'] == src20_dict['tick'] and 
                                      item['tick_hash'] == src20_dict['tick_hash'] and 
-                                     item['creator'] == src20_dict['destination']), None)
+                                     item['address'] == src20_dict['destination']), None)
                 if balance_dict is None:
                     balance_dict = {
                         'tick': src20_dict['tick'],
                         'tick_hash': src20_dict['tick_hash'],
-                        'creator': src20_dict['destination'],
+                        'address': src20_dict['destination'],
                         'credit': Decimal(src20_dict['amt']),
                         'debit': Decimal(0)
                     }
@@ -700,7 +701,7 @@ def update_balances(db, balance_updates, block_index, block_time):
     for balance_dict in balance_updates:
         try:
             net_change = balance_dict.get('credit', 0) - balance_dict.get('debit', 0)
-            id_field = balance_dict['tick'] + '_' + balance_dict['creator']
+            id_field = balance_dict['tick'] + '_' + balance_dict['address']
 
             cursor.execute("""
                 INSERT INTO balances
@@ -709,7 +710,7 @@ def update_balances(db, balance_updates, block_index, block_time):
                 ON DUPLICATE KEY UPDATE
                     amt = amt + VALUES(amt),
                     last_update = VALUES(last_update)
-            """, (id_field, balance_dict['creator'], balance_dict['tick'], net_change, block_index, block_time, 'SRC-20', balance_dict['tick_hash']))
+            """, (id_field, balance_dict['address'], balance_dict['tick'], net_change, block_index, block_time, 'SRC-20', balance_dict['tick_hash']))
         
         except Exception as e:
             logger.error("Error updating balances table:", e)
