@@ -122,12 +122,7 @@ for row in balances_rows_diff:
 # Count the number of rows in SRC_STEVE but not in balances
 src_steve_not_in_balances_count = len(difference_rows)
 
-# Count the number of rows in balances but not in SRC_STEVE
-balances_not_in_src_steve_count = len(balances_rows) - len(difference_rows)
-
 print(f"SRC_STEVE rows not in balances: {src_steve_not_in_balances_count}")
-print(f"balances rows not in SRC_STEVE: {balances_not_in_src_steve_count}")
-
 
 # find all matching rows between src_steve_set and balances_set
 matching_rows = src_steve_set & balances_set
