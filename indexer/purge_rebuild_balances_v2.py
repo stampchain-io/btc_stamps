@@ -34,7 +34,7 @@ mysql_conn = mysql.connect(
 # get all unique address: tick combinations from SRC20Valid table
 cursor = mysql_conn.cursor()
 query = """
-SELECT op, creator, destination, tick, amt, block_time, block_index
+SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
 FROM SRC20Valid
 WHERE op = 'TRANSFER' OR op = 'MINT'
 """
@@ -51,13 +51,14 @@ cursor.execute(query)
 mysql_conn.commit()
 
 all_balances = {}
-for [op, creator, destination, tick, amt, block_time, block_index] in src20_valid_list:
+for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
     destination_id = tick + '_' + destination
     destination_amt = Decimal(0) if destination_id not in all_balances else all_balances[destination_id]['amt']
     destination_amt += amt
 
     all_balances[destination_id] = {
         'tick': tick,
+        'tick_hash': tick_hash,
         'address': destination,
         'amt': destination_amt,
         'last_update': block_index,
@@ -70,6 +71,7 @@ for [op, creator, destination, tick, amt, block_time, block_index] in src20_vali
         creator_amt -= amt
         all_balances[creator_id] = {
             'tick': tick,
+            'tick_hash': tick_hash,
             'address': creator,
             'amt': creator_amt,
             'last_update': block_index,
@@ -78,8 +80,8 @@ for [op, creator, destination, tick, amt, block_time, block_index] in src20_vali
 
 print("Inserting {} balances".format(len(all_balances)))
 
-cursor.executemany('''INSERT INTO balances(id, tick, address, amt, last_update, block_time, p)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['address'], value['amt'],
+cursor.executemany('''INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['tick_hash'], value['address'], value['amt'],
                     value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()])
 
 # close db
