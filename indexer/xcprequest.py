@@ -39,12 +39,12 @@ def _handle_cp_call_with_retry(func, params, block_index):
                 break
             else:
                 logger.warning(
-                    "Waiting for block {} to be parsed...".format(block_index)
+                    "Waiting for CP block {} to be parsed...".format(block_index)
                 )
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except Exception as e:
             logger.warning(
-                "Error getting block count: {}\nSleeping to retry...".format(e)
+                "Error getting CP block count: {}\nSleeping to retry...".format(e)
             )
             time.sleep(config.BACKEND_POLL_INTERVAL)
     data = None
@@ -112,7 +112,7 @@ def _get_block_count():
         return json.loads(response.text)["result"]["last_block"]["block_index"]
     except Exception as e:
         logger.warning(
-            "Error getting block count: {}".format(e)
+            "Error getting CP block count: {}".format(e)
         )
         return None
 
