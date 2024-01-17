@@ -274,21 +274,21 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
     try:
         if isinstance(input_data, bytes):
             try:
+                input_data = json.loads(input_data)
+            except json.JSONDecodeError:
+                # get a string representation of the bytes object
                 input_data = repr(input_data)[2:-1]
-            except Exception as e:
-                raise e
-
-            # a utf8 conversion for src-20 tokens can make invalid ticks valid: 
-            # .decode('utf-8') on c28966f1bf851874bb260c8d96122036700651c4ec414fca000ca8089da3176
-            # original: ,"tick":"S\xd0\xa2AMP"  conversion to: ,"tick":"STAMP"
-            # input_data = input_data.decode('utf-8')
-        if isinstance(input_data, str): 
+                # utf8 conversion for src-20 tokens can make invalid ticks valid: 
+                # .decode('utf-8') on c28966f1bf851874bb260c8d96122036700651c4ec414fca000ca8089da3176
+                # original: ,"tick":"S\xd0\xa2AMP"  conversion to: ,"tick":"STAMP"
+                # ie. input_data = input_data.decode('utf-8')
+        if isinstance(input_data, str):
             # Check if input_data is a string representation of a dictionary
             try:
                 input_data = ast.literal_eval(input_data)
             except ValueError:
-                raise  # DEBUG - this should not be hit any more with fix in check_decoded_data_fetch_ident
-
+                raise
+ 
         if isinstance(input_data, dict):
             # input_data is a dictionary, so convert it directly to a JSON string or return as a dictionary
             if output_format == 'dict':
