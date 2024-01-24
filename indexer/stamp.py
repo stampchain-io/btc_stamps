@@ -47,17 +47,11 @@ def purge_block_db(db, block_index):
         None
     """
     cursor = db.cursor()
-
-    cursor.execute('''
-                    DELETE FROM {}
-                    WHERE block_index >= %s
-                    '''.format('dispensers'), (block_index,))
     
     tables = [
         'transactions',
         'blocks',
         config.STAMP_TABLE,
-        'dispensers',
         'SRC20',
         'SRC20Valid'
     ]
