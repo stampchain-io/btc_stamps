@@ -32,11 +32,6 @@ from stamp import (
     rebuild_balances
 )
 
-from send import (
-    parse_issuance_to_send_table,
-    insert_into_sends_table,
-    insert_into_dispenser_table,
-)
 
 from src20 import (
     update_src20_balances,
@@ -299,48 +294,6 @@ def decode_checkmultisig(ctx, chunk):
     else:
         return None, data
             
-
-def insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=None, stamp_dispensers=None):
-    """Inserts all sends and dispensers into the sends, dispenser and transaction database.
-        NOTE: this inserts them all at the end of the transactions table so they will be out of sequence in the block  """
-    try:
-        if stamp_sends: # NOTE: not sure hos multiple destinations are handled here
-            for stamp_send in stamp_sends:
-                tx_index = insert_transaction(db, tx_index, stamp_send['tx_hash'], block_index,
-                                              block_hash, block_time, stamp_send['source'], 
-                                              stamp_send['destination'], None, None, str(stamp_send.get('cpid')), None)
-                parsed_send = {
-                            'from': stamp_send.get('source'),
-                            'to': stamp_send.get('destination'),
-                            'cpid': stamp_send.get('cpid', None),
-                            'tick': stamp_send.get('tick', None),
-                            'memo': stamp_send.get('memo', "send"),
-                            'quantity': stamp_send.get('quantity'),
-                            'satoshirate': stamp_send.get('satoshirate', None),
-                            'tx_hash': stamp_send.get('tx_hash'),
-                            'tx_index': tx_index,
-                            'block_index': stamp_send.get('block_index'),
-                        }
-                sends_cursor = db.cursor()
-                insert_into_sends_table(
-                    cursor=sends_cursor,
-                    send=parsed_send
-                )
-                sends_cursor.close()
-                
-        if stamp_dispensers:
-            for stamp_dispenser in stamp_dispensers:
-                tx_index = insert_transaction(db, tx_index, stamp_dispenser['tx_hash'], block_index,
-                                               block_hash, block_time, stamp_dispenser['source'], 
-                                               None, None, None, str(stamp_send), None)
-
-                stamp_dispenser['tx_index'] = tx_index
-                dispenser_cursor = db.cursor()
-                insert_into_dispenser_table(dispenser_cursor, stamp_dispenser)
-                dispenser_cursor.close()
-        return tx_index
-    except Exception as e:
-        raise e
 
 
 def reinitialize(db, block_index=None):
@@ -628,7 +581,7 @@ def follow(db):
             purge_old_block_tx_db(db, block_index)
             current_index = block_index
 
-            stamp_issuances, stamp_sends, stamp_dispensers = get_xcp_block_data(block_index, db)
+            stamp_issuances = get_xcp_block_data(block_index, db)
 
             if block_count - block_index < 100:
                 requires_rollback = False
@@ -763,16 +716,6 @@ def follow(db):
                     processed_in_block,
                     valid_src20_in_block
                 )
-                if (stamp_issuance is not None):
-                    parse_issuance_to_send_table(
-                        db=db,
-                        cursor=block_cursor,
-                        issuance=stamp_issuance,
-                        tx={
-                            "tx_index": tx_index,
-                            "block_index": block_index
-                        }
-                    )
   
             if valid_src20_in_block:
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
@@ -787,10 +730,7 @@ def follow(db):
                 
             # message hash for future use
             # new_messages_hash, found_messages_hash = None, None
-            #  new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
-
-            if stamp_sends is not None or stamp_dispensers is not None:
-                tx_index = insert_sends_dispensers(db, block_hash, block_index, block_time, tx_index, stamp_sends=stamp_sends, stamp_dispensers=stamp_dispensers)
+            # new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
 
             try:
                 db.commit()
