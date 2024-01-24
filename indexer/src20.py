@@ -6,6 +6,7 @@ import src.log as log
 import re
 import hashlib
 import unicodedata
+import codecs
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -58,6 +59,9 @@ def format_address(address):
 
 
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
+    if '\\' in input_dict['tick']:
+        input_dict['tick'] = codecs.decode(input_dict['tick'], 'unicode_escape')
+
     if (input_dict.get("op").upper() == "DEPLOY"):
         dict_to_use = {
             "p": input_dict.get("p", None),
@@ -73,7 +77,7 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
             "p": input_dict.get("p", None),
             "op": input_dict.get("op", None),
             "tick": input_dict.get("tick", None),
-            "amt": input_dict.get("amt", None),
+            "amt": int(input_dict.get("amt", None)),
         }
     elif (
         input_dict.get("op").upper() == "TRANSFER"
