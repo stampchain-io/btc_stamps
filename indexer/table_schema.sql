@@ -80,40 +80,6 @@ CREATE TABLE IF NOT EXISTS `srcbackground` (
   PRIMARY KEY (`tick`,`p`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
-CREATE TABLE IF NOT EXISTS `dispensers` (
-  `tx_index` int,
-  `tx_hash` varchar(64) NOT NULL,
-  `block_index` int DEFAULT NULL,
-  `source` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
-  `origin` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
-  `cpid` varchar(255) DEFAULT NULL,
-  `give_quantity` bigint DEFAULT NULL,
-  `escrow_quantity` bigint DEFAULT NULL,
-  `satoshirate` bigint DEFAULT NULL,
-  `status` int DEFAULT NULL,
-  `give_remaining` bigint DEFAULT NULL,
-  `oracle_address` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
-  PRIMARY KEY (`tx_index`),
-  INDEX `block_index` (`block_index`), 
-  INDEX `cpid_index` (`cpid`),
-  FOREIGN KEY (`cpid`) REFERENCES `StampTableV4` (`cpid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
-
-CREATE TABLE IF NOT EXISTS `sends` (
-  `from` varchar(255) DEFAULT NULL,
-  `to` varchar(255) DEFAULT NULL,
-  `cpid` varchar(255) DEFAULT NULL,
-  `tick` varchar(255) DEFAULT NULL,
-  `memo` varchar(255) DEFAULT NULL,
-  `satoshirate` bigint DEFAULT NULL,
-  `quantity` bigint DEFAULT NULL,
-  `tx_hash` VARCHAR(64),
-  `tx_index` int,
-  `block_index` int,
-  INDEX `block_index` (`block_index`), 
-  KEY `index_name` (`cpid`,`tick`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
-
 CREATE TABLE IF NOT EXISTS `cp_wallet` (
   `address` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
   `cpid` varchar(255) DEFAULT NULL,
