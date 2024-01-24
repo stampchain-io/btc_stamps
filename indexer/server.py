@@ -341,14 +341,14 @@ def initialize_db():
     rds_user = os.environ.get('RDS_USER')
     rds_password = os.environ.get('RDS_PASSWORD')
     rds_database = os.environ.get('RDS_DATABASE')
-
+    rds_port = int(os.environ.get("RDS_PORT", 3306))
     # Database
     logger.info('Connecting to database (MySQL).')
     db = mysql.connect(
         host=rds_host,
         user=rds_user,
         password=rds_password,
-        port=3306,
+        port=rds_port,
         database=rds_database
     )
     util.CURRENT_BLOCK_INDEX = blocks.last_db_index(db)
