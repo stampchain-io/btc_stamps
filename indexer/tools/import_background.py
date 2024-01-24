@@ -7,9 +7,7 @@ import sys
 from PIL import Image
 from dotenv import load_dotenv
 
-parent_dir = os.path.dirname(os.getcwd())
-dotenv_path = os.path.join(parent_dir, '.env')
-load_dotenv(dotenv_path)
+load_dotenv()
 
 parser = argparse.ArgumentParser(description='Import SRC BG to MySQL')
 parser.add_argument('file_names', nargs='+', help='Names of the files to import in tick-color.ext format')
