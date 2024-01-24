@@ -160,6 +160,20 @@ def initialize(db):
 
 
 def process_vout(ctx, fee):
+    """
+    Process all the out values of a transaction.
+
+    Args:
+        ctx (TransactionContext): The transaction context.
+        fee (int): The fee of the transaction.
+
+    Returns:
+        tuple: A tuple containing the following values:
+            - pubkeys_compiled (list): A list of public keys.
+            - keyburn (int or None): The keyburn value of the transaction.
+            - is_op_return (bool or None): Indicates if the transaction is an OP_RETURN transaction.
+            - fee (int): The updated fee after processing the vout values.
+    """
     pubkeys_compiled = []
     keyburn = None
     is_op_return = None
@@ -262,6 +276,18 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
 
 def decode_address(script_pubkey):
+    """
+    Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
+
+    Args:
+        script_pubkey (bytes): The scriptPubKey to decode.
+
+    Returns:
+        str: The decoded Bitcoin address.
+
+    Raises:
+        ValueError: If the scriptPubKey format is unsupported.
+    """
     try:
         # Attempt standard address decoding
         address = CBitcoinAddress.from_scriptPubKey(script_pubkey)
@@ -278,6 +304,21 @@ def decode_address(script_pubkey):
         
 
 def decode_checkmultisig(ctx, chunk):
+    """
+    Decode a checkmultisig transaction chunk. Decoding in ARC4 and looking for the STAMP prefix
+    This also validates the length of the string with the 2 byte data length prefix
+
+    Args:
+        ctx (Context): The context object containing transaction information.
+        chunk (bytes): The chunk to be decoded.
+
+    Returns:
+        tuple: A tuple containing the destination address (str) and the decoded data (bytes).
+               If the chunk does not match the expected format, returns (None, None).
+    
+    Raises:
+        DecodeError: If the decoded data length does not match the expected length.
+    """
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
     chunk = arc4.arc4_decrypt_chunk(chunk, key) # this is a different method since we are stripping the nonce/sign beforehand
     if chunk[2:2+len(config.PREFIX)] == config.PREFIX:
@@ -484,6 +525,15 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
 
 def last_db_index(db):
+    """
+    Retrieve the last block index from the database.
+
+    Args:
+        db: The database connection object.
+
+    Returns:
+        The last block index as an integer.
+    """
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
 
@@ -501,8 +551,16 @@ def last_db_index(db):
     return last_index
 
 
-def get_next_tx_index(db):
-    """Return index of next transaction."""
+def next_tx_index(db):
+    """
+    Return the index of the next incremental transaction # from transactions table.
+
+    Parameters:
+    db (object): The database object.
+
+    Returns:
+    int: The index of the next transaction.
+    """
     cursor = db.cursor()
 
     cursor.execute('''SELECT tx_index FROM transactions WHERE tx_index = (SELECT MAX(tx_index) from transactions)''')
@@ -518,19 +576,109 @@ def get_next_tx_index(db):
     return tx_index
 
 
-def purge_old_block_tx_db(db, block_index):
-    """purge old transactions which are not related to stamps from the database."""
-    if config.BLOCKS_TO_KEEP == 0:
-        return
+def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
+    """
+    Insert a new block into the database, does not commit
+
+    Args:
+        db (object): The database connection object.
+        block_index (int): The index of the block.
+        block_hash (str): The hash of the block.
+        block_time (int): The timestamp of the block.
+        previous_block_hash (str): The hash of the previous block.
+        difficulty (float): The difficulty of the block.
+
+    Returns:
+        None
+    """
+    # new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, txhash_list) #txhash_list will be all btc trx in the block
     cursor = db.cursor()
-    db.ping(reconnect=True)
-    last_block_to_keep = block_index - config.BLOCKS_TO_KEEP
-    cursor.execute('''
-                   DELETE FROM transactions
-                   WHERE block_index < %s
-                   AND data IS NULL
-                   ''', (last_block_to_keep,))
-    cursor.close()
+    logger.info('Inserting MySQL Block: {}'.format(block_index))
+    block_query = '''INSERT INTO blocks(
+                        block_index,
+                        block_hash,
+                        block_time,
+                        previous_block_hash,
+                        difficulty
+                        ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)'''
+    args = (block_index, block_hash, block_time, previous_block_hash, float(difficulty))
+
+    try:
+        cursor.execute(block_query, args)
+        cursor.close()
+    except mysql.IntegrityError:
+        print(f"block {block_index} already exists in mysql") # TODO: this may be ok if we are doing a reparse
+        sys.exit()
+    except Exception as e:
+        print("Error executing query:", block_query)
+        print("Arguments:", args)
+        print("Error message:", e)
+        sys.exit()
+
+
+def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash):
+    """
+    Update the hashes of a block in the MySQL database. This is for comparison across nodes. 
+    So we can validate that each node has the same data.
+
+    Args:
+        db (MySQLConnection): The MySQL database connection.
+        block_index (int): The index of the block to update.
+        txlist_hash (str): The new transaction list hash.
+        ledger_hash (str): The new ledger hash.
+        messages_hash (str): The new messages hash.
+    Returns:
+        None
+    """
+    cursor = db.cursor()
+    logger.info('Updating MySQL Block: {}'.format(block_index))
+    block_query = '''UPDATE blocks SET
+                        txlist_hash = %s,
+                        ledger_hash = %s,
+                        messages_hash = %s
+                        WHERE block_index = %s'''
+
+    args = (txlist_hash, ledger_hash, messages_hash, block_index)
+
+    try:
+        cursor.execute(block_query, args)
+        cursor.close() 
+    except Exception as e:
+        print("Error executing query:", block_query)
+        print("Arguments:", args)
+        print("Error message:", e)
+        sys.exit()
+
+
+def create_check_hashes(db, block_index, processed_in_block, valid_src20_in_block, txhash_list,
+                        previous_ledger_hash=None, previous_txlist_hash=None, previous_messages_hash=None):
+    """
+    Calculate and update the hashes for the given block data. This needs to be modified for a reparse.
+
+    Args:
+        db (Database): The database object.
+        block_index (int): The index of the block.
+        processed_in_block (list): The list of processed transactions in the block.
+        valid_src20_in_block (list): The list of valid SRC20 tokens in the block.
+        txhash_list (list): The list of transaction hashes in the block.
+        previous_ledger_hash (str, optional): The hash of the previous ledger. Defaults to None.
+        previous_txlist_hash (str, optional): The hash of the previous transaction list. Defaults to None.
+        previous_messages_hash (str, optional): The hash of the previous messages. Defaults to None.
+
+    Returns:
+        tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
+    """
+    txlist_content = str(processed_in_block)
+    new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
+            
+    ledger_content = str(valid_src20_in_block)
+    new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, ledger_content)
+    
+    messages_content = str(txhash_list)
+    new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, messages_content)
+    
+    update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
+    return new_txlist_hash, new_ledger_hash, new_messages_hash
 
 
 def follow(db): 
@@ -550,7 +698,7 @@ def follow(db):
 
     logger.info('Resuming parsing.')
     # Get index of last transaction.
-    tx_index = get_next_tx_index(db)
+    tx_index = next_tx_index(db)
 
 
     # a reorg can happen without the block count increasing, or even for that
@@ -578,7 +726,6 @@ def follow(db):
         # Get new blocks.
         if block_index <= block_count:
 
-            purge_old_block_tx_db(db, block_index)
             current_index = block_index
 
             stamp_issuances = get_xcp_block_data(block_index, db)
@@ -643,31 +790,10 @@ def follow(db):
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
             block_time = cblock.nTime
             txhash_list, raw_transactions = backend.get_tx_list(cblock)
-            block_cursor = db.cursor()
             util.CURRENT_BLOCK_INDEX = block_index
 
-            logger.warning('Inserting MySQL Block: {}'.format(block_index))
-            # new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, txhash_list) #txhash_list will be all btc trx in the block
-            block_query = '''INSERT INTO blocks(
-                                block_index,
-                                block_hash,
-                                block_time,
-                                previous_block_hash,
-                                difficulty
-                                ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)'''
-            args = (block_index, block_hash, block_time, previous_block_hash, float(cblock.difficulty))
-
-            try:
-                block_cursor.execute(block_query, args)
-            except mysql.IntegrityError:
-                print(f"block {block_index} already exists in mysql") # TODO: this may be ok if we are doing a reparse
-                sys.exit()
-            except Exception as e:
-                print("Error executing query:", block_query)
-                print("Arguments:", args)
-                print("Error message:", e)
-                sys.exit()
-
+            insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty
+                               )
             processed_in_block= []
             valid_src20_in_block = []
 
@@ -720,17 +846,13 @@ def follow(db):
             if valid_src20_in_block:
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
-            previous_ledger_hash, previous_txlist_hash, previous_messages_hash = None, None, None
-
-            txlist_content = str(processed_in_block)
-            new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
-            
-            ledger_content = str(valid_src20_in_block)
-            new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, ledger_content)
-                
-            # message hash for future use
-            # new_messages_hash, found_messages_hash = None, None
-            # new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, util.BLOCK_MESSAGES)
+            new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                db,
+                block_index,
+                processed_in_block,
+                valid_src20_in_block,
+                txhash_list
+            )
 
             try:
                 db.commit()
@@ -741,8 +863,8 @@ def follow(db):
                 db.close()
                 sys.exit()
 
-            logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s)' % (
+            logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
-                new_ledger_hash[-5:], new_txlist_hash[-5:],))#new_messages_hash[-5:],
-                # (' [overwrote %s]' % found_messages_hash) if found_messages_hash and found_messages_hash != new_messages_hash else ''))
+                new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:]
+            ))
             block_index += 1
