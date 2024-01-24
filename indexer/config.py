@@ -32,8 +32,6 @@ AWS_S3_BUCKETNAME = os.environ.get('AWS_S3_BUCKETNAME', None)
 AWS_S3_IMAGE_DIR = os.environ.get('AWS_S3_IMAGE_DIR', None)
 S3_OBJECTS = []
 
-BLOCKS_TO_KEEP = int(os.environ.get("BLOCKS_TO_KEEP", 0))
-
 # Define for Quicknode or simiilar remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
