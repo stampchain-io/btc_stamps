@@ -779,10 +779,10 @@ def follow(db):
 
             previous_ledger_hash, previous_txlist_hash, previous_messages_hash = None, None, None
 
-            txlist_content = str(valid_src20_in_block + processed_in_block)
+            txlist_content = str(processed_in_block)
             new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
             
-            ledger_content = str(stamp_sends + stamp_dispensers)
+            ledger_content = str(valid_src20_in_block)
             new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, ledger_content)
                 
             # message hash for future use
