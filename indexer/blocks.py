@@ -14,6 +14,7 @@ import pymysql as mysql
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
+from collections import namedtuple
 
 import config
 import src.exceptions as exceptions
@@ -48,35 +49,6 @@ def initialize(db):
     """initialize data, create and populate the database."""
     cursor = db.cursor() 
 
-    # Check if the block_index_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM blocks WHERE Key_name = 'block_index_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the block_index_idx index if it does not exist
-    if not result:
-        cursor.execute('''
-            CREATE INDEX block_index_idx ON blocks (block_index)
-        ''')
-
-    # Check if the index_hash_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM blocks WHERE Key_name = 'index_hash_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the index_hash_idx index if it does not exist
-    if not result:
-        cursor.execute('''
-            CREATE INDEX index_hash_idx ON blocks (block_index, block_hash)
-        ''')
-
-    # mysql_cursor.execute('''
-    #     SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'blocks'
-    # ''')
-    # column_names = [row[0] for row in mysql_cursor.fetchall()]
-
     cursor.execute('''
         SELECT MIN(block_index)
         FROM blocks
@@ -86,65 +58,6 @@ def initialize(db):
     if block_index is not None and block_index != config.BLOCK_FIRST:
         raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
 
-    # Check if the block_index_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM transactions WHERE Key_name = 'block_index_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the block_index_idx index if it does not exist
-    if not result:
-        cursor.execute(
-            '''CREATE INDEX block_index_idx ON transactions (block_index)'''
-        )
-
-    # Check if the tx_index_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM transactions WHERE Key_name = 'tx_index_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the tx_index_idx index if it does not exist
-    if not result:
-        cursor.execute(
-            '''CREATE INDEX tx_index_idx ON transactions (tx_index)'''
-        )
-
-    # Check if the tx_hash_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM transactions WHERE Key_name = 'tx_hash_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the tx_hash_idx index if it does not exist
-    if not result:
-        cursor.execute(
-            '''CREATE INDEX tx_hash_idx ON transactions (tx_hash)'''
-        )
-
-    # Check if the index_index_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM transactions WHERE Key_name = 'index_index_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the index_index_idx index if it does not exist
-    if not result:
-        cursor.execute(
-            '''CREATE INDEX index_index_idx ON transactions (block_index, tx_index)'''
-        )
-
-    # Check if the index_hash_index_idx index exists
-    cursor.execute('''
-        SHOW INDEX FROM transactions WHERE Key_name = 'index_hash_index_idx'
-    ''')
-    result = cursor.fetchone()
-
-    # Create the index_hash_index_idx index if it does not exist
-    if not result:
-        cursor.execute(
-            '''CREATE INDEX index_hash_index_idx ON transactions (tx_index, tx_hash, block_index)'''
-        )
 
     cursor.execute(
         '''DELETE FROM blocks WHERE block_index < {}'''
@@ -159,7 +72,7 @@ def initialize(db):
     cursor.close()
 
 
-def process_vout(ctx, fee):
+def process_vout(ctx):
     """
     Process all the out values of a transaction.
 
@@ -182,11 +95,13 @@ def process_vout(ctx, fee):
     if ctx.is_coinbase():
         raise DecodeError('coinbase transaction')
 
+    # Fee is the input values minus output values.
+    fee = 0
+
     for vout in ctx.vout:
         # asm is the bytestring of the vout values
         # Fee is the input values minus output values.
-        output_value = vout.nValue
-        fee -= output_value
+        fee -= vout.nValue
         # Ignore transactions with invalid script.
         try:
             asm = script.get_asm(vout.scriptPubKey)
@@ -194,6 +109,7 @@ def process_vout(ctx, fee):
             raise DecodeError(e)
         if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
             try:
+                # NOTE: need to investigate signatures_required, signatures_possible
                 pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
                 if keyburn_vout is not None: # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
                     keyburn = keyburn_vout
@@ -212,25 +128,50 @@ def process_vout(ctx, fee):
             is_op_return = True
             pass
 
-    return pubkeys_compiled, keyburn, is_op_return, fee
+    vOutInfo = namedtuple('vOutInfo', ['pubkeys_compiled', 'keyburn', 'is_op_return', 'fee'])
+
+    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee)
 
 
 def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
-    """Get transaction information.
-    The destinations, if they exist, always come before the data output, and the change, if it exists, always comes after.
-    Include keyburn check on all transactions, not just src-20.
-    This function parses every transaction, not just stamps/src-20.
-    Returns normalized None data for DecodeError and BTCOnlyError.
     """
+    Get transaction information.
+
+    Args:
+        tx_hex (str): The hexadecimal representation of the transaction.
+        block_index (int, optional): The index of the block. Defaults to None.
+        db (object, optional): The database object. Defaults to None.
+        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance. Defaults to None.
+
+    Returns:
+        TransactionInfo: A named tuple containing the transaction information.
+
+    Raises:
+        DecodeError: If the output type is unrecognized.
+        BTCOnlyError: If the transaction is not a stamp.
+
+    Note:
+        The destinations, if they exist, always come before the data output, and the change, if it exists, always comes after.
+        Include keyburn check on all transactions, not just src-20.
+        This function parses every transaction, not just stamps/src-20.
+        Returns normalized None data for DecodeError and BTCOnlyError.
+    """
+ 
+    TransactionInfo = namedtuple('TransactionInfo', ['source', 'destinations', 'btc_amount', 'fee', 'data', 'ctx', 'keyburn', 'is_op_return'])
+
     try:
         if not block_index:
             block_index = util.CURRENT_BLOCK_INDEX
         
-        destinations, btc_amount, fee, data, keyburn, is_op_return = [], 0, 0, b'', None, None
+        destinations, btc_amount, data,  = [], 0, b''
 
         ctx = backend.deserialize(tx_hex)
-        pubkeys_compiled, keyburn, is_op_return, fee = process_vout(ctx, fee)
-        
+        vout_info = process_vout(ctx)
+        pubkeys_compiled = vout_info.pubkeys_compiled
+        keyburn = getattr(vout_info, 'keyburn', None)
+        is_op_return = getattr(vout_info, 'is_op_return', None)
+        fee = getattr(vout_info, 'fee', None)
+
         if stamp_issuance is not None:
             # NOTE: rounding fee because of table data type need more precision? 
             return None, None, btc_amount, round(fee), None, None, keyburn, is_op_return
@@ -267,13 +208,10 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         # Decode the address associated with the output.
         source = decode_address(prev_vout_script_pubkey)
 
-        return str(source), destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return
+        return TransactionInfo(str(source), destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return)
 
-    except DecodeError as e:
-        return b'', None, None, None, None, None, None, None
-    except BTCOnlyError as e:
-        return b'', None, None, None, None, None, None, None
-
+    except (DecodeError, BTCOnlyError) as e:
+        return TransactionInfo(b'', None, None, None, None, None, None, None)
 
 def decode_address(script_pubkey):
     """
@@ -475,35 +413,31 @@ def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_tim
         )
     except Exception as e:
         raise Exception(f"Error occurred while inserting transaction: {e}")
-    finally:
-        return tx_index + 1
+    return tx_index + 1
 
 
 def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
-    # NOTE: removing this since the insert into tx table would fail if they already exists. may need to revise with reparsing.
+    # NOTE: this is for future reparsing options
     # cursor = db.cursor()
-    # # check if the incoming tx_hash from txhash_list is already in the trx table
     # cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,)) # this will include all CP transactinos as well ofc
     # transactions = cursor.fetchall()
     # cursor.close()
     # if transactions:
-    #     # FIXME: for reparse this will be an issue since sends can create duplicate tx_hash
-    #     # for now this is ok because this will alwasy return None w/o reparse option
     #     return tx_index 
     
     if tx_hex is None:
         tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
-    (
-        source,
-        destination,
-        btc_amount,
-        fee,
-        data,
-        decoded_tx,
-        keyburn,
-        is_op_return
-    ) = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance) # this currently only gets source, dest for SRC-20
+        
+    transaction_info = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
+    source = getattr(transaction_info, 'source', None)
+    destination = getattr(transaction_info, 'destinations', None)
+    btc_amount = getattr(transaction_info, 'btc_amount', None)
+    fee = getattr(transaction_info, 'fee', None)
+    data = getattr(transaction_info, 'data', None)
+    decoded_tx = getattr(transaction_info, 'ctx', None)
+    keyburn = getattr(transaction_info, 'keyburn', None)
+    is_op_return = getattr(transaction_info, 'is_op_return', None)
 
     assert block_index == util.CURRENT_BLOCK_INDEX
 
@@ -512,7 +446,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
         destination = str(stamp_issuance['issuer'])
         data = str(stamp_issuance)
 
-    if source and (data or destination): # this is an src-20 trx
+    if source and (data or destination):
         logger.info('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
 
         tx_index = insert_transaction(db, tx_index, tx_hash, block_index, block_hash, 
@@ -521,7 +455,7 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
 
     else:
         logger.getChild('list_tx.skip').debug('Skipping transaction: {}'.format(tx_hash))
-        return tx_index, None, None, None, None, None, None, None, None
+        return tx_index, *(None for _ in range(8))
 
 
 def last_db_index(db):
@@ -846,6 +780,8 @@ def follow(db):
             if valid_src20_in_block:
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
+            # format valid_src_in_block for hash string content
+            
             new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                 db,
                 block_index,
