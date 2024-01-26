@@ -99,10 +99,10 @@ def initialize_config(
 ):
 
     try:
-        # validate the correct hashing algorithm
-        assert hashlib.sha3_256(''.encode()).hexdigest() == 'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a'
+        assert hashlib.sha3_256(''.encode('utf-8')).hexdigest() == 'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a'
+        assert hashlib.sha256(''.encode('utf-8')).hexdigest() == 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
     except AssertionError as e:
-        logger.error(f'SHA3 256 Hash Inconsistencies')
+        logger.error(f'SHA Hash Inconsistencies: {e}')
         raise e
     
     # Data directory
