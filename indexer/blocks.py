@@ -174,7 +174,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
         if stamp_issuance is not None:
             # NOTE: rounding fee because of table data type need more precision? 
-            return None, None, btc_amount, round(fee), None, None, keyburn, is_op_return
+            return TransactionInfo(None, None, btc_amount, round(fee), None, None, keyburn, is_op_return)
 
         if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the SRC-20 data
             chunk = b''
@@ -781,7 +781,9 @@ def follow(db):
                 update_src20_balances(db, block_index, block_time, valid_src20_in_block)
 
             # format valid_src_in_block for hash string content
-            
+            # valid_src20_in_block is a list like: 
+            # {'p': 'SRC-20', 'op': 'DEPLOY', 'tick': 'kevin', 'max': 690000000, 'lim': 420000, 'creator': 'bc1qqz5tvzm3uw3w4lruga8aylsk9fs93y0w8fysfe', 'tx_hash': '23765f9bc6b87e078b1f93ed213f90b9004998336575f726e46f34ddbea5e5f3', 'tx_index': 32825, 'block_index': 788041, 'block_time': 1683091057, 'destination': '1BepCXzZ7RRcPaqUdvBp2jvkJcaRvHMGKz', 'tick_hash': '9769ee76c3860c370f0914c472886a25f39d34cd9f1a3fe7751df92b3d439409', 'dec': 18}
+            # need to distill down to tick, creator, balance;  for each row. 
             new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                 db,
                 block_index,
