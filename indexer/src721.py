@@ -65,8 +65,7 @@ def fetch_src721_subasset_base64(asset_name, json_list, block_cursor):
         if result:
             return result[0]  # Return the first column of the result (which should be the base64 string)
         else:
-            # return None
-            raise Exception(f"Failed to fetch asset src-721 base64 {asset_name} from database")
+            raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
     except Exception as e:
         raise e
 
@@ -88,7 +87,8 @@ def fetch_src721_collection(tmp_collection_object, json_list, block_cursor):
                     # if img_data:
                     output_object[img_key].append(img_data)
                 except Exception as e:
-                    raise Exception(f"Unable to load t{i}[{j}] {e}")
+                    logging.exception('An error occurred during execution', e, stack_info=True, exc_info=True)
+                    raise RuntimeError(f"Unable to load t{i}[{j}] {e}")
     
     # print("output_object collection with base64", output_object)
     return output_object
@@ -162,7 +162,7 @@ def create_src721_mint_svg(src_data, block_cursor):
                     logger.warning(f"Failed to fetch deploy src_data for cpid from database")
                     # raise Exception(f"Failed to fetch deploy src_data for asset {asset} from database")
             except Exception as e:
-                raise e
+                raise
         logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
             logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
