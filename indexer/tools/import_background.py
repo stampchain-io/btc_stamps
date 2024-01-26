@@ -20,6 +20,8 @@ rds_user = os.environ.get('RDS_USER')
 rds_password = os.environ.get('RDS_PASSWORD')
 rds_database = os.environ.get('RDS_DATABASE')
 
+print(rds_host)
+
 mysql_conn = mysql.connect(
     host=rds_host,
     user=rds_user,
