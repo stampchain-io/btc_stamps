@@ -47,11 +47,11 @@ def purge_block_db(db, block_index):
     cursor = db.cursor()
     
     tables = [
-        'transactions',
-        'blocks',
-        config.STAMP_TABLE,
+        'SRC20Valid',
         'SRC20',
-        'SRC20Valid'
+        config.STAMP_TABLE,
+        'transactions',
+        'blocks'
     ]
 
     for table in tables:
@@ -84,7 +84,7 @@ def is_prev_block_parsed(db, block_index):
                    ''', (block_index - 1,))
     block = cursor.fetchone()
     cursor.close()
-    if block[block_fields['indexed']] == 1:
+    if block is not None and block[block_fields['indexed']] == 1:
         return True
     else:
         purge_block_db(db, block_index - 1)
