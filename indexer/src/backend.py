@@ -225,7 +225,7 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
         len(txhash_list), len(raw_transactions_cache), len(payload)))
 
     # populate cache
-    if len(payload) > 0:
+    if payload:
         batch_responses = rpc_batch(payload)
         for response in batch_responses:
             if 'error' not in response or response['error'] is None:
