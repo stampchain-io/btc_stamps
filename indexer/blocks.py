@@ -11,10 +11,13 @@ import logging
 import http
 import bitcoin as bitcoinlib
 import pymysql as mysql
+import concurrent.futures
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
+import traceback
+import math
 
 import config
 import src.exceptions as exceptions
@@ -33,9 +36,9 @@ from stamp import (
     rebuild_balances
 )
 
-
 from src20 import (
     update_src20_balances,
+    insert_into_src20_tables
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -126,7 +129,6 @@ def process_vout(ctx):
                 #   4: OP_CHECKSIG
         elif asm[0] == 'OP_RETURN':
             is_op_return = True
-            pass
 
     vOutInfo = namedtuple('vOutInfo', ['pubkeys_compiled', 'keyburn', 'is_op_return', 'fee'])
 
@@ -412,7 +414,7 @@ def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_tim
             )
         )
     except Exception as e:
-        raise Exception(f"Error occurred while inserting transaction: {e}")
+        raise ValueError(f"Error occurred while inserting transaction: {e}")
     return tx_index + 1
 
 
@@ -612,7 +614,7 @@ def create_check_hashes(db, block_index, processed_in_block, valid_src20_in_bloc
     new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, messages_content)
     
     update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
-    return new_txlist_hash, new_ledger_hash, new_messages_hash
+    return new_ledger_hash, new_txlist_hash, new_messages_hash
 
 
 def follow(db): 
@@ -638,6 +640,31 @@ def follow(db):
     # a reorg can happen without the block count increasing, or even for that
     # matter, with the block count decreasing. This should only delay
     # processing of the new blocks a bit.
+    # Use concurrent.futures for parallel processing
+    # import concurrent.futures
+
+    # with concurrent.futures.ThreadPoolExecutor() as executor:
+    #     futures = []
+    #     results = []  # Store the results in a list
+
+    #     while block_index <= 780318: # block_count:
+    #         futures.append(executor.submit(get_xcp_block_data, block_index, db))
+    #         block_index += 14
+
+    #     # Process the results as they become available
+    #     for future in concurrent.futures.as_completed(futures):
+    #         stamp_issuances = future.result()
+    #         if stamp_issuances:
+    #             results.append((stamp_issuances['block_index'], stamp_issuances))  # Store the result with block_index in the list
+
+    #     # Sort the results based on block_index
+    #     results.sort(key=lambda x: x[0])
+
+    #     # Process the results sequentially
+    #     for _, stamp_issuances in results:
+    #         # Process stamp_issuances here
+    #         pass
+
     while True:
         start_time = time.time()
         # Get block count.
@@ -659,7 +686,6 @@ def follow(db):
 
         # Get new blocks.
         if block_index <= block_count:
-
             current_index = block_index
 
             stamp_issuances = get_xcp_block_data(block_index, db)
@@ -727,7 +753,7 @@ def follow(db):
             util.CURRENT_BLOCK_INDEX = block_index
 
             insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty
-                               )
+                            )
             processed_in_block= []
             valid_src20_in_block = []
 
@@ -776,9 +802,28 @@ def follow(db):
                     processed_in_block,
                     valid_src20_in_block
                 )
-  
             if valid_src20_in_block:
-                update_src20_balances(db, block_index, block_time, valid_src20_in_block)
+                balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
+                insert_into_src20_tables(db, valid_src20_in_block)
+                # sort the valid_src20_in_block list by the individual dicts tick and creator fields ascending so it would be a sort on tick+creator
+                if block_index == 788090:
+                    print("788090")
+                balance_updates.sort(key=lambda x: (x['tick'], x['address']))
+                valid_src20_list = []
+                if balance_updates is not None:
+                    for src20 in balance_updates:
+                        tick = src20.get('tick')
+                        creator = src20.get('address')
+                        amt = src20.get('original_amt') + src20.get('net_change')
+                        amt = int(amt) if amt == int(amt) else amt
+                        # amt = int(value) if float(value) == int(float(value)) else float(value)
+                        valid_src20_list.append(f"{tick},{creator},{amt}")
+                    valid_src20_str = ';'.join(valid_src20_list)
+                    print("String for HASH", valid_src20_str)
+            else:
+                valid_src20_str = ''
+
+            # "balance_data": "stamp,1BepCXzZ7RRcPaqUdvBp2jvkJcaRvHMGKz,100000;stamp,1MZUaVy6y7vmwh2MqMKTFy2JiqXteyevpN,100000"
 
             # format valid_src_in_block for hash string content
             # valid_src20_in_block is a list like: 
@@ -788,7 +833,7 @@ def follow(db):
                 db,
                 block_index,
                 processed_in_block,
-                valid_src20_in_block,
+                valid_src20_str,
                 txhash_list
             )
 

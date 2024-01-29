@@ -106,7 +106,10 @@ def _get_block_count():
             auth=auth
         )
         logger.info("get_block_count response: {}".format(response.text))
-        return json.loads(response.text)["result"]["last_block"]["block_index"]
+        result = json.loads(response.text)["result"]
+        if result is None:
+            return None
+        return result["last_block"]["block_index"]
     except Exception as e:
         logger.warning(
             "Error getting CP block count: {}".format(e)
@@ -159,6 +162,19 @@ def _get_block(params={}):
     return json.loads(response.text)["result"]
 
 
+def _get_issuances_by_block(block_index):
+    return _handle_cp_call_with_retry(
+        func=_get_issuances,
+        params={
+            "filters": {
+                "field": "block_index",
+                "op": "==",
+                "value": block_index
+            }
+        },
+        block_index=block_index
+    )
+
 
 def _get_all_tx_by_block(block_index):
     return _handle_cp_call_with_retry(
@@ -191,19 +207,20 @@ def _get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
     )
 
 
-def get_xcp_block_data(block_index, db):
+def get_xcp_block_data(block_index, db): # this is now only calling one function so async is pointless
     async def async_get_xcp_block_data(_block_index):
         getters = [
-            _get_all_tx_by_block
+            _get_all_tx_by_block # NOTE: may want to switch this back to just get issuances in block now that we are only using that data 
+            # _get_issuances_by_block -- this was failing need to investigate
         ]
         loop = asyncio.get_event_loop()
         queries = [loop.run_in_executor(None, func, _block_index) for func in getters]
+        results = await asyncio.gather(*queries)
+        return results
 
-        return await asyncio.gather(*queries)
-
-    [block_data_from_xcp] = asyncio.run(
+    block_data_from_xcp = asyncio.run(
         async_get_xcp_block_data(block_index)
-    )
+    )[0]
     parsed_block_data = _parse_issuances_from_block(
         block_data=block_data_from_xcp,
         db=db
@@ -286,32 +303,15 @@ def parse_base64_from_description(description):
 
 def _check_for_stamp_issuance(issuance, cursor):
     description = issuance["description"]
-    cursor.execute(
-        f"SELECT * FROM {config.STAMP_TABLE} WHERE cpid = %s",
-        (issuance["asset"],)
-    )
-    issuances = cursor.fetchall()
-    if ((
+   
+    if (
         description is not None and
         description.lower().find("stamp:") != -1
-    ) or len(issuances) > 0):
-        prev_qty = 0
-        prev_sends = None
-        (
-            stamp_base64,
-            stamp_mimetype
-        ) = parse_base64_from_description(description)
-        if (len(issuances) == 0):
-            prev_issuances = _get_all_prev_issuances_for_cpid_and_block(
-                cpid=issuance["asset"],
-                block_index=issuance["block_index"]
-            )
-            if len(prev_issuances) > 0:
-                for prev_issuance in prev_issuances:
-                    prev_qty += prev_issuance["quantity"]
+    ):
+        _, stamp_mimetype = parse_base64_from_description(description)
 
 
-        quantity = issuance["quantity"] + prev_qty
+        quantity = issuance["quantity"] #+ prev_qty
         logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
         if issuance["status"] == "valid":
             filtered_issuance = {
@@ -336,7 +336,7 @@ def _check_for_stamp_issuance(issuance, cursor):
                 "message_index": issuance["msg_index"],
                 "stamp_mimetype": stamp_mimetype
             }
-            return filtered_issuance
+        return filtered_issuance
     return None
 
 
