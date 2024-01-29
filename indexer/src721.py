@@ -57,17 +57,14 @@ def fetch_src721_subasset_base64(asset_name, json_list, block_cursor):
         # print("collection_sub_asset_base64", collection_sub_asset_base64)
         # return collection_sub_asset_base64["stamp_base64"]
     # else:
-    try:
-        # this assumes the collection asset is already commited to the db... 
-        sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
-        block_cursor.execute(sql, (asset_name,))
-        result = block_cursor.fetchone()
-        if result:
-            return result[0]  # Return the first column of the result (which should be the base64 string)
-        else:
-            raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
-    except Exception as e:
-        raise e
+    # this assumes the collection asset is already committed to the db... 
+    sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
+    block_cursor.execute(sql, (asset_name,))
+    result = block_cursor.fetchone()
+    if result:
+        return result[0]  # Return the first column of the result (which should be the base64 string)
+    else:
+        raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
 
 
 def fetch_src721_collection(tmp_collection_object, json_list, block_cursor):
@@ -162,7 +159,7 @@ def create_src721_mint_svg(src_data, block_cursor):
                     logger.warning(f"Failed to fetch deploy src_data for cpid from database")
                     # raise Exception(f"Failed to fetch deploy src_data for asset {asset} from database")
             except Exception as e:
-                raise
+                raise e
         logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
             logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
