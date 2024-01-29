@@ -103,14 +103,11 @@ def add_s3_objects_to_db(db, s3_objects):
     try:
         cursor = db.cursor()
 
-        for s3_object in s3_objects:
-            path_key = s3_object['key']
-            md5 = s3_object['md5']
-            id = path_key + md5
+        query = "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
+        values = [(s3_object['key'] + s3_object['md5'], s3_object['key'], s3_object['md5']) for s3_object in s3_objects]
 
-            query = "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
-            values = (id, path_key, md5)
-            cursor.execute(query, values)
+        # Execute the multi-insert operation
+        cursor.executemany(query, values)
 
         cursor.close()
 
@@ -203,7 +200,7 @@ def check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_
                 upload_file_to_s3(file_obj, config.AWS_S3_BUCKETNAME, s3_file_path, config.AWS_S3_CLIENT, content_type=mime_type)
                 update_s3_db_objects(db, filename, file_obj_md5)
                 if config.AWS_CLOUDFRONT_DISTRIBUTION_ID:
-                    logger.debug(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
+                    logger.warning(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
                     invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
             except Exception as e:
                 logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
