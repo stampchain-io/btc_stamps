@@ -7,13 +7,15 @@ import re
 import hashlib
 import unicodedata
 import codecs
+import datetime
+import math
+from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
 DEPLOY_CACHE = {}
 TOTAL_MINTED_CACHE = {}
-
 
 def build_src20_svg_string(cursor, src_20_dict):
     background_base64, font_size, text_color = get_srcbackground_data(cursor, src_20_dict.get('tick'))
@@ -169,7 +171,6 @@ def check_format(input_string, tx_hash):
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode('utf-8')
-                # input_string = repr(input_string)[2:-1] #debug: this was a utf-8 decoding which was changing the content of Unicode strings
             elif isinstance(input_string, str):
                 input_dict = json.loads(input_string)
             elif isinstance(input_string, dict):
@@ -189,16 +190,22 @@ def check_format(input_string, tx_hash):
             deploy_keys = {"op", "tick", "max", "lim"}
             transfer_keys = {"op", "tick", "amt"}
             mint_keys = {"op", "tick", "amt"}
+            airdrop_keys = {"op", "tick", "amt", "holders_of"}
 
             input_keys = set(input_dict.keys())
 
             uint64_max = Decimal(2 ** 64 - 1)
-            key_sets = [deploy_keys, transfer_keys, mint_keys]
-            key_to_check = {"deploy_keys": ["max", "lim"], "transfer_keys": ["amt"], "mint_keys": ["amt"]}
+            key_sets = [deploy_keys, transfer_keys, mint_keys, airdrop_keys]
+            key_values_to_check = {
+                "deploy_keys": ["max", "lim"],
+                "transfer_keys": ["amt"],
+                "mint_keys": ["amt"],
+                "airdrop_keys": ["amt"],
+            }
 
             for i, key_set in enumerate(key_sets):
                 if input_keys >= key_set:
-                    for key in key_to_check[list(key_to_check.keys())[i]]:
+                    for key in key_values_to_check[list(key_values_to_check.keys())[i]]:
                         value = input_dict.get(key)
                         if value is None:
                             logger.warning(f"EXCLUSION: Missing or invalid value for {key}", input_dict)
@@ -227,15 +234,15 @@ def check_format(input_string, tx_hash):
     return None
 
 
-def get_first_src20_deploy_lim_max(db, tick, processed_in_block):
+def get_first_src20_deploy_lim_max(db, tick, src20_processed_in_block):
     if tick in DEPLOY_CACHE:
-        return DEPLOY_CACHE[tick]["lim"], DEPLOY_CACHE[tick]["max"]
-    processed_blocks = {f"{item['tick']}-{item['op']}": item for item in processed_in_block}
+        return DEPLOY_CACHE[tick]["lim"], DEPLOY_CACHE[tick]["max"], DEPLOY_CACHE[tick]["dec"]
+    processed_blocks = {f"{item['tick']}-{item['op']}": item for item in src20_processed_in_block}
 
     with db.cursor() as src20_cursor:
         src20_cursor.execute(f"""
             SELECT
-                lim, max
+                lim, max, deci
             FROM
                 {SRC20_VALID_TABLE}
             WHERE
@@ -249,23 +256,23 @@ def get_first_src20_deploy_lim_max(db, tick, processed_in_block):
         result = src20_cursor.fetchone()
 
         if result:
-            lim, max_value = result
-            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value}
-            return lim, max_value
+            lim, max_value, dec = result
+            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value, "dec": dec}
+            return lim, max_value, dec
         else:
-            lim, max_value = get_first_src20_deploy_lim_max_in_block(processed_blocks, tick)
+            lim, max_value, dec = get_first_src20_deploy_lim_max_in_block(processed_blocks, tick)
             if lim is None or max_value is None:
-                return 0, 0
-            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value}
-            return lim, max_value
+                return 0, 0, 18
+            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value, "dec": dec}
+            return lim, max_value, dec
 
 
 def get_first_src20_deploy_lim_max_in_block(processed_blocks, tick):
     key = f"{tick}-DEPLOY"
     if key in processed_blocks:
         item = processed_blocks[key]
-        return item["lim"], item["max"]
-    return None, None
+        return item["lim"], item["max"], item["dec"]
+    return None, None, None
 
 
 def get_total_minted_from_db(db, tick):
@@ -292,10 +299,10 @@ def get_total_minted_from_db(db, tick):
     return total_minted
 
 
-def get_running_mint_total(db, processed_in_block, tick):
+def get_running_mint_total(db, src20_processed_in_block, tick):
     total_minted = 0
-    if len(processed_in_block) > 0:
-        for item in reversed(processed_in_block):
+    if len(src20_processed_in_block) > 0:
+        for item in reversed(src20_processed_in_block):
             if (
                 item["tick"] == tick
                 and item["op"] == 'MINT'
@@ -309,32 +316,83 @@ def get_running_mint_total(db, processed_in_block, tick):
     return Decimal(total_minted)
 
 
-def get_running_user_balance(db, tick, tick_hash, creator, processed_in_block):
-    total_balance = 0
-    if len(processed_in_block) > 0:
-        for item in reversed(processed_in_block):
-            if (
-                item["creator"] == creator
-                and item["tick"] == tick
-                and item["tick_hash"] == tick_hash
-                and "total_balance" in item
-            ):
-                total_balance = item["total_balance"]
-                break
-    if total_balance == 0:
-        total_balance, _, _ = get_total_user_balance_from_db(db, tick, tick_hash, creator)
-    return Decimal(total_balance)
+def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in_block):
+    """
+    Calculate the running balance of multiple users based on the processed transactions 
+    in current and prior blocks from the db. this is only be called once for each mint 
+    airdrop, or transfer transaction it may get many addresses from the airdrop list. The 
+    airdrop list is assumed to have only unique addresses.
+
+    Parameters:
+    - db (Database): The database object.
+    - tick (int): The tick value.
+    - tick_hash (str): The tick hash value.
+    - addresses (list or str): The list or string of addresses to calculate the balances for.
+    - src20_processed_in_block (list): The list of already processed src20 transactions in the block.
+
+    Returns:
+    - list: A list of namedtuples containing the tick, address, and total balance for each address.
+    """
+
+    BalanceCurrent = namedtuple('BalanceCurrent', ['tick', 'address', 'total_balance'])
+
+    if isinstance(addresses, str):
+        addresses = [addresses]
+    if len(addresses) != len(set(addresses)):
+        raise Exception(f"The addresses list is not all unique addresses: tick={tick}, addresses={addresses}")
+
+    balances = []
+
+    if src20_processed_in_block:
+        for prior_tx in reversed(src20_processed_in_block):  # if there is a total-balance in a trx in the block with the same address, tick, and tick_hash, use that value for total_balance_x
+            if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
+                for address in addresses:
+                    if (
+                        (prior_tx["creator"] == address
+                        and prior_tx["tick"] == tick
+                        and prior_tx["tick_hash"] == tick_hash
+                        and "total_balance_creator" in prior_tx) # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
+                        or
+                        (prior_tx["destination"] == address
+                        and prior_tx["tick"] == tick
+                        and prior_tx["tick_hash"] == tick_hash
+                        and "total_balance_destination" in prior_tx)
+                    ):
+                        if "total_balance_creator" in prior_tx:
+                            total_balance = prior_tx["total_balance_creator"]
+                        elif "total_balance_destination" in prior_tx:
+                            total_balance = prior_tx["total_balance_destination"]
+                        if total_balance: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
+                            balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
+                            addresses.remove(address)
+
+        if addresses:
+            total_balance_tuple = get_total_user_balance_from_db(db, tick, tick_hash, addresses)
+            for address in addresses:
+                total_balance = next((balance.total_balance for balance in total_balance_tuple if balance.address == address), 0)
+                # if total_balance is negative throw an exception
+                if total_balance < 0:
+                    raise Exception(f"Negative balance for address {address} in tick {tick}")
+                balances.append(BalanceCurrent(tick, address, Decimal(total_balance) if total_balance != 0 else 0))
+
+    return balances
 
 
-def get_total_user_balance_from_db(db, tick, tick_hash, address):
+def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
     ''' another heavy operation to be running on every creator/tick pair
         this is for validation, the speedy version should pull from the balances table 
-        keep in mind balance table is not committed on each transaction '''
-    total_balance = Decimal('0')
-    highest_block_index = 0
-    q_block_time_unix = None
+        keep in mind balance table is not committed on each transaction 
+        The address list must be unique addresses '''
+    
+    ## this may be better to fetch all tick/address combinations from each block and store in memory... 
+    ## would need to include the recipients of airdrops... perhaps if we see an airdrop in the block expand it out first in the dict
+    if isinstance(addresses, str):
+        addresses = [addresses]
+
+    balances = []
+
     with db.cursor() as src20_cursor:
-        src20_cursor.execute(f"""
+        query = f"""
             SELECT
                 amt,
                 op,
@@ -347,86 +405,135 @@ def get_total_user_balance_from_db(db, tick, tick_hash, address):
             WHERE
                 tick = %s 
                 AND tick_hash = %s
-                AND ((destination = %s OR creator = %s) AND (op = 'TRANSFER' OR op = 'MINT'))
+                AND (destination IN %s OR creator IN %s)
+                AND (op = 'TRANSFER' OR op = 'MINT')
             ORDER BY block_index
-                """, (tick, tick_hash, address, address))
+        """
+
+        src20_cursor.execute(query, (tick, tick_hash, tuple(addresses), tuple(addresses)))
+        # src20_cursor.execute(query, {'tick': tick, 'tick_hash': tick_hash, 'addresses': tuple(addresses)})
         results = src20_cursor.fetchall()
-        for result in results:
-            q_amt = Decimal(result[0])
-            q_op = result[1]
-            q_destination = result[2]
-            q_creator = result[3]
-            q_block_index = result[4]
-            q_block_time_unix = result[5]
-            if q_block_index > highest_block_index:
-                highest_block_index = q_block_index
-            if q_op == 'MINT' and q_destination == address:
-                total_balance += q_amt
-            if q_op == 'TRANSFER' and q_destination == address:
-                total_balance += q_amt
-            if q_op == 'TRANSFER' and q_creator == address:
-                total_balance -= q_amt
-    return total_balance, highest_block_index, q_block_time_unix
+        for address in addresses:
+            total_balance = Decimal('0')
+            highest_block_index = 0
+            q_block_time_unix = None
+            for result in results:
+                q_amt = Decimal(result[0])
+                q_op = result[1]
+                q_destination = result[2]
+                q_creator = result[3]
+                q_block_index = result[4]
+                q_block_time_unix = result[5]
+                if q_block_index > highest_block_index:
+                    highest_block_index = q_block_index
+                if q_op == 'MINT' and q_destination == address:
+                    total_balance += q_amt
+                if q_op == 'TRANSFER' and q_destination == address:
+                    total_balance += q_amt
+                if q_op == 'TRANSFER' and q_creator == address:
+                    total_balance -= q_amt
+
+            BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
+            balances.append(BalanceTuple(tick, address, total_balance, highest_block_index, q_block_time_unix))
+
+    return balances
 
 
-def insert_into_src20_table(db, table_name, src20_dict):
-    if table_name == SRC20_VALID_TABLE and src20_dict.get("op") == "MINT":
-        TOTAL_MINTED_CACHE[src20_dict.get("tick")] += src20_dict.get("amt")
+def get_tick_holders_from_balances(db, tick):
+    '''
+    Retrieve the addresses of all tick holders with a balance greater than zero in the prior block.
+    This function is not aware of pending / uncommitted transactions.
 
+    Parameters:
+    - db: The database connection object.
+    - tick: The tick value.
+
+    Returns:
+    - tick_holders: A list of addresses of tick holders with a balance greater than zero.
+    '''
+    tick_holders = []
     with db.cursor() as src20_cursor:
         src20_cursor.execute(f"""
-            INSERT INTO {table_name} (
-                tx_hash,
-                tx_index,
-                amt,
-                block_index,
-                creator,
-                deci,
-                lim,
-                max,
-                op,
-                p,
-                tick,
-                destination,
-                block_time,
-                status,
-                tick_hash
-            )
-            VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                tx_index = VALUES(tx_index),
-                amt = VALUES(amt),
-                block_index = VALUES(block_index),
-                creator = VALUES(creator),
-                deci = VALUES(deci),
-                lim = VALUES(lim),
-                max = VALUES(max),
-                op = VALUES(op),
-                p = VALUES(p),
-                tick = VALUES(tick),
-                destination = VALUES(destination),
-                block_time = VALUES(block_time),
-                status = VALUES(status),
-                tick_hash = VALUES(tick_hash)
-        """, (
-            src20_dict.get("tx_hash"),
-            src20_dict.get("tx_index"),
-            src20_dict.get("amt"),
-            src20_dict.get("block_index"),
-            src20_dict.get("creator"),
-            src20_dict.get("dec"),
-            src20_dict.get("lim"),
-            src20_dict.get("max"),
-            src20_dict.get("op"),
-            src20_dict.get("p"),
-            src20_dict.get("tick"),
-            src20_dict.get("destination"),
-            src20_dict.get("block_time"),
-            src20_dict.get("status"),
-            src20_dict.get("tick_hash")
-        ))
+            SELECT
+                address
+            FROM
+                balances
+            WHERE
+                tick = %s
+                AND amt > 0
+        """, (tick,))
+        for row in src20_cursor.fetchall():
+            tick_holders.append(row[0])
+    return tick_holders
+
+
+def insert_into_src20_tables(db, valid_src20_in_block):
+    with db.cursor() as src20_cursor:
+        for i, src20_dict in enumerate(valid_src20_in_block):
+            id = f"{i}_{src20_dict.get('tx_index')}_{src20_dict.get('tx_hash')}"
+            if src20_dict.get("valid") == 1:
+                insert_into_src20_table(src20_cursor, "SRC20Valid", id, src20_dict)
+                
+            insert_into_src20_table(src20_cursor, "SRC20", id, src20_dict)
+
+
+def insert_into_src20_table(cursor, table_name, id, src20_dict):
+    block_time = src20_dict.get("block_time")
+    if block_time:
+        block_time_utc = datetime.datetime.utcfromtimestamp(block_time)
+    column_names = [
+        "id",
+        "tx_hash",
+        "tx_index",
+        "amt",
+        "block_index",
+        "creator",
+        "deci",
+        "lim",
+        "max",
+        "op",
+        "p",
+        "tick",
+        "destination",
+        "block_time",
+        "tick_hash",
+        "status"
+    ]
+    column_values = [
+        id,
+        src20_dict.get("tx_hash"),
+        src20_dict.get("tx_index"),
+        src20_dict.get("amt"),
+        src20_dict.get("block_index"),
+        src20_dict.get("creator"),
+        src20_dict.get("dec"),
+        src20_dict.get("lim"),
+        src20_dict.get("max"),
+        src20_dict.get("op"),
+        src20_dict.get("p"),
+        src20_dict.get("tick"),
+        src20_dict.get("destination"),
+        block_time_utc,
+        src20_dict.get("tick_hash"),
+        src20_dict.get("status")
+    ]
+
+    if "total_balance_creator" in src20_dict and table_name == 'SRC20Valid':
+        column_names.append("creator_bal")
+        column_values.append(src20_dict.get("total_balance_creator"))
+
+    if "total_balance_destination" in src20_dict and table_name == 'SRC20Valid':
+        column_names.append("destination_bal")
+        column_values.append(src20_dict.get("total_balance_destination"))
+
+    placeholders = ", ".join(["%s"] * len(column_names))
+
+    query = f"""
+        INSERT INTO {table_name} ({", ".join(column_names)})
+        VALUES ({placeholders})
+    """
+
+    cursor.execute(query, tuple(column_values))
 
 
 def is_number(s):
@@ -454,54 +561,77 @@ def create_tick_hash(tick):
     Returns:
         str: The hashed tick string.
     '''
-
+    # ignore-scan 
     return hashlib.sha3_256(tick.encode()).hexdigest()
 
+class Src20Validator:
+    def __init__(self, src20_dict):
+        self.src20_dict = src20_dict
+        self.updated_dict = {}
 
-def process_src20_values(src20_dict):
-    ''' 
-    This function processes the values in the src20_dict dictionary and performs the following operations:
-    - Validates all numbers in the string and invalidates those with commas, etc.
-    - Converts certain keys to uppercase.
-    - Converts 'max' and 'lim' values to integers.
-    - Converts 'amt' values to Decimal.
-    - updates or adds the 'status' key regarding any invalidations
+    def process_values(self):
+        for key, value in self.src20_dict.items():
+            if value == '':
+                self.updated_dict[key] = None
+            elif key in ['tick']:
+                self._process_tick_value(key, value)
+            elif key in ['p', 'op', 'holders_of']:
+                self._process_uppercase_value(key, value)
+            elif key in ['max', 'lim']:
+                self._process_integer_value(key, value)
+            elif key == 'amt':
+                self._process_decimal_value(key, value)
+            elif key == 'dec':
+                self._process_dec_value(key, value)
+        self.src20_dict.update(self.updated_dict)
+        return self.src20_dict
 
-    Args:
-        src20_dict (dict): A dictionary containing the src20 key value pairs.
+    def _process_tick_value(self, key, value):
+        self.updated_dict['tick'] = value.lower()
+        self.updated_dict['tick_hash'] = create_tick_hash(value.lower())
 
-    Returns:
-        dict: The updated src20_dict dictionary with processed values.
-    '''
-    updated_dict = {}
-    for key, value in src20_dict.items():
-        if value == '':
-            updated_dict[key] = None
-        elif key in ['tick']:
-            updated_dict['tick'] = value.lower()
-            updated_dict['tick_hash'] = create_tick_hash(value.lower())
-        elif key in ['p', 'op']:
-            updated_dict[key] = value.upper()
-        elif key in ['max', 'lim']:
-            if not is_number(value):
-                updated_dict[key] = None
-                if 'status' in updated_dict:
-                    updated_dict['status'] += f', NN: {key} not NUM'
-                else:
-                    updated_dict['status'] = f'NN: {key} not NUM'
+    def _process_uppercase_value(self, key, value):
+        self.updated_dict[key] = value.upper()
+
+    def _process_integer_value(self, key, value):
+        if not is_number(value):
+            self.updated_dict[key] = None
+            if 'status' in self.updated_dict:
+                self.updated_dict['status'] += f', NN: {key} not NUM'
             else:
-                updated_dict[key] = int(Decimal(value))
-        elif key == 'amt':
-            if not is_number(value):
-                updated_dict[key] = None
-                if 'status' in updated_dict:
-                    updated_dict['status'] += f', NN: {key} not NUM'
-                else:
-                    updated_dict['status'] = f'NN: {key} not NUM'
+                self.updated_dict['status'] = f'NN: {key} not NUM'
+        else:
+            self.updated_dict[key] = int(Decimal(value))
+
+    def _process_decimal_value(self, key, value):
+        if not is_number(value):
+            self.updated_dict[key] = None
+            if 'status' in self.updated_dict:
+                self.updated_dict['status'] += f', NN: {key} not NUM'
             else:
-                updated_dict[key] = Decimal(value)
-    src20_dict.update(updated_dict)
-    return src20_dict
+                self.updated_dict['status'] = f'NN: {key} not NUM'
+        else:
+            # amt = int(value) if value == int(value) else Decimal(value)
+            # self.updated_dict[key] = amt
+            self.updated_dict[key] = Decimal(value)
+
+    def _process_dec_value(self, key, value):
+        if value is None:
+            self.updated_dict[key] = 18
+        elif is_number(value):
+            dec_value = int(value)
+            if dec_value >= 0 and dec_value <= 18:
+                self.updated_dict[key] = dec_value
+            else:
+                if 'status' in self.updated_dict:
+                    self.updated_dict['status'] += f', NN: {key} not in range'
+                else:
+                    self.updated_dict['status'] = f' NN: {key} not in range'
+        else:
+            if 'status' in self.updated_dict:
+                self.updated_dict['status'] += f', NN: {key} not NUM'
+            else:
+                self.updated_dict['status'] = f'NN: {key} not NUM'
 
 
 def encode_non_ascii(text):
@@ -516,8 +646,51 @@ def encode_non_ascii(text):
     """
     return text.encode('unicode_escape').decode('utf-8')
 
-    
-def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
+
+def create_running_user_balance_dict(running_user_balance_tuple):
+    running_user_balance_dict = {}
+
+    for balance_tuple in running_user_balance_tuple:
+        address = getattr(balance_tuple, 'address')
+        total_balance = getattr(balance_tuple, 'total_balance')
+        running_user_balance_dict[address] = total_balance
+
+    return running_user_balance_dict
+
+
+def update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation=None, total_minted=None, deploy_max=None, dec=None):
+    if operation == 'TRANSFER':
+        amt = Decimal(src20_dict['amt']).quantize(Decimal('0.' + '0' * dec))
+        src20_dict['total_balance_creator'] = Decimal(running_user_balance_creator) - amt
+        src20_dict['total_balance_destination'] = Decimal(running_user_balance_destination) + amt
+        src20_dict['status'] = 'Balance Updated'
+        src20_dict['valid'] = 1
+        valid_src20_in_block.append(src20_dict)
+    elif operation == 'MINT' and total_minted is not None:
+
+        # amt = math.floor((src20_dict['amt']) * 10 ** dec) / 10 ** dec
+        # mint amt should be an integer? check specs
+        amt = src20_dict.get("amt")
+        TOTAL_MINTED_CACHE[src20_dict.get("tick")] += amt
+        running_total_mint = int(total_minted) + amt
+        running_user_balance = Decimal(running_user_balance_creator) + amt
+        # src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}' # this will overwrite prior status. -- validate handling 
+        src20_dict['total_minted'] = running_total_mint
+        src20_dict['total_balance_destination'] = running_user_balance
+        src20_dict['valid'] = 1
+        valid_src20_in_block.append(src20_dict)
+    elif operation == 'DEPLOY':
+        src20_dict['valid'] = 1
+        src20_dict['dec'] = dec
+        valid_src20_in_block.append(src20_dict)
+        # this was falling through and getting inserted at the end fo the function to src20
+
+    else:
+        raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
+    return
+
+
+def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
     
     src20_dict['creator'] = source
@@ -526,186 +699,263 @@ def insert_into_src20_tables(db, src20_dict, source, tx_hash, tx_index, block_in
     src20_dict['block_index'] = block_index
     src20_dict['block_time'] = block_time
     src20_dict['destination'] = destination
-    src20_dict.setdefault('dec', '18')
     tick_value = src20_dict.get('tick')
     src20_dict["tick"] = encode_non_ascii(tick_value)
 
-    try:
-        src20_dict = process_src20_values(src20_dict) # this does normalization of the tick patterns
+    validator = Src20Validator(src20_dict)
+    src20_dict = validator.process_values()
 
-        if src20_dict['op'] == 'DEPLOY' and src20_dict['tick_hash']:
-            if (
-                src20_dict['tick'] and
-                (isinstance(src20_dict['max'], int) or isinstance(src20_dict['max'], str)) and
-                (isinstance(src20_dict['lim'], int) or isinstance(src20_dict['lim'], str)) and
-                src20_dict['max'] > 0 and
-                src20_dict['lim'] > 0
-            ):
-                deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
+    # src20_dict = process_values(src20_dict) # this does normalization of the tick patterns
+    deploy_lim, deploy_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
+    # if src20_dict status field contains NN then it's not a valid number we only insert into the src20 table - not valid table
 
-                if not deploy_lim and not deploy_max:
-                    insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
-                    valid_src20_in_block.append(src20_dict)
+    if src20_dict.get('status') and 'NN' in src20_dict['status']:
+        valid_src20_in_block.append(src20_dict) # invalid
+        logger.warning(f"Invalid {src20_dict['tick']} SRC20: {src20_dict['status']}")
+        return
+ 
+    if src20_dict['op'] == 'DEPLOY' and src20_dict['tick_hash']:
+        dec = src20_dict.get('dec', 18)
+        if not deploy_lim and not deploy_max: # this is a new deploy if these aren't returned from the db
+            update_valid_src20_list(db, src20_dict, None, None, valid_src20_in_block, operation='DEPLOY', dec=dec)
+            return
+        else:
+            logger.info(f"Invalid {src20_dict['tick']} DEPLOY - prior DEPLOY exists")
+            src20_dict['status'] = f'DE: prior {src20_dict["tick"]} DEPLOY exists'
+            valid_src20_in_block.append(src20_dict) # invalid
+            return
+
+    elif src20_dict['op'] == 'MINT' and src20_dict['tick_hash']:
+        if not src20_dict.get('amt'):
+            src20_dict['status'] = f'NN: amt not NUM'
+            valid_src20_in_block.append(src20_dict) # invalid
+            return
+        
+        if deploy_lim and deploy_max:
+            deploy_lim = int(min(deploy_lim, deploy_max)) # deploy_lim cannot be > deploy_max
+            try:
+                total_minted = Decimal(get_running_mint_total(db, valid_src20_in_block, src20_dict['tick']))
+            except Exception as e:
+                logger.error(f"Error getting total minted: {e}")
+                raise
+
+            try:
+                running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], src20_dict['destination'], valid_src20_in_block)
+                if running_user_balance_tuple:  # Check if the list is not empty
+                    running_user_balance = running_user_balance_tuple[0].total_balance
                 else:
-                    logger.info(f"Invalid {src20_dict['tick']} DEPLOY - prior DEPLOY exists")
-                    src20_dict['status'] = f'DE: prior {src20_dict["tick"]} DEPLOY exists'
-            else:
-                logger.info(f"Invalid {src20_dict['tick']} DEPLOY -  max or lim is not an integer or not >0")
-                src20_dict['status'] = f'NE: max or lim not INT or not >0'
+                    running_user_balance = Decimal('0')
+            except Exception as e:
+                logger.error(f"Error getting running user balance: {e}")
+                raise
 
-        elif src20_dict['op'] == 'MINT' and src20_dict['tick_hash']:
-            if ( 
-                src20_dict['tick'] and src20_dict['amt'] and 
-                Decimal(src20_dict['amt']) > Decimal('0')
-            ):
-                deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
+            mint_available = Decimal(deploy_max) - Decimal(total_minted)
+
+            if total_minted >= deploy_max:
+                logger.info(f" {src20_dict['tick']} OVERMINT: minted {total_minted} > max {deploy_max}")
+                src20_dict['status'] = f'OM: Over Max: {total_minted} >= {deploy_max}'
+                valid_src20_in_block.append(src20_dict) # invalid 
+                return
+            else:
+                if src20_dict['amt'] > mint_available:
+                    src20_dict['status'] = f'OMA:  FROM: {src20_dict["amt"]} TO: {mint_available}'
+                    src20_dict['amt'] = mint_available
+                    logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
+                    try:
+                        update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec)
+                    except Exception as e:
+                        logger.error(f"Error updating valid src20 list: {e}")
+                        raise
+                    return
+                try:
+                    update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec)
+                except Exception as e:
+                    logger.error(f"Error updating valid src20 list: {e}")
+                    return
+
+        else:
+            logger.info(f"Invalid {src20_dict['tick']} MINT - no deploy_lim {deploy_lim} and deploy_max {deploy_max}")
+            src20_dict['status'] = f'ND: No Deploy {src20_dict["tick"]}'
+            valid_src20_in_block.append(src20_dict) # invalid 
+            return
+        
+    # Any transfer over the users balance at the time of transfer is considered invalid and will not impact either users balance
+    # if wallet x has 1 KEVIN token and attempts to transfer 10000 KEVIN tokens to address y the entire transaction is invalid
+    elif src20_dict['op'] == 'TRANSFER' and src20_dict['tick_hash']:  
+        if not src20_dict.get('amt'):
+            src20_dict['status'] = f'NN: amt not NUM'
+            valid_src20_in_block.append(src20_dict) # invalid
+            return
+        if deploy_lim and deploy_max:
+            try:
+                running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+                running_user_balance_dict = create_running_user_balance_dict(running_user_balance_tuple)
+                running_user_balance_creator = running_user_balance_dict.get(src20_dict.get('creator'), {}).get('total_balance', Decimal('0'))
+                running_user_balance_destination = running_user_balance_dict.get(src20_dict.get('destination'), {}).get('total_balance', Decimal('0'))
+            except Exception as e:
+                logger.error(f"Error getting running user balances: {e}")
+                return
+
+            try:
+                if Decimal(running_user_balance_creator) > Decimal('0') and Decimal(running_user_balance_creator) >= Decimal(src20_dict['amt']):
+                    update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation='TRANSFER', dec=dec)
+                    return
+                else:
+                    logger.info(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {running_user_balance} < xfer amt {src20_dict['amt']}")
+                    src20_dict['status'] = f'BB: TRANSFER over user balance'
+                    valid_src20_in_block.append(src20_dict) # invalid 
+                    return
+            except Exception as e:
+                logger.error(f"Error updating valid src20 list: {e}")
+                raise
+            
+    elif src20_dict['op'] == 'AIRDROP':
+        if deploy_lim and deploy_max:
+            target_lim, target_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['holders_of'], valid_src20_in_block)
+            if target_lim and target_max: # valid target deploy
+                running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+                running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance')
                 
-                if deploy_lim and deploy_max:
-                    deploy_lim = int(min(deploy_lim, deploy_max)) # deploy_lim cannot be > deploy_max
-                    total_minted = int(get_running_mint_total(db, valid_src20_in_block, src20_dict['tick']))
-                    # TODO: Possibly commit to balances table in a separate db connection to avoid the full
-                    # query on the SRC20Valid Table each time. Will need to rollback changes on balances if block does not commit
-                    total_balance = get_running_user_balance(db, src20_dict['tick'], src20_dict['tick_hash'], src20_dict['creator'], valid_src20_in_block)
-                    mint_available = Decimal(deploy_max) - Decimal(total_minted)
-     
-                    if total_minted >= deploy_max:
-                        logger.info(f" {src20_dict['tick']} OVERMINT: minted {total_minted} > max {deploy_max}")
-                        src20_dict['status'] = f'OM: Over Max: {total_minted} >= {deploy_max}'
-                    else:
-                        if src20_dict['amt'] > deploy_lim:
-                            src20_dict['status'] = f'OML: FROM {src20_dict["amt"]} TO {deploy_lim}'
-                            src20_dict['amt'] = deploy_lim
-                            logger.info(f"Reducing {src20_dict['tick']} OVERMINT: LIMIT - amt {src20_dict['amt']} > deploy_lim {deploy_lim}")
-
-                        if src20_dict['amt'] > mint_available:
-                            src20_dict['status'] = f'OMA:  FROM: {src20_dict["amt"]} TO: {mint_available}'
-                            src20_dict['amt'] = mint_available
-                            logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
-
-                        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                        running_total_mint = int(total_minted) + int(src20_dict['amt'])
-                        running_user_balance = Decimal(total_balance) + Decimal(src20_dict['amt'])
-                        src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}'
-                        src20_dict['total_minted'] = running_total_mint
-                        src20_dict['total_balance'] = running_user_balance
-                        insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
-                        valid_src20_in_block.append(src20_dict)
-                        return
-                else:
-                    logger.info(f"Invalid {src20_dict['tick']} MINT - no deploy_lim {deploy_lim} and deploy_max {deploy_max}")
-                    src20_dict['status'] = f'NM: No Deploy {src20_dict["tick"]}'
-            else:
-                logger.info(f"Invalid {src20_dict['tick']} MINT - amt is not a number or not >0")
-
-        # Any transfer over the users balance at the time of transfer is considered invalid and will not impact either users balance
-        # if wallet x has 1 KEVIN token and attempts to transfer 10000 KEVIN tokens to address y the entire transaction is invalid
-        elif src20_dict['op'] == 'TRANSFER' and src20_dict['tick_hash']:  
-            if ( 
-                src20_dict['tick'] and src20_dict['amt'] and 
-                Decimal(src20_dict['amt']) > Decimal('0')
-            ):
-                deploy_lim, deploy_max = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
-                if deploy_lim and deploy_max:
-                    if deploy_lim is not None:
-
-                        total_balance = get_running_user_balance(db, src20_dict['tick'], src20_dict['tick_hash'], src20_dict['creator'], valid_src20_in_block)
-
-                        if Decimal(total_balance) > Decimal('0') and Decimal(total_balance) >= Decimal(src20_dict['amt']):
-                            insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-                            running_user_balance = Decimal(total_balance) - Decimal(src20_dict['amt'])
-                            src20_dict['total_balance'] = running_user_balance
+                if running_user_balance > 0:
+                    tick_holders = get_tick_holders_from_balances(db, src20_dict['holders_of'])
+                    tick_holders.remove(src20_dict['creator']) # this removes the row of the creator from the target list
+                    if len(tick_holders) > 0:
+                        total_send_amt = len(tick_holders) * Decimal(src20_dict['amt'])
+                        if Decimal(total_send_amt) <= Decimal(running_user_balance_creator):
+                            # build the valid_src20_in_block list for all transactions here and update running_user_balance
+                            # append dicts for each possibly tick_holder to valid_src20_in_block
+                            # append the current dict to valid_src20_in_block for the creator
+                            # running_user_balance = Decimal(running_user_balance) - Decimal(total_send_amt)
+                            src20_dict['total_balance_creator'] = running_user_balance
                             src20_dict['status'] = f'New Balance: {running_user_balance}'
-                            insert_into_src20_table(db, SRC20_VALID_TABLE, src20_dict)
-                            valid_src20_in_block.append(src20_dict)
-                            return
-                        else:
-                            logger.info(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {total_balance} < xfer amt {src20_dict['amt']}")
-                            src20_dict['status'] = f'BB: TRANSFER over user balance'
-                    else:
-                        logger.info(f"Invalid {src20_dict['tick']} TRANSFER - no balance for {src20_dict['creator']}")
-                        src20_dict['status'] = f'NB: TRANSFER no user balance'
+                            # likely need to just update amount to total send amount here or all the removals will be handled below? 
+                            # valid_src20_in_block.append(src20_dict) # this is the new balance for the creator. 
 
-        insert_into_src20_table(db, SRC20_TABLE, src20_dict)
-    except Exception as e:
-        logger.error(f"Error inserting data into src tables: {e}")
-        raise e
-    
+                            new_dicts = []
+                            # need to get the running balance for all holders - pull this all in one shot.
+                            running_dest_balances_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], tick_holders, valid_src20_in_block)
+                            running_dest_balance_dict = create_running_user_balance_dict(running_dest_balances_tuple)
+                            # then update the total balance key value for each.
+                            for tick_holder in tick_holders:
+                                total_balance_destination = running_dest_balance_dict.get(tick_holder, {}).get('total_balance', Decimal('0'))
+                                if total_balance_destination is None:
+                                    raise Exception("Airdrop: No match found between source and destination")
+                                new_dict = {
+                                    'p': 'SRC-20',
+                                    'op': 'TRANSFER',
+                                    'creator': src20_dict['creator'],
+                                    'tick': src20_dict['tick'],
+                                    'amt': src20_dict['amt'],
+                                    'destination': tick_holder,
+                                    'block_index': block_index,
+                                    'tx_hash': tx_hash,
+                                    'tx_index': tx_index,
+                                    'block_time': block_time,
+                                    'tick_hash': src20_dict['tick_hash'],
+                                    'total_balance_destination': total_balance_destination + src20_dict['amt']
+                                }
+                                new_dicts.append(new_dict)
+
+                            valid_src20_in_block.extend(new_dicts)
+                            return
+
+                        else:
+                            logger.info(f"Invalid {src20_dict['tick']} AIRDROP - total_balance {running_user_balance} < xfer amt {total_send_amt}")
+                            src20_dict['status'] = f'BB: AIRDROP over user balance'
+            else:
+                logger.info(f"Invalid {src20_dict['holders_of']} AD - Invalid holders_of")
+                src20_dict['status'] = f'DD: Invalid holders_of'
+        else:
+            logger.info(f"Invalid {src20_dict['tick']} airdrop - amt is not a number or not >0")
+
     
 def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
     balance_updates = []
 
+    # FIXME: we are looping through the list once for insert into db, and then again here for balances validations... combine! 
+    
     for src20_dict in valid_src20_in_block:
-        try:
-            if src20_dict['op'] == 'MINT':
-                # Credit to destination (creator can be a mint service)
-                balance_dict = next((item for item in balance_updates if 
-                                     item['tick'] == src20_dict['tick'] and 
-                                     item['tick_hash'] == src20_dict['tick_hash'] and 
-                                     item['address'] == src20_dict['destination']), None)
-                if balance_dict is None:
-                    balance_dict = {
-                        'tick': src20_dict['tick'],
-                        'tick_hash': src20_dict['tick_hash'],
-                        'address': src20_dict['destination'],
-                        'credit': Decimal(src20_dict['amt']),
-                        'debit': Decimal(0)
-                    }
-                    balance_updates.append(balance_dict)
-                else:
-                    balance_dict['credit'] += Decimal(src20_dict['amt'])
+        if src20_dict.get('valid') == 1:
 
-            elif src20_dict['op'] == 'TRANSFER':
-                # Debit from creator
-                balance_dict = next((item for item in balance_updates if 
-                                     item['tick'] == src20_dict['tick'] and 
-                                     item['tick_hash'] == src20_dict['tick_hash'] and 
-                                     item['address'] == src20_dict['creator']), None)
-                if balance_dict is None:
-                    balance_dict = {
-                        'tick': src20_dict['tick'],
-                        'tick_hash': src20_dict['tick_hash'],
-                        'address': src20_dict['creator'],
-                        'debit': Decimal(src20_dict['amt']),
-                        'credit': Decimal(0)
-                    }
-                    balance_updates.append(balance_dict)
-                else:
-                    balance_dict['debit'] += Decimal(src20_dict['amt'])
+            try:
+                if src20_dict['op'] == 'MINT':
+                    # Credit to destination (creator can be a mint service)
+                    balance_dict = next((item for item in balance_updates if 
+                                        item['tick'] == src20_dict['tick'] and 
+                                        item['tick_hash'] == src20_dict['tick_hash'] and 
+                                        item['address'] == src20_dict['destination']), None)
+                    if balance_dict is None:
+                        balance_dict = {
+                            'tick': src20_dict['tick'],
+                            'tick_hash': src20_dict['tick_hash'],
+                            'address': src20_dict['destination'],
+                            'credit': Decimal(src20_dict['amt']),
+                            'debit': Decimal(0)
+                        }
+                        balance_updates.append(balance_dict)
+                    else:
+                        balance_dict['credit'] += Decimal(src20_dict['amt'])
 
-                # Credit to destination
-                balance_dict = next((item for item in balance_updates if 
-                                     item['tick'] == src20_dict['tick'] and 
-                                     item['tick_hash'] == src20_dict['tick_hash'] and 
-                                     item['address'] == src20_dict['destination']), None)
-                if balance_dict is None:
-                    balance_dict = {
-                        'tick': src20_dict['tick'],
-                        'tick_hash': src20_dict['tick_hash'],
-                        'address': src20_dict['destination'],
-                        'credit': Decimal(src20_dict['amt']),
-                        'debit': Decimal(0)
-                    }
-                    balance_updates.append(balance_dict)
-                else:
-                    balance_dict['credit'] += Decimal(src20_dict['amt'])
+                elif src20_dict['op'] == 'TRANSFER':
+                    # Debit from creator
+                    balance_dict = next((item for item in balance_updates if 
+                                        item['tick'] == src20_dict['tick'] and 
+                                        item['tick_hash'] == src20_dict['tick_hash'] and 
+                                        item['address'] == src20_dict['creator']), None)
+                    if balance_dict is None:
+                        balance_dict = {
+                            'tick': src20_dict['tick'],
+                            'tick_hash': src20_dict['tick_hash'],
+                            'address': src20_dict['creator'],
+                            'credit': Decimal(0),
+                            'debit': Decimal(src20_dict['amt'])
+                        }
+                        balance_updates.append(balance_dict)
+                    else:
+                        balance_dict['debit'] += Decimal(src20_dict['amt'])
 
-        except Exception as e:
-            logger.error(f"Error updating SRC20 balances: {e}")
-            raise e
+                    # Credit to destination
+                    balance_dict = next((item for item in balance_updates if 
+                                        item['tick'] == src20_dict['tick'] and 
+                                        item['tick_hash'] == src20_dict['tick_hash'] and 
+                                        item['address'] == src20_dict['destination']), None)
+                    if balance_dict is None:
+                        balance_dict = {
+                            'tick': src20_dict['tick'],
+                            'tick_hash': src20_dict['tick_hash'],
+                            'address': src20_dict['destination'],
+                            'credit': Decimal(src20_dict['amt']),
+                            'debit': Decimal(0)
+                        }
+                        balance_updates.append(balance_dict)
+                    else:
+                        balance_dict['credit'] += Decimal(src20_dict['amt'])
+
+            except Exception as e:
+                logger.error(f"Error updating SRC20 balances: {e}")
+                raise e
     
     if balance_updates:
-        update_balances(db, balance_updates, block_index, block_time)
-    return
+        update_balance_table(db, balance_updates, block_index, block_time)
+    return balance_updates
 
 
-def update_balances(db, balance_updates, block_index, block_time):
+def update_balance_table(db, balance_updates, block_index, block_time):
     ''' update the balances table with the balance_updates list '''
     cursor = db.cursor()
 
     for balance_dict in balance_updates:
         try:
             net_change = balance_dict.get('credit', 0) - balance_dict.get('debit', 0)
+            balance_dict['net_change'] = net_change
             id_field = balance_dict['tick'] + '_' + balance_dict['address']
+
+            cursor.execute("SELECT amt FROM balances WHERE id = %s", (id_field,))
+            result = cursor.fetchone()
+            if result is not None:
+                balance_dict['original_amt'] = result[0]
+            else:
+                balance_dict['original_amt'] = 0
 
             cursor.execute("""
                 INSERT INTO balances
@@ -715,7 +965,7 @@ def update_balances(db, balance_updates, block_index, block_time):
                     amt = amt + VALUES(amt),
                     last_update = VALUES(last_update)
             """, (id_field, balance_dict['address'], balance_dict['tick'], net_change, block_index, block_time, 'SRC-20', balance_dict['tick_hash']))
-        
+                
         except Exception as e:
             logger.error("Error updating balances table:", e)
             raise e
