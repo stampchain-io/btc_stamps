@@ -99,6 +99,7 @@ def initialize_config(
 ):
 
     try:
+        # ignore-scan
         assert hashlib.sha3_256(''.encode('utf-8')).hexdigest() == 'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a'
         assert hashlib.sha256(''.encode('utf-8')).hexdigest() == 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
     except AssertionError as e:
@@ -124,7 +125,7 @@ def initialize_config(
         config.REGTEST = regtest
     else:
         config.REGTEST = False
-
+    # ignore-scan
     if customnet is not None and len(customnet) > 0:
         config.CUSTOMNET = True
         config.REGTEST = True # Custom nets are regtests with different parameters

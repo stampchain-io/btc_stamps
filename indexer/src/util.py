@@ -16,11 +16,30 @@ BLOCK_LEDGER = []
 BLOCK_MESSAGES = []
 
 def chunkify(l, n):
+    """
+    Splits a list into smaller chunks of size n.
+
+    Args:
+        l (list): The list to be chunked.
+        n (int): The size of each chunk.
+
+    Returns:
+        list: A list of smaller chunks.
+    """
     n = max(1, n)
     return [l[i:i + n] for i in range(0, len(l), n)]
 
 
 def dhash(text):
+    """
+    Calculate the double hash of the given text.
+
+    Args:
+        text (str or bytes): The input text to be hashed.
+
+    Returns:
+        bytes: The double hash of the input text as bytes.
+    """
     if not isinstance(text, bytes):
         text = bytes(str(text), 'utf-8')
 
@@ -28,7 +47,38 @@ def dhash(text):
 
 
 def dhash_string(text):
+    """
+    Calculate the double hash of the given data and return it as a hex string.
+
+    Args:
+        data (bytes): The input data to calculate the dhash from.
+
+    Returns:
+        str: The double hash value represented as a hex string.
+    """
     return binascii.hexlify(dhash(text)).decode()
+
+
+def shash_string(text):
+    """
+    Calculate the single hash of the given data and return it as a hex string.
+
+    Args:
+        data (bytes): The input data to calculate the shash from.
+
+    Returns:
+        str: The single hash value represented as a hex string.
+    """
+    if not isinstance(text, bytes):
+        text = bytes(str(text), 'utf-8')
+
+    return binascii.hexlify(hashlib.sha256(text).digest()).decode('utf-8')
+
+# def shash_string(previous_hash, new_data):
+#     hash_obj = hashlib.sha256()
+#     hash_obj.update(previous_hash.encode('utf-8'))
+#     hash_obj.update(new_data.encode('utf-8'))
+#     return hash_obj.hexdigest()
 
 
 ### Protocol Changes ###

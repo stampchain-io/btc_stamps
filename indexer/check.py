@@ -38,9 +38,12 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     block_index = util.CURRENT_BLOCK_INDEX
 
     # initialize previous hash on first block.
-    if block_index <= config.BLOCK_FIRST:
+    if block_index <= config.BLOCK_FIRST and field != 'ledger_hash':
         assert not previous_consensus_hash
         previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)
+    elif block_index == config.CP_SRC20_BLOCK_START + 1 and field == 'ledger_hash':
+        assert not previous_consensus_hash
+        previous_consensus_hash = util.shash_string('')
 
     # Get previous hash.
     if not previous_consensus_hash:
@@ -64,7 +67,13 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     else:
         consensus_hash_version = CONSENSUS_HASH_VERSION_MAINNET
 
-    calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
+    if field == 'ledger_hash' and block_index <= config.CP_SRC20_BLOCK_START:
+        calculated_hash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    elif field == 'ledger_hash' and block_index > config.CP_SRC20_BLOCK_START:
+        concatenated_content = previous_consensus_hash.encode('utf-8') + content.encode('utf-8')
+        calculated_hash = util.shash_string(concatenated_content)
+    else:
+        calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
     # Verify hash (if already in database) or save hash (if not).
     cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index,))
     results = cursor.fetchall()

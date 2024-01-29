@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS `creator` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC20` (
+  `id` VARCHAR(255) NOT NULL,
   `tx_hash` VARCHAR(64) NOT NULL,
   `tx_index` int NOT NULL,
   `block_index` int,
@@ -111,10 +112,11 @@ CREATE TABLE IF NOT EXISTS `SRC20` (
   `destination` varchar(255) COLLATE utf8mb4_bin,
   `block_time` datetime DEFAULT NULL,
   `status` varchar(64) DEFAULT NULL,
-  PRIMARY KEY (`tx_index`, `tx_hash`)
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC20Valid` (
+  `id` VARCHAR(255) NOT NULL,
   `tx_hash` VARCHAR(64) NOT NULL,
   `tx_index` int NOT NULL,
   `block_index` int,
@@ -130,7 +132,11 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `destination` varchar(255) COLLATE utf8mb4_bin,
   `block_time` datetime DEFAULT NULL,
   `status` varchar(64) DEFAULT NULL,
-  PRIMARY KEY (`tx_index`, `tx_hash`),
+  `locked_amt` decimal(38,18),
+  `locked_block` int,
+  `creator_bal` decimal(38,18) DEFAULT NULL,
+  `destination_bal` decimal(38,18) DEFAULT NULL,
+  PRIMARY KEY (`id`),
   INDEX `tick` (`tick`),
   INDEX `op` (`op`),
   INDEX `creator` (`creator`), 
@@ -140,19 +146,18 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
 CREATE TABLE IF NOT EXISTS `balances` (
   `id` VARCHAR(255) NOT NULL,
   `address` varchar(64) COLLATE utf8mb4_bin NOT NULL,
-  `cpid` varchar(255) DEFAULT NULL,
   `p` varchar(32),
   `tick` varchar(32),
   `tick_hash` varchar(64),
   `amt` decimal(38,18),
+  `locked_amt` decimal(38,18),
   `block_time` datetime,
   `last_update` int,
   PRIMARY KEY (`id`),
   UNIQUE KEY `address_p_tick_unique` (`address`, `p`, `tick`, `tick_hash`),
-  UNIQUE KEY `address_cpid_unique` (`address`, `cpid`),
-  INDEX `cpid` (`cpid`),
   INDEX `address` (`address`),
-  INDEX `tick` (`tick`)
+  INDEX `tick` (`tick`),
+  INDEX `tick_tick_hash` (`tick`, `tick_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS s3objects (
