@@ -61,7 +61,7 @@ STOP_BASE64_REPAIR = 784550
 
 # Keep as ref
 # BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) transaction on btc
-# CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
+CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
 # CP_SRC721_BLOCK_START = 799434
 # FIRST_KEYBURN_BLOCK = 784978
 
