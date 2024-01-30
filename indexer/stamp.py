@@ -13,7 +13,6 @@ import msgpack
 import io
 from datetime import datetime
 from decimal import Decimal
-import pprint
 
 import config
 import src.log as log
@@ -778,8 +777,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         "file_hash": file_obj_md5,
         "is_valid_base64": is_valid_base64,
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
-    filtered_parsed = {k: v for k, v in parsed.items() if k != 'stamp_base64'}
-    logger.warning(f"parsed: {json.dumps(filtered_parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
+    # filtered_parsed = {k: v for k, v in parsed.items() if k != 'stamp_base64'}
+    # logger.warning(f"parsed: {json.dumps(filtered_parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
     insert_into_stamp_table(stamp_cursor, parsed)
 
 
