@@ -631,7 +631,7 @@ def check_reissue_in_block(processed_in_block, cpid, is_btc_stamp, is_reissue, c
     if len(processed_in_block) > 0:
         for item in processed_in_block:
             if item["cpid"] == cpid:
-                if (item["is_btc_stamp"] or item["is_valid_base64"]) and item["stamp"] >= 0:
+                if (item["is_btc_stamp"] or item["is_valid_base64"]): # and item["stamp"] >= 0:
                     is_btc_stamp = None 
                     is_reissue = 1
                     if current_stamp_base64 is not None and current_is_valid_base64 is not None and current_stamp_base64 != item["stamp_base64"] :
