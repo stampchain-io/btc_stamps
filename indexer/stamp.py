@@ -603,7 +603,7 @@ def check_reissue_in_db(block_cursor, cpid, is_btc_stamp, current_stamp_base64, 
     if len(reissue_results) > 0:
         for row in reissue_results:
             prior_is_btc_stamp, is_valid_base64, stamp, prior_stamp_base64 = row[0], row[1], row[2], row[3]
-            if (prior_is_btc_stamp or is_valid_base64) and stamp >= 0:
+            if (prior_is_btc_stamp or is_valid_base64): # and stamp >= 0: -- all reissuances of valid stamp: are not btc_stamps
                 is_btc_stamp = None
                 is_reissue = 1
                 if current_stamp_base64 is not None and current_is_valid_base64 is not None and current_stamp_base64 != prior_stamp_base64 :
