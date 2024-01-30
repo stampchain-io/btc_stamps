@@ -46,7 +46,7 @@ def consensus_hash(db, field, previous_consensus_hash, content):
         previous_consensus_hash = util.shash_string('')
 
     # Get previous hash.
-    if not previous_consensus_hash:
+    if not previous_consensus_hash and field != 'ledger_hash':
         try:
             cursor.execute('''SELECT * FROM blocks WHERE block_index = %s''', (block_index - 1,))
             results = cursor.fetchall()
@@ -58,6 +58,19 @@ def consensus_hash(db, field, previous_consensus_hash, content):
             previous_consensus_hash = None
         if not previous_consensus_hash:
             raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
+    elif not previous_consensus_hash and field == 'ledger_hash' and content != '':
+        try:
+            cursor.execute('''SELECT * FROM blocks WHERE ledger_hash IS NOT NULL ORDER BY block_index DESC LIMIT 1''')
+            results = cursor.fetchall()
+            if results:
+                previous_consensus_hash = results[0][field_position[field]]
+            else:
+                previous_consensus_hash = None
+        except IndexError:
+            previous_consensus_hash = None
+        if not previous_consensus_hash:
+            raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
+
 
     # Calculate current hash.
     if config.TESTNET:
@@ -67,11 +80,13 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     else:
         consensus_hash_version = CONSENSUS_HASH_VERSION_MAINNET
 
-    if field == 'ledger_hash' and block_index <= config.CP_SRC20_BLOCK_START:
+    if field == 'ledger_hash' and block_index == config.CP_SRC20_BLOCK_START:
         calculated_hash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-    elif field == 'ledger_hash' and block_index > config.CP_SRC20_BLOCK_START:
+    elif field == 'ledger_hash' and block_index > config.CP_SRC20_BLOCK_START and content:
         concatenated_content = previous_consensus_hash.encode('utf-8') + content.encode('utf-8')
         calculated_hash = util.shash_string(concatenated_content)
+    elif field == 'ledger_hash' and content == '':
+        calculated_hash = None
     else:
         calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
     # Verify hash (if already in database) or save hash (if not).

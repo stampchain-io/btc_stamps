@@ -16,8 +16,8 @@ from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
-import traceback
-import math
+from tqdm import tqdm
+# import cProfile
 
 import config
 import src.exceptions as exceptions
@@ -42,6 +42,7 @@ from src20 import (
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
+from tqdm import tqdm
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -81,7 +82,6 @@ def process_vout(ctx):
 
     Args:
         ctx (TransactionContext): The transaction context.
-        fee (int): The fee of the transaction.
 
     Returns:
         tuple: A tuple containing the following values:
@@ -636,61 +636,95 @@ def follow(db):
     # Get index of last transaction.
     tx_index = next_tx_index(db)
 
+    
 
     # a reorg can happen without the block count increasing, or even for that
     # matter, with the block count decreasing. This should only delay
     # processing of the new blocks a bit.
     # Use concurrent.futures for parallel processing
     # import concurrent.futures
+    try:
+        block_tip = backend.getblockcount()
+    except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
+        if config.FORCE:
+            time.sleep(config.BACKEND_POLL_INTERVAL)
+        else:
+            raise e
 
-    # with concurrent.futures.ThreadPoolExecutor() as executor:
-    #     futures = []
-    #     results = []  # Store the results in a list
+    def fetch_cp_concurrent(block_index, block_tip): 
+        ''' testing with this method because we were initially getting invalid results
+            when using the get_blocks[xxx,yyyy,zzz] method to the CP API '''
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            
+            blocks_to_fetch = 1000
+            futures = []
+            results_dict = {}  # Create an empty dictionary to store the results
 
-    #     while block_index <= 780318: # block_count:
-    #         futures.append(executor.submit(get_xcp_block_data, block_index, db))
-    #         block_index += 14
+            if block_tip > block_index + blocks_to_fetch:
+                block_tip = block_index + blocks_to_fetch
 
-    #     # Process the results as they become available
-    #     for future in concurrent.futures.as_completed(futures):
-    #         stamp_issuances = future.result()
-    #         if stamp_issuances:
-    #             results.append((stamp_issuances['block_index'], stamp_issuances))  # Store the result with block_index in the list
+            pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
+                
+            while block_index <= block_tip:
+                future = executor.submit(get_xcp_block_data, block_index, db)
+                future.block_index = block_index  # Save the block_index with the future
+                futures.append(future)
+                block_index += 1
 
-    #     # Sort the results based on block_index
-    #     results.sort(key=lambda x: x[0])
+            # Process the results as they become available
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                results_dict[future.block_index] = result  # Store the result in the dictionary using future.block_index as the key
+                pbar.update(1)  # Update the progress bar
 
-    #     # Process the results sequentially
-    #     for _, stamp_issuances in results:
-    #         # Process stamp_issuances here
-    #         pass
+            pbar.close()  # Close the progress bar
+
+            # Sort the results_dict based on block_index
+            sorted_results = dict(sorted(results_dict.items(), key=lambda x: x[0]))
+        return sorted_results
+
+    stamp_issuances_list = None
+    # profiler = cProfile.Profile()
+    # profiler.enable()
 
     while True:
         start_time = time.time()
         # Get block count.
         # If the backend is unreachable and `config.FORCE` is set, just sleep
         # and try again repeatedly.
-        try:
-            block_count = backend.getblockcount()
-        except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
-            if config.FORCE:
-                time.sleep(config.BACKEND_POLL_INTERVAL)
-                continue
-            else:
-                raise e
+
+        if stamp_issuances_list is None:
+            try:
+                block_tip = backend.getblockcount()
+            except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
+                if config.FORCE:
+                    time.sleep(config.BACKEND_POLL_INTERVAL)
+                    continue
+                else:
+                    raise e
         #  check if last block index was full indexed and if not delete it
         #  and set block_index to block_index - 1
         if (block_index != config.BLOCK_FIRST and
                 not is_prev_block_parsed(db, block_index)):
             block_index -= 1
 
+        # stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip)
+        
         # Get new blocks.
-        if block_index <= block_count:
+        if block_index <= block_tip:
             current_index = block_index
 
-            stamp_issuances = get_xcp_block_data(block_index, db)
+            if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
+                stamp_issuances = stamp_issuances_list[block_index]
+            else:
+                stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip)
+                stamp_issuances = stamp_issuances_list[block_index]
 
-            if block_count - block_index < 100:
+            # TODO: need to consider the stamp_issuances_list in a reorg situation could it be saving old trx ? 
+                
+            # stamp_issuances = get_xcp_block_data(block_index, db)
+
+            if block_tip - block_index < 100:
                 requires_rollback = False
                 while True:
                     if current_index == config.BLOCK_FIRST:
@@ -819,7 +853,8 @@ def follow(db):
                         # amt = int(value) if float(value) == int(float(value)) else float(value)
                         valid_src20_list.append(f"{tick},{creator},{amt}")
                     valid_src20_str = ';'.join(valid_src20_list)
-                    print("String for HASH", valid_src20_str)
+                    if valid_src20_str:
+                        print("String for HASH", valid_src20_str)
             else:
                 valid_src20_str = ''
 
@@ -848,6 +883,12 @@ def follow(db):
 
             logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s)' % (
                 str(block_index), "{:.2f}".format(time.time() - start_time, 3),
-                new_ledger_hash[-5:], new_txlist_hash[-5:], new_messages_hash[-5:]
+                new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
+                new_txlist_hash[-5:], new_messages_hash[-5:]
             ))
             block_index += 1
+            # remove the block from the stamp_issuances_list
+            stamp_issuances_list.pop(current_index, None)
+            # profiler.disable()
+            # profiler.dump_stats("profile_results.prof")
+            # sys.exit()
