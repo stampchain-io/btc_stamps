@@ -344,36 +344,43 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
     balances = []
 
     if src20_processed_in_block:
-        for prior_tx in reversed(src20_processed_in_block):  # if there is a total-balance in a trx in the block with the same address, tick, and tick_hash, use that value for total_balance_x
-            if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
-                for address in addresses:
-                    if (
-                        (prior_tx["creator"] == address
-                        and prior_tx["tick"] == tick
-                        and prior_tx["tick_hash"] == tick_hash
-                        and "total_balance_creator" in prior_tx) # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
-                        or
-                        (prior_tx["destination"] == address
-                        and prior_tx["tick"] == tick
-                        and prior_tx["tick_hash"] == tick_hash
-                        and "total_balance_destination" in prior_tx)
-                    ):
-                        if "total_balance_creator" in prior_tx:
-                            total_balance = prior_tx["total_balance_creator"]
-                        elif "total_balance_destination" in prior_tx:
-                            total_balance = prior_tx["total_balance_destination"]
-                        if total_balance: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
-                            balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
-                            addresses.remove(address)
+        try:
+            for prior_tx in reversed(src20_processed_in_block):  # if there is a total-balance in a trx in the block with the same address, tick, and tick_hash, use that value for total_balance_x
+                if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
+                    for address in addresses:
+                        if (
+                            (prior_tx["creator"] == address
+                            and prior_tx["tick"] == tick
+                            and prior_tx["tick_hash"] == tick_hash
+                            and "total_balance_creator" in prior_tx) # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
+                            or
+                            (prior_tx["destination"] == address
+                            and prior_tx["tick"] == tick
+                            and prior_tx["tick_hash"] == tick_hash
+                            and "total_balance_destination" in prior_tx)
+                        ):
+                            if "total_balance_creator" in prior_tx:
+                                total_balance = prior_tx["total_balance_creator"]
+                            elif "total_balance_destination" in prior_tx:
+                                total_balance = prior_tx["total_balance_destination"]
+                            if total_balance: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
+                                balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
+                                addresses.remove(address)
+        except Exception as e:
+            raise
 
         if addresses:
-            total_balance_tuple = get_total_user_balance_from_db(db, tick, tick_hash, addresses)
-            for address in addresses:
-                total_balance = next((balance.total_balance for balance in total_balance_tuple if balance.address == address), 0)
-                # if total_balance is negative throw an exception
-                if total_balance < 0:
-                    raise Exception(f"Negative balance for address {address} in tick {tick}")
-                balances.append(BalanceCurrent(tick, address, Decimal(total_balance) if total_balance != 0 else 0))
+            try:
+                total_balance_tuple = get_total_user_balance_from_db(db, tick, tick_hash, addresses)
+                for address in addresses:
+                    total_balance = next((balance.total_balance for balance in total_balance_tuple if balance.address == address), 0)
+                    # if total_balance is negative throw an exception
+                    if total_balance < 0:
+                        raise Exception(f"Negative balance for address {address} in tick {tick}")
+                    balances.append(BalanceCurrent(tick, address, Decimal(total_balance) if total_balance != 0 else 0))
+            except Exception as e:
+                print(f"An exception occurred: {e}")
+                raise
 
     return balances
 
@@ -660,7 +667,7 @@ def create_running_user_balance_dict(running_user_balance_tuple):
 
 def update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation=None, total_minted=None, deploy_max=None, dec=None):
     if operation == 'TRANSFER':
-        amt = Decimal(src20_dict['amt']).quantize(Decimal('0.' + '0' * dec))
+        amt = Decimal(src20_dict['amt'])
         src20_dict['total_balance_creator'] = Decimal(running_user_balance_creator) - amt
         src20_dict['total_balance_destination'] = Decimal(running_user_balance_destination) + amt
         src20_dict['status'] = 'Balance Updated'
@@ -746,7 +753,7 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
                 else:
                     running_user_balance = Decimal('0')
             except Exception as e:
-                logger.error(f"Error getting running user balance: {e}")
+                logger.error(f"Error getting running user for mint balance: {e}")
                 raise
 
             mint_available = Decimal(deploy_max) - Decimal(total_minted)
@@ -790,18 +797,18 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
             try:
                 running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
                 running_user_balance_dict = create_running_user_balance_dict(running_user_balance_tuple)
-                running_user_balance_creator = running_user_balance_dict.get(src20_dict.get('creator'), {}).get('total_balance', Decimal('0'))
-                running_user_balance_destination = running_user_balance_dict.get(src20_dict.get('destination'), {}).get('total_balance', Decimal('0'))
+                running_user_balance_creator = running_user_balance_dict.get(src20_dict.get('creator'), 0)
+                running_user_balance_destination = running_user_balance_dict.get(src20_dict.get('destination'), 0)
             except Exception as e:
-                logger.error(f"Error getting running user balances: {e}")
-                return
+                logger.error(f"Error getting running user balances transfer: {e}")
+                raise
 
             try:
                 if Decimal(running_user_balance_creator) > Decimal('0') and Decimal(running_user_balance_creator) >= Decimal(src20_dict['amt']):
                     update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation='TRANSFER', dec=dec)
                     return
                 else:
-                    logger.info(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {running_user_balance} < xfer amt {src20_dict['amt']}")
+                    logger.info(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {running_user_balance_creator} < xfer amt {src20_dict['amt']}")
                     src20_dict['status'] = f'BB: TRANSFER over user balance'
                     valid_src20_in_block.append(src20_dict) # invalid 
                     return

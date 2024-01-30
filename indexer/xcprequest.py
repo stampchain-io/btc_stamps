@@ -226,12 +226,12 @@ def get_xcp_block_data(block_index, db): # this is now only calling one function
         db=db
     )
     stamp_issuances = parsed_block_data['issuances']
-    logger.warning(
-        f"""
-        XCP Block {block_index}
-        - {len(stamp_issuances)} issuances
-        """
-    )
+    # logger.warning(
+    #     f"""
+    #     XCP Block {block_index}
+    #     - {len(stamp_issuances)} issuances
+    #     """
+    # )
     return stamp_issuances
 
 
@@ -312,7 +312,7 @@ def _check_for_stamp_issuance(issuance, cursor):
 
 
         quantity = issuance["quantity"] #+ prev_qty
-        logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
+        # logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
         if issuance["status"] == "valid":
             filtered_issuance = {
                 # we are not adding the base64 string to the json string
