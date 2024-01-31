@@ -27,7 +27,7 @@ import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
-from xcprequest import get_xcp_block_data, filter_issuances_by_tx_hash
+from xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
 from stamp import (
     is_prev_block_parsed,
     purge_block_db,
@@ -43,8 +43,6 @@ from src20 import (
 
 from src.exceptions import DecodeError, BTCOnlyError
 from tqdm import tqdm
-import time
-import logging
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -384,6 +382,26 @@ def reparse(db, block_index=None, quiet=False):
 
 
 def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data, keyburn):
+    """
+    Insert a transaction into the database.
+
+    Args:
+        db (DatabaseConnection): The database connection object.
+        tx_index (int): The index of the transaction.
+        tx_hash (str): The hash of the transaction.
+        block_index (int): The index of the block containing the transaction.
+        block_hash (str): The hash of the block containing the transaction.
+        block_time (int): The timestamp of the block containing the transaction.
+        source (str): The source address of the transaction.
+        destination (str): The destination address of the transaction.
+        btc_amount (float): The amount of BTC involved in the transaction.
+        fee (float): The transaction fee.
+        data (str): Additional data associated with the transaction.
+        keyburn (str): The keyburn value of the transaction.
+
+    Returns:
+        int: The index of the inserted transaction.
+    """
     assert block_index == util.CURRENT_BLOCK_INDEX
     try:
         cursor = db.cursor()
@@ -620,9 +638,23 @@ def create_check_hashes(db, block_index, valid_stamps_in_block, valid_src20_in_b
 
 
 def commit_and_update_block(db, block_index):
+    """
+    Commits the changes to the database, updates the parsed block, and increments the block index.
+
+    Args:
+        db: The database connection object.
+        block_index: The current block index.
+
+    Raises:
+        Exception: If an error occurs during the commit or update process.
+
+    Returns:
+        None
+    """
     try:
         db.commit()
         update_parsed_block(db, block_index)
+        block_index += 1
     except Exception as e:
         print("Error message:", e)
         db.rollback()
@@ -631,6 +663,19 @@ def commit_and_update_block(db, block_index):
 
 
 def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash):
+    """
+    Logs the information of a block.
+
+    Parameters:
+    - block_index (int): The index of the block.
+    - start_time (float): The start time of the block.
+    - new_ledger_hash (str): The hash of the new ledger.
+    - new_txlist_hash (str): The hash of the new transaction list.
+    - new_messages_hash (str): The hash of the new messages.
+
+    Returns:
+    None
+    """
     logger = logging.getLogger(__name__)
     logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s)' % (
         str(block_index), "{:.2f}".format(time.time() - start_time, 3),
@@ -673,38 +718,6 @@ def follow(db):
         else:
             raise e
 
-    def fetch_cp_concurrent(block_index, block_tip): 
-        ''' testing with this method because we were initially getting invalid results
-            when using the get_blocks[xxx,yyyy,zzz] method to the CP API '''
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            
-            blocks_to_fetch = 1000
-            futures = []
-            results_dict = {}  # Create an empty dictionary to store the results
-
-            if block_tip > block_index + blocks_to_fetch:
-                block_tip = block_index + blocks_to_fetch
-
-            pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
-                
-            while block_index <= block_tip:
-                future = executor.submit(get_xcp_block_data, block_index, db)
-                future.block_index = block_index  # Save the block_index with the future
-                futures.append(future)
-                block_index += 1
-
-            # Process the results as they become available
-            for future in concurrent.futures.as_completed(futures):
-                result = future.result()
-                results_dict[future.block_index] = result  # Store the result in the dictionary using future.block_index as the key
-                pbar.update(1)  # Update the progress bar
-
-            pbar.close()  # Close the progress bar
-
-            # Sort the results_dict based on block_index
-            sorted_results = dict(sorted(results_dict.items(), key=lambda x: x[0]))
-        return sorted_results
-
     stamp_issuances_list = None
     # profiler = cProfile.Profile()
     # profiler.enable()
@@ -730,9 +743,6 @@ def follow(db):
                 not is_prev_block_parsed(db, block_index)):
             block_index -= 1
 
-        # stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip)
-        
-        # Get new blocks.
         if block_index <= block_tip:
             current_index = block_index
 
@@ -741,10 +751,6 @@ def follow(db):
             else:
                 stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip)
                 stamp_issuances = stamp_issuances_list[block_index]
-
-            # TODO: need to consider the stamp_issuances_list in a reorg situation could it be saving old trx ? 
-                
-            # stamp_issuances = get_xcp_block_data(block_index, db)
 
             if block_tip - block_index < 100:
                 requires_rollback = False
@@ -798,6 +804,7 @@ def follow(db):
                     purge_block_db(db, current_index)
                     rebuild_balances(db)
                     requires_rollback = False
+                    stamp_issuances_list = None
                     continue
 
             # check.software_version() #FIXME: We may want to validate MySQL version here.
@@ -814,8 +821,6 @@ def follow(db):
             valid_src20_in_block = []
             
             if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START:
-                # if below src20_blocks - skip the tx_hash loop there are no stamps here
-                # exit the iteration of this loop
                 valid_src20_str = ''
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                         db,
@@ -825,12 +830,9 @@ def follow(db):
                         txhash_list
                     )
 
-                commit_and_update_block(db, block_index)
+                block_index = commit_and_update_block(db, block_index)
                 log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
-
-                block_index += 1
                 stamp_issuances_list.pop(current_index, None)
-                # pass
                 continue
 
             for tx_hash in txhash_list:
@@ -881,9 +883,6 @@ def follow(db):
             if valid_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
-                # sort the valid_src20_in_block list by the individual dicts tick and creator fields ascending so it would be a sort on tick+creator
-                if block_index == 788090:
-                    print("788090")
                 balance_updates.sort(key=lambda x: (x['tick'], x['address']))
                 valid_src20_list = []
                 if balance_updates is not None:
@@ -892,7 +891,6 @@ def follow(db):
                         creator = src20.get('address')
                         amt = src20.get('original_amt') + src20.get('net_change')
                         amt = int(amt) if amt == int(amt) else amt
-                        # amt = int(value) if float(value) == int(float(value)) else float(value)
                         valid_src20_list.append(f"{tick},{creator},{amt}")
                     valid_src20_str = ';'.join(valid_src20_list)
                     if valid_src20_str:
@@ -900,12 +898,6 @@ def follow(db):
             else:
                 valid_src20_str = ''
 
-            # "balance_data": "stamp,1BepCXzZ7RRcPaqUdvBp2jvkJcaRvHMGKz,100000;stamp,1MZUaVy6y7vmwh2MqMKTFy2JiqXteyevpN,100000"
-
-            # format valid_src_in_block for hash string content
-            # valid_src20_in_block is a list like: 
-            # {'p': 'SRC-20', 'op': 'DEPLOY', 'tick': 'kevin', 'max': 690000000, 'lim': 420000, 'creator': 'bc1qqz5tvzm3uw3w4lruga8aylsk9fs93y0w8fysfe', 'tx_hash': '23765f9bc6b87e078b1f93ed213f90b9004998336575f726e46f34ddbea5e5f3', 'tx_index': 32825, 'block_index': 788041, 'block_time': 1683091057, 'destination': '1BepCXzZ7RRcPaqUdvBp2jvkJcaRvHMGKz', 'tick_hash': '9769ee76c3860c370f0914c472886a25f39d34cd9f1a3fe7751df92b3d439409', 'dec': 18}
-            # need to distill down to tick, creator, balance;  for each row. 
             new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                 db,
                 block_index,
@@ -914,10 +906,8 @@ def follow(db):
                 txhash_list
             )
 
-            commit_and_update_block(db, block_index)
+            block_index = commit_and_update_block(db, block_index)
             log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
-
-            block_index += 1
             stamp_issuances_list.pop(current_index, None)
 
             # profiler.disable()
