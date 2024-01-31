@@ -11,12 +11,10 @@ import logging
 import http
 import bitcoin as bitcoinlib
 import pymysql as mysql
-import concurrent.futures
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
-from tqdm import tqdm
 # import cProfile
 
 import config
@@ -42,7 +40,6 @@ from src20 import (
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
-from tqdm import tqdm
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
