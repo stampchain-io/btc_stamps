@@ -744,7 +744,6 @@ def follow(db):
             block_index -= 1
 
         if block_index <= block_tip:
-            current_index = block_index
 
             if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                 stamp_issuances = stamp_issuances_list[block_index]
@@ -755,13 +754,13 @@ def follow(db):
             if block_tip - block_index < 100:
                 requires_rollback = False
                 while True:
-                    if current_index == config.BLOCK_FIRST:
+                    if block_index == config.BLOCK_FIRST:
                         break
                     logger.info(
-                        f'Checking that block {current_index} is not orphan.'
+                        f'Checking that block {block_index} is not orphan.'
                     )
                     # Backend parent hash.
-                    current_hash = backend.getblockhash(current_index)
+                    current_hash = backend.getblockhash(block_index)
                     current_cblock = backend.getcblock(current_hash)
                     backend_parent = bitcoinlib.core.b2lx(
                         current_cblock.hashPrevBlock
@@ -770,7 +769,7 @@ def follow(db):
                     block_query = '''
                     SELECT * FROM blocks WHERE block_index = %s
                     '''
-                    cursor.execute(block_query, (current_index - 1,))
+                    cursor.execute(block_query, (block_index - 1,))
                     blocks = cursor.fetchall()
                     columns = [desc[0] for desc in cursor.description]
                     cursor.close()
@@ -785,7 +784,7 @@ def follow(db):
                     if db_parent == backend_parent:
                         break
                     else:
-                        current_index -= 1
+                        block_index -= 1
                         requires_rollback = True
 
                 # Rollback for reorganization.
@@ -793,22 +792,22 @@ def follow(db):
                     # Record reorganization.
                     logger.warning(
                         'Blockchain reorganization at block {}.'
-                        .format(current_index)
+                        .format(block_index)
                     )
-                    current_index -= 1
+                    block_index -= 1
                     logger.warning(
                         'Rolling back to block {} to avoid problems.'
-                        .format(current_index)
+                        .format(block_index)
                     )
                     # Rollback.
-                    purge_block_db(db, current_index)
+                    purge_block_db(db, block_index)
                     rebuild_balances(db)
                     requires_rollback = False
                     stamp_issuances_list = None
                     continue
 
             # check.software_version() #FIXME: We may want to validate MySQL version here.
-            block_hash = backend.getblockhash(current_index)
+            block_hash = backend.getblockhash(block_index)
             cblock = backend.getcblock(block_hash)
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
             block_time = cblock.nTime
@@ -830,9 +829,9 @@ def follow(db):
                         txhash_list
                     )
 
+                stamp_issuances_list.pop(block_index, None)
                 block_index = commit_and_update_block(db, block_index)
                 log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
-                stamp_issuances_list.pop(current_index, None)
                 continue
 
             for tx_hash in txhash_list:
@@ -906,9 +905,9 @@ def follow(db):
                 txhash_list
             )
 
+            stamp_issuances_list.pop(block_index, None)
             block_index = commit_and_update_block(db, block_index)
             log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
-            stamp_issuances_list.pop(current_index, None)
 
             # profiler.disable()
             # profiler.dump_stats("profile_results.prof")
