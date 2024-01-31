@@ -4,7 +4,9 @@ import json
 import config
 import requests
 import logging
+import concurrent.futures
 import src.util as util
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
