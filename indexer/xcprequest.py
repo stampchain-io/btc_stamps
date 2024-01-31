@@ -24,6 +24,39 @@ def _create_payload(method, params):
     return base_payload
 
 
+def fetch_cp_concurrent(block_index, block_tip): 
+    ''' testing with this method because we were initially getting invalid results
+        when using the get_blocks[xxx,yyyy,zzz] method to the CP API '''
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        
+        blocks_to_fetch = 1000
+        futures = []
+        results_dict = {}  # Create an empty dictionary to store the results
+
+        if block_tip > block_index + blocks_to_fetch:
+            block_tip = block_index + blocks_to_fetch
+
+        pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
+            
+        while block_index <= block_tip:
+            future = executor.submit(get_xcp_block_data, block_index, db)
+            future.block_index = block_index  # Save the block_index with the future
+            futures.append(future)
+            block_index += 1
+
+        # Process the results as they become available
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            results_dict[future.block_index] = result  # Store the result in the dictionary using future.block_index as the key
+            pbar.update(1)  # Update the progress bar
+
+        pbar.close()  # Close the progress bar
+
+        # Sort the results_dict based on block_index
+        sorted_results = dict(sorted(results_dict.items(), key=lambda x: x[0]))
+    return sorted_results
+
+
 def _handle_cp_call_with_retry(func, params, block_index):
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
