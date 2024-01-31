@@ -652,6 +652,7 @@ def commit_and_update_block(db, block_index):
         db.commit()
         update_parsed_block(db, block_index)
         block_index += 1
+        return block_index
     except Exception as e:
         print("Error message:", e)
         db.rollback()
