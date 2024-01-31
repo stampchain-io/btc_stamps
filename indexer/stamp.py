@@ -723,9 +723,9 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
         if is_reissue:
             return
-    else: 
-        if ident == 'UNKNOWN':
-            return
+    # else: 
+    #     if ident == 'UNKNOWN': # need to save these
+    #         return
 
     # cursed = named assets, op_return stamps, and invalid suffix stamps
     if is_op_return:
