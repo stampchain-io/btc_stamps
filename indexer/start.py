@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import server
+import src.server as server
 
 db = server.initialize( log_file='log.file', backend_password='rpc', backend_user='rpc' )
 
