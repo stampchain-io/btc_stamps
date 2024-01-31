@@ -15,6 +15,7 @@ from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
+import requests
 # import cProfile
 
 import config
@@ -680,6 +681,31 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
         new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
         new_txlist_hash[-5:], new_messages_hash[-5:]
     ))
+    
+def validate_src20_ledger_hash(block_index, ledger_hash):
+    url = config.SCR_VALIDATION_API1 + str(block_index)
+    max_retries = 3
+    retry_count = 0
+
+    while retry_count < max_retries:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            api_ledger_hash = response.json()['data']['hash']
+            if api_ledger_hash == ledger_hash:
+                return True
+            else:
+                return False
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                # block_index is too high, retry from the API
+                retry_count += 1
+            else:
+                # raise an exception
+                raise e
+
+    # If max retries exceeded, return False
+    return False
 
 
 def follow(db): 
@@ -902,6 +928,9 @@ def follow(db):
                 valid_src20_str,
                 txhash_list
             )
+
+            if valid_src20_in_block:
+                validate_src20_ledger_hash(block_index, new_ledger_hash)
 
             stamp_issuances_list.pop(block_index, None)
             block_index = commit_and_update_block(db, block_index)
