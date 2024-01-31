@@ -12,7 +12,7 @@ import hashlib
 import src.log as log
 import config
 import src.util as util
-import blocks
+import src.blocks as blocks
 import src.backend as backend
 from src.aws import get_s3_objects
 
