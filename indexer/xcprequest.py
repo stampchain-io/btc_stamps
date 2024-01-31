@@ -41,7 +41,7 @@ def fetch_cp_concurrent(block_index, block_tip):
         pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
             
         while block_index <= block_tip:
-            future = executor.submit(get_xcp_block_data, block_index, db)
+            future = executor.submit(get_xcp_block_data, block_index)
             future.block_index = block_index  # Save the block_index with the future
             futures.append(future)
             block_index += 1
@@ -242,7 +242,7 @@ def _get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
     )
 
 
-def get_xcp_block_data(block_index, db): # this is now only calling one function so async is pointless
+def get_xcp_block_data(block_index): # this is now only calling one function so async is pointless
     async def async_get_xcp_block_data(_block_index):
         getters = [
             _get_all_tx_by_block # NOTE: may want to switch this back to just get issuances in block now that we are only using that data 
@@ -258,7 +258,6 @@ def get_xcp_block_data(block_index, db): # this is now only calling one function
     )[0]
     parsed_block_data = _parse_issuances_from_block(
         block_data=block_data_from_xcp,
-        db=db
     )
     stamp_issuances = parsed_block_data['issuances']
     # logger.warning(
@@ -270,9 +269,8 @@ def get_xcp_block_data(block_index, db): # this is now only calling one function
     return stamp_issuances
 
 
-def _parse_issuances_from_block(block_data, db):
+def _parse_issuances_from_block(block_data):
     issuances = []
-    cursor = db.cursor()
     block_data = json.loads(json.dumps(block_data[0]))
     for tx in block_data['_messages']:
         tx_data = json.loads(tx.get('bindings'))
@@ -285,15 +283,11 @@ def _parse_issuances_from_block(block_data, db):
             if (
                 tx_data.get('status', 'invalid') == 'valid'
             ):
-                stamp_issuance = _check_for_stamp_issuance(
-                    issuance=tx_data,
-                    cursor=cursor
-                )
+                stamp_issuance = _check_for_stamp_issuance(issuance=tx_data)
                 if stamp_issuance is not None:
                     issuances.append(
                         stamp_issuance
                     )
-    cursor.close()
     return {
         "block_index": block_data["block_index"],
         "issuances": issuances,
@@ -336,7 +330,7 @@ def parse_base64_from_description(description):
         return None, None
 
 
-def _check_for_stamp_issuance(issuance, cursor):
+def _check_for_stamp_issuance(issuance):
     description = issuance["description"]
    
     if (
