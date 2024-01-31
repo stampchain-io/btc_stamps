@@ -43,6 +43,8 @@ from src20 import (
 
 from src.exceptions import DecodeError, BTCOnlyError
 from tqdm import tqdm
+import time
+import logging
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -586,7 +588,7 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
         sys.exit()
 
 
-def create_check_hashes(db, block_index, processed_in_block, valid_src20_in_block, txhash_list,
+def create_check_hashes(db, block_index, valid_stamps_in_block, valid_src20_in_block, txhash_list,
                         previous_ledger_hash=None, previous_txlist_hash=None, previous_messages_hash=None):
     """
     Calculate and update the hashes for the given block data. This needs to be modified for a reparse.
@@ -594,7 +596,7 @@ def create_check_hashes(db, block_index, processed_in_block, valid_src20_in_bloc
     Args:
         db (Database): The database object.
         block_index (int): The index of the block.
-        processed_in_block (list): The list of processed transactions in the block.
+        valid_stamps_in_block (list): The list of processed transactions in the block.
         valid_src20_in_block (list): The list of valid SRC20 tokens in the block.
         txhash_list (list): The list of transaction hashes in the block.
         previous_ledger_hash (str, optional): The hash of the previous ledger. Defaults to None.
@@ -604,7 +606,7 @@ def create_check_hashes(db, block_index, processed_in_block, valid_src20_in_bloc
     Returns:
         tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
     """
-    txlist_content = str(processed_in_block)
+    txlist_content = str(valid_stamps_in_block)
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
             
     ledger_content = str(valid_src20_in_block)
@@ -615,6 +617,26 @@ def create_check_hashes(db, block_index, processed_in_block, valid_src20_in_bloc
     
     update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
     return new_ledger_hash, new_txlist_hash, new_messages_hash
+
+
+def commit_and_update_block(db, block_index):
+    try:
+        db.commit()
+        update_parsed_block(db, block_index)
+    except Exception as e:
+        print("Error message:", e)
+        db.rollback()
+        db.close()
+        sys.exit()
+
+
+def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash):
+    logger = logging.getLogger(__name__)
+    logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s)' % (
+        str(block_index), "{:.2f}".format(time.time() - start_time, 3),
+        new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
+        new_txlist_hash[-5:], new_messages_hash[-5:]
+    ))
 
 
 def follow(db): 
@@ -786,10 +808,30 @@ def follow(db):
             txhash_list, raw_transactions = backend.get_tx_list(cblock)
             util.CURRENT_BLOCK_INDEX = block_index
 
-            insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty
-                            )
-            processed_in_block= []
+            insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty)
+        
+            valid_stamps_in_block= []
             valid_src20_in_block = []
+            
+            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START:
+                # if below src20_blocks - skip the tx_hash loop there are no stamps here
+                # exit the iteration of this loop
+                valid_src20_str = ''
+                new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                        db,
+                        block_index,
+                        valid_stamps_in_block,
+                        valid_src20_str,
+                        txhash_list
+                    )
+
+                commit_and_update_block(db, block_index)
+                log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
+
+                block_index += 1
+                stamp_issuances_list.pop(current_index, None)
+                # pass
+                continue
 
             for tx_hash in txhash_list:
                 stamp_issuance = filter_issuances_by_tx_hash(
@@ -833,7 +875,7 @@ def follow(db):
                     block_index,
                     block_time,
                     is_op_return,
-                    processed_in_block,
+                    valid_stamps_in_block,
                     valid_src20_in_block
                 )
             if valid_src20_in_block:
@@ -867,28 +909,17 @@ def follow(db):
             new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                 db,
                 block_index,
-                processed_in_block,
+                valid_stamps_in_block,
                 valid_src20_str,
                 txhash_list
             )
 
-            try:
-                db.commit()
-                update_parsed_block(db, block_index)
-            except Exception as e:
-                print("Error message:", e)
-                db.rollback()
-                db.close()
-                sys.exit()
+            commit_and_update_block(db, block_index)
+            log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
 
-            logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s)' % (
-                str(block_index), "{:.2f}".format(time.time() - start_time, 3),
-                new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
-                new_txlist_hash[-5:], new_messages_hash[-5:]
-            ))
             block_index += 1
-            # remove the block from the stamp_issuances_list
             stamp_issuances_list.pop(current_index, None)
+
             # profiler.disable()
             # profiler.dump_stats("profile_results.prof")
             # sys.exit()
