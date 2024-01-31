@@ -795,7 +795,10 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
             return
         if deploy_lim and deploy_max:
             try:
-                running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+                if src20_dict['creator'] == src20_dict['destination']:
+                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator']], valid_src20_in_block)
+                else:
+                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
                 running_user_balance_dict = create_running_user_balance_dict(running_user_balance_tuple)
                 running_user_balance_creator = running_user_balance_dict.get(src20_dict.get('creator'), 0)
                 running_user_balance_destination = running_user_balance_dict.get(src20_dict.get('destination'), 0)
@@ -820,7 +823,11 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
         if deploy_lim and deploy_max:
             target_lim, target_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['holders_of'], valid_src20_in_block)
             if target_lim and target_max: # valid target deploy
-                running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+                if src20_dict['creator'] == src20_dict['destination']:
+                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator']], valid_src20_in_block)
+                else:
+                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+                # running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
                 running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance')
                 
                 if running_user_balance > 0:
