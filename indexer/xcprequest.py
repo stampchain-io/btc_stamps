@@ -242,23 +242,9 @@ def _get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
     )
 
 
-def get_xcp_block_data(block_index): # this is now only calling one function so async is pointless
-    async def async_get_xcp_block_data(_block_index):
-        getters = [
-            _get_all_tx_by_block # NOTE: may want to switch this back to just get issuances in block now that we are only using that data 
-            # _get_issuances_by_block -- this was failing need to investigate
-        ]
-        loop = asyncio.get_event_loop()
-        queries = [loop.run_in_executor(None, func, _block_index) for func in getters]
-        results = await asyncio.gather(*queries)
-        return results
-
-    block_data_from_xcp = asyncio.run(
-        async_get_xcp_block_data(block_index)
-    )[0]
-    parsed_block_data = _parse_issuances_from_block(
-        block_data=block_data_from_xcp,
-    )
+def get_xcp_block_data(block_index):
+    block_data_from_xcp = _get_all_tx_by_block(block_index)
+    parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
     stamp_issuances = parsed_block_data['issuances']
     # logger.warning(
     #     f"""
