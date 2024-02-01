@@ -5,10 +5,7 @@ from config import TICK_PATTERN_SET, SRC20_TABLE, SRC20_VALID_TABLE, SRC20_BALAN
 import src.log as log
 import re
 import hashlib
-import unicodedata
-import codecs
 import datetime
-import math
 from collections import namedtuple
 
 logger = logging.getLogger(__name__)
@@ -63,7 +60,7 @@ def format_address(address):
 
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
     if '\\' in input_dict['tick']:
-        input_dict['tick'] = codecs.decode(input_dict['tick'], 'unicode_escape')
+        input_dict['tick'] = bytes(input_dict['tick'], "utf-8").decode("unicode_escape")
         input_dict['tick'] = input_dict['tick'] .replace('\\u', '\\U')
 
 
