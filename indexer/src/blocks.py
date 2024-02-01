@@ -682,7 +682,7 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
         new_txlist_hash[-5:], new_messages_hash[-5:]
     ))
     
-def validate_src20_ledger_hash(block_index, ledger_hash):
+def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     url = config.SCR_VALIDATION_API1 + str(block_index)
     max_retries = 3
     retry_count = 0
@@ -695,6 +695,7 @@ def validate_src20_ledger_hash(block_index, ledger_hash):
             if api_ledger_hash == ledger_hash:
                 return True
             else:
+                api_ledger_validation = response.json()['data']['balance_data']
                 raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
@@ -910,7 +911,8 @@ def follow(db):
                     for src20 in balance_updates:
                         tick = src20.get('tick')
                         creator = src20.get('address')
-                        amt = src20.get('original_amt') + src20.get('net_change')
+                        # amt = src20.get('original_amt') + src20.get('net_change')
+                        amt = src20.get('net_change') + src20.get('original_amt')
                         amt = int(amt) if amt == int(amt) else amt
                         valid_src20_list.append(f"{tick},{creator},{amt}")
                     valid_src20_str = ';'.join(valid_src20_list)
@@ -927,8 +929,8 @@ def follow(db):
                 txhash_list
             )
 
-            if valid_src20_in_block:
-                validate_src20_ledger_hash(block_index, new_ledger_hash)
+            if valid_src20_str:  ## this needs to be the balance dict
+                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
 
             stamp_issuances_list.pop(block_index, None)
             block_index = commit_and_update_block(db, block_index)
