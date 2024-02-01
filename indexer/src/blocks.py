@@ -695,13 +695,11 @@ def validate_src20_ledger_hash(block_index, ledger_hash):
             if api_ledger_hash == ledger_hash:
                 return True
             else:
-                return False
+                raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                # block_index is too high, retry from the API
                 retry_count += 1
             else:
-                # raise an exception
                 raise e
 
     # If max retries exceeded, return False
