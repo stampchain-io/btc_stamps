@@ -17,43 +17,44 @@ log.set_logger(logger)  # set root logger
 DEPLOY_CACHE = {}
 TOTAL_MINTED_CACHE = {}
 
-def build_src20_svg_string(cursor, src_20_dict):
-    background_base64, font_size, text_color = get_srcbackground_data(cursor, src_20_dict.get('tick'))
+def build_src20_svg_string(db, src_20_dict):
+    background_base64, font_size, text_color = get_srcbackground_data(db, src_20_dict.get('tick'))
     svg_image_data = generate_srcbackground_svg(src_20_dict, background_base64, font_size, text_color)
     return svg_image_data
 
 
 # query the srcbackground mysql table for these columns tick, base64, font_size, text_color, unicode, p
-def get_srcbackground_data(cursor, tick):
+def get_srcbackground_data(db, tick):
     """
     Retrieves the background image data for a given tick and p value.
 
     Args:
-        cursor: The database cursor object.
+        db: The database connection object.
         tick: The tick value.
 
     Returns:
         A tuple containing the base64 image data, font size, and text color.
         If no data is found, returns (None, None, None).
     """
-    query = """
-        SELECT
-            base64,
-            CASE WHEN font_size IS NULL OR font_size = '' THEN '30px' ELSE font_size END AS font_size,
-            CASE WHEN text_color IS NULL OR text_color = '' THEN 'white' ELSE text_color END AS text_color
-        FROM
-            srcbackground
-        WHERE
-            tick = %s
-            AND p = %s
-    """
-    cursor.execute(query, (tick, "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
-    result = cursor.fetchone()
-    if result:
-        base64, font_size, text_color = result
-        return base64, font_size, text_color
-    else:
-        return None, None, None
+    with db.cursor() as cursor:
+        query = """
+            SELECT
+                base64,
+                CASE WHEN font_size IS NULL OR font_size = '' THEN '30px' ELSE font_size END AS font_size,
+                CASE WHEN text_color IS NULL OR text_color = '' THEN 'white' ELSE text_color END AS text_color
+            FROM
+                srcbackground
+            WHERE
+                tick = %s
+                AND p = %s
+        """
+        cursor.execute(query, (tick, "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
+        result = cursor.fetchone()
+        if result:
+            base64, font_size, text_color = result
+            return base64, font_size, text_color
+        else:
+            return None, None, None
 
 
 def format_address(address):
