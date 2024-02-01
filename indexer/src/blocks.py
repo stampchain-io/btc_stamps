@@ -842,7 +842,7 @@ def follow(db):
             valid_stamps_in_block= []
             valid_src20_in_block = []
             
-            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START:
+            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START: # this could be moved to the first non cp src20 block
                 valid_src20_str = ''
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                         db,
@@ -885,6 +885,8 @@ def follow(db):
                 )
                 # commits when the block is complete
                 # parsing all trx in the block
+                if data is None:
+                    continue
                 parse_tx_to_stamp_table(
                     db,
                     tx_hash,
