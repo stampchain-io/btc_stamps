@@ -911,9 +911,12 @@ def follow(db):
                 valid_src20_list = []
                 if balance_updates is not None:
                     for src20 in balance_updates:
-                        tick = src20.get('tick')
                         creator = src20.get('address')
-                        # amt = src20.get('original_amt') + src20.get('net_change')
+                        if '\\' in src20['tick']:
+                            tick = src20['tick'].replace('\\u', '\\U')
+                            tick = bytes(src20['tick'], "utf-8").decode("unicode_escape")
+                        else:
+                            tick = src20.get('tick')
                         amt = src20.get('net_change') + src20.get('original_amt')
                         amt = int(amt) if amt == int(amt) else amt
                         valid_src20_list.append(f"{tick},{creator},{amt}")
