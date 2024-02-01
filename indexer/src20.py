@@ -64,6 +64,8 @@ def format_address(address):
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
     if '\\' in input_dict['tick']:
         input_dict['tick'] = codecs.decode(input_dict['tick'], 'unicode_escape')
+        input_dict['tick'] = input_dict['tick'] .replace('\\u', '\\U')
+
 
     if (input_dict.get("op").upper() == "DEPLOY"):
         dict_to_use = {
