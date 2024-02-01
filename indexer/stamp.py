@@ -602,7 +602,7 @@ def check_reissue_in_db(db, cpid, is_btc_stamp):
     with db.cursor() as cursor:
         cursor.execute(f'''
             SELECT is_btc_stamp, is_valid_base64, stamp FROM {config.STAMP_TABLE}
-            WHERE cpid = %s and is_valid_base64 is not null
+            WHERE cpid = %s
             ORDER BY block_index DESC
             LIMIT 1
         ''', (cpid,))
@@ -710,8 +710,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
 
     if (
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
-        and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX and 
-        (cpid and cpid.startswith('A')) and not is_op_return
+        and (cpid and cpid.startswith('A')) and not is_op_return
+        and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX
     ):
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
@@ -719,6 +719,9 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             # don't need to save these since we aren't tracking supply values now 
             # only the first asset with a valid stamp:base64 is valid
             # return  
+        if is_reissue and is_valid_base64:
+            # possibly make these cursed. in the current logic this would mean duplicate stamps for the same cpid...
+            pass
     elif stamp.get('asset_longname') is not None:
         stamp['cpid'] = stamp.get('asset_longname')
         is_cursed = 1
@@ -739,7 +742,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     # else: 
     #     if ident == 'UNKNOWN': # need to save these
     #         return
-
     # cursed = named assets, op_return stamps, and invalid suffix stamps
     if is_op_return: # this appears to be redundant since we are checking in the initial if statement
         is_btc_stamp = None
