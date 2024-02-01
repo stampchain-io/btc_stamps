@@ -651,11 +651,11 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         return
     decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    if decoded_base64 is not None:
-        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
-        file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-    else:
-        ident, file_suffix = 'UNKNOWN', None
+    # if decoded_base64 is not None:
+    (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
+    file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
+    # else:
+    #     ident, file_suffix = 'UNKNOWN', None
 
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
