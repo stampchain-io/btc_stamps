@@ -665,7 +665,7 @@ def create_running_user_balance_dict(running_user_balance_tuple):
     return running_user_balance_dict
 
 
-def update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation=None, total_minted=None, deploy_max=None, dec=None):
+def update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation=None, total_minted=None, deploy_max=None, dec=None, deploy_lim=None):
     if operation == 'TRANSFER':
         amt = Decimal(src20_dict['amt'])
         src20_dict['total_balance_creator'] = Decimal(running_user_balance_creator) - amt
@@ -677,7 +677,10 @@ def update_valid_src20_list(db, src20_dict, running_user_balance_creator, runnin
 
         # amt = math.floor((src20_dict['amt']) * 10 ** dec) / 10 ** dec
         # mint amt should be an integer? check specs
-        amt = src20_dict.get("amt")
+        amt = src20_dict['amt']
+        if amt > deploy_lim:
+            amt = deploy_lim
+            src20_dict['amt'] = amt
         TOTAL_MINTED_CACHE[src20_dict.get("tick")] += amt
         running_total_mint = int(total_minted) + amt
         running_user_balance = Decimal(running_user_balance_creator) + amt
@@ -769,13 +772,13 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
                     src20_dict['amt'] = mint_available
                     logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
                     try:
-                        update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec)
+                        update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim)
                     except Exception as e:
                         logger.error(f"Error updating valid src20 list: {e}")
                         raise
                     return
                 try:
-                    update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec)
+                    update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim)
                 except Exception as e:
                     logger.error(f"Error updating valid src20 list: {e}")
                     return
