@@ -95,7 +95,7 @@ def rebuild_balances(db):
     cursor = db.cursor()
 
     try:
-        db.begin()  # Start a transaction
+        db.begin()
 
         query = """
         SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
@@ -521,10 +521,6 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
 
     '''
 
-    ## FIXME: this is a nightmare! 
-
-    if decoded_data is None:
-        raise Exception("decoded_data is None")
     file_suffix = None
     if type(decoded_data) is bytes:
         try:
@@ -610,15 +606,6 @@ def check_reissue_in_db(db, cpid, is_btc_stamp):
         if reissue_results:
             is_btc_stamp = None
             is_reissue = 1
-            # prior_is_btc_stamp, prior_is_valid_base64, prior_stamp = reissue_results[0]
-            # if prior_is_btc_stamp or prior_is_valid_base64: # and stamp >= 0: -- all reissuances of valid stamp: are not btc_stamps
-            #     is_btc_stamp = None
-            #     is_reissue = 1
-            #     if current_stamp_base64 is not None and current_is_valid_base64 is not None and current_stamp_base64 != prior_stamp_base64 :
-            #         is_cursed = 1
-            #     return is_btc_stamp, is_reissue, is_cursed
-            # else:
-            #     is_reissue = 1
         return is_btc_stamp, is_reissue
 
 
@@ -642,20 +629,40 @@ def check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp):
                 is_btc_stamp = None 
                 is_reissue = 1
                 break
-                # return is_btc_stamp, is_reissue
-                # if (item["is_btc_stamp"] or item["is_valid_base64"]): # and item["stamp"] >= 0:
-                #     is_btc_stamp = None 
-                #     is_reissue = 1
-                #     return is_btc_stamp, is_reissue
-                # else:
-                #     is_reissue = 1
     return is_btc_stamp, is_reissue
 
 
 
 def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
                             tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, valid_src20_in_block):
-    
+    """
+    Parses a transaction and extracts stamp-related information to be stored in the stamp table.
+
+    Args:
+        db (object): The database connection object.
+        tx_hash (str): The hash of the transaction.
+        source (str): The source address of the transaction.
+        destination (str): The destination address of the transaction.
+        btc_amount (float): The amount of BTC in the transaction.
+        fee (float): The transaction fee.
+        data (str): The data associated with the transaction.
+        decoded_tx (str): The decoded transaction.
+        keyburn (int): The keyburn value.
+        tx_index (int): The index of the transaction.
+        block_index (int): The index of the block containing the transaction.
+        block_time (int): The timestamp of the block containing the transaction.
+        is_op_return (bool): Indicates if the transaction is an OP_RETURN transaction.
+        valid_stamps_in_block (list): A list to store valid stamps in the block.
+        valid_src20_in_block (list): A list to store valid SRC-20 stamps in the block.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: If an unexpected condition occurs during stamp processing.
+
+    """
+
     (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed) = (
         None, None, None, None, None, None, None, None, None)
     
@@ -695,7 +702,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         if src20_dict is not None:
             # src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
-            decoded_base64 = build_src20_svg_string(stamp_cursor, src20_dict)
+            decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
         else:
             return
@@ -703,7 +710,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
-        # TODO: add a list of src721 tx to build for each block like we do with valid_stamps_in_block below.
+        # TODO: add a list of src721 tx to built for each block like we do with valid_stamps_in_block below.
         (svg_output, file_suffix) = validate_src721_and_process(src_data, stamp_cursor)
         decoded_base64 = svg_output
         file_suffix = 'svg'
@@ -715,12 +722,9 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     ):
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
-        # if (is_reissue and not is_btc_stamp) or (not is_btc_stamp and not is_valid_base64):
-            # don't need to save these since we aren't tracking supply values now 
-            # only the first asset with a valid stamp:base64 is valid
-            # return  
         if is_reissue and is_valid_base64:
             # possibly make these cursed. in the current logic this would mean duplicate stamps for the same cpid...
+            # these will be written with a null stamp number 
             pass
     elif stamp.get('asset_longname') is not None:
         stamp['cpid'] = stamp.get('asset_longname')
@@ -735,27 +739,19 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
         if is_reissue:
             return
-    # elif not is_valid_base64 and not is_btc_stamp:
-        # return
     elif is_reissue:
         raise Exception("This should not happen")
-    # else: 
-    #     if ident == 'UNKNOWN': # need to save these
-    #         return
-    # cursed = named assets, op_return stamps, and invalid suffix stamps
-    if is_op_return: # this appears to be redundant since we are checking in the initial if statement
+    if is_op_return: # this appears to be redundant since it would only apply to src-20 (non cpid)
         is_btc_stamp = None
         is_cursed = 1
 
     if is_btc_stamp:
-        stamp_number = get_next_stamp_number(db)
+        stamp_number = get_next_number(db, 'stamp')
     elif is_cursed:
-        stamp_number = get_next_cursed_number(db) # this includes reissued items and op_return
+        stamp_number = get_next_number(db, 'cursed') # this includes reissued items and op_return
     else:
         stamp_number = None
     
-    # what happens for reissues of a non_stamp - they get repeated in the db.
-
     if cpid and (is_btc_stamp):
         processed_stamps_dict = {
             'stamp': stamp_number,
@@ -846,47 +842,60 @@ def insert_into_stamp_table(stamp_cursor, parsed):
     stamp_cursor.close()
 
 
-def get_next_stamp_number(db):
-    """Return index of next transaction."""
-    cursor = db.cursor()
+def get_next_number(db, identifier):
+    """
+    Return the index of the next transaction.
 
-    cursor.execute(f'''
-        SELECT stamp FROM {config.STAMP_TABLE}
-        WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
-    ''')
-    stamps = cursor.fetchall()
-    if stamps:
-        assert len(stamps) == 1
-        stamp_number = stamps[0][0] + 1
-    else:
-        stamp_number = 0
+    Parameters:
+    - db (database connection): The database connection object.
+    - identifier (str): Either 'stamp' or 'cursed' to determine the type of transaction.
 
-    cursor.close()
+    Returns:
+    int: The index of the next transaction.
+    """
+    if identifier not in ['stamp', 'cursed']:
+        raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    return stamp_number
+    with db.cursor() as cursor:
+        if identifier == 'stamp':
+            query = f'''
+                SELECT stamp FROM {config.STAMP_TABLE}
+                WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
+            '''
+            increment = 1
+            default_value = 0
+        else:  # identifier == 'cursed'
+            query = f'''
+                SELECT stamp FROM {config.STAMP_TABLE}
+                WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
+            '''
+            increment = -1
+            default_value = -1
 
+        cursor.execute(query)
+        transactions = cursor.fetchall()
+        if transactions:
+            assert len(transactions) == 1
+            next_number = transactions[0][0] + increment
+        else:
+            next_number = default_value
 
-def get_next_cursed_number(db):
-    """Return index of next transaction."""
-    cursor = db.cursor()
-
-    cursor.execute(f'''
-        SELECT stamp FROM {config.STAMP_TABLE}
-        WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
-    ''')
-    cursed = cursor.fetchall()
-    if cursed:
-        assert len(cursed) == 1
-        cursed_number = cursed[0][0] - 1
-    else:
-        cursed_number = 0
-
-    cursor.close()
-
-    return cursed_number
+    return next_number
 
 
 def get_fileobj_and_md5(decoded_base64):
+    """
+    Get the file object and MD5 hash of a decoded base64 string.
+
+    Args:
+        decoded_base64 (str): The decoded base64 string.
+
+    Returns:
+        tuple: A tuple containing the file object and the MD5 hash.
+
+    Raises:
+        Exception: If an error occurs during the process.
+    """
     if decoded_base64 is None:
         logger.warning("decoded_base64 is None")
         return None, None
@@ -901,6 +910,18 @@ def get_fileobj_and_md5(decoded_base64):
 
 
 def store_files(db, filename, decoded_base64, mime_type):
+    """
+    Store files in either AWS S3 or disk storage.
+
+    Args:
+        db (Database): The database object.
+        filename (str): The name of the file.
+        decoded_base64 (str): The decoded base64 file content.
+        mime_type (str): The MIME type of the file.
+
+    Returns:
+        str: The MD5 hash of the stored file.
+    """
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
     if (config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and
         config.AWS_S3_BUCKETNAME and config.AWS_S3_IMAGE_DIR):
@@ -914,6 +935,19 @@ def store_files(db, filename, decoded_base64, mime_type):
 
 
 def store_files_to_disk(filename, decoded_base64):
+    """
+    Stores the decoded base64 data to disk with the given filename.
+
+    Args:
+        filename (str): The name of the file to be stored.
+        decoded_base64 (bytes): The decoded base64 data to be stored.
+
+    Raises:
+        Exception: If there is an error while storing the file.
+
+    Returns:
+        None
+    """
     if decoded_base64 is None:
         logger.info(f"decoded_base64 is None")
         return
@@ -932,7 +966,17 @@ def store_files_to_disk(filename, decoded_base64):
         raise
 
 
-def update_parsed_block(db, block_index,):
+def update_parsed_block(db, block_index):
+    """
+    Update the 'indexed' flag of a block in the database.
+
+    Args:
+        db (database connection): The database connection object.
+        block_index (int): The index of the block to update.
+
+    Returns:
+        None
+    """
     cursor = db.cursor()
     cursor.execute('''
                     UPDATE blocks SET indexed = 1
