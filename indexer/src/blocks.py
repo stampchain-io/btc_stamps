@@ -716,6 +716,25 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
                     logger.warning(f"API ledger validation does not match ledger validation for block {block_index}")
                     logger.warning(f"API ledger validation: {api_ledger_validation}")
                     logger.warning(f"Ledger validation: {valid_src20_str}")
+                    api_ledger_entries = api_ledger_validation.split(';')
+                    ledger_entries = valid_src20_str.split(';')
+                    mismatches = []
+                    for api_entry, ledger_entry in zip(api_ledger_entries, ledger_entries):
+                        if api_entry != ledger_entry:
+                            mismatches.append((api_entry, ledger_entry))
+
+                    # Outputting the mismatches
+                    for mismatch in mismatches:
+                        print("Mismatch found:")
+                        print("API Ledger: ", mismatch[0])
+                        print("Ledger: ", mismatch[1])
+                        print()
+
+                    # Check if there are any mismatches
+                    if not mismatches:
+                        print("The strings match perfectly.")
+                    else:
+                        print(f"Total mismatches: {len(mismatches)}")
                 raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
