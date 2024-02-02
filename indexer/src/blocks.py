@@ -683,6 +683,22 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
     ))
     
 def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
+    """
+    Validates the SRC20 ledger hash for a given block index against remote API
+    This is currently for OKX and will be to validate against stampscan.xyz as well
+
+    Args:
+        block_index (int): The index of the block.
+        ledger_hash (str): The expected ledger hash.
+        valid_src20_str (str): The valid SRC20 string.
+
+    Returns:
+        bool: True if the API ledger hash matches the ledger hash, False otherwise.
+
+    Raises:
+        ValueError: If the API ledger hash does not match the ledger hash.
+        Exception: If failed to retrieve from the API after retries.
+    """
     url = config.SCR_VALIDATION_API1 + str(block_index)
     max_retries = 3
     retry_count = 0
@@ -712,6 +728,15 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
 
 
 def custom_sort_key(item):
+    """
+    Custom sort key function used for sorting items based on priority, tick, and address.
+
+    Args:
+        item (dict): The item to be sorted.
+
+    Returns:
+        tuple: A tuple containing the priority, tick, and address of the item.
+    """
     # Check if 'tick' starts with Unicode escape and prioritize it lower
     if item['tick'].startswith('\\u'):
         return (1, '', item['address'])
@@ -720,10 +745,42 @@ def custom_sort_key(item):
         return (0, item['tick'], item['address'])
 
 
+def process_balance_updates(balance_updates):
+    balance_updates.sort(key=custom_sort_key)
+    valid_src20_list = []
+    if balance_updates is not None:
+        for src20 in balance_updates:
+            creator = src20.get('address')
+            if '\\' in src20['tick']:
+                tick = src20['tick'].replace('\\u', '\\U')
+                if len(tick) - 2 < 8:  # Adjusting for the length of '\\U'
+                    tick = '\\U' + '0' * (10 - len(tick)) + tick[2:]
+                tick = bytes(tick, "utf-8").decode("unicode_escape")
+            else:
+                tick = src20.get('tick')
+            amt = src20.get('net_change') + src20.get('original_amt')
+            amt = int(amt) if amt == int(amt) else amt
+            valid_src20_list.append(f"{tick},{creator},{amt}")
+    valid_src20_str = ';'.join(valid_src20_list)
+    return valid_src20_str
+
+
 def follow(db): 
+    """
+    Continuously follows the blockchain, parsing and indexing new blocks
+    for src-20 transactions and to gather details about CP trx such as
+    keyburn status. 
+
+    Args:
+        db: The database connection object.
+
+    Returns:
+        None
+    """
+    
     # Check software version.
     # check.software_version()
-    check.cp_version()
+    check.cp_version() #FIXME: need to add version checks for the endpoints and hash validations
 
     # initialize.
     initialize(db)
@@ -738,8 +795,6 @@ def follow(db):
     logger.info('Resuming parsing.')
     # Get index of last transaction.
     tx_index = next_tx_index(db)
-
-    
 
     # a reorg can happen without the block count increasing, or even for that
     # matter, with the block count decreasing. This should only delay
@@ -920,23 +975,7 @@ def follow(db):
             if valid_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
-                # balance_updates.sort(key=lambda x: (x['tick'], x['address']))
-                balance_updates.sort(key=custom_sort_key)
-                valid_src20_list = []
-                if balance_updates is not None:
-                    for src20 in balance_updates:
-                        creator = src20.get('address')
-                        if '\\' in src20['tick']:
-                            tick = src20['tick'].replace('\\u', '\\U')
-                            if len(tick) - 2 < 8:  # Adjusting for the length of '\\U'
-                                tick = '\\U' + '0' * (10 - len(tick)) + tick[2:]
-                            tick = bytes(tick, "utf-8").decode("unicode_escape")
-                        else:
-                            tick = src20.get('tick')
-                        amt = src20.get('net_change') + src20.get('original_amt')
-                        amt = int(amt) if amt == int(amt) else amt
-                        valid_src20_list.append(f"{tick},{creator},{amt}")
-                valid_src20_str = ';'.join(valid_src20_list)
+                process_balance_updates(balance_updates)
             else:
                 valid_src20_str = ''
 
