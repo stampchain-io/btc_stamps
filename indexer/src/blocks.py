@@ -41,8 +41,6 @@ from src20 import (
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
-import re
-import re
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -797,7 +795,9 @@ def process_balance_updates(balance_updates):
             else:
                 tick = src20.get('tick')
             amt = src20.get('net_change') + src20.get('original_amt')
-            amt = int(amt) if amt == int(amt) else amt
+            amt = D(amt).normalize()
+            if amt == int(amt):
+                amt = int(amt)
             valid_src20_list.append(f"{tick},{creator},{amt}")
     valid_src20_str = ';'.join(valid_src20_list)
     return valid_src20_str
