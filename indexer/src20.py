@@ -836,7 +836,7 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
                 if running_user_balance > 0:
                     tick_holders = get_tick_holders_from_balances(db, src20_dict['holders_of'])
                     tick_holders.remove(src20_dict['creator']) # this removes the row of the creator from the target list
-                    if len(tick_holders) > 0:
+                    if tick_holders:
                         total_send_amt = len(tick_holders) * Decimal(src20_dict['amt'])
                         if Decimal(total_send_amt) <= Decimal(running_user_balance_creator):
                             # build the valid_src20_in_block list for all transactions here and update running_user_balance
@@ -856,7 +856,7 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
                             for tick_holder in tick_holders:
                                 total_balance_destination = running_dest_balance_dict.get(tick_holder, {}).get('total_balance', Decimal('0'))
                                 if total_balance_destination is None:
-                                    raise Exception("Airdrop: No match found between source and destination")
+                                    raise RuntimeError("Airdrop: No match found between source and destination")
                                 new_dict = {
                                     'p': 'SRC-20',
                                     'op': 'TRANSFER',
