@@ -369,18 +369,18 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
         except Exception as e:
             raise
 
-        if addresses:
-            try:
-                total_balance_tuple = get_total_user_balance_from_db(db, tick, tick_hash, addresses)
-                for address in addresses:
-                    total_balance = next((balance.total_balance for balance in total_balance_tuple if balance.address == address), 0)
-                    # if total_balance is negative throw an exception
-                    if total_balance < 0:
-                        raise Exception(f"Negative balance for address {address} in tick {tick}")
-                    balances.append(BalanceCurrent(tick, address, Decimal(total_balance) if total_balance != 0 else 0))
-            except Exception as e:
-                print(f"An exception occurred: {e}")
-                raise
+    if addresses:
+        try:
+            total_balance_tuple = get_total_user_balance_from_db(db, tick, tick_hash, addresses)
+            for address in addresses:
+                total_balance = next((balance.total_balance for balance in total_balance_tuple if balance.address == address), 0)
+                # if total_balance is negative throw an exception
+                if total_balance < 0:
+                    raise Exception(f"Negative balance for address {address} in tick {tick}")
+                balances.append(BalanceCurrent(tick, address, Decimal(total_balance) if total_balance != 0 else 0))
+        except Exception as e:
+            print(f"An exception occurred: {e}")
+            raise
 
     return balances
 
