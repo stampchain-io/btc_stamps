@@ -41,6 +41,8 @@ from src20 import (
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
+import re
+import re
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -755,11 +757,15 @@ def custom_sort_key(item):
     Returns:
         tuple: A tuple containing the priority, tick, and address of the item.
     """
-    # Check if 'tick' starts with Unicode escape and prioritize it lower
+    tick = item['tick']
+    address = item['address']
+    if tick.startswith('\\u'):
+        return (1, '', f"{tick}_{address}")
+    else:
+        return (0, tick, f"{tick}_{address}")
     if item['tick'].startswith('\\u'):
         return (1, '', item['address'])
     else:
-        # Return a tuple (priority, tick, address)
         return (0, item['tick'], item['address'])
 
 
@@ -773,7 +779,9 @@ def process_balance_updates(balance_updates):
     Returns:
         str: A string representation of valid src20 entries.
     """
-    balance_updates.sort(key=custom_sort_key)
+    # balance_updates.sort(key=custom_sort_key)
+
+    balance_updates.sort(key=lambda src20: src20['tick'] + '_' + src20['address'])
     valid_src20_list = []
     if balance_updates is not None:
         for src20 in balance_updates:
