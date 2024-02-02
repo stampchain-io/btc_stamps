@@ -717,7 +717,7 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
                 api_ledger_entries = sorted(api_ledger_validation.split(';'))
                 ledger_entries = sorted(valid_src20_str.split(';'))
                 if api_ledger_entries == ledger_entries:
-                    print("The strings match in the wrong order - adjusting hashes.")
+                    logger.warning("The strings match in the wrong order - adjusting hashes.")
                     return api_ledger_hash # temporarily use their hash value
                 else:
                     logger.warning(f"API ledger validation does not match ledger validation for block {block_index}")
