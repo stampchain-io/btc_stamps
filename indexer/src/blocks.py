@@ -715,11 +715,10 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
 def custom_sort_key(item):
     # Check if 'tick' starts with Unicode escape and prioritize it lower
     if item['tick'].startswith('\\u'):
-        return (1, '', '')
+        return (1, '', item['address'])
     else:
         # Return a tuple (priority, tick, address)
         return (0, item['tick'], item['address'])
-
 
 
 def follow(db): 
