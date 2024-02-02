@@ -781,7 +781,7 @@ def process_balance_updates(balance_updates):
     """
     # balance_updates.sort(key=custom_sort_key)
 
-    balance_updates.sort(key=lambda src20: src20['tick'] + '_' + src20['address'])
+    balance_updates.sort(key=lambda src20: (src20['tick'].startswith('\\u'), src20['tick'].encode('unicode_escape'), src20['address']))
     valid_src20_list = []
     if balance_updates is not None:
         for src20 in balance_updates:
