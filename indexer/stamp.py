@@ -711,7 +711,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         src_data = decoded_base64
         is_btc_stamp = 1
         # TODO: add a list of src721 tx to built for each block like we do with valid_stamps_in_block below.
-        (svg_output, file_suffix) = validate_src721_and_process(src_data, stamp_cursor)
+        (svg_output, file_suffix) = validate_src721_and_process(src_data, db)
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
