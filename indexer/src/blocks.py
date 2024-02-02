@@ -705,6 +705,7 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 retry_count += 1
+                time.sleep(1)
             else:
                 raise e
     raise Exception('Failed to retrieve from the API after retries')
