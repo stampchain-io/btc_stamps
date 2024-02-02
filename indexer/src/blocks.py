@@ -975,7 +975,7 @@ def follow(db):
             if valid_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
-                process_balance_updates(balance_updates)
+                valid_src20_str = process_balance_updates(balance_updates)
             else:
                 valid_src20_str = ''
 
