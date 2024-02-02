@@ -545,7 +545,6 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
     Returns:
         None
     """
-    # new_ledger_hash, new_txlist_hash, new_messages_hash, found_messages_hash = parse_block(db, block_index, txhash_list) #txhash_list will be all btc trx in the block
     cursor = db.cursor()
     logger.info('Inserting MySQL Block: {}'.format(block_index))
     block_query = '''INSERT INTO blocks(
@@ -781,8 +780,6 @@ def follow(db):
     # Check software version.
     # check.software_version()
     check.cp_version() #FIXME: need to add version checks for the endpoints and hash validations
-
-    # initialize.
     initialize(db)
 
     # Get index of last block.
@@ -799,8 +796,6 @@ def follow(db):
     # a reorg can happen without the block count increasing, or even for that
     # matter, with the block count decreasing. This should only delay
     # processing of the new blocks a bit.
-    # Use concurrent.futures for parallel processing
-    # import concurrent.futures
     try:
         block_tip = backend.getblockcount()
     except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
@@ -815,9 +810,6 @@ def follow(db):
 
     while True:
         start_time = time.time()
-        # Get block count.
-        # If the backend is unreachable and `config.FORCE` is set, just sleep
-        # and try again repeatedly.
 
         if stamp_issuances_list is None:
             try:
@@ -987,7 +979,7 @@ def follow(db):
                 txhash_list
             )
 
-            if valid_src20_str:  ## this needs to be the balance dict
+            if valid_src20_str:
                 validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
 
             stamp_issuances_list.pop(block_index, None)
