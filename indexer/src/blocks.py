@@ -710,16 +710,19 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
             response.raise_for_status()
             api_ledger_hash = response.json()['data']['hash']
             if api_ledger_hash == ledger_hash:
-                return True
+                return ledger_hash
             else:
                 api_ledger_validation = response.json()['data']['balance_data']
-                # compare the string api_ledger_validation to the string valid_src20_str and output any differences
-                if api_ledger_validation != valid_src20_str:
+                # compare the sorted lists of api_ledger_validation and valid_src20_str
+                api_ledger_entries = sorted(api_ledger_validation.split(';'))
+                ledger_entries = sorted(valid_src20_str.split(';'))
+                if api_ledger_entries == ledger_entries:
+                    print("The strings match in the wrong order - adjusting hashes.")
+                    return api_ledger_hash # temporarily use their hash value
+                else:
                     logger.warning(f"API ledger validation does not match ledger validation for block {block_index}")
                     logger.warning(f"API ledger validation: {api_ledger_validation}")
                     logger.warning(f"Ledger validation: {valid_src20_str}")
-                    api_ledger_entries = api_ledger_validation.split(';')
-                    ledger_entries = valid_src20_str.split(';')
                     mismatches = []
                     for api_entry, ledger_entry in zip(api_ledger_entries, ledger_entries):
                         if api_entry != ledger_entry:
@@ -727,17 +730,17 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
 
                     # Outputting the mismatches
                     for mismatch in mismatches:
-                        print("Mismatch found:")
-                        print("API Ledger: ", mismatch[0])
-                        print("Ledger: ", mismatch[1])
-                        print()
+                        logger.warning(f"Mismatch found:")
+                        logger.warning(f"API Ledger: ", mismatch[0])
+                        logger.warning(f"Ledger: ", mismatch[1])
+                        logger.warning()
 
                     # Check if there are any mismatches
                     if not mismatches:
-                        print("The strings match perfectly.")
+                        logger.warning("The strings match perfectly.")
                     else:
-                        print(f"Total mismatches: {len(mismatches)}")
-                raise ValueError('API ledger hash does not match ledger hash')
+                        logger.warning(f"Total mismatches: {len(mismatches)}")
+                    raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 retry_count += 1
@@ -1016,7 +1019,14 @@ def follow(db):
             )
 
             if valid_src20_str:
-                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+                returned_ledger_hash = validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+                if returned_ledger_hash != new_ledger_hash:
+                    field='ledger_hash'
+                    # Save new hash.
+                    cursor = db.cursor()
+                    cursor.execute('''UPDATE blocks SET {} = %s WHERE block_index = %s'''.format(field), (returned_ledger_hash, block_index))
+                    cursor.close()
+
 
             stamp_issuances_list.pop(block_index, None)
             block_index = commit_and_update_block(db, block_index)
