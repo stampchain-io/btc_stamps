@@ -6,7 +6,6 @@ pycoin==0.92.20230326
 python-bitcoinlib==0.12.2
 python-bitcoinrpc==1.0
 regex==2023.12.25
-pycryptodome==3.19.1
 requests==2.31.0
 cachetools==5.3.2
 pymysql==1.1.0
