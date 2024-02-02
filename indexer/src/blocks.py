@@ -745,6 +745,15 @@ def custom_sort_key(item):
 
 
 def process_balance_updates(balance_updates):
+    """
+    Process the balance updates and return a string representation of valid src20 entries.
+
+    Args:
+        balance_updates (list): A list of balance updates.
+
+    Returns:
+        str: A string representation of valid src20 entries.
+    """
     balance_updates.sort(key=custom_sort_key)
     valid_src20_list = []
     if balance_updates is not None:
