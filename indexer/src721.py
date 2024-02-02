@@ -27,11 +27,7 @@ def validate_src721_and_process(src721_data, db):
         )
         file_suffix = 'svg'
     else:
-        svg_output = get_src721_svg_string(
-            "SRC721",
-            config.DOMAINNAME,
-            db
-        )
+        svg_output = get_src721_svg_string("SRC721", config.DOMAINNAME, db)
         file_suffix = 'svg'
     return svg_output.encode('utf-8'), file_suffix
 
