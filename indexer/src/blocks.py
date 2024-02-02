@@ -696,6 +696,11 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
                 return True
             else:
                 api_ledger_validation = response.json()['data']['balance_data']
+                # compare the string api_ledger_validation to the string valid_src20_str and output any differences
+                if api_ledger_validation != valid_src20_str:
+                    logger.warning(f"API ledger validation does not match ledger validation for block {block_index}")
+                    logger.warning(f"API ledger validation: {api_ledger_validation}")
+                    logger.warning(f"Ledger validation: {valid_src20_str}")
                 raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
@@ -705,6 +710,16 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
 
     # If max retries exceeded, return False
     return False
+
+
+def custom_sort_key(item):
+    # Check if 'tick' starts with Unicode escape and prioritize it lower
+    if item['tick'].startswith('\\u'):
+        return (1, '', '')
+    else:
+        # Return a tuple (priority, tick, address)
+        return (0, item['tick'], item['address'])
+
 
 
 def follow(db): 
@@ -907,22 +922,23 @@ def follow(db):
             if valid_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
-                balance_updates.sort(key=lambda x: (x['tick'], x['address']))
+                # balance_updates.sort(key=lambda x: (x['tick'], x['address']))
+                balance_updates.sort(key=custom_sort_key)
                 valid_src20_list = []
                 if balance_updates is not None:
                     for src20 in balance_updates:
                         creator = src20.get('address')
                         if '\\' in src20['tick']:
                             tick = src20['tick'].replace('\\u', '\\U')
-                            tick = bytes(src20['tick'], "utf-8").decode("unicode_escape")
+                            if len(tick) - 2 < 8:  # Adjusting for the length of '\\U'
+                                tick = '\\U' + '0' * (10 - len(tick)) + tick[2:]
+                            tick = bytes(tick, "utf-8").decode("unicode_escape")
                         else:
                             tick = src20.get('tick')
                         amt = src20.get('net_change') + src20.get('original_amt')
                         amt = int(amt) if amt == int(amt) else amt
                         valid_src20_list.append(f"{tick},{creator},{amt}")
-                    valid_src20_str = ';'.join(valid_src20_list)
-                    if valid_src20_str:
-                        print("String for HASH", valid_src20_str)
+                valid_src20_str = ';'.join(valid_src20_list)
             else:
                 valid_src20_str = ''
 
