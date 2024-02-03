@@ -31,6 +31,7 @@ from src.aws import (
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
+CACHED_STAMP = {} 
 
 def purge_block_db(db, block_index):
     """Purge transactions from the database. This is for a reorg or
@@ -842,8 +843,6 @@ def insert_into_stamp_table(stamp_cursor, parsed):
     stamp_cursor.close()
 
 
-cached_stamp = {} 
-
 def get_next_number(db, identifier):
     """
     Return the index of the next transaction.
@@ -858,11 +857,11 @@ def get_next_number(db, identifier):
     if identifier not in ['stamp', 'cursed']:
         raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    if identifier in cached_stamp:
+    if identifier in CACHED_STAMP:
         if identifier == 'cursed':
-            next_number = cached_stamp[identifier] - 1
+            next_number = CACHED_STAMP[identifier] - 1
         else:
-            next_number = cached_stamp[identifier] + 1
+            next_number = CACHED_STAMP[identifier] + 1
     else:
         with db.cursor() as cursor:
             if identifier == 'stamp':
@@ -888,7 +887,7 @@ def get_next_number(db, identifier):
             else:
                 next_number = default_value
 
-    cached_stamp[identifier] = next_number
+    CACHED_STAMP[identifier] = next_number
     return next_number
 
 
