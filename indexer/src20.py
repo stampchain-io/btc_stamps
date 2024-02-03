@@ -343,29 +343,32 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
 
     balances = []
 
-    if src20_processed_in_block:
+    if any(item["tick"] == tick for item in src20_processed_in_block):
         try:
             for prior_tx in reversed(src20_processed_in_block):  # if there is a total-balance in a trx in the block with the same address, tick, and tick_hash, use that value for total_balance_x
                 if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
                     for address in addresses:
+                        total_balance = None
                         if (
-                            (prior_tx["creator"] == address
+                            prior_tx["creator"] == address
                             and prior_tx["tick"] == tick
                             and prior_tx["tick_hash"] == tick_hash
-                            and "total_balance_creator" in prior_tx) # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
-                            or
-                            (prior_tx["destination"] == address
-                            and prior_tx["tick"] == tick
-                            and prior_tx["tick_hash"] == tick_hash
-                            and "total_balance_destination" in prior_tx)
+                            and "total_balance_creator" in prior_tx # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
                         ):
                             if "total_balance_creator" in prior_tx:
                                 total_balance = prior_tx["total_balance_creator"]
-                            elif "total_balance_destination" in prior_tx:
+                        
+                        elif (
+                            prior_tx["destination"] == address
+                            and prior_tx["tick"] == tick
+                            and prior_tx["tick_hash"] == tick_hash
+                            and "total_balance_destination" in prior_tx
+                        ):
+                            if "total_balance_destination" in prior_tx:
                                 total_balance = prior_tx["total_balance_destination"]
-                            if total_balance is not None: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
-                                balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
-                                addresses.remove(address)
+                        if total_balance is not None: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
+                            balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
+                            addresses.remove(address)
         except Exception as e:
             raise
 
@@ -384,6 +387,42 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
 
     return balances
 
+def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
+
+    if isinstance(addresses, str):
+        addresses = [addresses]
+
+    balances = []
+    BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
+
+
+    with db.cursor() as src20_cursor:
+        query = f"""
+            SELECT
+                tick,
+                address,
+                total_balance,
+                last_update,
+                block_time
+            FROM
+                balances
+            WHERE
+                tick = %s
+                AND tick_hash = %s
+                AND address IN %s
+        """
+
+        src20_cursor.execute(query, (tick, tick_hash, tuple(addresses)))
+        results = src20_cursor.fetchall()
+        for result in results:
+            tick = result[0]
+            address = result[1]
+            total_balance = result[2]
+            balances.append((tick, address, total_balance))
+
+    BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
+
+    return balances
 
 def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
     ''' another heavy operation to be running on every creator/tick pair
