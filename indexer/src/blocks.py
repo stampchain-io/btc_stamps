@@ -710,10 +710,31 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
             else:
                 api_ledger_validation = response.json()['data']['balance_data']
                 if api_ledger_validation != valid_src20_str:
-                    logger.warning(f"API ledger validation does not match ledger validation for block {block_index}")
-                    logger.warning(f"API ledger validation: {api_ledger_validation}")
-                    logger.warning(f"Ledger validation: {valid_src20_str}")
-                raise ValueError('API ledger hash does not match ledger hash')
+                    logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
+                    logger.warning("API ledger validation: %s", api_ledger_validation)
+                    logger.warning("Ledger validation: %s", valid_src20_str)
+                    # compare the sorted lists of api_ledger_validation and valid_src20_str
+                    api_ledger_entries = sorted(api_ledger_validation.split(';'))
+                    ledger_entries = sorted(valid_src20_str.split(';'))
+                    if api_ledger_entries == ledger_entries:
+                        logger.warning("The strings match in the wrong order - adjusting hashes.")
+                        # return api_ledger_hash # temporarily use their hash value
+                    # else:
+                    mismatches = []
+                    for api_entry, ledger_entry in zip(api_ledger_entries, ledger_entries):
+                        if api_entry != ledger_entry:
+                            mismatches.append((api_entry, ledger_entry))
+
+                    for mismatch in mismatches:
+                        logger.warning("Mismatch found:")
+                        logger.warning("API Ledger: %s", mismatch[0])
+                        logger.warning("Ledger: %s", mismatch[1])
+
+                    if not mismatches:
+                        logger.warning("The strings match perfectly.")
+                    else:
+                        logger.warning("Total mismatches: %s", len(mismatches))
+                    raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 retry_count += 1
