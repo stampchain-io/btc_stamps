@@ -5,9 +5,9 @@ CREATE TABLE IF NOT EXISTS blocks (
   `block_time` datetime,
   `previous_block_hash` VARCHAR(64) UNIQUE,
   `difficulty` FLOAT,
-  `ledger_hash` TEXT,
-  `txlist_hash` TEXT,
-  `messages_hash` TEXT,
+  `ledger_hash` VARCHAR(64),
+  `txlist_hash` VARCHAR(64),
+  `messages_hash` VARCHAR(64),
   `indexed` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`block_index`, `block_hash`),
   UNIQUE (`block_hash`),
@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   INDEX `creator_index` (`creator`),
   INDEX `block_index` (`block_index`),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
+  INDEX `stamp_index` (`stamp`),
   INDEX `idx_stamp` (`is_btc_stamp`, `ident`, `stamp` DESC, `tx_index` DESC),
   FOREIGN KEY (`tx_hash`) REFERENCES transactions(`tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
