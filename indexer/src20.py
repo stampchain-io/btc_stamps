@@ -334,7 +334,7 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
     - list: A list of namedtuples containing the tick, address, and total balance for each address.
     """
 
-    BalanceCurrent = namedtuple('BalanceCurrent', ['tick', 'address', 'total_balance'])
+    BalanceCurrent = namedtuple('BalanceCurrent', ['tick', 'address', 'total_balance', 'locked_balance'])
 
     if isinstance(addresses, str):
         addresses = [addresses]
@@ -349,6 +349,7 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
                 if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
                     for address in addresses:
                         total_balance = None
+                        locked_balance = None
                         if (
                             prior_tx["creator"] == address
                             and prior_tx["tick"] == tick
@@ -367,20 +368,21 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
                             if "total_balance_destination" in prior_tx:
                                 total_balance = prior_tx["total_balance_destination"]
                         if total_balance is not None: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
-                            balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
+                            balances.append(BalanceCurrent(tick, address, Decimal(total_balance), locked_balance))
                             addresses.remove(address)
         except Exception as e:
             raise
 
     if addresses:
         try:
-            total_balance_tuple = get_total_user_balance_from_db(db, tick, tick_hash, addresses)
+            total_balance_tuple = get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses)
             for address in addresses:
                 total_balance = next((balance.total_balance for balance in total_balance_tuple if balance.address == address), 0)
+                locked_balance = next((balance.locked_amt for balance in total_balance_tuple if balance.address == address), 0) ## NOTE: this is not fully implemented
                 # if total_balance is negative throw an exception
                 if total_balance < 0:
                     raise Exception(f"Negative balance for address {address} in tick {tick}")
-                balances.append(BalanceCurrent(tick, address, Decimal(total_balance) if total_balance != 0 else 0))
+                balances.append(BalanceCurrent(tick, address, Decimal(total_balance), locked_balance if total_balance != 0 else 0))
         except Exception as e:
             print(f"An exception occurred: {e}")
             raise
@@ -398,16 +400,17 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
         addresses = [addresses]
 
     balances = []
-    BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
+    BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix', 'locked_amt'])
 
     with db.cursor() as src20_cursor:
         query = f"""
             SELECT
                 tick,
                 address,
-                total_balance,
+                amt,
                 last_update,
-                block_time
+                block_time,
+                locked_amt
             FROM
                 balances
             WHERE
@@ -428,7 +431,8 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
                 total_balance = result[2]
                 highest_block_index = result[3]
                 block_time_unix = result[4]
-                balances.append(BalanceTuple(tick, address, total_balance, highest_block_index, block_time_unix))
+                locked_amt = result[5]
+                balances.append(BalanceTuple(tick, address, total_balance, highest_block_index, block_time_unix, locked_amt))
 
     return balances
 
@@ -717,6 +721,8 @@ def update_valid_src20_list(db, src20_dict, running_user_balance_creator, runnin
         amt = Decimal(src20_dict['amt'])
         src20_dict['total_balance_creator'] = Decimal(running_user_balance_creator) - amt
         src20_dict['total_balance_destination'] = Decimal(running_user_balance_destination) + amt
+        # src20_dict['locked_balance_creator'] = ## need to pass the tuple in here for simplicity  # WIP
+        # src20_dict['locked_balance_destination'] = ## need to pass the tuple in here for simplicity # WIP
         src20_dict['status'] = 'Balance Updated'
         src20_dict['valid'] = 1
         valid_src20_in_block.append(src20_dict)
@@ -819,13 +825,13 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
                     src20_dict['amt'] = mint_available
                     logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
                     try:
-                        update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim)
+                        update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim) # use the running_user_balance_tuple here to pull in locked WIP
                     except Exception as e:
                         logger.error(f"Error updating valid src20 list: {e}")
                         raise
                     return
                 try:
-                    update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim)
+                    update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim) # use the running_user_balance_tuple here to pull in locked WIP
                 except Exception as e:
                     logger.error(f"Error updating valid src20 list: {e}")
                     return
