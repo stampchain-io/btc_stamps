@@ -332,8 +332,6 @@ def reparse(db, block_index=None, quiet=False):
     check.cp_version()
     reparse_start = time.time()
 
-    # Reparse from the undolog if possible
-    # reparsed = reparse_from_undolog(db, block_index, quiet) - this would never be possible for stamps anyhow :)
     reparsed = False
 
     cursor = db.cursor()
@@ -711,34 +709,11 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
                 return ledger_hash
             else:
                 api_ledger_validation = response.json()['data']['balance_data']
-                # compare the sorted lists of api_ledger_validation and valid_src20_str
-                api_ledger_entries = sorted(api_ledger_validation.split(';'))
-                ledger_entries = sorted(valid_src20_str.split(';'))
-                if api_ledger_entries == ledger_entries:
-                    logger.warning("The strings match in the wrong order - adjusting hashes.")
-                    return api_ledger_hash # temporarily use their hash value
-                else:
+                if api_ledger_validation != valid_src20_str:
                     logger.warning(f"API ledger validation does not match ledger validation for block {block_index}")
                     logger.warning(f"API ledger validation: {api_ledger_validation}")
                     logger.warning(f"Ledger validation: {valid_src20_str}")
-                    mismatches = []
-                    for api_entry, ledger_entry in zip(api_ledger_entries, ledger_entries):
-                        if api_entry != ledger_entry:
-                            mismatches.append((api_entry, ledger_entry))
-
-                    # Outputting the mismatches
-                    for mismatch in mismatches:
-                        logger.warning(f"Mismatch found:")
-                        logger.warning(f"API Ledger: ", mismatch[0])
-                        logger.warning(f"Ledger: ", mismatch[1])
-                        logger.warning()
-
-                    # Check if there are any mismatches
-                    if not mismatches:
-                        logger.warning("The strings match perfectly.")
-                    else:
-                        logger.warning(f"Total mismatches: {len(mismatches)}")
-                    raise ValueError('API ledger hash does not match ledger hash')
+                raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 retry_count += 1
@@ -746,28 +721,6 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
             else:
                 raise e
     raise Exception('Failed to retrieve from the API after retries')
-
-
-def custom_sort_key(item):
-    """
-    Custom sort key function used for sorting items based on priority, tick, and address.
-
-    Args:
-        item (dict): The item to be sorted.
-
-    Returns:
-        tuple: A tuple containing the priority, tick, and address of the item.
-    """
-    tick = item['tick']
-    address = item['address']
-    if tick.startswith('\\u'):
-        return (1, '', f"{tick}_{address}")
-    else:
-        return (0, tick, f"{tick}_{address}")
-    if item['tick'].startswith('\\u'):
-        return (1, '', item['address'])
-    else:
-        return (0, item['tick'], item['address'])
 
 
 def process_balance_updates(balance_updates):
@@ -780,9 +733,7 @@ def process_balance_updates(balance_updates):
     Returns:
         str: A string representation of valid src20 entries.
     """
-    # balance_updates.sort(key=custom_sort_key)
 
-    balance_updates.sort(key=lambda src20: (src20['tick'].startswith('\\u'), src20['tick'].encode('unicode_escape'), src20['address']))
     valid_src20_list = []
     if balance_updates is not None:
         for src20 in balance_updates:
@@ -799,6 +750,7 @@ def process_balance_updates(balance_updates):
             if amt == int(amt):
                 amt = int(amt)
             valid_src20_list.append(f"{tick},{creator},{amt}")
+    valid_src20_list = sorted(valid_src20_list, key=lambda src20: (src20.split(',')[0] + '_' + src20.split(',')[1]))
     valid_src20_str = ';'.join(valid_src20_list)
     return valid_src20_str
 
