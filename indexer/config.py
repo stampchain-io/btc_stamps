@@ -67,6 +67,7 @@ STOP_BASE64_REPAIR = 784550
 # FIRST_KEYBURN_BLOCK = 784978
 
 SCR_VALIDATION_API1 = 'https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconciliation/balances_hash?block_height='
+SRC_VALIDATION_API2 = f'https://api.stampscan.xyz/external/balanceHash?blockIndex={block_index}&secret={API2_VALIDATION_SECRET}'
 
 TESTNET = None
 REGTEST = None
