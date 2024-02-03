@@ -842,6 +842,8 @@ def insert_into_stamp_table(stamp_cursor, parsed):
     stamp_cursor.close()
 
 
+cached_stamp = {} 
+
 def get_next_number(db, identifier):
     """
     Return the index of the next transaction.
@@ -856,30 +858,37 @@ def get_next_number(db, identifier):
     if identifier not in ['stamp', 'cursed']:
         raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    with db.cursor() as cursor:
-        if identifier == 'stamp':
-            query = f'''
-                SELECT stamp FROM {config.STAMP_TABLE}
-                WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
-            '''
-            increment = 1
-            default_value = 0
-        else:  # identifier == 'cursed'
-            query = f'''
-                SELECT stamp FROM {config.STAMP_TABLE}
-                WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
-            '''
-            increment = -1
-            default_value = -1
-
-        cursor.execute(query)
-        transactions = cursor.fetchall()
-        if transactions:
-            assert len(transactions) == 1
-            next_number = transactions[0][0] + increment
+    if identifier in cached_stamp:
+        if identifier == 'cursed':
+            next_number = cached_stamp[identifier] - 1
         else:
-            next_number = default_value
+            next_number = cached_stamp[identifier] + 1
+    else:
+        with db.cursor() as cursor:
+            if identifier == 'stamp':
+                query = f'''
+                    SELECT stamp FROM {config.STAMP_TABLE}
+                    WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
+                '''
+                increment = 1
+                default_value = 0
+            else:  # identifier == 'cursed'
+                query = f'''
+                    SELECT stamp FROM {config.STAMP_TABLE}
+                    WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
+                '''
+                increment = -1
+                default_value = -1
 
+            cursor.execute(query)
+            transactions = cursor.fetchall()
+            if transactions:
+                assert len(transactions) == 1
+                next_number = transactions[0][0] + increment
+            else:
+                next_number = default_value
+
+    cached_stamp[identifier] = next_number
     return next_number
 
 
