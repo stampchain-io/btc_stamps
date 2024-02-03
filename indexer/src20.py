@@ -363,7 +363,7 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
                                 total_balance = prior_tx["total_balance_creator"]
                             elif "total_balance_destination" in prior_tx:
                                 total_balance = prior_tx["total_balance_destination"]
-                            if total_balance: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
+                            if total_balance is not None: # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
                                 balances.append(BalanceCurrent(tick, address, Decimal(total_balance)))
                                 addresses.remove(address)
         except Exception as e:
