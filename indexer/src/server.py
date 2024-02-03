@@ -86,7 +86,6 @@ def initialize(*args, **kwargs):
 def initialize_config(
     log_file=None,
     testnet=False, regtest=False,
-    api_limit_rows=1000,
     backend_connect=None, backend_port=None,
     backend_user=None, backend_password=None,
     backend_ssl=False, backend_ssl_no_verify=False,
@@ -174,7 +173,6 @@ def initialize_config(
         logger.error("Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback))
     sys.excepthook = handle_exception
 
-    config.API_LIMIT_ROWS = api_limit_rows
 
     ##############
     # THINGS WE CONNECT TO
