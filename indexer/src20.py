@@ -387,14 +387,18 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
 
     return balances
 
+
 def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
+    ''' a revised version of get_total_user_balance_from_db to fetch only from
+        the balances table, this should be much more efficient, and we can do 
+        a cross check against the get_total_user_balance_from_db to validate and
+        for balance table rebuilds '''
 
     if isinstance(addresses, str):
         addresses = [addresses]
 
     balances = []
     BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
-
 
     with db.cursor() as src20_cursor:
         query = f"""
@@ -414,15 +418,20 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
 
         src20_cursor.execute(query, (tick, tick_hash, tuple(addresses)))
         results = src20_cursor.fetchall()
-        for result in results:
-            tick = result[0]
-            address = result[1]
-            total_balance = result[2]
-            balances.append((tick, address, total_balance))
-
-    BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
+        for address in addresses:
+            total_balance = Decimal('0')
+            highest_block_index = 0
+            block_time_unix = None
+            for result in results:
+                tick = result[0]
+                address = result[1]
+                total_balance = result[2]
+                highest_block_index = result[3]
+                block_time_unix = result[4]
+                balances.append(BalanceTuple(tick, address, total_balance, highest_block_index, block_time_unix))
 
     return balances
+
 
 def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
     ''' another heavy operation to be running on every creator/tick pair
@@ -436,6 +445,7 @@ def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
         addresses = [addresses]
 
     balances = []
+    BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
 
     with db.cursor() as src20_cursor:
         query = f"""
@@ -478,8 +488,6 @@ def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
                     total_balance += q_amt
                 if q_op == 'TRANSFER' and q_creator == address:
                     total_balance -= q_amt
-
-            BalanceTuple = namedtuple('BalanceTuple', ['tick', 'address', 'total_balance', 'highest_block_index', 'block_time_unix'])
             balances.append(BalanceTuple(tick, address, total_balance, highest_block_index, q_block_time_unix))
 
     return balances
@@ -584,7 +592,7 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
 
 def is_number(s):
     '''
-    Check if the input string is a valid number.
+    Check if the input string is a valid positive number.
 
     Args:
         s (str): The input string to be checked.
@@ -592,7 +600,7 @@ def is_number(s):
     Returns:
         bool: True if the input string is a valid number, False otherwise.
     '''
-    pattern = r'^[-+]?[0-9]*\.?[0-9]+$'
+    pattern = r'^[+]?[0-9]*\.?[0-9]+$'
     return bool(re.match(pattern, str(s)))
 
 
@@ -790,7 +798,7 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
 
             try:
                 running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], src20_dict['destination'], valid_src20_in_block)
-                if running_user_balance_tuple:  # Check if the list is not empty
+                if running_user_balance_tuple:
                     running_user_balance = running_user_balance_tuple[0].total_balance
                 else:
                     running_user_balance = Decimal('0')
