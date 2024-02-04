@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS `SRC20` (
   `max` BIGINT UNSIGNED DEFAULT NULL,
   `destination` varchar(255) COLLATE utf8mb4_bin,
   `block_time` datetime DEFAULT NULL,
-  `status` varchar(64) DEFAULT NULL,
+  `status` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   `max` BIGINT UNSIGNED DEFAULT NULL,
   `destination` varchar(255) COLLATE utf8mb4_bin,
   `block_time` datetime DEFAULT NULL,
-  `status` varchar(64) DEFAULT NULL,
+  `status` varchar(255) DEFAULT NULL,
   `locked_amt` decimal(38,18),
   `locked_block` int,
   `creator_bal` decimal(38,18) DEFAULT NULL,
