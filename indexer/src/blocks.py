@@ -15,6 +15,7 @@ from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
+import concurrent.futures
 import requests
 # import cProfile
 
@@ -696,7 +697,7 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
         ValueError: If the API ledger hash does not match the ledger hash.
         Exception: If failed to retrieve from the API after retries.
     """
-    url = config.SCR_VALIDATION_API1 + str(block_index)
+    url = config.SRC_VALIDATION_API1 + str(block_index)
     max_retries = 3
     retry_count = 0
 
@@ -734,7 +735,7 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
                         logger.warning("The strings match perfectly.")
                     else:
                         logger.warning("Total mismatches: %s", len(mismatches))
-                    raise ValueError('API ledger hash does not match ledger hash')
+                raise ValueError('API ledger hash does not match ledger hash')
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 retry_count += 1
