@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def validate_src721_and_process(src721_data, db):
     src721_data = convert_to_dict(src721_data)
-    op_val = src721_data.get("op", None).upper()
+    op_val = src721_data.get("op", "").upper()
     file_suffix = None
     if 'symbol' in src721_data:
         src721_data['tick'] = src721_data.pop('symbol')
@@ -185,7 +185,7 @@ def create_src721_mint_svg(src_data, db):
                     cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_asset,))
                     result = cursor.fetchone() # pull the deploy details this one has no src_data when it should A12314949010946956252
                     logger.info(f"asset:{collection_asset}\nresult: {result}")
-                    if result[0]:
+                    if result is not None and result[0]:
                         collection_asset_item = result[0] # Return the first column of the result
                         logger.debug("got collection asset item from db", collection_asset_item)
                     else: 
