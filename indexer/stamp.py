@@ -106,11 +106,6 @@ def rebuild_balances(db):
         cursor.execute(query)
         src20_valid_list = cursor.fetchall()
 
-        query = """
-        DELETE FROM balances
-        """
-        cursor.execute(query)
-
         logger.warning("Purging and rebuilding {} table".format('balances'))
         all_balances = {}
         for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
@@ -139,6 +134,11 @@ def rebuild_balances(db):
                     'last_update': block_index,
                     'block_time': block_time
                 }
+
+        query = """
+        DELETE FROM balances
+        """
+        cursor.execute(query)
 
         logger.warning("Inserting {} balances".format(len(all_balances)))
 
