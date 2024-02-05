@@ -299,8 +299,8 @@ def initialize_tables(db):
             cursor,
             'bootstrap/srcbackground.csv',
             '''INSERT INTO srcbackground
-            (tick, base64, font_size, text_color, unicode, p)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            (tick, tick_hash, base64, font_size, text_color, unicode, p)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
             base64 = VALUES(base64),
             font_size = VALUES(font_size),
