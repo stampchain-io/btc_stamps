@@ -96,7 +96,7 @@ def rebuild_balances(db):
     cursor = db.cursor()
 
     try:
-        logger.warning("Validating Balances Table")
+        logger.warning("Validating Balances Table..")
 
         db.begin()
         query = """
@@ -115,7 +115,6 @@ def rebuild_balances(db):
         cursor.execute(query)
         src20_valid_list = cursor.fetchall()
 
-        logger.warning("Purging and rebuilding {} table".format('balances'))
         all_balances = {}
         for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
             destination_id = tick + '_' + destination
