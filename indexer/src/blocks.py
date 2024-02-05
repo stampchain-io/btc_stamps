@@ -794,6 +794,7 @@ def follow(db):
     # check.software_version()
     check.cp_version() #FIXME: need to add version checks for the endpoints and hash validations
     initialize(db)
+    rebuild_balances(db)
 
     # Get index of last block.
     if util.CURRENT_BLOCK_INDEX == 0:
@@ -930,10 +931,15 @@ def follow(db):
                 log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
                 continue
 
+            # Define the named tuple class
+            TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return'])
+
+            # Create an empty list to store the results
+            tx_results = []
+
+            # Iterate over tx_hash
             for tx_hash in txhash_list:
-                stamp_issuance = filter_issuances_by_tx_hash(
-                    stamp_issuances, tx_hash
-                )
+                stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
 
                 tx_hex = raw_transactions[tx_hash]
                 (
@@ -956,6 +962,11 @@ def follow(db):
                     tx_hex,
                     stamp_issuance=stamp_issuance
                 )
+
+
+                # Create a named tuple with the results and append it to the list
+                result = TxResult(tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return)
+                tx_results.append(result)
                 # commits when the block is complete
                 # parsing all trx in the block
                 if data is None:
