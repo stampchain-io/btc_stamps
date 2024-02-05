@@ -96,12 +96,21 @@ def rebuild_balances(db):
     cursor = db.cursor()
 
     try:
+        logger.warning("Validating Balances Table")
+
         db.begin()
+        query = """
+        SELECT id, tick, tick_hash, address, amt, last_update
+        FROM balances where p = 'SRC-20'
+        """
+        cursor.execute(query)
+        existing_balances = [tuple(row) for row in cursor.fetchall()]  # Convert dictionaries to tuples
 
         query = """
         SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
         FROM SRC20Valid
-        WHERE op = 'TRANSFER' OR op = 'MINT'
+        WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
+        ORDER by block_index
         """
         cursor.execute(query)
         src20_valid_list = cursor.fetchall()
@@ -135,19 +144,26 @@ def rebuild_balances(db):
                     'block_time': block_time
                 }
 
-        query = """
-        DELETE FROM balances
-        """
-        cursor.execute(query)
+        if set(existing_balances) == set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items()):
+            logger.warning("No changes in balances. Skipping deletion and insertion.")
+            cursor.close()
+            return
+        else:
+            logger.warning("Purging and rebuilding {} table".format('balances'))
 
-        logger.warning("Inserting {} balances".format(len(all_balances)))
+            query = """
+            DELETE FROM balances
+            """
+            cursor.execute(query)
 
-        cursor.executemany('''INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['tick_hash'], value['address'], value['amt'],
-                            value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()])
+            logger.warning("Inserting {} balances".format(len(all_balances)))
+
+            cursor.executemany('''INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                                VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['tick_hash'], value['address'], value['amt'],
+                                value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()])
 
 
-        db.commit() 
+            db.commit() 
 
     except Exception as e:
         db.rollback()
