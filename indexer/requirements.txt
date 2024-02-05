@@ -1,6 +1,6 @@
 appdirs==1.4.4
 bitcoinlib==0.6.13
-colorlog==6.8.0
+colorlog==6.8.2
 sha3==0.2.1
 pycoin==0.92.20230326
 python-bitcoinlib==0.12.2
