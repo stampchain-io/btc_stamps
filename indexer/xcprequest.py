@@ -37,6 +37,8 @@ def fetch_cp_concurrent(block_index, block_tip):
 
         if block_tip > block_index + blocks_to_fetch:
             block_tip = block_index + blocks_to_fetch
+        else:
+            blocks_to_fetch = block_tip - block_index + 1 
 
         pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
             
