@@ -2,7 +2,7 @@ import boto3
 import config
 from botocore.exceptions import NoCredentialsError
 import logging
-from tqdm import tqdm
+import time
 
 import src.log as log
 
@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
 ''' these functions are for optional file upload to AWS S3 and Cloudfront CDN file invalidation when there is an update.'''
+
 
 
 def get_s3_objects(db, bucket_name, s3_client):
@@ -20,10 +21,18 @@ def get_s3_objects(db, bucket_name, s3_client):
         db (object): The database connection object.
         bucket_name (str): The name of the S3 bucket.
         s3_client (object): The S3 client object.
+        batch_size (int): The number of S3 objects to process in each batch.
 
     Returns:
         list: A list of dictionaries containing the keys and MD5 hashes of the existing S3 objects.
     """
+
+    def process_page(page):
+        if 'Contents' in page[1]:
+            for obj in page[1]['Contents']:
+                key = obj['Key']
+                md5 = obj['ETag'].strip('"')
+                results.append({'key': key, 'md5': md5})
 
     logger.warning(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
@@ -34,23 +43,25 @@ def get_s3_objects(db, bucket_name, s3_client):
     if results:
         logger.warning(f"Found {len(results)} existing S3 objects from database")
     else:
+        logger.warning(f"No existing S3 objects found in database")
         paginator = s3_client.get_paginator('list_objects_v2')
-        logger.warning(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
-        pages = list(paginator.paginate(Bucket=bucket_name, Prefix=config.AWS_S3_IMAGE_DIR))
+
+        logger.warning(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
+
+        start_time = time.time()
+        pages = list(paginator.paginate(Bucket=bucket_name, Prefix=config.AWS_S3_IMAGE_DIR, PaginationConfig={'PageSize': 10000}))
         total_pages = len(pages)
-        current_page = 0
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Execution time: {execution_time} seconds for {total_pages} pages")
 
-        for current_page, page in enumerate(pages, start=1):
-            if 'Contents' in page:
-                for obj in tqdm(page['Contents'], desc=f'Fetching S3 objects (Page {current_page}/{total_pages})', unit=' object', bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'):
-                    s3_object = s3_client.head_object(Bucket=bucket_name, Key=obj['Key'])
-                    results.append({'key': obj['Key'], 'md5': s3_object['ETag'].strip('"')})
-        logger.warning(f"Found {len(results)} existing S3 objects")
+        results = []
 
-        if results:
-            add_s3_objects_to_db(db, results)
-        else:
-            logger.warning(f"No existing S3 objects found")
+        for page in enumerate(pages, start=1):
+            process_page(page)
+
+        add_s3_objects_to_db(db, results)
+        logger.warning(f"Processed {len(results)} S3 objects")
 
     return results
 
@@ -65,6 +76,7 @@ def update_s3_db_objects(db, filename, file_obj_md5):
     - file_obj_md5: The MD5 hash of the file object.
     """
     try:
+        existing_id = None
         s3_file_path = f"{config.AWS_S3_IMAGE_DIR}{filename}"
         id = f"{s3_file_path}_{file_obj_md5}"
 
