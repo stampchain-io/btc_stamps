@@ -817,15 +817,15 @@ def follow(db):
     while True:
         start_time = time.time()
 
-        if stamp_issuances_list is None:
-            try:
-                block_tip = backend.getblockcount()
-            except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
-                if config.FORCE:
-                    time.sleep(config.BACKEND_POLL_INTERVAL)
-                    continue
-                else:
-                    raise e
+        try:
+            # for local nodes ad zmq here
+            block_tip = backend.getblockcount()
+        except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
+            if config.FORCE:
+                time.sleep(config.BACKEND_POLL_INTERVAL)
+                continue
+            else:
+                raise e
         #  check if last block index was full indexed and if not delete it
         #  and set block_index to block_index - 1
         if (block_index != config.BLOCK_FIRST and
