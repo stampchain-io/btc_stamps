@@ -144,11 +144,12 @@ def _get_block_count():
         )
         logger.info("get_block_count response: {}".format(response.text))
         result = json.loads(response.text)["result"]
-        if result is None:
-            logger.warning("CP block count is None")
+        if result["last_block"] is None:
+            logger.warning("CP Index blocks behind: ", result['indexd_blocks_behind'])
             return None
         return result["last_block"]["block_index"]
     except Exception as e:
+        print(result)
         logger.warning(
             "Error getting CP block count: {}".format(e)
         )
