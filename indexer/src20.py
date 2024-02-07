@@ -190,17 +190,17 @@ def check_format(input_string, tx_hash):
             deploy_keys = {"op", "tick", "max", "lim"}
             transfer_keys = {"op", "tick", "amt"}
             mint_keys = {"op", "tick", "amt"}
-            airdrop_keys = {"op", "tick", "amt", "holders_of"}
+            bulk_xfer_keys = {"op", "tick", "amt", "destinations"} # note this requires a destinations list
 
             input_keys = set(input_dict.keys())
 
             uint64_max = Decimal(2 ** 64 - 1)
-            key_sets = [deploy_keys, transfer_keys, mint_keys, airdrop_keys]
+            key_sets = [deploy_keys, transfer_keys, mint_keys, bulk_xfer_keys]
             key_values_to_check = {
                 "deploy_keys": ["max", "lim"],
                 "transfer_keys": ["amt"],
                 "mint_keys": ["amt"],
-                "airdrop_keys": ["amt"],
+                "bulk_xfer_keys": ["amt"],
             }
 
             for i, key_set in enumerate(key_sets):
@@ -320,8 +320,8 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
     """
     Calculate the running balance of multiple users based on the processed transactions 
     in current and prior blocks from the db. this is only be called once for each mint 
-    airdrop, or transfer transaction it may get many addresses from the airdrop list. The 
-    airdrop list is assumed to have only unique addresses.
+    bulk_xfer, or transfer transaction it may get many addresses from the bulk_xfer list. The 
+    bulk_xfer list is assumed to have only unique addresses.
 
     Parameters:
     - db (Database): The database object.
@@ -444,7 +444,7 @@ def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
         The address list must be unique addresses '''
     
     ## this may be better to fetch all tick/address combinations from each block and store in memory... 
-    ## would need to include the recipients of airdrops... perhaps if we see an airdrop in the block expand it out first in the dict
+    ## would need to include the recipients of bulk_xfers... perhaps if we see an bulk_xfer in the block expand it out first in the dict
     if isinstance(addresses, str):
         addresses = [addresses]
 
@@ -875,68 +875,73 @@ def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, bl
                 logger.error(f"Error updating valid src20 list: {e}")
                 raise
             
-    elif src20_dict['op'] == 'AIRDROP':
-        if deploy_lim and deploy_max:
-            target_lim, target_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['holders_of'], valid_src20_in_block)
-            if target_lim and target_max: # valid target deploy
-                if src20_dict['creator'] == src20_dict['destination']:
-                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator']], valid_src20_in_block)
-                else:
-                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
-                # running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
-                running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance')
+    # elif src20_dict['op'] == 'BULK_XFER':
+    #     if deploy_lim and deploy_max:
+    #         target_lim, target_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['holders_of'], valid_src20_in_block)
+    #         if target_lim and target_max: # valid target deploy
+    #             # validate the src20_dict['destinations'] is a list of addresses
+    #             if isinstance(src20_dict['destinations'], list):
+    #                 destination_list = src20_dict['destinations']
+    #                 # NOTE: the destination value from the transaction is ignored.
+
+    #             if src20_dict['creator'] == src20_dict['destination']:
+    #                 running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator']], valid_src20_in_block)
+    #             else:
+    #                 running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+    #             # running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
+    #             running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance')
                 
-                if running_user_balance > 0:
-                    tick_holders = get_tick_holders_from_balances(db, src20_dict['holders_of'])
-                    tick_holders.remove(src20_dict['creator']) # this removes the row of the creator from the target list
-                    if tick_holders:
-                        total_send_amt = len(tick_holders) * Decimal(src20_dict['amt'])
-                        if Decimal(total_send_amt) <= Decimal(running_user_balance_creator):
-                            # build the valid_src20_in_block list for all transactions here and update running_user_balance
-                            # append dicts for each possibly tick_holder to valid_src20_in_block
-                            # append the current dict to valid_src20_in_block for the creator
-                            # running_user_balance = Decimal(running_user_balance) - Decimal(total_send_amt)
-                            src20_dict['total_balance_creator'] = running_user_balance
-                            src20_dict['status'] = f'New Balance: {running_user_balance}'
-                            # likely need to just update amount to total send amount here or all the removals will be handled below? 
-                            # valid_src20_in_block.append(src20_dict) # this is the new balance for the creator. 
+    #             if running_user_balance > 0:
+    #                 tick_holders = get_tick_holders_from_balances(db, src20_dict['holders_of'])
+    #                 tick_holders.remove(src20_dict['creator']) # this removes the row of the creator from the target list
+    #                 if tick_holders:
+    #                     total_send_amt = len(tick_holders) * Decimal(src20_dict['amt'])
+    #                     if Decimal(total_send_amt) <= Decimal(running_user_balance_creator):
+    #                         # build the valid_src20_in_block list for all transactions here and update running_user_balance
+    #                         # append dicts for each possibly tick_holder to valid_src20_in_block
+    #                         # append the current dict to valid_src20_in_block for the creator
+    #                         # running_user_balance = Decimal(running_user_balance) - Decimal(total_send_amt)
+    #                         src20_dict['total_balance_creator'] = running_user_balance
+    #                         src20_dict['status'] = f'New Balance: {running_user_balance}'
+    #                         # likely need to just update amount to total send amount here or all the removals will be handled below? 
+    #                         # valid_src20_in_block.append(src20_dict) # this is the new balance for the creator. 
 
-                            new_dicts = []
-                            # need to get the running balance for all holders - pull this all in one shot.
-                            running_dest_balances_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], tick_holders, valid_src20_in_block)
-                            running_dest_balance_dict = create_running_user_balance_dict(running_dest_balances_tuple)
-                            # then update the total balance key value for each.
-                            for tick_holder in tick_holders:
-                                total_balance_destination = running_dest_balance_dict.get(tick_holder, {}).get('total_balance', Decimal('0'))
-                                if total_balance_destination is None:
-                                    raise RuntimeError("Airdrop: No match found between source and destination")
-                                new_dict = {
-                                    'p': 'SRC-20',
-                                    'op': 'TRANSFER',
-                                    'creator': src20_dict['creator'],
-                                    'tick': src20_dict['tick'],
-                                    'amt': src20_dict['amt'],
-                                    'destination': tick_holder,
-                                    'block_index': block_index,
-                                    'tx_hash': tx_hash,
-                                    'tx_index': tx_index,
-                                    'block_time': block_time,
-                                    'tick_hash': src20_dict['tick_hash'],
-                                    'total_balance_destination': total_balance_destination + src20_dict['amt']
-                                }
-                                new_dicts.append(new_dict)
+    #                         new_dicts = []
+    #                         # need to get the running balance for all holders - pull this all in one shot.
+    #                         running_dest_balances_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], tick_holders, valid_src20_in_block)
+    #                         running_dest_balance_dict = create_running_user_balance_dict(running_dest_balances_tuple)
+    #                         # then update the total balance key value for each.
+    #                         for tick_holder in tick_holders:
+    #                             total_balance_destination = running_dest_balance_dict.get(tick_holder, {}).get('total_balance', Decimal('0'))
+    #                             if total_balance_destination is None:
+    #                                 raise RuntimeError("bulk_xfer: No match found between source and destination")
+    #                             new_dict = {
+    #                                 'p': 'SRC-20',
+    #                                 'op': 'TRANSFER',
+    #                                 'creator': src20_dict['creator'],
+    #                                 'tick': src20_dict['tick'],
+    #                                 'amt': src20_dict['amt'],
+    #                                 'destination': tick_holder,
+    #                                 'block_index': block_index,
+    #                                 'tx_hash': tx_hash,
+    #                                 'tx_index': tx_index,
+    #                                 'block_time': block_time,
+    #                                 'tick_hash': src20_dict['tick_hash'],
+    #                                 'total_balance_destination': total_balance_destination + src20_dict['amt']
+    #                             }
+    #                             new_dicts.append(new_dict)
 
-                            valid_src20_in_block.extend(new_dicts)
-                            return
+    #                         valid_src20_in_block.extend(new_dicts)
+    #                         return
 
-                        else:
-                            logger.info(f"Invalid {src20_dict['tick']} AIRDROP - total_balance {running_user_balance} < xfer amt {total_send_amt}")
-                            src20_dict['status'] = f'BB: AIRDROP over user balance'
-            else:
-                logger.info(f"Invalid {src20_dict['holders_of']} AD - Invalid holders_of")
-                src20_dict['status'] = f'DD: Invalid holders_of'
-        else:
-            logger.info(f"Invalid {src20_dict['tick']} airdrop - amt is not a number or not >0")
+    #                     else:
+    #                         logger.info(f"Invalid {src20_dict['tick']} bulk_xfer - total_balance {running_user_balance} < xfer amt {total_send_amt}")
+    #                         src20_dict['status'] = f'BB: bulk_xfer over user balance'
+    #         else:
+    #             logger.info(f"Invalid {src20_dict['holders_of']} AD - Invalid holders_of")
+    #             src20_dict['status'] = f'DD: Invalid holders_of'
+    #     else:
+    #         logger.info(f"Invalid {src20_dict['tick']} bulk_xfer - amt is not a number or not >0")
 
     
 def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
