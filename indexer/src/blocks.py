@@ -680,6 +680,7 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
         new_txlist_hash[-5:], new_messages_hash[-5:]
     ))
     
+
 def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     """
     Validates the SRC20 ledger hash for a given block index against remote API
@@ -698,51 +699,42 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
         Exception: If failed to retrieve from the API after retries.
     """
     url = config.SRC_VALIDATION_API1 + str(block_index)
-    max_retries = 3
+    max_retries = 10
     retry_count = 0
 
     while retry_count < max_retries:
         try:
             response = requests.get(url)
-            response.raise_for_status()
-            api_ledger_hash = response.json()['data']['hash']
-            if api_ledger_hash == ledger_hash:
-                return ledger_hash
+            if response.status_code == 200:
+                api_ledger_hash = response.json()['data']['hash']
+                if api_ledger_hash == ledger_hash:
+                    return True
+                else:
+                    api_ledger_validation = response.json()['data']['balance_data']
+                    if api_ledger_validation != valid_src20_str:
+                        logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
+                        logger.warning("API ledger validation: %s", api_ledger_validation)
+                        logger.warning("Ledger validation: %s", valid_src20_str)
+                        mismatches = []
+                        for api_entry, ledger_entry in zip(api_ledger_validation, valid_src20_str):
+                            if api_entry != ledger_entry:
+                                mismatches.append((api_entry, ledger_entry))
+                        for mismatch in mismatches:
+                            logger.warning("Mismatch found:")
+                            logger.warning("API Ledger: %s", mismatch[0])
+                            logger.warning("Ledger: %s", mismatch[1])
+                        if not mismatches:
+                            logger.warning("The strings match perfectly.")
+                        else:
+                            logger.warning("Total mismatches: %s", len(mismatches))
+                    raise ValueError('API ledger hash does not match ledger hash')
             else:
-                api_ledger_validation = response.json()['data']['balance_data']
-                if api_ledger_validation != valid_src20_str:
-                    logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
-                    logger.warning("API ledger validation: %s", api_ledger_validation)
-                    logger.warning("Ledger validation: %s", valid_src20_str)
-                    # compare the sorted lists of api_ledger_validation and valid_src20_str
-                    api_ledger_entries = sorted(api_ledger_validation.split(';'))
-                    ledger_entries = sorted(valid_src20_str.split(';'))
-                    if api_ledger_entries == ledger_entries:
-                        logger.warning("The strings match in the wrong order - adjusting hashes.")
-                        # return api_ledger_hash # temporarily use their hash value
-                    # else:
-                    mismatches = []
-                    for api_entry, ledger_entry in zip(api_ledger_entries, ledger_entries):
-                        if api_entry != ledger_entry:
-                            mismatches.append((api_entry, ledger_entry))
-
-                    for mismatch in mismatches:
-                        logger.warning("Mismatch found:")
-                        logger.warning("API Ledger: %s", mismatch[0])
-                        logger.warning("Ledger: %s", mismatch[1])
-
-                    if not mismatches:
-                        logger.warning("The strings match perfectly.")
-                    else:
-                        logger.warning("Total mismatches: %s", len(mismatches))
-                raise ValueError('API ledger hash does not match ledger hash')
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
                 retry_count += 1
                 time.sleep(1)
-            else:
-                raise e
-    raise Exception('Failed to retrieve from the API after retries')
+        except requests.exceptions.RequestException as e:
+            retry_count += 1
+            time.sleep(1)
+    raise Exception(f'Failed to retrieve from the API after {max_retries} retries')
 
 
 def process_balance_updates(balance_updates):
@@ -963,8 +955,8 @@ def follow(db):
                     stamp_issuance=stamp_issuance
                 )
 
-
-                # Create a named tuple with the results and append it to the list
+                # Create a named tuple with the results and append it to the list 
+                # WIP for multithreaded processing and commiting all trx in block to db at once
                 result = TxResult(tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return)
                 tx_results.append(result)
                 # commits when the block is complete
@@ -1004,14 +996,7 @@ def follow(db):
             )
 
             if valid_src20_str:
-                returned_ledger_hash = validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
-                if returned_ledger_hash != new_ledger_hash:
-                    field='ledger_hash'
-                    # Save new hash.
-                    cursor = db.cursor()
-                    cursor.execute('''UPDATE blocks SET {} = %s WHERE block_index = %s'''.format(field), (returned_ledger_hash, block_index))
-                    cursor.close()
-
+                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
 
             stamp_issuances_list.pop(block_index, None)
             log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
