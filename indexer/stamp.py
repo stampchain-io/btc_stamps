@@ -65,6 +65,8 @@ def purge_block_db(db, block_index):
     cursor.close()
 
 
+block_cache = {}  # Cache to store previously fetched blocks
+
 def is_prev_block_parsed(db, block_index):
     """
     Check if the previous block has been parsed and indexed.
@@ -77,13 +79,22 @@ def is_prev_block_parsed(db, block_index):
         bool: True if the previous block has been parsed and indexed, False otherwise.
     """
     block_fields = config.BLOCK_FIELDS_POSITION
-    cursor = db.cursor()
-    cursor.execute('''
-                   SELECT * FROM blocks
-                   WHERE block_index = %s
-                   ''', (block_index - 1,))
-    block = cursor.fetchone()
-    cursor.close()
+
+    # Check if the block is already in the cache
+    if block_index - 1 in block_cache:
+        block = block_cache[block_index - 1]
+    else:
+        cursor = db.cursor()
+        cursor.execute('''
+                       SELECT * FROM blocks
+                       WHERE block_index = %s
+                       ''', (block_index - 1,))
+        block = cursor.fetchone()
+        cursor.close()
+
+        # Store the fetched block in the cache
+        block_cache[block_index - 1] = block
+
     if block is not None and block[block_fields['indexed']] == 1:
         return True
     else:
