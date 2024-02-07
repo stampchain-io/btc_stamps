@@ -393,7 +393,6 @@ def insert_transactions(db, transactions):
     """
     assert util.CURRENT_BLOCK_INDEX is not None
     try:
-        cursor = db.cursor()
         values = []
         for tx in transactions:
             values.append((
@@ -409,22 +408,23 @@ def insert_transactions(db, transactions):
                 tx.data,
                 tx.keyburn,
             ))
-        cursor.executemany(
-            '''INSERT INTO transactions (
-                tx_index,
-                tx_hash,
-                block_index,
-                block_hash,
-                block_time,
-                source,
-                destination,
-                btc_amount,
-                fee,
-                data,
-                keyburn
-            ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)''',
-            (values)
-        )
+        with db.cursor() as cursor:
+            cursor.executemany(
+                '''INSERT INTO transactions (
+                    tx_index,
+                    tx_hash,
+                    block_index,
+                    block_hash,
+                    block_time,
+                    source,
+                    destination,
+                    btc_amount,
+                    fee,
+                    data,
+                    keyburn
+                ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)''',
+                (values)
+            )
     except Exception as e:
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
