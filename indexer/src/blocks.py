@@ -16,6 +16,7 @@ from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
 import requests
+import concurrent.futures
 
 # import cProfile
 
@@ -214,6 +215,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
     except (DecodeError, BTCOnlyError) as e:
         return TransactionInfo(b'', None, None, None, None, None, None, None)
 
+
 def decode_address(script_pubkey):
     """
     Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
@@ -378,6 +380,55 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
+def insert_transactions(db, transactions):
+    """
+    Insert multiple transactions into the database.
+
+    Args:
+        db (DatabaseConnection): The database connection object.
+        transactions (list): A list of namedtuples representing transactions.
+
+    Returns:
+        int: The index of the last inserted transaction.
+    """
+    assert util.CURRENT_BLOCK_INDEX is not None
+    try:
+        cursor = db.cursor()
+        values = []
+        for tx in transactions:
+            values.append((
+                tx.tx_index,
+                tx.tx_hash,
+                util.CURRENT_BLOCK_INDEX,
+                tx.block_hash,
+                tx.block_time,
+                str(tx.source),
+                str(tx.destination),
+                tx.btc_amount,
+                tx.fee,
+                tx.data,
+                tx.keyburn,
+            ))
+        cursor.executemany(
+            '''INSERT INTO transactions (
+                tx_index,
+                tx_hash,
+                block_index,
+                block_hash,
+                block_time,
+                source,
+                destination,
+                btc_amount,
+                fee,
+                data,
+                keyburn
+            ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)''',
+            (values)
+        )
+    except Exception as e:
+        raise ValueError(f"Error occurred while inserting transactions: {e}")
+
+
 def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data, keyburn):
     """
     Insert a transaction into the database.
@@ -435,7 +486,7 @@ def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_tim
     return tx_index + 1
 
 
-def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=None, stamp_issuance=None):
+def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
     # NOTE: this is for future reparsing options
     # cursor = db.cursor()
@@ -468,13 +519,13 @@ def list_tx(db, block_hash, block_index, block_time, tx_hash, tx_index, tx_hex=N
     if source and (data or destination):
         logger.info('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
 
-        tx_index = insert_transaction(db, tx_index, tx_hash, block_index, block_hash, 
-                            block_time, source, destination, btc_amount, fee, data, keyburn)
-        return tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return
+        # tx_index = insert_transaction(db, tx_index, tx_hash, block_index, block_hash, 
+                            # block_time, source, destination, btc_amount, fee, data, keyburn)
+        return source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return
 
     else:
         logger.getChild('list_tx.skip').debug('Skipping transaction: {}'.format(tx_hash))
-        return tx_index, *(None for _ in range(8))
+        return  (None for _ in range(8))
 
 
 def last_db_index(db):
@@ -924,19 +975,14 @@ def follow(db):
                 block_index = commit_and_update_block(db, block_index)
                 continue
 
-            # Define the named tuple class
-            TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return'])
-
-            # Create an empty list to store the results
+            TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time'])
             tx_results = []
 
-            # Iterate over tx_hash
-            for tx_hash in txhash_list:
+            def process_tx(tx_hash):
                 stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
-
+                
                 tx_hex = raw_transactions[tx_hash]
                 (
-                    tx_index,
                     source,
                     destination,
                     btc_amount,
@@ -947,46 +993,45 @@ def follow(db):
                     is_op_return
                 ) = list_tx(
                     db,
-                    block_hash,
                     block_index,
-                    block_time,
                     tx_hash,
-                    tx_index,
                     tx_hex,
                     stamp_issuance=stamp_issuance
                 )
 
-                # commits when the block is complete
-                # parsing all trx in the block
-                if data is None:
-                    continue
-                else:
-                    # WIP for multithreaded processing and commiting all trx in block to db at once
-                    result = TxResult(tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return)
-                    tx_results.append(result)
+                return TxResult(None, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, tx_hash, block_index, block_hash, block_time)
 
-                    # end of for tx_hash loop insert transactions in bulk with multiwrite similar to: 
-                    # tx_index = insert_transaction(db, tx_index, tx_hash, block_index, block_hash, 
-                    # block_time, source, destination, btc_amount, fee, data, keyburn)
-                    # then push entire tx_results to parse_tx_to_stamp_table
- 
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(process_tx, tx_hash) for tx_hash in txhash_list]
+
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result.data is not None:
+                        result = result._replace(tx_index=tx_index)
+                        tx_results.append(result)
+                        tx_index = tx_index + 1
+
+            insert_transactions(db, tx_results)
+
+            for result in tx_results:
                 parse_tx_to_stamp_table(
                     db,
-                    tx_hash,
-                    source,
-                    destination,
-                    btc_amount,
-                    fee,
-                    data,
-                    decoded_tx,
-                    keyburn,
-                    tx_index,
-                    block_index,
-                    block_time,
-                    is_op_return,
+                    result.tx_hash,
+                    result.source,
+                    result.destination,
+                    result.btc_amount,
+                    result.fee,
+                    result.data,
+                    result.decoded_tx,
+                    result.keyburn,
+                    result.tx_index,
+                    result.block_index,
+                    result.block_time,
+                    result.is_op_return,
                     valid_stamps_in_block,
                     valid_src20_in_block
                 )
+            
             if valid_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
