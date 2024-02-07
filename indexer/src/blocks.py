@@ -15,12 +15,13 @@ from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
-import concurrent.futures
 import requests
+
 # import cProfile
 
 import config
 import src.exceptions as exceptions
+import src.server as server
 import src.util as util
 import check
 import src.script as script
@@ -796,7 +797,6 @@ def follow(db):
         block_index = util.CURRENT_BLOCK_INDEX + 1
 
     logger.info('Resuming parsing.')
-    # Get index of last transaction.
     tx_index = next_tx_index(db)
 
     # a reorg can happen without the block count increasing, or even for that
@@ -833,6 +833,8 @@ def follow(db):
             block_index -= 1
 
         if block_index <= block_tip:
+
+            db.ping()  # check db connection and reinitialize if needed
 
             if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                 stamp_issuances = stamp_issuances_list[block_index]
@@ -955,14 +957,20 @@ def follow(db):
                     stamp_issuance=stamp_issuance
                 )
 
-                # Create a named tuple with the results and append it to the list 
-                # WIP for multithreaded processing and commiting all trx in block to db at once
-                result = TxResult(tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return)
-                tx_results.append(result)
                 # commits when the block is complete
                 # parsing all trx in the block
                 if data is None:
                     continue
+                else:
+                    # WIP for multithreaded processing and commiting all trx in block to db at once
+                    result = TxResult(tx_index, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return)
+                    tx_results.append(result)
+
+                    # end of for tx_hash loop insert transactions in bulk with multiwrite similar to: 
+                    # tx_index = insert_transaction(db, tx_index, tx_hash, block_index, block_hash, 
+                    # block_time, source, destination, btc_amount, fee, data, keyburn)
+                    # then push entire tx_results to parse_tx_to_stamp_table
+ 
                 parse_tx_to_stamp_table(
                     db,
                     tx_hash,
