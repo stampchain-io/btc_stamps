@@ -21,7 +21,6 @@ import requests
 
 import config
 import src.exceptions as exceptions
-import src.server as server
 import src.util as util
 import check
 import src.script as script
