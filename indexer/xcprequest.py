@@ -62,6 +62,8 @@ def fetch_cp_concurrent(block_index, block_tip):
 
 
 def _handle_cp_call_with_retry(func, params, block_index):
+    pbar = tqdm(desc="Waiting for CP block {} to be parsed...".format(block_index), leave=True, bar_format='{desc}: {elapsed} {bar} [{postfix}]')
+    
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
             util.CP_BLOCK_COUNT = _get_block_count()
@@ -70,11 +72,10 @@ def _handle_cp_call_with_retry(func, params, block_index):
                 util.CP_BLOCK_COUNT is not None
                 and block_index <= util.CP_BLOCK_COUNT
             ):
+                pbar.close()  # Close the progress bar  
                 break
             else:
-                logger.warning(
-                    "Waiting for CP block {} to be parsed...".format(block_index)
-                )
+                pbar.refresh()  # Refresh the progress bar
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except (TypeError, Exception) as e:
             logger.warning(
