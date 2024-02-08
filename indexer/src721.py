@@ -45,23 +45,32 @@ def convert_to_dict(json_string_or_dict):
 
 
 def fetch_src721_subasset_base64(asset_name, json_list, db):
-    # check if stamp_base64 is already in the json_list for thc cpid
-    collection_sub_asset_base64 = None
+    if asset_name in fetch_src721_subasset_base64.cache:
+        return fetch_src721_subasset_base64.cache[asset_name]
+    # collection_sub_asset_base64 = None
     #FIXME: this is the same block query, need to build the json_list, from create_src721_mint_svg
     # collection_sub_asset_base64 = next((item for item in json_list if item["asset"] == asset_name), None)
     # if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
         # print("collection_sub_asset_base64", collection_sub_asset_base64)
         # return collection_sub_asset_base64["stamp_base64"]
     # else:
-    # this assumes the collection asset is already committed to the db... 
+    # Fetch the asset from the database
     with db.cursor() as cursor:
         sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
         cursor.execute(sql, (asset_name,))
         result = cursor.fetchone()
         if result:
-            return result[0]  # Return the first column of the result (which should be the base64 string)
+            base64_string = result[0]
         else:
             raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
+
+    # Cache the result
+    fetch_src721_subasset_base64.cache[asset_name] = base64_string
+
+    return base64_string
+
+# Initialize the cache dictionary
+fetch_src721_subasset_base64.cache = {}
 
 
 def fetch_src721_collection(tmp_collection_object, json_list, db):
