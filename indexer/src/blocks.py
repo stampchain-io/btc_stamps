@@ -48,6 +48,8 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  
 
+TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time'])
+
 
 def initialize(db):
     """initialize data, create and populate the database."""
@@ -820,6 +822,30 @@ def process_balance_updates(balance_updates):
     return valid_src20_str
 
 
+def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
+    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
+    
+    tx_hex = raw_transactions[tx_hash]
+    (
+        source,
+        destination,
+        btc_amount,
+        fee,
+        data,
+        decoded_tx,
+        keyburn,
+        is_op_return
+    ) = list_tx(
+        db,
+        block_index,
+        tx_hash,
+        tx_hex,
+        stamp_issuance=stamp_issuance
+    )
+
+    return TxResult(None, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, tx_hash, block_index, None, None)
+
+
 def follow(db): 
     """
     Continuously follows the blockchain, parsing and indexing new blocks
@@ -975,39 +1001,15 @@ def follow(db):
                 block_index = commit_and_update_block(db, block_index)
                 continue
 
-            TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time'])
             tx_results = []
 
-            def process_tx(tx_hash):
-                stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
-                
-                tx_hex = raw_transactions[tx_hash]
-                (
-                    source,
-                    destination,
-                    btc_amount,
-                    fee,
-                    data,
-                    decoded_tx,
-                    keyburn,
-                    is_op_return
-                ) = list_tx(
-                    db,
-                    block_index,
-                    tx_hash,
-                    tx_hex,
-                    stamp_issuance=stamp_issuance
-                )
-
-                return TxResult(None, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, tx_hash, block_index, block_hash, block_time)
-
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(process_tx, tx_hash) for tx_hash in txhash_list]
+                futures = [executor.submit(process_tx, db, tx_hash, block_index, stamp_issuances, raw_transactions) for tx_hash in txhash_list]
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
                     if result.data is not None:
-                        result = result._replace(tx_index=tx_index)
+                        result = result._replace(tx_index=tx_index, block_index=block_index, block_hash=block_hash, block_time=block_time)
                         tx_results.append(result)
                         tx_index = tx_index + 1
 
