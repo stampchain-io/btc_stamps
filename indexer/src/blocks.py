@@ -915,7 +915,11 @@ def follow(db):
             if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                 stamp_issuances = stamp_issuances_list[block_index]
             else:
-                stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip)
+                if block_index + 1 == block_tip:
+                    indicator = True
+                else:
+                    indicator = None
+                stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
                 stamp_issuances = stamp_issuances_list[block_index]
 
             if block_tip - block_index < 100:
