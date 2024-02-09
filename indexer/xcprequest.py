@@ -26,7 +26,7 @@ def _create_payload(method, params):
     return base_payload
 
 
-def fetch_cp_concurrent(block_index, block_tip): 
+def fetch_cp_concurrent(block_index, block_tip, indicator=None): 
     ''' testing with this method because we were initially getting invalid results
         when using the get_blocks[xxx,yyyy,zzz] method to the CP API '''
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -43,7 +43,7 @@ def fetch_cp_concurrent(block_index, block_tip):
         pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
             
         while block_index <= block_tip:
-            future = executor.submit(get_xcp_block_data, block_index)
+            future = executor.submit(get_xcp_block_data, block_index, indicator=indicator)
             future.block_index = block_index  # Save the block_index with the future
             futures.append(future)
             block_index += 1
@@ -61,7 +61,10 @@ def fetch_cp_concurrent(block_index, block_tip):
     return sorted_results
 
 
-def _handle_cp_call_with_retry(func, params, block_index):
+def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
+    if indicator is not None:
+        pbar = tqdm(desc="Waiting for CP block {} to be parsed...".format(block_index), leave=True, bar_format='{desc}: {elapsed} {bar} [{postfix}]')
+    
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
             util.CP_BLOCK_COUNT = _get_block_count()
@@ -70,11 +73,12 @@ def _handle_cp_call_with_retry(func, params, block_index):
                 util.CP_BLOCK_COUNT is not None
                 and block_index <= util.CP_BLOCK_COUNT
             ):
+                if indicator is not None:
+                    pbar.close()
                 break
             else:
-                logger.warning(
-                    "Waiting for CP block {} to be parsed...".format(block_index)
-                )
+                if indicator is not None:
+                    pbar.refresh()
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except (TypeError, Exception) as e:
             logger.warning(
@@ -214,13 +218,14 @@ def _get_issuances_by_block(block_index):
     )
 
 
-def _get_all_tx_by_block(block_index):
+def _get_all_tx_by_block(block_index, indicator=None):
     return _handle_cp_call_with_retry(
         func=_get_block,
         params={
             "block_indexes": [block_index]
         },
-        block_index=block_index
+        block_index=block_index,
+        indicator=indicator
     )
 
 
@@ -245,8 +250,8 @@ def _get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
     )
 
 
-def get_xcp_block_data(block_index):
-    block_data_from_xcp = _get_all_tx_by_block(block_index)
+def get_xcp_block_data(block_index, indicator=None):
+    block_data_from_xcp = _get_all_tx_by_block(block_index, indicator=indicator)
     parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
     stamp_issuances = parsed_block_data['issuances']
     # logger.warning(
