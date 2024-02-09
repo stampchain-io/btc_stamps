@@ -45,23 +45,30 @@ def convert_to_dict(json_string_or_dict):
 
 
 def fetch_src721_subasset_base64(asset_name, json_list, db):
-    # check if stamp_base64 is already in the json_list for thc cpid
-    collection_sub_asset_base64 = None
+    if asset_name in fetch_src721_subasset_base64.cache:
+        return fetch_src721_subasset_base64.cache[asset_name]
+    # collection_sub_asset_base64 = None
     #FIXME: this is the same block query, need to build the json_list, from create_src721_mint_svg
     # collection_sub_asset_base64 = next((item for item in json_list if item["asset"] == asset_name), None)
     # if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
         # print("collection_sub_asset_base64", collection_sub_asset_base64)
         # return collection_sub_asset_base64["stamp_base64"]
     # else:
-    # this assumes the collection asset is already committed to the db... 
+    # Fetch the asset from the database
     with db.cursor() as cursor:
         sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
         cursor.execute(sql, (asset_name,))
         result = cursor.fetchone()
         if result:
-            return result[0]  # Return the first column of the result (which should be the base64 string)
+            base64_string = result[0]
         else:
             raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
+
+    fetch_src721_subasset_base64.cache[asset_name] = base64_string
+
+    return base64_string
+
+fetch_src721_subasset_base64.cache = {}
 
 
 def fetch_src721_collection(tmp_collection_object, json_list, db):
@@ -180,19 +187,7 @@ def create_src721_mint_svg(src_data, db):
             # collection_asset_item = collection_asset_dict.get("src_data", None)
         if collection_asset_item is None:
             # print("collection asset item is not in the src_data - fetching from db") #DEBUG
-            try:
-                with db.cursor() as cursor:
-                    cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_asset,))
-                    result = cursor.fetchone() # pull the deploy details this one has no src_data when it should A12314949010946956252
-                    logger.info(f"asset:{collection_asset}\nresult: {result}")
-                    if result is not None and result[0]:
-                        collection_asset_item = result[0] # Return the first column of the result
-                        logger.debug("got collection asset item from db", collection_asset_item)
-                    else: 
-                        collection_asset_item = None
-                        logger.warning(f"Failed to fetch deploy src_data for cpid from database")
-            except Exception as e:
-                raise e
+            fetch_collection_asset_item(collection_asset, db)
         logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
             logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
@@ -212,3 +207,37 @@ def create_src721_mint_svg(src_data, db):
         logger.debug("this is a mint without a collection asset reference") #DEBUG
         svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
     return svg_output
+
+
+def fetch_collection_asset_item(collection_asset, db):
+    """
+    Fetches the collection asset item from the database.
+
+    Args:
+        collection_asset (str): The CPID of the collection / parent asset.
+        db: The database connection object.
+
+    Returns:
+        str: The collection asset item.
+    """
+    if collection_asset in fetch_collection_asset_item.cache:
+        return fetch_collection_asset_item.cache[collection_asset]
+
+    try:
+        with db.cursor() as cursor:
+            cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_asset,))
+            result = cursor.fetchone()
+            logger.info(f"asset:{collection_asset}\nresult: {result}")
+            if result is not None and result[0]:
+                collection_asset_item = result[0]
+                logger.debug("got collection asset item from db", collection_asset_item)
+            else:
+                collection_asset_item = None
+                logger.warning(f"Failed to fetch deploy src_data for cpid from database")
+    except Exception as e:
+        raise e
+
+    fetch_collection_asset_item.cache[collection_asset] = collection_asset_item
+    return collection_asset_item
+
+fetch_collection_asset_item.cache = {}
