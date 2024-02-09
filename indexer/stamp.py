@@ -31,7 +31,16 @@ from src.aws import (
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
-CACHED_STAMP = {} 
+CACHED_STAMP = {}
+BLOCK_CACHE = {}
+
+
+def reset_globals():
+    global CACHED_STAMP
+    global BLOCK_CACHE
+    CACHED_STAMP = {}
+    BLOCK_CACHE = {}
+
 
 def purge_block_db(db, block_index):
     """Purge transactions from the database. This is for a reorg or
@@ -44,6 +53,7 @@ def purge_block_db(db, block_index):
     Returns:
         None
     """
+    reset_globals()
     cursor = db.cursor()
     
     tables = [
@@ -65,8 +75,6 @@ def purge_block_db(db, block_index):
     cursor.close()
 
 
-block_cache = {}  # Cache to store previously fetched blocks
-
 def is_prev_block_parsed(db, block_index):
     """
     Check if the previous block has been parsed and indexed.
@@ -81,8 +89,8 @@ def is_prev_block_parsed(db, block_index):
     block_fields = config.BLOCK_FIELDS_POSITION
 
     # Check if the block is already in the cache
-    if block_index - 1 in block_cache:
-        block = block_cache[block_index - 1]
+    if block_index - 1 in BLOCK_CACHE:
+        block = BLOCK_CACHE[block_index - 1]
     else:
         cursor = db.cursor()
         cursor.execute('''
@@ -93,7 +101,7 @@ def is_prev_block_parsed(db, block_index):
         cursor.close()
 
         # Store the fetched block in the cache
-        block_cache[block_index - 1] = block
+        BLOCK_CACHE[block_index - 1] = block
 
     if block is not None and block[block_fields['indexed']] == 1:
         return True
