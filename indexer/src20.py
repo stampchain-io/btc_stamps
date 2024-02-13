@@ -66,9 +66,9 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
 
     if (input_dict.get("op").upper() == "DEPLOY"):
         dict_to_use = {
-            "p": input_dict.get("p", None).lower(),
-            "op": input_dict.get("op", None).lower(),
-            "tick": input_dict.get("tick", None).lower(),
+            "p": input_dict.get("p", None).upper(),
+            "op": input_dict.get("op", None).upper(),
+            "tick": input_dict.get("tick", None).upper(),
             "max": input_dict.get("max", None),
             "lim": input_dict.get("lim", None),
         }
@@ -76,18 +76,18 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
         input_dict.get("op").upper() == "MINT"
     ):
         dict_to_use = {
-            "p": input_dict.get("p", None).lower(),
-            "op": input_dict.get("op", None).lower(),
-            "tick": input_dict.get("tick", None).lower(),
+            "p": input_dict.get("p", None).upper(),
+            "op": input_dict.get("op", None).upper(),
+            "tick": input_dict.get("tick", None).upper(),
             "amt": input_dict.get("amt", None),
         }
     elif (
         input_dict.get("op").upper() == "TRANSFER"
     ):
         dict_to_use = {
-            "p": input_dict.get("p", None).lower(),
-            "op": input_dict.get("op", None).lower(),
-            "tick": input_dict.get("tick", None).lower(),
+            "p": input_dict.get("p", None).upper(),
+            "op": input_dict.get("op", None).upper(),
+            "tick": input_dict.get("tick", None).upper(),
             "amt": input_dict.get("amt", None),
         }
 
