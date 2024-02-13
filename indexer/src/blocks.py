@@ -1007,16 +1007,38 @@ def follow(db):
 
             tx_results = []
 
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(process_tx, db, tx_hash, block_index, stamp_issuances, raw_transactions) for tx_hash in txhash_list]
+            # with concurrent.futures.ThreadPoolExecutor() as executor:
+            #     futures = [executor.submit(process_tx, db, tx_hash, block_index, stamp_issuances, raw_transactions) for tx_hash in txhash_list]
 
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    if result.data is not None:
-                        result = result._replace(tx_index=tx_index, block_index=block_index, block_hash=block_hash, block_time=block_time)
-                        tx_results.append(result)
-                        tx_index = tx_index + 1
+            #     for future in concurrent.futures.as_completed(futures):
+            #         result = future.result()
+            #         if result.data is not None:
+            #             result = result._replace(tx_index=tx_index, block_index=block_index, block_hash=block_hash, block_time=block_time)
+            #             tx_results.append(result)
 
+            #     tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
+
+            #     for result in tx_results:
+            #         result = result._replace(tx_index=tx_index)
+            #         tx_index = tx_index + 1
+
+
+
+            for tx_hash in txhash_list:
+                result = process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions)
+                if result.data is not None:
+                    result = result._replace(tx_index=tx_index, block_index=block_index, block_hash=block_hash, block_time=block_time)
+                    tx_results.append(result)
+                    tx_index = tx_index + 1
+
+            # tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
+
+            # for result in tx_results:
+            #     result = result._replace(tx_index=tx_index)
+            #     tx_index = tx_index + 1
+
+
+        
             insert_transactions(db, tx_results)
 
             for result in tx_results:
