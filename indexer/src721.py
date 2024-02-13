@@ -8,18 +8,28 @@ from src20 import get_srcbackground_data
 logger = logging.getLogger(__name__)
 
 
-def validate_src721_and_process(src721_data, db):
-    src721_data = convert_to_dict(src721_data)
-    op_val = src721_data.get("op", "").upper()
+def parse_valid_src721_in_block(valid_stamps_in_block):
+    valid_src721_in_block = []
+    for stamp in valid_stamps_in_block:
+        if stamp.get("op", "").upper() == "DEPLOY":
+            valid_src721_in_block.append(stamp)
+    return valid_src721_in_block
+
+
+def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
+    if valid_stamps_in_block:
+        valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
+    src721_json = convert_to_dict(src721_json)
+    op_val = src721_json.get("op", "").upper()
     file_suffix = None
-    if 'symbol' in src721_data:
-        src721_data['tick'] = src721_data.pop('symbol')
+    if 'symbol' in src721_json:
+        src721_json['tick'] = src721_json.pop('symbol')
     if op_val == "MINT":
-        svg_output = create_src721_mint_svg(src721_data, db)
+        svg_output = create_src721_mint_svg(src721_json, valid_src721_in_block, db)
         file_suffix = 'svg'
     elif op_val == "DEPLOY":
-        deploy_description = src721_data.get("description", None)
-        deploy_name = src721_data.get("name", None)
+        deploy_description = src721_json.get("description", None)
+        deploy_name = src721_json.get("name", None)
         svg_output = get_src721_svg_string(
             deploy_name,
             deploy_description,
@@ -44,25 +54,23 @@ def convert_to_dict(json_string_or_dict):
         raise TypeError("Input must be a JSON-formatted string or a Python dictionary object")
 
 
-def fetch_src721_subasset_base64(asset_name, json_list, db):
+def fetch_src721_subasset_base64(asset_name, valid_src721_in_block, db):
     if asset_name in fetch_src721_subasset_base64.cache:
         return fetch_src721_subasset_base64.cache[asset_name]
-    # collection_sub_asset_base64 = None
-    #FIXME: this is the same block query, need to build the json_list, from create_src721_mint_svg
-    # collection_sub_asset_base64 = next((item for item in json_list if item["asset"] == asset_name), None)
-    # if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
-        # print("collection_sub_asset_base64", collection_sub_asset_base64)
-        # return collection_sub_asset_base64["stamp_base64"]
-    # else:
-    # Fetch the asset from the database
-    with db.cursor() as cursor:
-        sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
-        cursor.execute(sql, (asset_name,))
-        result = cursor.fetchone()
-        if result:
-            base64_string = result[0]
-        else:
-            raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
+    collection_sub_asset_base64 = None
+    collection_sub_asset_base64 = next((item for item in valid_src721_in_block if item["cpid"] == asset_name), None)
+    if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
+        return collection_sub_asset_base64["stamp_base64"]
+    else:
+        # Fetch the asset from the database
+        with db.cursor() as cursor:
+            sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
+            cursor.execute(sql, (asset_name,))
+            result = cursor.fetchone()
+            if result:
+                base64_string = result[0]
+            else:
+                raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
 
     fetch_src721_subasset_base64.cache[asset_name] = base64_string
 
@@ -71,7 +79,7 @@ def fetch_src721_subasset_base64(asset_name, json_list, db):
 fetch_src721_subasset_base64.cache = {}
 
 
-def fetch_src721_collection(tmp_collection_object, json_list, db):
+def fetch_src721_collection(tmp_collection_object, valid_src721_in_block, db):
     """
     Fetches the src721 collection by adding the tx-img key to the collection object.
 
@@ -85,21 +93,20 @@ def fetch_src721_collection(tmp_collection_object, json_list, db):
     """
     output_object = copy.deepcopy(tmp_collection_object)
     
-    with db.cursor() as cursor:
-        for i in range(10):
-            key = f"t{i}"
-            if key in output_object:
-                img_key = f"{key}-img"
-                output_object[img_key] = []
-                for j, asset_name in enumerate(output_object[key]):
-                    logger.debug(f"--- Loading t[{i}][{j}]")
-                    try:
-                        img_data = fetch_src721_subasset_base64(asset_name, json_list, db)
-                        output_object[img_key].append(img_data)
-                    except Exception as e:
-                        logging.exception('An error occurred during execution', e, stack_info=True, exc_info=True)
-                        raise RuntimeError(f"Unable to load t{i}[{j}] {e}")
-    
+    for i in range(10):
+        key = f"t{i}"
+        if key in output_object:
+            img_key = f"{key}-img"
+            output_object[img_key] = []
+            for j, asset_name in enumerate(output_object[key]):
+                logger.debug(f"--- Loading t[{i}][{j}]")
+                try:
+                    img_data = fetch_src721_subasset_base64(asset_name, valid_src721_in_block, db)
+                    output_object[img_key].append(img_data)
+                except Exception as e:
+                    logging.exception('An error occurred during execution', e, stack_info=True, exc_info=True)
+                    raise RuntimeError(f"Unable to load t{i}[{j}] {e}")
+
     return output_object
 
 
@@ -163,7 +170,7 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     return textwrap.dedent(svg)
 
 
-def create_src721_mint_svg(src_data, db):
+def create_src721_mint_svg(src_data, valid_src721_in_block, db):
     """
     Creates an SVG string for a minted SRC-721 token.
 
@@ -180,14 +187,11 @@ def create_src721_mint_svg(src_data, db):
     collection_asset_item = None
     
     if collection_asset:
-        ## FIXME: This is problematic if the collection asset is in the same block because the additional items will not show up in the src_data as in the current indexer
-        # get the collection asset from the existing src_data if in the same block 
-        # collection_asset_dict = next((item for item in dict(src_data) if item.get("asset") == collection_asset), None)
-        # if collection_asset_dict:
-            # collection_asset_item = collection_asset_dict.get("src_data", None)
+        collection_asset_dict = next((item for item in dict(valid_src721_in_block) if item.get("cpid") == collection_asset), None)
+        if collection_asset_dict:
+            collection_asset_item = collection_asset_dict.get("src_data", None)
         if collection_asset_item is None:
-            # print("collection asset item is not in the src_data - fetching from db") #DEBUG
-            fetch_collection_asset_item(collection_asset, db)
+            fetch_collection_details(collection_asset, db)
         logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
             logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
@@ -195,7 +199,7 @@ def create_src721_mint_svg(src_data, db):
         elif collection_asset_item and ts:
             try:
                 src_collection_data = convert_to_dict(collection_asset_item)
-                src_collection_data = fetch_src721_collection(src_collection_data, src_data, db)
+                src_collection_data = fetch_src721_collection(src_collection_data, valid_src721_in_block, db)
                 svg_output = build_src721_stacked_svg(src_data, src_collection_data)
             except Exception as e:
                 logger.warning(f"ERROR: processing SRC-721 data: {e}")
@@ -209,7 +213,7 @@ def create_src721_mint_svg(src_data, db):
     return svg_output
 
 
-def fetch_collection_asset_item(collection_asset, db):
+def fetch_collection_details(collection_cpid, db):
     """
     Fetches the collection asset item from the database.
 
@@ -220,14 +224,14 @@ def fetch_collection_asset_item(collection_asset, db):
     Returns:
         str: The collection asset item.
     """
-    if collection_asset in fetch_collection_asset_item.cache:
-        return fetch_collection_asset_item.cache[collection_asset]
+    if collection_cpid in fetch_collection_details.cache:
+        return fetch_collection_details.cache[collection_cpid]
 
     try:
         with db.cursor() as cursor:
-            cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_asset,))
+            cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_cpid,))
             result = cursor.fetchone()
-            logger.info(f"asset:{collection_asset}\nresult: {result}")
+            logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
                 collection_asset_item = result[0]
                 logger.debug("got collection asset item from db", collection_asset_item)
@@ -237,7 +241,7 @@ def fetch_collection_asset_item(collection_asset, db):
     except Exception as e:
         raise e
 
-    fetch_collection_asset_item.cache[collection_asset] = collection_asset_item
+    fetch_collection_details.cache[collection_cpid] = collection_asset_item
     return collection_asset_item
 
-fetch_collection_asset_item.cache = {}
+fetch_collection_details.cache = {}
