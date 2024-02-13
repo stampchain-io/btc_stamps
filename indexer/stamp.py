@@ -727,7 +727,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if valid_src20:
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
-            # src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
@@ -751,8 +750,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
         if is_reissue and is_valid_base64:
             # possibly make these cursed. in the current logic this would mean duplicate stamps for the same cpid...
-            # these will be written with a null stamp number 
-            pass
+            # these are saved to transactions table, but not StampTable
+            return
     elif stamp.get('asset_longname') is not None:
         stamp['cpid'] = stamp.get('asset_longname')
         is_cursed = 1
