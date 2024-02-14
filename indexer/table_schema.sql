@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
   INDEX `stamp_index` (`stamp`),
   INDEX `idx_stamp` (`is_btc_stamp`, `ident`, `stamp` DESC, `tx_index` DESC),
-  FOREIGN KEY (`tx_hash`) REFERENCES transactions(`tx_hash`)
+  FOREIGN KEY (`tx_hash`, `tx_index`) REFERENCES transactions(`tx_hash`, `tx_index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `srcbackground` (
