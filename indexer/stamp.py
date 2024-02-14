@@ -785,8 +785,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     elif is_cursed:
         stamp_number = get_next_number(db, 'cursed') # this includes reissued items and op_return
     else:
-        stamp_number = None
-    
+        stamp_number = None # need to save these in the db do detect invalid reissuances of prior stamp: trx
     if cpid and (is_btc_stamp):
         processed_stamps_dict = {
             'stamp': stamp_number,
