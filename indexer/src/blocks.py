@@ -48,7 +48,7 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  
 
-TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time'])
+TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time', 'p2wsh_data'])
 
 
 def initialize(db):
@@ -78,7 +78,7 @@ def initialize(db):
     cursor.close()
 
 
-def process_vout(ctx):
+def process_vout(ctx, stamp_issuance=None):
     """
     Process all the out values of a transaction.
 
@@ -131,6 +131,10 @@ def process_vout(ctx):
                 #   4: OP_CHECKSIG
         elif asm[0] == 'OP_RETURN':
             is_op_return = True
+        elif stamp_issuance and asm[0] == 0 and len(asm[1]) == 32:
+            # Pay-to-Witness-Script-Hash (P2WSH)
+            pubkeys = script.get_p2wsh(asm)
+            pubkeys_compiled += pubkeys
 
     vOutInfo = namedtuple('vOutInfo', ['pubkeys_compiled', 'keyburn', 'is_op_return', 'fee'])
 
@@ -161,24 +165,29 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         Returns normalized None data for DecodeError and BTCOnlyError.
     """
  
-    TransactionInfo = namedtuple('TransactionInfo', ['source', 'destinations', 'btc_amount', 'fee', 'data', 'ctx', 'keyburn', 'is_op_return'])
+    TransactionInfo = namedtuple('TransactionInfo', ['source', 'destinations', 'btc_amount', 'fee', 'data', 'ctx', 'keyburn', 'is_op_return', 'p2wsh_data'])
 
     try:
         if not block_index:
             block_index = util.CURRENT_BLOCK_INDEX
         
-        destinations, btc_amount, data,  = [], 0, b''
+        destinations, btc_amount, data, p2wsh_data = [], 0, b'', b''
 
         ctx = backend.deserialize(tx_hex)
-        vout_info = process_vout(ctx)
+        vout_info = process_vout(ctx, stamp_issuance=stamp_issuance)
         pubkeys_compiled = vout_info.pubkeys_compiled
         keyburn = getattr(vout_info, 'keyburn', None)
         is_op_return = getattr(vout_info, 'is_op_return', None)
         fee = getattr(vout_info, 'fee', None)
 
         if stamp_issuance is not None:
-            # NOTE: rounding fee because of table data type need more precision? 
-            return TransactionInfo(None, None, btc_amount, round(fee), None, None, keyburn, is_op_return)
+            if pubkeys_compiled:
+                chunk = b''
+                for pubkey in pubkeys_compiled:
+                    chunk += pubkey       
+                pubkey_len = int.from_bytes(chunk[0:2], byteorder='big')
+                p2wsh_data = chunk[2:2+pubkey_len]
+            return TransactionInfo(None, None, btc_amount, round(fee), None, None, keyburn, is_op_return, p2wsh_data)
 
         if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the SRC-20 data
             chunk = b''
@@ -212,10 +221,10 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         # Decode the address associated with the output.
         source = decode_address(prev_vout_script_pubkey)
 
-        return TransactionInfo(str(source), destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return)
+        return TransactionInfo(str(source), destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return, None)
 
     except (DecodeError, BTCOnlyError) as e:
-        return TransactionInfo(b'', None, None, None, None, None, None, None)
+        return TransactionInfo(b'', None, None, None, None, None, None, None, None)
 
 
 def decode_address(script_pubkey):
@@ -278,7 +287,6 @@ def decode_checkmultisig(ctx, chunk):
     else:
         return None, data
             
-
 
 def reinitialize(db, block_index=None):
     ''' Not yet implemented for stamps  '''
@@ -431,63 +439,6 @@ def insert_transactions(db, transactions):
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
 
-def insert_transaction(db, tx_index, tx_hash, block_index, block_hash, block_time, source, destination, btc_amount, fee, data, keyburn):
-    """
-    Insert a transaction into the database.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        tx_index (int): The index of the transaction.
-        tx_hash (str): The hash of the transaction.
-        block_index (int): The index of the block containing the transaction.
-        block_hash (str): The hash of the block containing the transaction.
-        block_time (int): The timestamp of the block containing the transaction.
-        source (str): The source address of the transaction.
-        destination (str): The destination address of the transaction.
-        btc_amount (float): The amount of BTC involved in the transaction.
-        fee (float): The transaction fee.
-        data (str): Additional data associated with the transaction.
-        keyburn (str): The keyburn value of the transaction.
-
-    Returns:
-        int: The index of the inserted transaction.
-    """
-    assert block_index == util.CURRENT_BLOCK_INDEX
-    try:
-        cursor = db.cursor()
-        cursor.execute(
-            '''INSERT INTO transactions (
-                tx_index,
-                tx_hash,
-                block_index,
-                block_hash,
-                block_time,
-                source,
-                destination,
-                btc_amount,
-                fee,
-                data,
-                keyburn
-            ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)''',
-            (
-                tx_index,
-                tx_hash,
-                block_index,
-                block_hash,
-                block_time,
-                str(source),
-                str(destination),
-                btc_amount,
-                fee,
-                data,
-                keyburn,
-            )
-        )
-    except Exception as e:
-        raise ValueError(f"Error occurred while inserting transaction: {e}")
-    return tx_index + 1
-
-
 def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
     # NOTE: this is for future reparsing options
@@ -510,6 +461,7 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     decoded_tx = getattr(transaction_info, 'ctx', None)
     keyburn = getattr(transaction_info, 'keyburn', None)
     is_op_return = getattr(transaction_info, 'is_op_return', None)
+    p2wsh_data = getattr(transaction_info, 'p2wsh_data', None)
 
     assert block_index == util.CURRENT_BLOCK_INDEX
 
@@ -521,13 +473,11 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     if source and (data or destination):
         logger.info('Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}'.format(tx_hash, data, keyburn, is_op_return))
 
-        # tx_index = insert_transaction(db, tx_index, tx_hash, block_index, block_hash, 
-                            # block_time, source, destination, btc_amount, fee, data, keyburn)
-        return source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return
+        return source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
 
     else:
         logger.getChild('list_tx.skip').debug('Skipping transaction: {}'.format(tx_hash))
-        return  (None for _ in range(8))
+        return  (None for _ in range(9))
 
 
 def last_db_index(db):
@@ -834,7 +784,8 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
         data,
         decoded_tx,
         keyburn,
-        is_op_return
+        is_op_return,
+        p2wsh_data
     ) = list_tx(
         db,
         block_index,
@@ -843,7 +794,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
         stamp_issuance=stamp_issuance
     )
 
-    return TxResult(None, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, tx_hash, block_index, None, None)
+    return TxResult(None, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, tx_hash, block_index, None, None, p2wsh_data)
 
 
 def follow(db): 
@@ -1008,7 +959,10 @@ def follow(db):
             tx_results = []
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(process_tx, db, tx_hash, block_index, stamp_issuances, raw_transactions) for tx_hash in txhash_list]
+                futures = []
+                for tx_hash in txhash_list:
+                    future = executor.submit(process_tx, db, tx_hash, block_index, stamp_issuances, raw_transactions)
+                    futures.append(future)
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
@@ -1046,7 +1000,8 @@ def follow(db):
                     result.block_time,
                     result.is_op_return,
                     valid_stamps_in_block,
-                    valid_src20_in_block
+                    valid_src20_in_block,
+                    result.p2wsh_data
                 )
             if valid_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)

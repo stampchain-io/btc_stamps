@@ -502,7 +502,7 @@ def reformat_src_string_get_ident(decoded_data):
     return ident, file_suffix
 
 
-def zlib_decompress(compressed_data):
+def zlib_decompress(compressed_data, block_index):
     """
     Decompresses zlib-compressed data and returns the decompressed data as a JSON string.
 
@@ -522,6 +522,14 @@ def zlib_decompress(compressed_data):
     """
     try:
         uncompressed_data = zlib.decompress(compressed_data) # suffix = plain /  Uncompressed data: b'\x85\xa1p\xa6src-20\xa2op\xa6deploy\xa4tick\xa4ordi\xa3max\xa821000000\xa3lim\xa41000'
+        # DEBUG: msgpack support for all stamps
+        # uncompressed_file_suffix = get_file_suffix(uncompressed_data, block_index)
+        # if uncompressed_file_suffix == 'plain':
+        #     print("found plaintext - check for json string")
+        #     # may need to do msgpack here. 
+        #     if (type(uncompressed_data) is str and is_json_string(uncompressed_data)):
+        #         print("found json string")
+
         decoded_data = msgpack.unpackb(uncompressed_data) #  {'p': 'src-20', 'op': 'deploy', 'tick': 'kevin', 'max': '21000000', 'lim': '1000'}
         json_string = json.dumps(decoded_data)
         file_suffix = "json"
@@ -576,7 +584,7 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
             elif decoded_data and type(decoded_data) is bytes:
                 file_suffix = get_file_suffix(decoded_data, block_index)
                 if file_suffix in ['zlib']:
-                    ident, file_suffix, decoded_data = zlib_decompress(decoded_data)
+                    ident, file_suffix, decoded_data = zlib_decompress(decoded_data, block_index)
                 else:
                     ident = 'STAMP'
             else:
@@ -669,7 +677,7 @@ def check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp):
 
 
 def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, valid_src20_in_block):
+                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, valid_src20_in_block, p2wsh_data):
     """
     Parses a transaction and extracts stamp-related information to be stored in the stamp table.
 
@@ -712,7 +720,14 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if decoded_base64 is not None:
         (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
         file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-    else:
+    elif p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START:
+        stamp_base64 = base64.b64encode(p2wsh_data).decode()
+        decoded_base64, is_valid_base64 = decode_base64(stamp_base64, block_index)
+        # decoded_base64 = p2wsh_data # bytestring
+        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
+        file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
+        is_op_return = None # reset this because p2wsh typically have op_return tx
+    else:    
         ident, file_suffix = 'UNKNOWN', None
 
     valid_cp_src20 = (
@@ -735,7 +750,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if valid_src20:
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
-            # src20_string = convert_to_dict_or_string(src20_dict, output_format='string')
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
@@ -745,7 +759,6 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
-        # TODO: add a list of src721 tx to built for each block like we do with valid_stamps_in_block below.
         (svg_output, file_suffix) = validate_src721_and_process(src_data, valid_stamps_in_block, db)
         decoded_base64 = svg_output
         file_suffix = 'svg'
@@ -785,7 +798,10 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     elif is_cursed:
         stamp_number = get_next_number(db, 'cursed') # this includes reissued items and op_return
     else:
-        stamp_number = None # need to save these in the db do detect invalid reissuances of prior stamp: trx
+        if is_reissue:
+            return
+        else:
+            stamp_number = None # need to save these in the db do detect invalid reissuances of prior stamp: trx
     if cpid and (is_btc_stamp):
         processed_stamps_dict = {
             'stamp': stamp_number,
