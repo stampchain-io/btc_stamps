@@ -211,17 +211,47 @@ def check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_
                 logger.debug(f"Uploading {filename} with changed hash {file_obj_md5} to S3...")
                 upload_file_to_s3(file_obj, config.AWS_S3_BUCKETNAME, s3_file_path, config.AWS_S3_CLIENT, content_type=mime_type)
                 update_s3_db_objects(db, filename, file_obj_md5)
-                if config.AWS_CLOUDFRONT_DISTRIBUTION_ID:
-                    logger.warning(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
-                    invalidate_s3_files(["/" + s3_file_path], config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
             except Exception as e:
                 logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
+            if config.AWS_CLOUDFRONT_DISTRIBUTION_ID:
+                logger.warning(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
+                invalidate_with_retries(s3_file_path, config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
     else:
         try:
             file_obj.seek(0)
             logger.debug(f"Uploading new {filename} with hash {file_obj_md5} to S3...")
             upload_file_to_s3(file_obj, config.AWS_S3_BUCKETNAME, s3_file_path, config.AWS_S3_CLIENT, content_type=mime_type)
-            # need to delete old object from s3objects table
             update_s3_db_objects(db, filename, file_obj_md5)
         except Exception as e:
             logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
+
+
+def invalidate_with_retries(s3_file_path, distribution_id):
+    """
+    Invalidates the specified file in the AWS CloudFront distribution with retries.
+
+    Args:
+        s3_file_path (str): The file path to be invalidated.
+        distribution_id (str): The ID of the AWS CloudFront distribution.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: If there is an error invalidating the file in CloudFront.
+    """
+    try:
+        invalidate_s3_files(["/" + s3_file_path], distribution_id)
+    except Exception as e:
+        logger.warning(f"WARN: Unable to invalidate {s3_file_path} in Cloudfront. RETRYING: {e}")
+        retries = 5
+        while retries > 0:
+            time.sleep(3)
+            try:
+                invalidate_s3_files(["/" + s3_file_path], distribution_id)
+                break
+            except Exception as e:
+                logger.warning(f"ERROR: Retry failed. Error: {e}")
+                retries -= 1
+        if retries == 0:
+            logger.warning(f"ERROR: Maximum retries reached. Unable to invalidate {s3_file_path} in Cloudfront.")
