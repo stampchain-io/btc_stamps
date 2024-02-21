@@ -24,6 +24,12 @@ def get_asm(scriptpubkey):
     return asm
 
 
+def get_p2wsh(asm):
+    if len(asm) == 2 and asm[0] == 0:
+        return [ bytes(asm[1]) ]
+    raise exceptions.DecodeError('Invalid P2WSH')
+
+
 # Stamp Version
 def get_checkmultisig(asm): #this is for any multisig in the correct format
     keyburn = None
