@@ -19,6 +19,8 @@ def parse_valid_src721_in_block(valid_stamps_in_block):
 def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
     if valid_stamps_in_block:
         valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
+    else:
+        valid_src721_in_block = []
     src721_json = convert_to_dict(src721_json)
     op_val = src721_json.get("op", "").upper()
     file_suffix = None
