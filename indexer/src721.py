@@ -193,7 +193,7 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
         if collection_asset_dict:
             collection_asset_item = collection_asset_dict.get("src_data", None)
         if collection_asset_item is None:
-            fetch_collection_details(collection_asset, db)
+            collection_asset_item = fetch_collection_details(collection_asset, db)
         logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
             logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
