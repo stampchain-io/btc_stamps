@@ -53,7 +53,7 @@ CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction 
 CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
 CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN audio files
-CP_P2WSH_BLOCK_START = 832000 # This is the block where we start looking for P2WSH transactions
+CP_P2WSH_BLOCK_START = 833000 # This is the block where we start looking for OLGA / P2WSH transactions
 
 # Consensus changes
 STRIP_WHITESPACE = 797200
