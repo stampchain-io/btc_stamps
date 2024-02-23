@@ -9,3 +9,4 @@ files/
 indexer/.env
 .vscode/
 .idea/
+backups/*
