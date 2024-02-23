@@ -29,6 +29,7 @@ AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get('AWS_CLOUDFRONT_DISTRIBUTION_ID'
 AWS_S3_BUCKETNAME = os.environ.get('AWS_S3_BUCKETNAME', None)
 AWS_S3_IMAGE_DIR = os.environ.get('AWS_S3_IMAGE_DIR', None)
 S3_OBJECTS = []
+AWS_INVALIDATE_CACHE = os.environ.get('AWS_INVALIDATE_CACHE', False)
 
 # Define for Quicknode or simiilar remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
