@@ -23,6 +23,8 @@ from src.src20 import (
     build_src20_svg_string,
     process_src20_trx,
     reset_src20_globals,
+    get_first_src20_deploy_lim_max,
+    encode_non_ascii,
 )
 import traceback
 from src.aws import (
@@ -755,6 +757,9 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
+            tick_escape = encode_non_ascii(src20_dict['tick'])
+            _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape, valid_src20_in_block)
+            stamp['quantity'] = deploy_max
         else:
             return
         
