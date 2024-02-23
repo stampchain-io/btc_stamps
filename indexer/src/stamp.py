@@ -22,6 +22,7 @@ from src.src20 import (
     check_format,
     build_src20_svg_string,
     process_src20_trx,
+    reset_src20_globals,
 )
 import traceback
 from src.aws import (
@@ -35,7 +36,7 @@ CACHED_STAMP = {}
 BLOCK_CACHE = {}
 
 
-def reset_globals():
+def reset_stamp_globals():
     global CACHED_STAMP
     global BLOCK_CACHE
     CACHED_STAMP = {}
@@ -53,7 +54,8 @@ def purge_block_db(db, block_index):
     Returns:
         None
     """
-    reset_globals()
+    reset_stamp_globals()
+    reset_src20_globals()
     cursor = db.cursor()
     
     tables = [
