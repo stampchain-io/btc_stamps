@@ -7,7 +7,9 @@ import re
 import hashlib
 import datetime
 from collections import namedtuple
+import decimal
 
+D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
