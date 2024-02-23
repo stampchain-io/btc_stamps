@@ -39,7 +39,9 @@ from stamp import (
 
 from src20 import (
     update_src20_balances,
-    insert_into_src20_tables
+    insert_into_src20_tables,
+    process_balance_updates,
+    clear_zero_balances
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -740,37 +742,6 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     raise Exception(f'Failed to retrieve from the API after {max_retries} retries')
 
 
-def process_balance_updates(balance_updates):
-    """
-    Process the balance updates and return a string representation of valid src20 entries.
-
-    Args:
-        balance_updates (list): A list of balance updates.
-
-    Returns:
-        str: A string representation of valid src20 entries.
-    """
-
-    valid_src20_list = []
-    if balance_updates is not None:
-        for src20 in balance_updates:
-            creator = src20.get('address')
-            if '\\' in src20['tick']:
-                tick = src20['tick'].replace('\\u', '\\U')
-                if len(tick) - 2 < 8:  # Adjusting for the length of '\\U'
-                    tick = '\\U' + '0' * (10 - len(tick)) + tick[2:]
-                tick = bytes(tick, "utf-8").decode("unicode_escape")
-            else:
-                tick = src20.get('tick')
-            amt = src20.get('net_change') + src20.get('original_amt')
-            amt = D(amt).normalize()
-            if amt == int(amt):
-                amt = int(amt)
-            valid_src20_list.append(f"{tick},{creator},{amt}")
-    valid_src20_list = sorted(valid_src20_list, key=lambda src20: (src20.split(',')[0] + '_' + src20.split(',')[1]))
-    valid_src20_str = ';'.join(valid_src20_list)
-    return valid_src20_str
-
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
@@ -1007,6 +978,7 @@ def follow(db):
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
                 valid_src20_str = process_balance_updates(balance_updates)
+                clear_zero_balances(db)
             else:
                 valid_src20_str = ''
 

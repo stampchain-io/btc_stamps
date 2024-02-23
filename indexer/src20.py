@@ -1047,3 +1047,50 @@ def update_balance_table(db, balance_updates, block_index, block_time):
 
     cursor.close()
     return
+
+
+def process_balance_updates(balance_updates):
+    """
+    Process the balance updates and return a string representation of valid src20 entries.
+
+    Args:
+        balance_updates (list): A list of balance updates.
+
+    Returns:
+        str: A string representation of valid src20 entries.
+    """
+
+    valid_src20_list = []
+    if balance_updates is not None:
+        for src20 in balance_updates:
+            creator = src20.get('address')
+            if '\\' in src20['tick']:
+                tick = src20['tick'].replace('\\u', '\\U')
+                if len(tick) - 2 < 8:  # Adjusting for the length of '\\U'
+                    tick = '\\U' + '0' * (10 - len(tick)) + tick[2:]
+                tick = bytes(tick, "utf-8").decode("unicode_escape")
+            else:
+                tick = src20.get('tick')
+            amt = src20.get('net_change') + src20.get('original_amt')
+            amt = D(amt).normalize()
+            if amt == int(amt):
+                amt = int(amt)
+            valid_src20_list.append(f"{tick},{creator},{amt}")
+    valid_src20_list = sorted(valid_src20_list, key=lambda src20: (src20.split(',')[0] + '_' + src20.split(',')[1]))
+    valid_src20_str = ';'.join(valid_src20_list)
+    return valid_src20_str
+
+
+def clear_zero_balances(db):
+    """
+    Deletes all balances with an amount of 0 from the database.
+
+    Args:
+        db: The database connection object.
+
+    Returns:
+        None
+    """
+    with db.cursor() as cursor:
+        cursor.execute("DELETE FROM balances WHERE amt = 0")
+    return
