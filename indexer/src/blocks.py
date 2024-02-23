@@ -15,7 +15,6 @@ from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
-import requests
 import concurrent.futures
 
 # import cProfile
@@ -41,7 +40,8 @@ from src.src20 import (
     update_src20_balances,
     insert_into_src20_tables,
     process_balance_updates,
-    clear_zero_balances
+    clear_zero_balances,
+    validate_src20_ledger_hash
 )
 
 from src.exceptions import DecodeError, BTCOnlyError
@@ -684,63 +684,6 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
         new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
         new_txlist_hash[-5:], new_messages_hash[-5:]
     ))
-    
-
-def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
-    """
-    Validates the SRC20 ledger hash for a given block index against remote API
-    This is currently for OKX and will be to validate against stampscan.xyz as well
-
-    Args:
-        block_index (int): The index of the block.
-        ledger_hash (str): The expected ledger hash.
-        valid_src20_str (str): The valid SRC20 string.
-
-    Returns:
-        bool: True if the API ledger hash matches the ledger hash, False otherwise.
-
-    Raises:
-        ValueError: If the API ledger hash does not match the ledger hash.
-        Exception: If failed to retrieve from the API after retries.
-    """
-    url = config.SRC_VALIDATION_API1 + str(block_index)
-    max_retries = 10
-    retry_count = 0
-
-    while retry_count < max_retries:
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                api_ledger_hash = response.json()['data']['hash']
-                if api_ledger_hash == ledger_hash:
-                    return True
-                else:
-                    api_ledger_validation = response.json()['data']['balance_data']
-                    if api_ledger_validation != valid_src20_str:
-                        logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
-                        logger.warning("API ledger validation: %s", api_ledger_validation)
-                        logger.warning("Ledger validation: %s", valid_src20_str)
-                        mismatches = []
-                        for api_entry, ledger_entry in zip(api_ledger_validation, valid_src20_str):
-                            if api_entry != ledger_entry:
-                                mismatches.append((api_entry, ledger_entry))
-                        for mismatch in mismatches:
-                            logger.warning("Mismatch found:")
-                            logger.warning("API Ledger: %s", mismatch[0])
-                            logger.warning("Ledger: %s", mismatch[1])
-                        if not mismatches:
-                            logger.warning("The strings match perfectly.")
-                        else:
-                            logger.warning("Total mismatches: %s", len(mismatches))
-                    raise ValueError('API ledger hash does not match ledger hash')
-            else:
-                retry_count += 1
-                time.sleep(1)
-        except requests.exceptions.RequestException as e:
-            retry_count += 1
-            time.sleep(1)
-    raise Exception(f'Failed to retrieve from the API after {max_retries} retries')
-
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
