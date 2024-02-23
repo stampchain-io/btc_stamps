@@ -52,6 +52,8 @@ INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'js
 
 CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction on counterparty
 CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
+BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) 
+
 CP_SRC20_BLOCK_END = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 BMN_BLOCKSTART = 815130 # This is the block where we start looking for BMN audio files
 CP_P2WSH_BLOCK_START = 833000 # This is the block where we start looking for OLGA / P2WSH transactions
@@ -61,7 +63,6 @@ STRIP_WHITESPACE = 797200
 STOP_BASE64_REPAIR = 784550
 
 # Keep as ref
-# BTC_STAMP_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) transaction on btc
 # CP_SRC721_BLOCK_START = 799434
 # FIRST_KEYBURN_BLOCK = 784978
 
