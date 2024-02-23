@@ -213,7 +213,7 @@ def check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_
                 update_s3_db_objects(db, filename, file_obj_md5)
             except Exception as e:
                 logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
-            if config.AWS_CLOUDFRONT_DISTRIBUTION_ID:
+            if config.AWS_CLOUDFRONT_DISTRIBUTION_ID and config.AWS_INVALIDATE_CACHE:
                 logger.warning(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
                 invalidate_with_retries(s3_file_path, config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
     else:
