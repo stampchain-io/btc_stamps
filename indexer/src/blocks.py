@@ -29,7 +29,7 @@ import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
 from xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
-from stamp import (
+from src.stamp import (
     is_prev_block_parsed,
     purge_block_db,
     parse_tx_to_stamp_table,
@@ -37,7 +37,7 @@ from stamp import (
     rebuild_balances
 )
 
-from src20 import (
+from src.src20 import (
     update_src20_balances,
     insert_into_src20_tables,
     process_balance_updates,
