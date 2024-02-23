@@ -17,8 +17,8 @@ from decimal import Decimal
 import config
 import src.log as log
 from xcprequest import parse_base64_from_description
-from src721 import validate_src721_and_process
-from src20 import (
+from src.src721 import validate_src721_and_process
+from src.src20 import (
     check_format,
     build_src20_svg_string,
     process_src20_trx,
