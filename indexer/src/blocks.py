@@ -978,7 +978,8 @@ def follow(db):
                 balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
                 insert_into_src20_tables(db, valid_src20_in_block)
                 valid_src20_str = process_balance_updates(balance_updates)
-                clear_zero_balances(db)
+                if block_index > config.BTC_STAMP_GENESIS_BLOCK and block_index % 100 == 0:
+                    clear_zero_balances(db)
             else:
                 valid_src20_str = ''
 
