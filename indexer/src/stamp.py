@@ -742,6 +742,9 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed) = (
         None, None, None, None, None, None, None, None, None)
     
+    if block_index >= config.CP_P2WSH_BLOCK_START:
+        config.INVALID_BTC_STAMP_SUFFIX = config.INVALID_833000_STAMP_SUFFIX
+
     stamp_cursor = db.cursor()
     if data is None or data == '':
         return

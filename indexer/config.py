@@ -50,6 +50,7 @@ SRC_BACKGROUND_TABLE = 'srcbackground'
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ['SRC-721', 'SRC-20']
 INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'json']
+INVALID_833000_STAMP_SUFFIX = ['plain', 'octet-stream', 'x-empty', 'json']
 
 CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction on counterparty
 CP_SRC20_BLOCK_START = 788041 # This initial start of SRC-20 on Counterparty
@@ -108,9 +109,12 @@ MIME_TYPES = {
     "pcx": "image/pcx",
     "djvu": "image/vnd.djvu",
     "djv": "image/vnd.djvu",
-    "html": "text/html"
-    # "eps": "image/eps",
-    # "pdf": "application/pdf"
+    "htm": "text/html",
+    "html": "text/html",
+    "eps": "image/eps",
+    "pdf": "application/pdf",
+    "css": "text/css",
+    "js": "application/javascript"
 }
 
 BLOCK_FIELDS_POSITION = {
