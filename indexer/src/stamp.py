@@ -721,7 +721,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         return
     decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    if decoded_base64 is not None:
+    if decoded_base64 is not None and is_op_return is None and is_valid_base64:
         (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
         file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
     elif p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START:
