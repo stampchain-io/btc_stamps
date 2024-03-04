@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `stamp_base64` mediumtext,
   `stamp_mimetype` varchar(255) DEFAULT NULL,
   `stamp_url` varchar(255) DEFAULT NULL,
-  `supply` bigint DEFAULT NULL,
+  `supply` bigint unsigned DEFAULT NULL,
   `block_time` datetime NULL DEFAULT NULL,
   `tx_hash` varchar(64) NOT NULL,
   `tx_index` int NOT NULL,
