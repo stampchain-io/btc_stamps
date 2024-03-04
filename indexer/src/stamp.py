@@ -6,7 +6,7 @@ import hashlib
 import magic
 import subprocess
 import ast
-import requests
+import re
 import os
 import zlib
 import msgpack
@@ -334,6 +334,24 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
         return f"An error occurred: {e}"
 
 
+def check_valid_base64_string(base64_string):
+    """
+    Check if a given string is a valid base64 string.
+
+    Args:
+        base64_string (str): The string to be checked.
+
+    Returns:
+        bool: True if the string is a valid base64 string, False otherwise.
+    """
+    if base64_string is not None and \
+        re.fullmatch(r'^[A-Za-z0-9+/]+={0,2}$', base64_string) and \
+        len(base64_string) % 4 == 0:
+        return True
+    else:
+        return False
+
+
 def decode_base64(base64_string, block_index):
     ''' 
     Decode a base64 string into image data.
@@ -347,16 +365,27 @@ def decode_base64(base64_string, block_index):
             - image_data (bytes): The decoded image data.
             - success (bool): True if decoding is successful, False otherwise.
     '''
+
+    is_valid_base64_string = True
+
+    if block_index >= config.CP_P2WSH_BLOCK_START:
+        is_valid_base64_string = check_valid_base64_string(base64_string)
+        if not is_valid_base64_string:
+            logger.info(f"EXCLUSION: BASE64 DECODE_FAIL invalid string: {base64_string}")
+            return None, None
+
     if block_index <= config.STOP_BASE64_REPAIR:
         image_data = decode_base64_with_repair(base64_string)
-        return image_data, True
+        if image_data == None:
+            is_valid_base64_string = None
+        return image_data, is_valid_base64_string
     try:
         image_data = base64.b64decode(base64_string)
-        return image_data, True
+        return image_data, is_valid_base64_string
     except Exception as e1:
         try:
             image_data = pybase64.b64decode(base64_string)
-            return image_data, True
+            return image_data, is_valid_base64_string
         except Exception as e2:
             try:
                 # Note: base64 cli returns success on MAC when on linux it returns an error code. 
@@ -364,7 +393,7 @@ def decode_base64(base64_string, block_index):
                 # will need to verify that there are no instances where this is su
                 command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
                 image_data = subprocess.run(command, shell=True, capture_output=True, text=True, check=True, stdout=subprocess.PIPE).stdout
-                return image_data, True
+                return image_data, is_valid_base64_string
             except Exception as e3:
                 # If all decoding attempts fail, print an error message and return None
                 logger.info(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
@@ -721,16 +750,16 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         return
     decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    if decoded_base64 is not None and is_op_return is None and is_valid_base64:
-        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
-        file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-    elif p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START:
+    if p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START:
         stamp_base64 = base64.b64encode(p2wsh_data).decode()
         decoded_base64, is_valid_base64 = decode_base64(stamp_base64, block_index)
         # decoded_base64 = p2wsh_data # bytestring
         (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
         file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
         is_op_return = None # reset this because p2wsh typically have op_return tx
+    elif decoded_base64 is not None:
+        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
+        file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
     else:    
         ident, file_suffix = 'UNKNOWN', None
 
@@ -748,7 +777,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     )
     valid_src721 = (
         ident == 'SRC-721'
-        and keyburn == 1
+        and (keyburn == 1 or (p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START))
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
     if valid_src20:
@@ -787,15 +816,14 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         is_btc_stamp = None
     elif ( # CURSED 
         cpid and (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or
-        not cpid.startswith('A') or is_op_return) and is_valid_base64
+        not cpid.startswith('A') or is_op_return)
     ):
         is_btc_stamp = None
         is_cursed = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
         if is_reissue:
             return
-    elif is_reissue:
-        raise Exception("This should not happen")
+
     if is_op_return: # this appears to be redundant since it would only apply to src-20 (non cpid)
         is_btc_stamp = None
         is_cursed = 1
