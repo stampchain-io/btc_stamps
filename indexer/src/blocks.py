@@ -96,7 +96,7 @@ def process_vout(ctx, stamp_issuance=None):
     """
     pubkeys_compiled = []
     keyburn = None
-    is_op_return = None
+    is_op_return, is_olga = None, None
 
     # Ignore coinbase transactions.
     if ctx.is_coinbase():
@@ -137,10 +137,11 @@ def process_vout(ctx, stamp_issuance=None):
             # Pay-to-Witness-Script-Hash (P2WSH)
             pubkeys = script.get_p2wsh(asm)
             pubkeys_compiled += pubkeys
+            is_olga = True
 
-    vOutInfo = namedtuple('vOutInfo', ['pubkeys_compiled', 'keyburn', 'is_op_return', 'fee'])
+    vOutInfo = namedtuple('vOutInfo', ['pubkeys_compiled', 'keyburn', 'is_op_return', 'fee', 'is_olga'])
 
-    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee)
+    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga)
 
 
 def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
@@ -183,12 +184,14 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         fee = getattr(vout_info, 'fee', None)
 
         if stamp_issuance is not None:
-            if pubkeys_compiled:
+            if pubkeys_compiled and vout_info.is_olga:
                 chunk = b''
                 for pubkey in pubkeys_compiled:
                     chunk += pubkey       
                 pubkey_len = int.from_bytes(chunk[0:2], byteorder='big')
                 p2wsh_data = chunk[2:2+pubkey_len]
+            else:
+                p2wsh_data = None
             return TransactionInfo(None, None, btc_amount, round(fee), None, None, keyburn, is_op_return, p2wsh_data)
 
         if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the SRC-20 data
