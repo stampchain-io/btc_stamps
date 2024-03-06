@@ -200,6 +200,7 @@ def check_format(input_string, tx_hash):
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
             tick_value = convert_to_utf8_string(input_dict.get("tick"))
+            is_transfer = input_dict.get("op").upper() == "TRANSFER"
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
@@ -237,6 +238,8 @@ def check_format(input_string, tx_hash):
                                 return None
                         elif isinstance(value, int):
                             value = D(value)
+                        elif isinstance(value, float) and is_transfer:
+                            value = D(str(value))
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
@@ -722,7 +725,7 @@ class Src20Validator:
         else:
             # amt = int(value) if value == int(value) else Decimal(value)
             # self.updated_dict[key] = amt
-            self.updated_dict[key] = D(value)
+            self.updated_dict[key] = D(str(value))
 
     def _process_dec_value(self, key, value):
         if value is None:
