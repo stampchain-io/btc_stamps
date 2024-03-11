@@ -7,7 +7,7 @@ python-bitcoinlib==0.12.2
 python-bitcoinrpc==1.0
 regex==2024.4.16
 requests==2.31.0
-cachetools==5.3.2
+cachetools==5.3.3
 pymysql==1.1.0
 python-docx==1.1.0
 cryptography==42.0.5
