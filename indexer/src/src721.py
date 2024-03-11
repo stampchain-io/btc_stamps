@@ -154,9 +154,10 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     """
     tmp_coll_description = tmp_collection_object.get("description", None)
     tmp_coll_name = tmp_collection_object.get("name", "SRC-721")
+    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "pixelated")
 
     # Initialize the SVG string
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_collection_object["image-rendering"]}; width: 420px; height: 420px;">
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_coll_img_render}; width: 420px; height: 420px;">
             <foreignObject width="100%" height="100%">
             <style>img {{position:absolute;width:100%;height:100%;}}</style>
             <title>{tmp_coll_name}</title>
