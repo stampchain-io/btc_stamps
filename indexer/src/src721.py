@@ -152,12 +152,15 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
         str: Stacked SVG string.
 
     """
+    tmp_coll_description = tmp_collection_object.get("description", None)
+
     # Initialize the SVG string
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_collection_object["image-rendering"]}; width: 420px; height: 420px;">
             <foreignObject width="100%" height="100%">
             <style>img {{position:absolute;width:100%;height:100%;}}</style>
             <title>{tmp_collection_object["name"]}</title>
-            <desc>{tmp_collection_object["description"]} - provided by stampchain.io</desc>
+            
+            <desc>{tmp_coll_description} - provided by stampchain.io</desc>
             <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
 
     for i in range(len(tmp_nft_object["ts"])):
