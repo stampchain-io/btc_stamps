@@ -1,0 +1,149 @@
+import json
+from pathlib import Path
+import logging
+import inspect
+import time
+
+class DBSimulator:
+    def __init__(self, simulation_data_path):
+        # if not self.logger.handlers:
+        self.logger = logging.getLogger()
+            # handler = logging.StreamHandler()
+            # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            # handler.setFormatter(formatter)
+            # self.logger.addHandler(handler)
+        self.simulation_data_path = simulation_data_path
+        self.load_simulation_data()
+
+    def cursor(self):
+        # Simulate the creation of a new cursor
+        return self
+    
+    def __enter__(self):
+        # Simulate the creation of a new cursor when entering a with block
+        return self.cursor()
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+        # Simulate closing the cursor/connection when exiting a with block
+    
+    def load_simulation_data(self):
+        with open(self.simulation_data_path, 'r') as file:
+            self.simulation_data = json.load(file)
+
+    def execute(self, query, params=None):
+        # Simulate database query execution based on the query string and parameters
+        # self.execute_results = None
+        if "SELECT" in query.upper():
+            self.execute_results = self.simulate_select_query(query, params)
+        elif "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
+            self.simulate_write_query(query, params)
+        else:
+            self.logger.info(f"Unsupported query type in simulation: {query}")
+        # return self.execute_results
+
+    def simulate_select_query(self, query, params):
+        # Simulate SELECT query and return results from loaded simulation data
+        if "transactions" in query:
+            return self.simulation_data.get('transactions', [])
+        elif "blocks" in query:
+            return self.simulation_data.get('blocks', [])
+        elif "SRC20Valid" in query and "DEPLOY" in query:
+            self.src20valid_results = self.simulation_data.get('SRC20Valid', [])
+            self.src20valid_query = query
+            self.src20valid_params = params
+            # return self.simulation_data.get('SRC20Valid', None)
+        elif "srcbackground" in query:
+            # iterate through the list and fetch the data, then save to self.srcbackground_results
+            return None
+            # return self.simulation_data.get('srcbackground', None)
+        else:
+            self.logger.info(f"Unsupported SELECT query in simulation: {query}")
+            return None
+
+    def simulate_write_query(self, query, params):
+        # Simulate write operations (INSERT, UPDATE, DELETE) by modifying the simulation data in-memory
+        self.logger.info(f"Simulating write operation: {query} with params {params}")
+        # Note: This is a simplified example. In a real scenario, you would modify self.simulation_data based on the query and params.
+
+
+    def fetchone(self):
+        # Get the current frame
+        current_frame = inspect.currentframe()
+        caller_frame = current_frame.f_back
+        caller_name = caller_frame.f_code.co_name
+        self.logger.info(f"The calling function is {caller_name}")
+
+        # Simulate fetching the next row of a query result set
+        self.logger.info(self.execute_results)
+        # Parse the dictionary to be returned, will need to be specific based upon the function that called 
+        if caller_name == 'get_first_src20_deploy_lim_max':
+            # pa
+            # need to make this more specific
+            # if self.src20valid_params[0] is not None then parse src20valid_results for a tick key value that matches the params
+            if self.src20valid_params[0] is not None:
+                try:
+                    self.logger.info(self.src20valid_params[0].upper())
+                except Exception as e:
+                    self.logger.info(f"An exception occurred: {e}")
+                # self.logger.info(self.src20valid_params[0]['tick'].upper())
+                for result in self.src20valid_results:
+                    try:
+                        self.logger.info(result['tick'].upper())
+                    except Exception as e:
+                        self.logger.info(f"An exception occurred: {e}")
+
+                    if result['tick'].upper() == self.src20valid_params[0].upper():
+                        return result['lim'], result['max'], result['deci']
+            return 0, 0, 18
+
+        return self.execute_results.pop(0) if self.execute_results else None
+
+    def fetchall(self):
+        current_frame = inspect.currentframe()
+        caller_frame = current_frame.f_back
+        caller_name = caller_frame.f_code.co_name
+        self.logger.info(f"The calling function is {caller_name}")
+
+        if caller_name == 'get_total_minted_from_db':
+            # return a list of tuples
+            return [(0,)] # assume nothing has been minted
+        
+        if caller_name == 'get_next_number':
+            return [(1,)]
+        
+        if caller_name == 'get_total_user_balance_from_balances_db':
+            return [("KEVIN", "1SourceAddr", 1000, 0, time.time(), 0)] 
+            return
+        
+        # Simulate fetching all rows of a query result set
+        result = self.simulation_data
+        self.simulation_data = []  # Clear the simulation data
+        return result
+    
+
+
+    def fetchmany(self, size):
+        # Simulate fetching the next set of rows of a query result set
+        result = self.simulation_data[:size]
+        self.simulation_data = self.simulation_data[size:]
+        return result
+    
+    def commit(self):
+        # Simulate commit operation
+        pass
+
+    def rollback(self):
+        # Simulate rollback operation
+        pass
+
+    def close(self):
+        # Simulate closing the database connection
+        pass
+
+# Example usage
+if __name__ == "__main__":
+    simulation_data_path = Path(__file__).parent / "./dbSimulation.json"
+    db_simulator = DBSimulator(simulation_data_path)
+    db_simulator.execute("SELECT * FROM transactions")
+    db_simulator.close()
