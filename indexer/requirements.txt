@@ -18,3 +18,5 @@ msgpack==1.0.8
 tqdm==4.66.2
 python-dotenv==1.0.1
 #arweave-python-client==1.0.19 # required for arweave storage
+colour-runner=0.1.1
+
