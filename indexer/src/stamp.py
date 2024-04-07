@@ -304,7 +304,7 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
     try:
         if isinstance(input_data, bytes):
             try:
-                input_data = json.loads(input_data)
+                input_data = json.loads(input_data, parse_float=Decimal)
             except json.JSONDecodeError:
                 # get a string representation of the bytes object
                 input_data = repr(input_data)[2:-1]
