@@ -790,7 +790,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape, valid_src20_in_block)
             stamp['quantity'] = deploy_max
         else:
-            return
+            return None, None
         
     if valid_src721:
         src_data = decoded_base64
@@ -851,7 +851,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         valid_stamps_in_block.append(processed_stamps_dict)
 
     if valid_src20 and not is_reissue:
-        process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
+        src20_results = process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
                 valid_src20_in_block)
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
@@ -896,6 +896,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     # filtered_parsed = {k: v for k, v in parsed.items() if k != 'stamp_base64'}
     # logger.warning(f"parsed: {json.dumps(filtered_parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
     insert_into_stamp_table(stamp_cursor, parsed)
+
+    return True, src20_results
 
 
 def insert_into_stamp_table(stamp_cursor, parsed):
@@ -951,15 +953,13 @@ def get_next_number(db, identifier):
         with db.cursor() as cursor:
             if identifier == 'stamp':
                 query = f'''
-                    SELECT stamp FROM {config.STAMP_TABLE}
-                    WHERE stamp = (SELECT MAX(stamp) from {config.STAMP_TABLE})
+                    SELECT MAX(stamp) from {config.STAMP_TABLE}
                 '''
                 increment = 1
                 default_value = 0
             else:  # identifier == 'cursed'
                 query = f'''
-                    SELECT stamp FROM {config.STAMP_TABLE}
-                    WHERE stamp = (SELECT MIN(stamp) from {config.STAMP_TABLE})
+                    (SELECT MIN(stamp) from {config.STAMP_TABLE}
                 '''
                 increment = -1
                 default_value = -1
