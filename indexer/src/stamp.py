@@ -739,8 +739,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
 
     """
 
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed) = (
-        None, None, None, None, None, None, None, None, None)
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed, src20_results) = (
+        None, None, None, None, None, None, None, None, None, None)
     
     stamp_cursor = db.cursor()
     if data is None or data == '':
@@ -959,18 +959,14 @@ def get_next_number(db, identifier):
                 default_value = 0
             else:  # identifier == 'cursed'
                 query = f'''
-                    (SELECT MIN(stamp) from {config.STAMP_TABLE}
+                    SELECT MIN(stamp) from {config.STAMP_TABLE}
                 '''
                 increment = -1
                 default_value = -1
 
             cursor.execute(query)
-            transactions = cursor.fetchall()
-            if transactions:
-                assert len(transactions) == 1
-                next_number = transactions[0][0] + increment
-            else:
-                next_number = default_value
+            transactions = cursor.fetchone()
+            next_number = transactions[0] + increment if transactions[0] is not None else default_value
 
     CACHED_STAMP[identifier] = next_number
     return next_number
