@@ -954,21 +954,6 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
     return
 
 
-def is_number(s):
-    '''
-    Check if the input string is a valid positive number.
-
-    Args:
-        s (str): The input string to be checked.
-
-    Returns:
-        bool: True if the input string is a valid number, False otherwise.
-    '''
-    pattern = r'^[+]?[0-9]*\.?[0-9]+$'
-    return bool(re.match(pattern, str(s)))
-
-
-
 def encode_non_ascii(text):
     """
     Encodes non-ASCII characters in the given text using unicode_escape encoding and then decodes it using utf-8 encoding.
