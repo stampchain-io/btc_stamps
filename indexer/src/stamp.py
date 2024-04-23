@@ -788,7 +788,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             file_suffix = 'svg'
             tick_escape = encode_non_ascii(src20_dict['tick'])
             _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape, valid_src20_in_block)
-            stamp['quantity'] = deploy_max
+            stamp['quantity'] = deploy_max if deploy_max is not None else 0
         else:
             return None, None
         
@@ -851,8 +851,17 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         valid_stamps_in_block.append(processed_stamps_dict)
 
     if valid_src20 and not is_reissue:
-        src20_results = process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination,
-                valid_src20_in_block)
+        src20_dict.update({
+            'creator': source,
+            'tx_hash': tx_hash,
+            'tx_index': tx_index,
+            'block_index': block_index,
+            'block_time': block_time,
+            'destination': destination
+        })
+        src20_results = process_src20_trx(db, src20_dict, valid_src20_in_block)
+
+        ## TODO: Add a block activation height here and exit if src20_results = False so we don't save into stamptable either.
 
     if not stamp_mimetype and file_suffix in config.MIME_TYPES:
         stamp_mimetype = config.MIME_TYPES[file_suffix]
