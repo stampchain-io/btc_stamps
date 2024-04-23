@@ -5,15 +5,12 @@ from src.stamp import parse_tx_to_stamp_table
 import colorlog
 import logging
 from colour_runner.runner import ColourTextTestRunner
-# import pytest # perhaps switch to pytest
 
-# Adjust the project root directory in the sys.path for module importing
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from indexer.tests.src20_variations_data import src20_variations_data
 from indexer.tests.db_simulator import DBSimulator
 
-# Setup colorlog for colored logging
 handler = colorlog.StreamHandler()
 handler.setFormatter(colorlog.ColoredFormatter(
     '%(asctime)s - %(log_color)s%(levelname)s:%(name)s:%(message)s',
@@ -29,7 +26,6 @@ logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
 
 class TestSrc20Variations(unittest.TestCase):
-# class TestSrc20Variations(object):
     @classmethod
     def setUpClass(cls):
         # Add the project root directory to the sys.path for module importing
@@ -40,6 +36,7 @@ class TestSrc20Variations(unittest.TestCase):
         db_simulation_path = project_root / 'indexer' / 'tests' / 'dbSimulation.json'
         cls.db_simulator = DBSimulator(db_simulation_path)
 
+            
     def test_src20_variations(self):
         for test_case in src20_variations_data:
             # stamp_result, src20_result = None, None
@@ -62,16 +59,15 @@ class TestSrc20Variations(unittest.TestCase):
                     "valid_src20_in_block": test_case["valid_src20_in_block"],
                     "p2wsh_data": test_case["p2wsh_data"]
                 }
-                # Call parse_tx_to_stamp_table with the simulated database object and additional parameters
-                # this in turn calls the src20 functions as required
                 stamp_result, src20_result = parse_tx_to_stamp_table(**additional_params)
                 stamp_result = False if stamp_result is None else stamp_result
                 src20_result = False if src20_result is None else src20_result
 
-                self.assertEqual(stamp_result, test_case["expectedOutcome"]["stamp_success"], msg=test_case["expectedOutcome"]["message"])
-                self.assertEqual(src20_result, test_case["expectedOutcome"]["src20_success"], msg=test_case["expectedOutcome"]["message"])
+                self.assertEqual(stamp_result, test_case["expectedOutcome"]["stamp_success"], 
+                                msg=f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
 
-
-
+                self.assertEqual(src20_result, test_case["expectedOutcome"]["src20_success"], 
+                                msg=f"Failure in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
+                
 if __name__ == '__main__':
     unittest.main(testRunner=ColourTextTestRunner, exit=False, verbosity=3)
