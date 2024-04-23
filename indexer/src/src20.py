@@ -22,6 +22,310 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
+
+class Src20Validator:
+    def __init__(self, src20_dict):
+        self.src20_dict = src20_dict
+        self.updated_dict = {}
+
+
+    def process_values(self):
+        num_pattern = re.compile(r'^[0-9]*(\.[0-9]*)?$')
+        dec_pattern = re.compile(r'^[0-9]+$')
+
+        for key, value in list(self.src20_dict.items()):
+            if value == '':
+                self.src20_dict[key] = None
+            elif key in ['tick']:
+                self._process_tick_value(key, value)
+            elif key in ['p', 'op', 'holders_of']:
+                self._process_uppercase_value(key, value)
+            elif key in ['max', 'lim', 'amt', 'dec']:
+                self._apply_regex_validation(key, value, num_pattern, dec_pattern)
+
+        return self.src20_dict
+
+
+    def _apply_regex_validation(self, key, value, num_pattern, dec_pattern):
+        if key in ['max', 'lim', 'amt']:
+            if num_pattern.match(str(value)):
+                self.src20_dict[key] = D(str(value))
+            else:
+                self._update_status(key, 'NN: not valid number format for {key}')
+        elif key == 'dec':
+            if dec_pattern.match(value) and 0 <= int(value) <= 18:
+                self.src20_dict[key] = int(value)
+            else:
+                self._update_status(key, 'NN: not in valid range or format')
+
+
+    def _update_status(self, key, message):
+        if 'status' in self.src20_dict:
+            self.src20_dict['status'] += f', {key}: {message}'
+        else:
+            self.src20_dict['status'] = f'{key}: {message}'
+
+
+    def _process_tick_value(self, key, value):
+        self.src20_dict['tick'] = value.lower() 
+        self.src20_dict['tick_hash'] = self.create_tick_hash(value.lower())
+
+
+    def _process_uppercase_value(self, key, value):
+        self.src20_dict[key] = value.upper()
+    
+
+    @staticmethod
+    def create_tick_hash(tick):
+        '''
+        Create a SHA3-256 of the normalized tick value. This is the final NIST SHA3-256 implementation
+        not to be confused with Keccak-256 which is the Ethereum implementation of SHA3-256.
+        '''
+        return hashlib.sha3_256(tick.encode()).hexdigest()
+
+
+
+class Src20Processor:
+    def __init__(self, db, src20_dict, valid_src20_in_block):
+        self.db = db
+        self.src20_dict = src20_dict
+        self.valid_src20_in_block = valid_src20_in_block
+        self.tick_value = self.src20_dict.get('tick')
+        self.deploy_lim, self.deploy_max, self.dec = get_first_src20_deploy_lim_max(self.db, self.tick_value, self.valid_src20_in_block)
+        self.is_valid = True
+
+
+    def update_valid_src20_list(self, running_user_balance_creator=None, running_user_balance_destination=None, operation=None, total_minted=None):
+        if operation == 'TRANSFER':
+            amt = D(self.src20_dict['amt'])
+            self.src20_dict['lim'] = self.deploy_lim
+            self.src20_dict['max'] = self.deploy_max
+            self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - amt
+            self.src20_dict['total_balance_destination'] = D(running_user_balance_destination) + amt
+            self.src20_dict['status'] = 'Balance Updated'
+            self.src20_dict['valid'] = 1
+            self.valid_src20_in_block.append(self.src20_dict)
+        elif operation == 'MINT' and total_minted is not None:
+            amt = self.src20_dict['amt']
+            if amt > self.deploy_lim:
+                amt = self.deploy_lim
+                self.src20_dict['amt'] = amt
+            TOTAL_MINTED_CACHE[self.src20_dict.get("tick")] += amt
+            self.src20_dict['lim'] = self.deploy_lim
+            self.src20_dict['max'] = self.deploy_max
+            #TODO: Check if dec can be added on mint
+            running_total_mint = int(total_minted) + amt
+            running_user_balance = D(running_user_balance_creator) + amt
+            self.src20_dict['total_minted'] = running_total_mint
+            self.src20_dict['total_balance_destination'] = running_user_balance
+            self.src20_dict['valid'] = 1
+            self.valid_src20_in_block.append(self.src20_dict)
+        elif operation == 'DEPLOY':
+            self.src20_dict['valid'] = 1
+            self.src20_dict['dec'] = self.dec
+            self.valid_src20_in_block.append(self.src20_dict)
+        else:
+            raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
+
+
+    def create_running_user_balance_dict(self, running_user_balance_tuple):
+        running_user_balance_dict = {}
+
+        for balance_tuple in running_user_balance_tuple:
+            address = getattr(balance_tuple, 'address')
+            total_balance = getattr(balance_tuple, 'total_balance')
+            running_user_balance_dict[address] = total_balance
+
+        return running_user_balance_dict
+
+
+    def log_and_append_invalid(self, message):
+        logger.warning(message)
+        self.valid_src20_in_block.append(self.src20_dict)
+        self.is_valid = False
+
+
+    def handle_deploy(self):
+        if self.src20_dict['op'] != 'DEPLOY':
+            return False
+        
+        if not self.deploy_lim and not self.deploy_max:  # this is a new deploy if these aren't returned from the db
+            self.update_valid_src20_list(operation='DEPLOY')
+            return
+        else:
+            self.src20_dict['status'] = f'DE: prior {self.src20_dict["tick"]} DEPLOY exists'
+            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} DEPLOY - prior DEPLOY exists")
+            return
+            
+
+    def handle_mint(self):
+        # Early return if operation is not MINT
+        if self.src20_dict['op'] != 'MINT':
+            return False
+
+        # Check for deployment limits
+        if not (self.deploy_lim and self.deploy_max) or self.deploy_lim == 0 or self.deploy_max == 0:
+            self.src20_dict['status'] = 'ND: No Deploy ' + self.src20_dict["tick"]
+            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} MINT - no deploy_lim {self.deploy_lim} and deploy_max {self.deploy_max}")
+            return
+
+        # Ensure deploy_lim does not exceed deploy_max
+        self.deploy_lim = int(min(self.deploy_lim, self.deploy_max))
+
+        try:
+            total_minted = D(get_running_mint_total(self.db, self.valid_src20_in_block, self.src20_dict['tick']))
+            mint_available = D(self.deploy_max) - total_minted
+
+            # Check for over mint condition
+            if total_minted >= self.deploy_max:
+                self.src20_dict['status'] = f'OM: Over Max: {total_minted} >= {self.deploy_max}'
+                self.log_and_append_invalid(f"{self.src20_dict['tick']} OVERMINT: minted {total_minted} > max {self.deploy_max}")
+                return
+
+            # Adjust amount if it exceeds available mint
+            if self.src20_dict['amt'] > mint_available:
+                self.src20_dict['status'] = f'OMA: FROM: {self.src20_dict["amt"]} TO: {mint_available}'
+                self.src20_dict['amt'] = mint_available
+                logger.info(f"Reducing {self.src20_dict['tick']} OVERMINT: minted {total_minted} + amt {self.src20_dict['amt']} > max {self.deploy_max} - remain {mint_available}")
+
+            # Calculate running user balance 
+            running_user_balance = D('0')
+            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], self.src20_dict['destination'], self.valid_src20_in_block)
+            if running_user_balance_tuple:
+                running_user_balance = running_user_balance_tuple[0].total_balance
+
+            self.update_valid_src20_list(running_user_balance_creator=running_user_balance, operation='MINT', total_minted=total_minted)
+
+        except Exception as e:
+            logger.error(f"Error in minting operations: {e}")
+            raise
+
+
+    def handle_transfer(self):
+        # Early validation checks
+        if self.src20_dict['op'] != 'TRANSFER':
+            return False
+        if not (self.deploy_lim and self.deploy_max) or self.deploy_lim == 0 or self.deploy_max == 0:
+            self.src20_dict['status'] = 'ND: No Deploy or Max Limits'
+            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} TRANSFER - deployment limits not set")
+            return
+
+        try:
+            # Determine the unique set of addresses involved in the transfer
+            addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
+            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.valid_src20_in_block)
+            running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
+
+            running_user_balance_creator = D(running_user_balance_dict.get(self.src20_dict['creator'], 0))
+            running_user_balance_destination = D(running_user_balance_dict.get(self.src20_dict['destination'], 0))
+
+            # Check if the creator has enough balance to transfer
+            if running_user_balance_creator < D(self.src20_dict['amt']):
+                self.src20_dict['status'] = 'BB: TRANSFER over user balance'
+                self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} TRANSFER - total_balance {running_user_balance_creator} < xfer amt {self.src20_dict['amt']}")
+                return
+
+            self.update_valid_src20_list(running_user_balance_creator, running_user_balance_destination, operation='TRANSFER')
+
+        except Exception as e:
+            logger.error(f"Error in handle_transfer: {e}")
+            raise
+
+
+    def handle_bulk_transfer(self): ## NOTE: this is not yet implemented on a block height activation or in the operation handling
+        # Check if operation is BULK_XFER and if deploy limits are set
+        if self.src20_dict['op'] != 'BULK_XFER' or not (self.deploy_lim and self.deploy_max):
+            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - deployment limits not set or operation mismatch")
+            return
+
+        # Validate the 'holders_of' target deploy
+        target_lim, target_max, dec = get_first_src20_deploy_lim_max(self.db, self.src20_dict['holders_of'], self.valid_src20_in_block)
+        if not (target_lim and target_max):
+            self.src20_dict['status'] = 'DD: Invalid holders_of'
+            self.log_and_append_invalid(f"Invalid {self.src20_dict['holders_of']} AD - Invalid holders_of")
+            return
+
+        # Validate 'destinations' is a list
+        if not isinstance(self.src20_dict['destinations'], list):
+            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
+            return
+
+        addresses = [self.src20_dict['creator']]
+        if self.src20_dict['creator'] != self.src20_dict['destination']:
+            addresses.append(self.src20_dict['destination'])
+
+        running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], addresses, self.valid_src20_in_block)
+        running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance', D('0'))
+
+        if running_user_balance_creator <= 0:
+            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - insufficient balance")
+            return
+
+        # Get tick holders and calculate total send amount
+        tick_holders = get_tick_holders_from_balances(self.db, self.src20_dict['holders_of'])
+        tick_holders.remove(self.src20_dict['creator'])  # Remove the creator from the target list
+        total_send_amt = len(tick_holders) * D(self.src20_dict['amt'])
+
+        if D(total_send_amt) > D(running_user_balance_creator):
+            self.src20_dict['status'] = 'BB: BULK_XFER over user balance'
+            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} BULK_XFER - total_balance {running_user_balance_creator} < xfer amt {total_send_amt}")
+            return
+
+        # Prepare transactions for each tick holder
+        new_dicts = []
+        running_dest_balances_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], tick_holders, self.valid_src20_in_block)
+        running_dest_balance_dict = self.create_running_user_balance_dict(running_dest_balances_tuple)
+
+        for tick_holder in tick_holders:
+            total_balance_destination = running_dest_balance_dict.get(tick_holder, D('0'))
+            new_dict = self.src20_dict.copy()
+            new_dict.update({
+                'op': 'TRANSFER',
+                'destination': tick_holder,
+                'total_balance_destination': total_balance_destination + D(self.src20_dict['amt'])
+            })
+            new_dicts.append(new_dict)
+
+        self.valid_src20_in_block.extend(new_dicts)
+        self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - D(total_send_amt)
+        self.src20_dict['status'] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
+
+
+    def process(self):
+        self.src20_dict["tick"] = encode_non_ascii(self.tick_value)
+        validator = Src20Validator(self.src20_dict)
+        self.src20_dict = validator.process_values()
+
+        if 'NN' in self.src20_dict.get('status', ''):
+            self.valid_src20_in_block.append(self.src20_dict)  # Mark as invalid
+            logger.warning(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
+            self.is_valid = False
+            return
+        
+        operation = self.src20_dict['op']
+        if operation == 'DEPLOY':
+            self.handle_deploy()
+        elif operation == 'MINT':
+            self.handle_mint()
+        elif operation == 'TRANSFER':
+            self.handle_transfer()
+        else:
+            self.log_and_append_invalid("Unsupported operation")
+            self.is_valid = False
+
+
+def process_src20_trx(db, src20_dict, valid_src20_in_block):
+    ''' this is to process all SRC-20 Tokens that pass check_format '''
+    
+    tick_value = src20_dict.get('tick')
+    src20_dict["tick"] = encode_non_ascii(tick_value)
+
+    processor = Src20Processor(db, src20_dict, valid_src20_in_block)
+    processor.process()
+
+    return processor.is_valid
+
+
 DEPLOY_CACHE = {}
 TOTAL_MINTED_CACHE = {}
 
@@ -38,7 +342,6 @@ def build_src20_svg_string(db, src_20_dict):
     return svg_image_data
 
 
-# query the srcbackground mysql table for these columns tick, base64, font_size, text_color, unicode, p
 def get_srcbackground_data(db, tick):
     """
     Retrieves the background image data for a given tick and p value.
@@ -81,6 +384,7 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
         input_dict['tick'] = bytes(input_dict['tick'], "utf-8").decode("unicode_escape")
         input_dict['tick'] = input_dict['tick'] .replace('\\u', '\\U')
 
+    dict_to_use = {}
 
     if (input_dict.get("op").upper() == "DEPLOY"):
         dict_to_use = {
@@ -108,6 +412,8 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
             "tick": input_dict.get("tick", None).upper(),
             "amt": input_dict.get("amt", None),
         }
+    if dict_to_use == {}:
+        logger.log(logging.ERROR, "dict_to_use is empty -- happens with invalid op value but a valid stamp") #FIXME:process svg string after validation
 
     sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
     pretty_json = json.dumps({k: dict_to_use[k] for k in sorted_keys}, indent=1, separators=(',', ': '), sort_keys=False, ensure_ascii=False, default=str)
@@ -195,7 +501,7 @@ def check_format(input_string, tx_hash):
                 input_dict = input_string
         except (json.JSONDecodeError, TypeError):
             raise
-
+        
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
@@ -238,7 +544,7 @@ def check_format(input_string, tx_hash):
                                 return None
                         elif isinstance(value, int):
                             value = D(value)
-                        elif isinstance(value, float) and is_transfer:
+                        elif isinstance(value, float): # this was previously only set for transfer
                             value = D(str(value))
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
@@ -283,7 +589,7 @@ def get_first_src20_deploy_lim_max(db, tick, src20_processed_in_block):
         else:
             lim, max_value, dec = get_first_src20_deploy_lim_max_in_block(processed_blocks, tick)
             if lim is None or max_value is None:
-                return 0, 0, 18
+                return None, None, None
             DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value, "dec": dec}
             return lim, max_value, dec
 
@@ -662,89 +968,6 @@ def is_number(s):
     return bool(re.match(pattern, str(s)))
 
 
-def create_tick_hash(tick):
-    ''' 
-    Create a SHA3-256 of the normalized tick value. This is the final NIST SHA3-256 implementation
-    not be be confused with Keccak-256 which is the Ethereum implementation of SHA3-256.
-
-    Args:
-        tick (str): The tick string to be hashed.
-
-    Returns:
-        str: The hashed tick string.
-    '''
-    # ignore-scan 
-    return hashlib.sha3_256(tick.encode()).hexdigest()
-
-class Src20Validator:
-    def __init__(self, src20_dict):
-        self.src20_dict = src20_dict
-        self.updated_dict = {}
-
-    def process_values(self):
-        for key, value in self.src20_dict.items():
-            if value == '':
-                self.updated_dict[key] = None
-            elif key in ['tick']:
-                self._process_tick_value(key, value)
-            elif key in ['p', 'op', 'holders_of']:
-                self._process_uppercase_value(key, value)
-            elif key in ['max', 'lim']:
-                self._process_integer_value(key, value)
-            elif key == 'amt':
-                self._process_decimal_value(key, value)
-            elif key == 'dec':
-                self._process_dec_value(key, value)
-        self.src20_dict.update(self.updated_dict)
-        return self.src20_dict
-
-    def _process_tick_value(self, key, value):
-        self.updated_dict['tick'] = value.lower()
-        self.updated_dict['tick_hash'] = create_tick_hash(value.lower())
-
-    def _process_uppercase_value(self, key, value):
-        self.updated_dict[key] = value.upper()
-
-    def _process_integer_value(self, key, value):
-        if not is_number(value):
-            self.updated_dict[key] = None
-            if 'status' in self.updated_dict:
-                self.updated_dict['status'] += f', NN: {key} not NUM'
-            else:
-                self.updated_dict['status'] = f'NN: {key} not NUM'
-        else:
-            self.updated_dict[key] = int(D(value))
-
-    def _process_decimal_value(self, key, value):
-        if not is_number(value):
-            self.updated_dict[key] = None
-            if 'status' in self.updated_dict:
-                self.updated_dict['status'] += f', NN: {key} not NUM'
-            else:
-                self.updated_dict['status'] = f'NN: {key} not NUM'
-        else:
-            # amt = int(value) if value == int(value) else Decimal(value)
-            # self.updated_dict[key] = amt
-            self.updated_dict[key] = D(str(value))
-
-    def _process_dec_value(self, key, value):
-        if value is None:
-            self.updated_dict[key] = 18
-        elif is_number(value):
-            dec_value = int(value)
-            if dec_value >= 0 and dec_value <= 18:
-                self.updated_dict[key] = dec_value
-            else:
-                if 'status' in self.updated_dict:
-                    self.updated_dict['status'] += f', NN: {key} not in range'
-                else:
-                    self.updated_dict['status'] = f' NN: {key} not in range'
-        else:
-            if 'status' in self.updated_dict:
-                self.updated_dict['status'] += f', NN: {key} not NUM'
-            else:
-                self.updated_dict['status'] = f'NN: {key} not NUM'
-
 
 def encode_non_ascii(text):
     """
@@ -758,246 +981,6 @@ def encode_non_ascii(text):
     """
     return text.encode('unicode_escape').decode('utf-8')
 
-
-def create_running_user_balance_dict(running_user_balance_tuple):
-    running_user_balance_dict = {}
-
-    for balance_tuple in running_user_balance_tuple:
-        address = getattr(balance_tuple, 'address')
-        total_balance = getattr(balance_tuple, 'total_balance')
-        running_user_balance_dict[address] = total_balance
-
-    return running_user_balance_dict
-
-
-def update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation=None, total_minted=None, deploy_max=None, dec=None, deploy_lim=None):
-    if operation == 'TRANSFER':
-        amt = D(src20_dict['amt'])
-        src20_dict['total_balance_creator'] = D(running_user_balance_creator) - amt
-        src20_dict['total_balance_destination'] = D(running_user_balance_destination) + amt
-        # src20_dict['locked_balance_creator'] = ## need to pass the tuple in here for simplicity  # WIP
-        # src20_dict['locked_balance_destination'] = ## need to pass the tuple in here for simplicity # WIP
-        src20_dict['status'] = 'Balance Updated'
-        src20_dict['valid'] = 1
-        valid_src20_in_block.append(src20_dict)
-    elif operation == 'MINT' and total_minted is not None:
-
-        # amt = math.floor((src20_dict['amt']) * 10 ** dec) / 10 ** dec
-        # mint amt should be an integer? check specs
-        amt = src20_dict['amt']
-        if amt > deploy_lim:
-            amt = deploy_lim
-            src20_dict['amt'] = amt
-        TOTAL_MINTED_CACHE[src20_dict.get("tick")] += amt
-        running_total_mint = int(total_minted) + amt
-        running_user_balance = D(running_user_balance_creator) + amt
-        # src20_dict['status'] = f'OK: {running_total_mint} of {deploy_max}' # this will overwrite prior status. -- validate handling 
-        src20_dict['total_minted'] = running_total_mint
-        src20_dict['total_balance_destination'] = running_user_balance
-        src20_dict['valid'] = 1
-        valid_src20_in_block.append(src20_dict)
-    elif operation == 'DEPLOY':
-        src20_dict['valid'] = 1
-        src20_dict['dec'] = dec
-        valid_src20_in_block.append(src20_dict)
-        # this was falling through and getting inserted at the end fo the function to src20
-
-    else:
-        raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
-    return
-
-
-def process_src20_trx(db, src20_dict, source, tx_hash, tx_index, block_index, block_time, destination, valid_src20_in_block):
-    ''' this is to process all SRC-20 Tokens that pass check_format '''
-    
-    src20_dict['creator'] = source
-    src20_dict['tx_hash'] = tx_hash
-    src20_dict['tx_index'] = tx_index
-    src20_dict['block_index'] = block_index
-    src20_dict['block_time'] = block_time
-    src20_dict['destination'] = destination
-    tick_value = src20_dict.get('tick')
-    src20_dict["tick"] = encode_non_ascii(tick_value)
-
-    validator = Src20Validator(src20_dict)
-    src20_dict = validator.process_values()
-
-    # src20_dict = process_values(src20_dict) # this does normalization of the tick patterns
-    deploy_lim, deploy_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['tick'], valid_src20_in_block)
-    # if src20_dict status field contains NN then it's not a valid number we only insert into the src20 table - not valid table
-
-    if src20_dict.get('status') and 'NN' in src20_dict['status']:
-        valid_src20_in_block.append(src20_dict) # invalid
-        logger.warning(f"Invalid {src20_dict['tick']} SRC20: {src20_dict['status']}")
-        return
- 
-    if src20_dict['op'] == 'DEPLOY' and src20_dict['tick_hash']:
-        dec = src20_dict.get('dec', 18)
-        if not deploy_lim and not deploy_max: # this is a new deploy if these aren't returned from the db
-            update_valid_src20_list(db, src20_dict, None, None, valid_src20_in_block, operation='DEPLOY', dec=dec)
-            return True # for test cases
-        else:
-            logger.info(f"Invalid {src20_dict['tick']} DEPLOY - prior DEPLOY exists")
-            src20_dict['status'] = f'DE: prior {src20_dict["tick"]} DEPLOY exists'
-            valid_src20_in_block.append(src20_dict) # invalid
-            return
-
-    elif src20_dict['op'] == 'MINT' and src20_dict['tick_hash']:
-        if not src20_dict.get('amt'):
-            src20_dict['status'] = f'NN: amt not NUM'
-            valid_src20_in_block.append(src20_dict) # invalid
-            return
-        
-        if deploy_lim and deploy_max:
-            deploy_lim = int(min(deploy_lim, deploy_max)) # deploy_lim cannot be > deploy_max
-            try:
-                total_minted = D(get_running_mint_total(db, valid_src20_in_block, src20_dict['tick']))
-            except Exception as e:
-                logger.error(f"Error getting total minted: {e}")
-                raise
-
-            try:
-                running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], src20_dict['destination'], valid_src20_in_block)
-                if running_user_balance_tuple:
-                    running_user_balance = running_user_balance_tuple[0].total_balance
-                else:
-                    running_user_balance = D('0')
-            except Exception as e:
-                logger.error(f"Error getting running user for mint balance: {e}")
-                raise
-
-            mint_available = D(deploy_max) - D(total_minted)
-
-            if total_minted >= deploy_max:
-                logger.info(f" {src20_dict['tick']} OVERMINT: minted {total_minted} > max {deploy_max}")
-                src20_dict['status'] = f'OM: Over Max: {total_minted} >= {deploy_max}'
-                valid_src20_in_block.append(src20_dict) # invalid 
-                return
-            else:
-                if src20_dict['amt'] > mint_available:
-                    src20_dict['status'] = f'OMA:  FROM: {src20_dict["amt"]} TO: {mint_available}'
-                    src20_dict['amt'] = mint_available
-                    logger.info(f"Reducing {src20_dict['tick']} OVERMINT: minted {total_minted} + amt {src20_dict['amt']} > max {deploy_max} - remain {mint_available} ")
-                    try:
-                        update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim) # use the running_user_balance_tuple here to pull in locked WIP
-                    except Exception as e:
-                        logger.error(f"Error updating valid src20 list: {e}")
-                        raise
-                    return True # for test cases
-                try:
-                    update_valid_src20_list(db, src20_dict, running_user_balance, None, valid_src20_in_block, operation='MINT', total_minted=total_minted, deploy_max=deploy_max, dec=dec, deploy_lim=deploy_lim) # use the running_user_balance_tuple here to pull in locked WIP
-                except Exception as e:
-                    logger.error(f"Error updating valid src20 list: {e}")
-                    return True # for test cases
-
-        else:
-            logger.info(f"Invalid {src20_dict['tick']} MINT - no deploy_lim {deploy_lim} and deploy_max {deploy_max}")
-            src20_dict['status'] = f'ND: No Deploy {src20_dict["tick"]}'
-            valid_src20_in_block.append(src20_dict) # invalid 
-            return
-        
-    # Any transfer over the users balance at the time of transfer is considered invalid and will not impact either users balance
-    # if wallet x has 1 KEVIN token and attempts to transfer 10000 KEVIN tokens to address y the entire transaction is invalid
-    elif src20_dict['op'] == 'TRANSFER' and src20_dict['tick_hash']:  
-        if not src20_dict.get('amt'):
-            src20_dict['status'] = f'NN: amt not NUM'
-            valid_src20_in_block.append(src20_dict) # invalid
-            return
-        if deploy_lim and deploy_max:
-            try:
-                if src20_dict['creator'] == src20_dict['destination']:
-                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator']], valid_src20_in_block)
-                else:
-                    running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
-                running_user_balance_dict = create_running_user_balance_dict(running_user_balance_tuple)
-                running_user_balance_creator = running_user_balance_dict.get(src20_dict.get('creator'), 0)
-                running_user_balance_destination = running_user_balance_dict.get(src20_dict.get('destination'), 0)
-            except Exception as e:
-                logger.error(f"Error getting running user balances transfer: {e}")
-                raise
-
-            try:
-                if D(running_user_balance_creator) > D('0') and D(running_user_balance_creator) >= D(src20_dict['amt']):
-                    update_valid_src20_list(db, src20_dict, running_user_balance_creator, running_user_balance_destination, valid_src20_in_block, operation='TRANSFER', dec=dec)
-                    return True # for test cases
-                else:
-                    logger.info(f"Invalid {src20_dict['tick']} TRANSFER - total_balance {running_user_balance_creator} < xfer amt {src20_dict['amt']}")
-                    src20_dict['status'] = f'BB: TRANSFER over user balance'
-                    valid_src20_in_block.append(src20_dict) # invalid 
-                    return
-            except Exception as e:
-                logger.error(f"Error updating valid src20 list: {e}")
-                raise
-        return #for test cases
-            
-    # elif src20_dict['op'] == 'BULK_XFER':
-    #     if deploy_lim and deploy_max:
-    #         target_lim, target_max, dec = get_first_src20_deploy_lim_max(db, src20_dict['holders_of'], valid_src20_in_block)
-    #         if target_lim and target_max: # valid target deploy
-    #             # validate the src20_dict['destinations'] is a list of addresses
-    #             if isinstance(src20_dict['destinations'], list):
-    #                 destination_list = src20_dict['destinations']
-    #                 # NOTE: the destination value from the transaction is ignored.
-
-    #             if src20_dict['creator'] == src20_dict['destination']:
-    #                 running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator']], valid_src20_in_block)
-    #             else:
-    #                 running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
-    #             # running_user_balance_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], [src20_dict['creator'], src20_dict['destination']], valid_src20_in_block)
-    #             running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance')
-                
-    #             if running_user_balance > 0:
-    #                 tick_holders = get_tick_holders_from_balances(db, src20_dict['holders_of'])
-    #                 tick_holders.remove(src20_dict['creator']) # this removes the row of the creator from the target list
-    #                 if tick_holders:
-    #                     total_send_amt = len(tick_holders) * D(src20_dict['amt'])
-    #                     if D(total_send_amt) <= D(running_user_balance_creator):
-    #                         # build the valid_src20_in_block list for all transactions here and update running_user_balance
-    #                         # append dicts for each possibly tick_holder to valid_src20_in_block
-    #                         # append the current dict to valid_src20_in_block for the creator
-    #                         # running_user_balance = D(running_user_balance) - D(total_send_amt)
-    #                         src20_dict['total_balance_creator'] = running_user_balance
-    #                         src20_dict['status'] = f'New Balance: {running_user_balance}'
-    #                         # likely need to just update amount to total send amount here or all the removals will be handled below? 
-    #                         # valid_src20_in_block.append(src20_dict) # this is the new balance for the creator. 
-
-    #                         new_dicts = []
-    #                         # need to get the running balance for all holders - pull this all in one shot.
-    #                         running_dest_balances_tuple = get_running_user_balances(db, src20_dict['tick'], src20_dict['tick_hash'], tick_holders, valid_src20_in_block)
-    #                         running_dest_balance_dict = create_running_user_balance_dict(running_dest_balances_tuple)
-    #                         # then update the total balance key value for each.
-    #                         for tick_holder in tick_holders:
-    #                             total_balance_destination = running_dest_balance_dict.get(tick_holder, {}).get('total_balance', D('0'))
-    #                             if total_balance_destination is None:
-    #                                 raise RuntimeError("bulk_xfer: No match found between source and destination")
-    #                             new_dict = {
-    #                                 'p': 'SRC-20',
-    #                                 'op': 'TRANSFER',
-    #                                 'creator': src20_dict['creator'],
-    #                                 'tick': src20_dict['tick'],
-    #                                 'amt': src20_dict['amt'],
-    #                                 'destination': tick_holder,
-    #                                 'block_index': block_index,
-    #                                 'tx_hash': tx_hash,
-    #                                 'tx_index': tx_index,
-    #                                 'block_time': block_time,
-    #                                 'tick_hash': src20_dict['tick_hash'],
-    #                                 'total_balance_destination': total_balance_destination + src20_dict['amt']
-    #                             }
-    #                             new_dicts.append(new_dict)
-
-    #                         valid_src20_in_block.extend(new_dicts)
-    #                         return
-
-    #                     else:
-    #                         logger.info(f"Invalid {src20_dict['tick']} bulk_xfer - total_balance {running_user_balance} < xfer amt {total_send_amt}")
-    #                         src20_dict['status'] = f'BB: bulk_xfer over user balance'
-    #         else:
-    #             logger.info(f"Invalid {src20_dict['holders_of']} AD - Invalid holders_of")
-    #             src20_dict['status'] = f'DD: Invalid holders_of'
-    #     else:
-    #         logger.info(f"Invalid {src20_dict['tick']} bulk_xfer - amt is not a number or not >0")
-    return True # for test cases
     
 def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
     balance_updates = []

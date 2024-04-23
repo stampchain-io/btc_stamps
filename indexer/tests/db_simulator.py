@@ -30,7 +30,14 @@ class DBSimulator:
     def load_simulation_data(self):
         with open(self.simulation_data_path, 'r') as file:
             self.simulation_data = json.load(file)
-
+    
+    def find_max_stamp(self):
+        try:
+            max_stamp = max(entry['stamp'] for entry in self.simulation_data['StampTableV4'])
+            return max_stamp
+        except KeyError:
+            return None
+         
     def execute(self, query, params=None):
         # Simulate database query execution based on the query string and parameters
         # self.execute_results = None
@@ -57,6 +64,12 @@ class DBSimulator:
             # iterate through the list and fetch the data, then save to self.srcbackground_results
             return None
             # return self.simulation_data.get('srcbackground', None)
+        elif "MAX(stamp)" in query:
+            max_stamp = self.find_max_stamp()
+            if max_stamp is None:
+                return [(1000),]
+            else:
+                return [(max_stamp,)]
         else:
             self.logger.info(f"Unsupported SELECT query in simulation: {query}")
             return None
@@ -78,26 +91,20 @@ class DBSimulator:
         self.logger.info(self.execute_results)
         # Parse the dictionary to be returned, will need to be specific based upon the function that called 
         if caller_name == 'get_first_src20_deploy_lim_max':
-            # pa
-            # need to make this more specific
-            # if self.src20valid_params[0] is not None then parse src20valid_results for a tick key value that matches the params
+            # If self.src20valid_params[0] is not None then parse src20valid_results for a tick key value that matches the params
             if self.src20valid_params[0] is not None:
-                try:
-                    self.logger.info(self.src20valid_params[0].upper())
-                except Exception as e:
-                    self.logger.info(f"An exception occurred: {e}")
-                # self.logger.info(self.src20valid_params[0]['tick'].upper())
                 for result in self.src20valid_results:
-                    try:
-                        self.logger.info(result['tick'].upper())
-                    except Exception as e:
-                        self.logger.info(f"An exception occurred: {e}")
-
                     if result['tick'].upper() == self.src20valid_params[0].upper():
-                        return result['lim'], result['max'], result['deci']
-            return 0, 0, 18
+                        return (result['lim'], result['max'], result['deci'])
+            return (0, 0, 18)  # Ensure this is a tuple for consistency
 
-        return self.execute_results.pop(0) if self.execute_results else None
+        # For other callers, ensure a consistent return type
+        if self.execute_results:
+            result = self.execute_results.pop(0)
+            # If result is not already a tuple, make it a tuple
+            return (result,) if not isinstance(result, tuple) else result
+        else:
+            return None
 
     def fetchall(self):
         current_frame = inspect.currentframe()
@@ -143,7 +150,16 @@ class DBSimulator:
 
 # Example usage
 if __name__ == "__main__":
-    simulation_data_path = Path(__file__).parent / "./dbSimulation.json"
+    simulation_data_path = Path(__file__).parent / "dbSimulation.json"
     db_simulator = DBSimulator(simulation_data_path)
+    print(json.dumps(db_simulator.simulation_data, indent=4))  # Print loaded simulation data
+
+    # Execute a query and print the results
     db_simulator.execute("SELECT * FROM transactions")
+    print("Results of 'SELECT * FROM transactions':", db_simulator.execute_results)
+
+    # Execute another query and print the results
+    db_simulator.execute("SELECT MAX(stamp) FROM StampTableV4")
+    print("Results of 'SELECT MAX(stamp) FROM StampTableV4':", db_simulator.execute_results)
+
     db_simulator.close()
