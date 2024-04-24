@@ -610,7 +610,7 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
         sys.exit()
 
 
-def create_check_hashes(db, block_index, valid_stamps_in_block, valid_src20_in_block, txhash_list,
+def create_check_hashes(db, block_index, valid_stamps_in_block, processed_src20_in_block, txhash_list,
                         previous_ledger_hash=None, previous_txlist_hash=None, previous_messages_hash=None):
     """
     Calculate and update the hashes for the given block data. This needs to be modified for a reparse.
@@ -619,7 +619,7 @@ def create_check_hashes(db, block_index, valid_stamps_in_block, valid_src20_in_b
         db (Database): The database object.
         block_index (int): The index of the block.
         valid_stamps_in_block (list): The list of processed transactions in the block.
-        valid_src20_in_block (list): The list of valid SRC20 tokens in the block.
+        processed_src20_in_block (list): The list of valid SRC20 tokens in the block.
         txhash_list (list): The list of transaction hashes in the block.
         previous_ledger_hash (str, optional): The hash of the previous ledger. Defaults to None.
         previous_txlist_hash (str, optional): The hash of the previous transaction list. Defaults to None.
@@ -631,7 +631,7 @@ def create_check_hashes(db, block_index, valid_stamps_in_block, valid_src20_in_b
     txlist_content = str(valid_stamps_in_block)
     new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
             
-    ledger_content = str(valid_src20_in_block)
+    ledger_content = str(processed_src20_in_block)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, ledger_content)
     
     messages_content = str(txhash_list)
@@ -856,7 +856,7 @@ def follow(db):
             insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty)
         
             valid_stamps_in_block= []
-            valid_src20_in_block = []
+            processed_src20_in_block = []
             
             if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START: # this could be moved to the first non cp src20 block
                 valid_src20_str = ''
@@ -917,12 +917,12 @@ def follow(db):
                     result.block_time,
                     result.is_op_return,
                     valid_stamps_in_block,
-                    valid_src20_in_block,
+                    processed_src20_in_block,
                     result.p2wsh_data
                 )
-            if valid_src20_in_block:
-                balance_updates = update_src20_balances(db, block_index, block_time, valid_src20_in_block)
-                insert_into_src20_tables(db, valid_src20_in_block)
+            if processed_src20_in_block:
+                balance_updates = update_src20_balances(db, block_index, block_time, processed_src20_in_block)
+                insert_into_src20_tables(db, processed_src20_in_block)
                 valid_src20_str = process_balance_updates(balance_updates)
                 if block_index > config.BTC_STAMP_GENESIS_BLOCK and block_index % 100 == 0:
                     clear_zero_balances(db)
