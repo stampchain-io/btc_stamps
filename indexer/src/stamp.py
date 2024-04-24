@@ -24,7 +24,7 @@ from src.src20 import (
     process_src20_trx,
     reset_src20_globals,
     get_first_src20_deploy_lim_max,
-    encode_non_ascii,
+    escape_non_ascii_characters,
 )
 import traceback
 from src.aws import (
@@ -710,7 +710,7 @@ def check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp):
 
 
 def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, valid_src20_in_block, p2wsh_data):
+                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, processed_src20_in_block, p2wsh_data):
     """
     Parses a transaction and extracts stamp-related information to be stored in the stamp table.
 
@@ -729,7 +729,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         block_time (int): The timestamp of the block containing the transaction.
         is_op_return (bool): Indicates if the transaction is an OP_RETURN transaction.
         valid_stamps_in_block (list): A list to store valid stamps in the block.
-        valid_src20_in_block (list): A list to store valid SRC-20 stamps in the block.
+        processed_src20_in_block (list): A list to store valid SRC-20 stamps in the block.
 
     Returns:
         None
@@ -755,13 +755,13 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         decoded_base64, is_valid_base64 = decode_base64(stamp_base64, block_index)
         # decoded_base64 = p2wsh_data # bytestring
         (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
-        file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
         is_op_return = None # reset this because p2wsh typically have op_return tx
     elif decoded_base64 is not None:
         (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
-        file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
     else:    
         ident, file_suffix = 'UNKNOWN', None
+
+    file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
@@ -786,8 +786,8 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
-            tick_escape = encode_non_ascii(src20_dict['tick'])
-            _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape, valid_src20_in_block)
+            tick_escape = escape_non_ascii_characters(src20_dict['tick'])
+            _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape.lower(), processed_src20_in_block)
             stamp['quantity'] = deploy_max if deploy_max is not None else 0
         else:
             return None, None
@@ -859,7 +859,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             'block_time': block_time,
             'destination': destination
         })
-        src20_results = process_src20_trx(db, src20_dict, valid_src20_in_block)
+        src20_results = process_src20_trx(db, src20_dict, processed_src20_in_block)
 
         ## TODO: Add a block activation height here and exit if src20_results = False so we don't save into stamptable either.
 
