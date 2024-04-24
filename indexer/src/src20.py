@@ -22,11 +22,14 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
-
 class Src20Validator:
     def __init__(self, src20_dict):
         self.src20_dict = src20_dict
-        self.updated_dict = {}
+        self.validation_errors = []
+
+    def _process_tick_value(self, key, value):
+        self.src20_dict[key] = value.lower()
+        return
 
 
     def process_values(self):
@@ -51,19 +54,24 @@ class Src20Validator:
             if num_pattern.match(str(value)):
                 self.src20_dict[key] = D(str(value))
             else:
-                self._update_status(key, 'NN: not valid number format for {key}')
+                self._update_status(key, f'NN: not valid number format for {key}')
+                self.src20_dict[key] = None
         elif key == 'dec':
-            if dec_pattern.match(value) and 0 <= int(value) <= 18:
+            if dec_pattern.match(str(value)) and 0 <= int(value) <= 18:
                 self.src20_dict[key] = int(value)
             else:
-                self._update_status(key, 'NN: not in valid range or format')
+                self._update_status(key, f'NN: not in valid range or format')
+                self.src20_dict[key] = None
 
 
     def _update_status(self, key, message):
+        error_message = f'{key}: {message}'
+        self.validation_errors.append(error_message)
+        
         if 'status' in self.src20_dict:
-            self.src20_dict['status'] += f', {key}: {message}'
+            self.src20_dict['status'] += f', {error_message}'
         else:
-            self.src20_dict['status'] = f'{key}: {message}'
+            self.src20_dict['status'] = error_message
 
 
     def _process_tick_value(self, key, value):
@@ -84,49 +92,54 @@ class Src20Validator:
         return hashlib.sha3_256(tick.encode()).hexdigest()
 
 
+    @property
+    def is_valid(self):
+        return len(self.validation_errors) == 0
+
 
 class Src20Processor:
-    def __init__(self, db, src20_dict, valid_src20_in_block):
+    STATUS_MESSAGES = {
+        'DE': ("INVALID DEPLOY: {tick} DEPLOY EXISTS", True),
+        'ND': ("INVALID {op}: {tick} NO DEPLOY", True),
+        'OM': ("OVER MAX {total_minted} >= {deploy_max}", True),
+        'NA': ("NO VALID AMT {op} {tick}", True),
+        'OMA': ("ADJUSTED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
+        'BB': ("INVALID TRANSFER {tick} - total_balance {balance} < xfer amt {amount}", True),
+        'UO': ("UNSUPPORTED OP {op} ", True),
+    }
+
+    def __init__(self, db, src20_dict, processed_src20_in_block):
         self.db = db
         self.src20_dict = src20_dict
-        self.valid_src20_in_block = valid_src20_in_block
-        self.tick_value = self.src20_dict.get('tick')
-        self.deploy_lim, self.deploy_max, self.dec = get_first_src20_deploy_lim_max(self.db, self.tick_value, self.valid_src20_in_block)
+        self.processed_src20_in_block = processed_src20_in_block
         self.is_valid = True
 
 
     def update_valid_src20_list(self, running_user_balance_creator=None, running_user_balance_destination=None, operation=None, total_minted=None):
         if operation == 'TRANSFER':
-            amt = D(self.src20_dict['amt'])
-            self.src20_dict['lim'] = self.deploy_lim
-            self.src20_dict['max'] = self.deploy_max
+            self.src20_dict['dec'] = self.dec
             self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - amt
             self.src20_dict['total_balance_destination'] = D(running_user_balance_destination) + amt
             self.src20_dict['status'] = 'Balance Updated'
-            self.src20_dict['valid'] = 1
-            self.valid_src20_in_block.append(self.src20_dict)
         elif operation == 'MINT' and total_minted is not None:
+            self.src20_dict['dec'] = self.dec
             amt = self.src20_dict['amt']
             if amt > self.deploy_lim:
                 amt = self.deploy_lim
                 self.src20_dict['amt'] = amt
             TOTAL_MINTED_CACHE[self.src20_dict.get("tick")] += amt
-            self.src20_dict['lim'] = self.deploy_lim
-            self.src20_dict['max'] = self.deploy_max
-            #TODO: Check if dec can be added on mint
             running_total_mint = int(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
             self.src20_dict['total_minted'] = running_total_mint
             self.src20_dict['total_balance_destination'] = running_user_balance
-            self.src20_dict['valid'] = 1
-            self.valid_src20_in_block.append(self.src20_dict)
-        elif operation == 'DEPLOY':
-            self.src20_dict['valid'] = 1
             self.src20_dict['dec'] = self.dec
-            self.valid_src20_in_block.append(self.src20_dict)
+        elif operation == 'DEPLOY':
+            pass
         else:
             raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
-
+        
+        self.src20_dict['valid'] = 1 
+        self.processed_src20_in_block.append(self.src20_dict.copy())
 
     def create_running_user_balance_dict(self, running_user_balance_tuple):
         running_user_balance_dict = {}
@@ -138,59 +151,63 @@ class Src20Processor:
 
         return running_user_balance_dict
 
+    def set_status_and_log(self, status_code, **kwargs):
+        message_template, is_invalid = self.STATUS_MESSAGES[status_code]
+        message = message_template.format(**kwargs)
+        status_message = f"{status_code}: {message}"
+        self.src20_dict['status'] = status_message
 
-    def log_and_append_invalid(self, message):
-        logger.warning(message)
-        self.valid_src20_in_block.append(self.src20_dict)
-        self.is_valid = False
-
+        if is_invalid:
+            logger.warning(message)
+            self.processed_src20_in_block.append(self.src20_dict.copy())
+            self.is_valid = False
+        else:
+            logger.info(message)
 
     def handle_deploy(self):
         if self.src20_dict['op'] != 'DEPLOY':
             return False
         
-        if not self.deploy_lim and not self.deploy_max:  # this is a new deploy if these aren't returned from the db
+        if not self.deploy_lim and not self.deploy_max:
             self.update_valid_src20_list(operation='DEPLOY')
             return
         else:
-            self.src20_dict['status'] = f'DE: prior {self.src20_dict["tick"]} DEPLOY exists'
-            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} DEPLOY - prior DEPLOY exists")
+            self.set_status_and_log('DE', tick=self.src20_dict['tick'])
             return
             
 
     def handle_mint(self):
-        # Early return if operation is not MINT
         if self.src20_dict['op'] != 'MINT':
             return False
 
-        # Check for deployment limits
-        if not (self.deploy_lim and self.deploy_max) or self.deploy_lim == 0 or self.deploy_max == 0:
-            self.src20_dict['status'] = 'ND: No Deploy ' + self.src20_dict["tick"]
-            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} MINT - no deploy_lim {self.deploy_lim} and deploy_max {self.deploy_max}")
+        if not self.deploy_lim and not self.deploy_max:
+            self.set_status_and_log('ND', op='MINT', tick=self.src20_dict['tick'])
             return
 
         # Ensure deploy_lim does not exceed deploy_max
         self.deploy_lim = int(min(self.deploy_lim, self.deploy_max))
 
         try:
-            total_minted = D(get_running_mint_total(self.db, self.valid_src20_in_block, self.src20_dict['tick']))
+            total_minted = D(get_running_mint_total(self.db, self.processed_src20_in_block, self.src20_dict['tick']))
             mint_available = D(self.deploy_max) - total_minted
 
             # Check for over mint condition
             if total_minted >= self.deploy_max:
-                self.src20_dict['status'] = f'OM: Over Max: {total_minted} >= {self.deploy_max}'
-                self.log_and_append_invalid(f"{self.src20_dict['tick']} OVERMINT: minted {total_minted} > max {self.deploy_max}")
+                self.set_status_and_log('OM', total_minted=total_minted, deploy_max=self.deploy_max, tick=self.src20_dict['tick'])
+                return
+
+            if self.src20_dict['amt'] is None:
+                self.set_status_and_log('NA', tick=self.src20_dict['tick'])
                 return
 
             # Adjust amount if it exceeds available mint
             if self.src20_dict['amt'] > mint_available:
-                self.src20_dict['status'] = f'OMA: FROM: {self.src20_dict["amt"]} TO: {mint_available}'
+                self.set_status_and_log('OMA', original_amt=self.src20_dict["amt"], adjusted_amt=mint_available, tick=self.src20_dict['tick'])
                 self.src20_dict['amt'] = mint_available
-                logger.info(f"Reducing {self.src20_dict['tick']} OVERMINT: minted {total_minted} + amt {self.src20_dict['amt']} > max {self.deploy_max} - remain {mint_available}")
 
             # Calculate running user balance 
             running_user_balance = D('0')
-            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], self.src20_dict['destination'], self.valid_src20_in_block)
+            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], self.src20_dict['destination'], self.processed_src20_in_block)
             if running_user_balance_tuple:
                 running_user_balance = running_user_balance_tuple[0].total_balance
 
@@ -202,18 +219,15 @@ class Src20Processor:
 
 
     def handle_transfer(self):
-        # Early validation checks
         if self.src20_dict['op'] != 'TRANSFER':
             return False
-        if not (self.deploy_lim and self.deploy_max) or self.deploy_lim == 0 or self.deploy_max == 0:
-            self.src20_dict['status'] = 'ND: No Deploy or Max Limits'
-            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} TRANSFER - deployment limits not set")
+        if not self.deploy_lim and not self.deploy_max:
+            self.set_status_and_log('ND', op='TRANSFER', tick=self.src20_dict['tick'])
             return
 
         try:
-            # Determine the unique set of addresses involved in the transfer
             addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
-            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.valid_src20_in_block)
+            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
             running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
 
             running_user_balance_creator = D(running_user_balance_dict.get(self.src20_dict['creator'], 0))
@@ -221,8 +235,7 @@ class Src20Processor:
 
             # Check if the creator has enough balance to transfer
             if running_user_balance_creator < D(self.src20_dict['amt']):
-                self.src20_dict['status'] = 'BB: TRANSFER over user balance'
-                self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} TRANSFER - total_balance {running_user_balance_creator} < xfer amt {self.src20_dict['amt']}")
+                self.set_status_and_log('BB', balance=running_user_balance_creator, amount=self.src20_dict['amt'], tick=self.src20_dict['tick'])
                 return
 
             self.update_valid_src20_list(running_user_balance_creator, running_user_balance_destination, operation='TRANSFER')
@@ -239,22 +252,21 @@ class Src20Processor:
             return
 
         # Validate the 'holders_of' target deploy
-        target_lim, target_max, dec = get_first_src20_deploy_lim_max(self.db, self.src20_dict['holders_of'], self.valid_src20_in_block)
+        target_lim, target_max, dec = get_first_src20_deploy_lim_max(self.db, self.src20_dict['holders_of'], self.processed_src20_in_block)
         if not (target_lim and target_max):
-            self.src20_dict['status'] = 'DD: Invalid holders_of'
-            self.log_and_append_invalid(f"Invalid {self.src20_dict['holders_of']} AD - Invalid holders_of")
+            self.set_status_and_log('DD', f"Invalid {self.src20_dict['holders_of']} AD - Invalid holders_of", is_invalid=True)
             return
 
         # Validate 'destinations' is a list
         if not isinstance(self.src20_dict['destinations'], list):
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
+            logger.warning(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
             return
 
         addresses = [self.src20_dict['creator']]
         if self.src20_dict['creator'] != self.src20_dict['destination']:
             addresses.append(self.src20_dict['destination'])
 
-        running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], addresses, self.valid_src20_in_block)
+        running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], addresses, self.processed_src20_in_block)
         running_user_balance_creator = getattr(running_user_balance_tuple, 'total_balance', D('0'))
 
         if running_user_balance_creator <= 0:
@@ -268,40 +280,39 @@ class Src20Processor:
 
         if D(total_send_amt) > D(running_user_balance_creator):
             self.src20_dict['status'] = 'BB: BULK_XFER over user balance'
-            self.log_and_append_invalid(f"Invalid {self.src20_dict['tick']} BULK_XFER - total_balance {running_user_balance_creator} < xfer amt {total_send_amt}")
+            self.set_status_and_log('BB', op='BULK_XFER', balance=running_user_balance_creator, amount=total_send_amt, tick=self.src20_dict['tick'])
             return
 
         # Prepare transactions for each tick holder
         new_dicts = []
-        running_dest_balances_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], tick_holders, self.valid_src20_in_block)
+        running_dest_balances_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], tick_holders, self.processed_src20_in_block)
         running_dest_balance_dict = self.create_running_user_balance_dict(running_dest_balances_tuple)
 
-        for tick_holder in tick_holders:
-            total_balance_destination = running_dest_balance_dict.get(tick_holder, D('0'))
-            new_dict = self.src20_dict.copy()
-            new_dict.update({
-                'op': 'TRANSFER',
-                'destination': tick_holder,
-                'total_balance_destination': total_balance_destination + D(self.src20_dict['amt'])
-            })
-            new_dicts.append(new_dict)
+        new_dicts = [
+            {**self.src20_dict, 'op': 'TRANSFER', 'destination': th, 
+            'total_balance_destination': running_dest_balance_dict.get(th, D('0')) + D(self.src20_dict['amt'])}
+            for th in tick_holders
+        ]
 
-        self.valid_src20_in_block.extend(new_dicts)
+        self.processed_src20_in_block.extend(new_dicts)
         self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - D(total_send_amt)
         self.src20_dict['status'] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
 
     def process(self):
-        self.src20_dict["tick"] = encode_non_ascii(self.tick_value)
+        self.src20_dict["tick"] = escape_non_ascii_characters(self.src20_dict["tick"])
         validator = Src20Validator(self.src20_dict)
         self.src20_dict = validator.process_values()
+        self.tick_value = self.src20_dict.get('tick')
 
-        if 'NN' in self.src20_dict.get('status', ''):
-            self.valid_src20_in_block.append(self.src20_dict)  # Mark as invalid
+        if not validator.is_valid:
+            self.processed_src20_in_block.append(self.src20_dict)
             logger.warning(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
             self.is_valid = False
             return
         
+        self.deploy_lim, self.deploy_max, self.dec = get_first_src20_deploy_lim_max(self.db, self.tick_value, self.processed_src20_in_block)
+
         operation = self.src20_dict['op']
         if operation == 'DEPLOY':
             self.handle_deploy()
@@ -310,17 +321,16 @@ class Src20Processor:
         elif operation == 'TRANSFER':
             self.handle_transfer()
         else:
-            self.log_and_append_invalid("Unsupported operation")
-            self.is_valid = False
+            self.set_status_and_log('UO', op=operation, tick=self.src20_dict.get('tick', 'undefined'))
 
 
-def process_src20_trx(db, src20_dict, valid_src20_in_block):
+def process_src20_trx(db, src20_dict, processed_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
     
     tick_value = src20_dict.get('tick')
-    src20_dict["tick"] = encode_non_ascii(tick_value)
+    src20_dict["tick"] = escape_non_ascii_characters(tick_value)
 
-    processor = Src20Processor(db, src20_dict, valid_src20_in_block)
+    processor = Src20Processor(db, src20_dict, processed_src20_in_block)
     processor.process()
 
     return processor.is_valid
@@ -883,9 +893,9 @@ def get_tick_holders_from_balances(db, tick):
     return tick_holders
 
 
-def insert_into_src20_tables(db, valid_src20_in_block):
+def insert_into_src20_tables(db, processed_src20_in_block):
     with db.cursor() as src20_cursor:
-        for i, src20_dict in enumerate(valid_src20_in_block):
+        for i, src20_dict in enumerate(processed_src20_in_block):
             id = f"{i}_{src20_dict.get('tx_index')}_{src20_dict.get('tx_hash')}"
             if src20_dict.get("valid") == 1:
                 insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
@@ -954,7 +964,7 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
     return
 
 
-def encode_non_ascii(text):
+def escape_non_ascii_characters(text):
     """
     Encodes non-ASCII characters in the given text using unicode_escape encoding and then decodes it using utf-8 encoding.
 
@@ -966,13 +976,26 @@ def encode_non_ascii(text):
     """
     return text.encode('unicode_escape').decode('utf-8')
 
+
+def decode_unicode_escapes(text):
+    """
+    Decodes Unicode escape sequences in the given text back to their corresponding Unicode characters.
+
+    Args:
+        text (str): The text containing Unicode escape sequences.
+
+    Returns:
+        str: The text with Unicode escape sequences converted back to Unicode characters.
+    """
+    return text.encode('utf-8').decode('unicode_escape').encode('utf-8')
     
-def update_src20_balances(db, block_index, block_time, valid_src20_in_block):
+
+def update_src20_balances(db, block_index, block_time, processed_src20_in_block):
     balance_updates = []
 
     # FIXME: we are looping through the list once for insert into db, and then again here for balances validations... combine! 
     
-    for src20_dict in valid_src20_in_block:
+    for src20_dict in processed_src20_in_block:
         if src20_dict.get('valid') == 1:
 
             try:
@@ -1088,10 +1111,7 @@ def process_balance_updates(balance_updates):
         for src20 in balance_updates:
             creator = src20.get('address')
             if '\\' in src20['tick']:
-                tick = src20['tick'].replace('\\u', '\\U')
-                if len(tick) - 2 < 8:  # Adjusting for the length of '\\U'
-                    tick = '\\U' + '0' * (10 - len(tick)) + tick[2:]
-                tick = bytes(tick, "utf-8").decode("unicode_escape")
+                tick = decode_unicode_escapes(src20.get('tick')) 
             else:
                 tick = src20.get('tick')
             amt = src20.get('net_change') + src20.get('original_amt')
@@ -1121,16 +1141,11 @@ def clear_zero_balances(db):
 
 def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     """
-    Validates the SRC20 ledger hash for a given block index against remote API
-    This is currently for OKX and will be to validate against stampscan.xyz as well
+    Validates the ledger for a given block index against the API.
 
     Args:
-        block_index (int): The index of the block.
+        block_index (int): The block index to validate.
         ledger_hash (str): The expected ledger hash.
-        valid_src20_str (str): The valid SRC20 string.
-
-    Returns:
-        bool: True if the API ledger hash matches the ledger hash, False otherwise.
 
     Raises:
         ValueError: If the API ledger hash does not match the ledger hash.
@@ -1149,23 +1164,23 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
                     return True
                 else:
                     api_ledger_validation = response.json()['data']['balance_data']
-                    if api_ledger_validation != valid_src20_str:
-                        logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
-                        logger.warning("API ledger validation: %s", api_ledger_validation)
-                        logger.warning("Ledger validation: %s", valid_src20_str)
-                        mismatches = []
-                        for api_entry, ledger_entry in zip(api_ledger_validation, valid_src20_str):
-                            if api_entry != ledger_entry:
-                                mismatches.append((api_entry, ledger_entry))
-                        for mismatch in mismatches:
-                            logger.warning("Mismatch found:")
-                            logger.warning("API Ledger: %s", mismatch[0])
-                            logger.warning("Ledger: %s", mismatch[1])
-                        if not mismatches:
-                            logger.warning("The strings match perfectly.")
-                        else:
-                            logger.warning("Total mismatches: %s", len(mismatches))
-                    raise ValueError('API ledger hash does not match ledger hash')
+                    logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
+                    logger.warning("API ledger validation: %s", api_ledger_validation)
+                    logger.warning("Local Ledger validation: %s", valid_src20_str)
+                    api_ledger_validation_entries = set(api_ledger_validation.split(';'))
+                    valid_src20_str_entries = set(valid_src20_str.split(';'))
+
+                    missing_in_api = valid_src20_str_entries - api_ledger_validation_entries
+                    missing_in_ledger = api_ledger_validation_entries - valid_src20_str_entries
+
+                    for missing in missing_in_api:
+                        logger.warning("Missing in API Ledger: %s", missing)
+                    for missing in missing_in_ledger:
+                        logger.warning("Missing in Local Ledger: %s", missing)
+                    else:
+                        logger.warning("Total mismatches: %s", len(missing_in_api) + len(missing_in_ledger))
+
+                    raise ValueError('API ledger hash does not match local ledger hash')
             else:
                 retry_count += 1
                 time.sleep(1)

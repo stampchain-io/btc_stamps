@@ -25,7 +25,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -55,7 +55,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -84,7 +84,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -111,7 +111,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -150,7 +150,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -178,7 +178,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -207,7 +207,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -236,7 +236,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -265,7 +265,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -294,7 +294,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -323,7 +323,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -352,7 +352,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -381,7 +381,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -410,7 +410,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -439,7 +439,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -468,7 +468,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -497,7 +497,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -526,7 +526,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -555,7 +555,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -584,7 +584,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -613,7 +613,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -642,7 +642,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -671,7 +671,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -700,7 +700,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -728,7 +728,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -756,7 +756,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -784,7 +784,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -812,7 +812,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -840,7 +840,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -868,7 +868,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -896,7 +896,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -924,7 +924,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -952,7 +952,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -980,7 +980,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1008,7 +1008,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1036,7 +1036,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1064,7 +1064,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1092,7 +1092,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1120,7 +1120,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1148,7 +1148,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1177,7 +1177,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1206,7 +1206,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1235,7 +1235,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1264,7 +1264,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1292,7 +1292,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1320,7 +1320,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1348,7 +1348,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1376,7 +1376,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1404,7 +1404,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1432,7 +1432,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1460,7 +1460,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1488,7 +1488,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1516,7 +1516,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1544,7 +1544,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1572,7 +1572,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1600,7 +1600,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1628,7 +1628,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1656,7 +1656,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1684,7 +1684,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1712,7 +1712,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1740,7 +1740,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1768,7 +1768,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1796,7 +1796,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1824,7 +1824,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1852,7 +1852,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1880,7 +1880,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1908,7 +1908,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1936,7 +1936,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1964,7 +1964,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -1992,7 +1992,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2020,7 +2020,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2048,7 +2048,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2077,7 +2077,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2106,7 +2106,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2135,7 +2135,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2164,7 +2164,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2192,7 +2192,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2220,7 +2220,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2248,7 +2248,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   },
@@ -2276,7 +2276,7 @@ src20_variations_data = [
     "block_time": 0,
     "is_op_return": False,
     "valid_stamps_in_block": [],
-    "valid_src20_in_block": [],
+    "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
   }
