@@ -132,12 +132,15 @@ class Src20Processor:
             self.src20_dict['total_balance_destination'] = running_user_balance
             self.src20_dict['dec'] = self.dec
         elif operation == 'DEPLOY':
+            if not self.src20_dict['dec']:
+                self.src20_dict['dec'] = 18
             pass
         else:
             raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
         
         self.src20_dict['valid'] = 1 
         self.processed_src20_in_block.append(self.src20_dict.copy())
+
 
     def create_running_user_balance_dict(self, running_user_balance_tuple):
         running_user_balance_dict = {}
@@ -148,6 +151,7 @@ class Src20Processor:
             running_user_balance_dict[address] = total_balance
 
         return running_user_balance_dict
+
 
     def set_status_and_log(self, status_code, **kwargs):
         message_template, is_invalid = self.STATUS_MESSAGES[status_code]
@@ -161,6 +165,7 @@ class Src20Processor:
             self.is_valid = False
         else:
             logger.info(message)
+
 
     def handle_deploy(self):
         if self.src20_dict['op'] != 'DEPLOY':
@@ -232,8 +237,6 @@ class Src20Processor:
                 return # TODO: implement this validation
                 self.set_status_and_log('ID', dec_length=decimal_length, dec=self.dec, op='TRANSFER', tick=self.src20_dict['tick'])
                 return
-
-
         try:
             addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
             running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
