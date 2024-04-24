@@ -57,13 +57,13 @@ class Src20Validator:
             if num_pattern.match(str(value)):
                 self.src20_dict[key] = D(str(value))
             else:
-                self._update_status(key, f'NN: not valid number format for {key}')
+                self._update_status(key, f'NN: INVALID NUM for {key}')
                 self.src20_dict[key] = None
         elif key == 'dec':
             if dec_pattern.match(str(value)) and 0 <= int(value) <= 18:
                 self.src20_dict[key] = int(value)
             else:
-                self._update_status(key, f'NN: not in valid range or format')
+                self._update_status(key, f'NN: INVALID DEC VAL')
                 self.src20_dict[key] = None
 
 
@@ -105,12 +105,12 @@ class Src20Processor:
     STATUS_MESSAGES = {
         'DE': ("INVALID DEPLOY: {tick} DEPLOY EXISTS", True),
         'ND': ("INVALID {op}: {tick} NO DEPLOY", True),
-        'OM': ("OVER MAX {tick} {total_minted} >= {deploy_max}", True),
-        'NA': ("NO VALID AMT {op} {tick}", True),
-        'OMA': ("ADJUSTED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
-        'BB': ("INVALID TRANSFER {tick} - total_balance {balance} < xfer amt {amount}", True),
+        'OM': ("OVER MINT {tick} {total_minted} >= {deploy_max}", True),
+        'NA': ("INVALID AMT {op} {tick}", True),
+        'OMA': ("REDUCED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
+        'BB': ("INVALID XFR {tick} - total_balance {balance} < xfer amt {amount}", True),
         'UO': ("UNSUPPORTED OP {op} ", True),
-        'ID': ("INVALID DECIMAL {tick} - decimal length {dec_length} greater than {dec}", True),
+        'ID': ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
     }
 
     def __init__(self, db, src20_dict, processed_src20_in_block):
@@ -122,10 +122,11 @@ class Src20Processor:
 
     def update_valid_src20_list(self, running_user_balance_creator=None, running_user_balance_destination=None, operation=None, total_minted=None):
         if operation == 'TRANSFER':
+            amt = D(self.src20_dict['amt'])
             self.src20_dict['dec'] = self.dec
             self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - amt
             self.src20_dict['total_balance_destination'] = D(running_user_balance_destination) + amt
-            self.src20_dict['status'] = 'Balance Updated'
+            # self.src20_dict['status'] = 'Balance Updated'
         elif operation == 'MINT' and total_minted is not None:
             self.src20_dict['dec'] = self.dec
             amt = self.src20_dict['amt']
@@ -231,19 +232,27 @@ class Src20Processor:
         if not self.deploy_lim and not self.deploy_max:
             self.set_status_and_log('ND', op='TRANSFER', tick=self.src20_dict['tick'])
             return
-        if self.dec != 18:
-            amt_str = str(self.src20_dict['amt']).rstrip('0').rstrip('.')
-            parts = amt_str.split('.')
-            decimal_length = len(parts[1]) if len(parts) > 1 else 0
+        if self.dec and self.dec != 18:
+            # Assuming self.src20_dict['amt'] is a string representing a large integer
+            # Convert the string to a Decimal, assuming it could represent a value with up to 18 decimal places
+            amt_decimal = D(self.src20_dict['amt']) / D('1e18')
+            amt_decimal_normalized = amt_decimal.normalize()
 
-            if decimal_length > self.dec:
+            decimal_length = len(amt_decimal_normalized[1]) if len(amt_decimal_normalized) > 1 else 0
+
+            if str(decimal_length) > self.dec:
                 # attempt to transfer too many decimals
                 return # TODO: implement this validation
                 self.set_status_and_log('ID', dec_length=decimal_length, dec=self.dec, op='TRANSFER', tick=self.src20_dict['tick'])
                 return
         try:
-            addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
-            running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
+            # addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
+            # running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
+            if self.src20_dict['creator'] == self.src20_dict['destination']:
+                running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], [self.src20_dict['creator']], self.processed_src20_in_block)
+            else:
+                addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
+                running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
             running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
 
             running_user_balance_creator = D(running_user_balance_dict.get(self.src20_dict['creator'], 0))
