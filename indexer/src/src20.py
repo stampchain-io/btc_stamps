@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
 class Src20Validator:
+    @property
+    def errors(self):
+        """
+        Returns the list of validation errors.
+        """
+        return self.validation_errors
+    
     def __init__(self, src20_dict):
         self.src20_dict = src20_dict
         self.validation_errors = []
@@ -98,7 +105,7 @@ class Src20Processor:
     STATUS_MESSAGES = {
         'DE': ("INVALID DEPLOY: {tick} DEPLOY EXISTS", True),
         'ND': ("INVALID {op}: {tick} NO DEPLOY", True),
-        'OM': ("OVER MAX {total_minted} >= {deploy_max}", True),
+        'OM': ("OVER MAX {tick} {total_minted} >= {deploy_max}", True),
         'NA': ("NO VALID AMT {op} {tick}", True),
         'OMA': ("ADJUSTED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
         'BB': ("INVALID TRANSFER {tick} - total_balance {balance} < xfer amt {amount}", True),
@@ -196,7 +203,7 @@ class Src20Processor:
                 self.set_status_and_log('OM', total_minted=total_minted, deploy_max=self.deploy_max, tick=self.src20_dict['tick'])
                 return
 
-            if self.src20_dict['amt'] is None:
+            if not self.src20_dict['amt']:
                 self.set_status_and_log('NA', op='MINT', tick=self.src20_dict['tick'])
                 return
 
