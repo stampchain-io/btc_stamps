@@ -27,10 +27,6 @@ class Src20Validator:
         self.src20_dict = src20_dict
         self.validation_errors = []
 
-    def _process_tick_value(self, key, value):
-        self.src20_dict[key] = value.lower()
-        return
-
 
     def process_values(self):
         num_pattern = re.compile(r'^[0-9]*(\.[0-9]*)?$')
@@ -76,6 +72,7 @@ class Src20Validator:
 
     def _process_tick_value(self, key, value):
         self.src20_dict['tick'] = value.lower() 
+        self.src20_dict["tick"] = escape_non_ascii_characters(self.src20_dict["tick"])
         self.src20_dict['tick_hash'] = self.create_tick_hash(value.lower())
 
 
@@ -106,6 +103,7 @@ class Src20Processor:
         'OMA': ("ADJUSTED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
         'BB': ("INVALID TRANSFER {tick} - total_balance {balance} < xfer amt {amount}", True),
         'UO': ("UNSUPPORTED OP {op} ", True),
+        'ID': ("INVALID DECIMAL {tick} - decimal length {dec_length} greater than {dec}", True),
     }
 
     def __init__(self, db, src20_dict, processed_src20_in_block):
@@ -197,7 +195,7 @@ class Src20Processor:
                 return
 
             if self.src20_dict['amt'] is None:
-                self.set_status_and_log('NA', tick=self.src20_dict['tick'])
+                self.set_status_and_log('NA', op='MINT', tick=self.src20_dict['tick'])
                 return
 
             # Adjust amount if it exceeds available mint
@@ -224,6 +222,17 @@ class Src20Processor:
         if not self.deploy_lim and not self.deploy_max:
             self.set_status_and_log('ND', op='TRANSFER', tick=self.src20_dict['tick'])
             return
+        if self.dec != 18:
+            amt_str = str(self.src20_dict['amt']).rstrip('0').rstrip('.')
+            parts = amt_str.split('.')
+            decimal_length = len(parts[1]) if len(parts) > 1 else 0
+
+            if decimal_length > self.dec:
+                # attempt to transfer too many decimals
+                return # TODO: implement this validation
+                self.set_status_and_log('ID', dec_length=decimal_length, dec=self.dec, op='TRANSFER', tick=self.src20_dict['tick'])
+                return
+
 
         try:
             addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
@@ -300,7 +309,6 @@ class Src20Processor:
 
 
     def process(self):
-        self.src20_dict["tick"] = escape_non_ascii_characters(self.src20_dict["tick"])
         validator = Src20Validator(self.src20_dict)
         self.src20_dict = validator.process_values()
         self.tick_value = self.src20_dict.get('tick')
@@ -327,9 +335,6 @@ class Src20Processor:
 def process_src20_trx(db, src20_dict, processed_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
     
-    tick_value = src20_dict.get('tick')
-    src20_dict["tick"] = escape_non_ascii_characters(tick_value)
-
     processor = Src20Processor(db, src20_dict, processed_src20_in_block)
     processor.process()
 
@@ -516,7 +521,6 @@ def check_format(input_string, tx_hash):
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
             tick_value = convert_to_utf8_string(input_dict.get("tick"))
-            is_transfer = input_dict.get("op").upper() == "TRANSFER"
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern", input_dict)
@@ -897,10 +901,11 @@ def insert_into_src20_tables(db, processed_src20_in_block):
     with db.cursor() as src20_cursor:
         for i, src20_dict in enumerate(processed_src20_in_block):
             id = f"{i}_{src20_dict.get('tx_index')}_{src20_dict.get('tx_hash')}"
+            insert_into_src20_table(src20_cursor, SRC20_TABLE, id, src20_dict)
             if src20_dict.get("valid") == 1:
                 insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
                 
-            insert_into_src20_table(src20_cursor, SRC20_TABLE, id, src20_dict)
+
 
 
 def insert_into_src20_table(cursor, table_name, id, src20_dict):
@@ -987,14 +992,12 @@ def decode_unicode_escapes(text):
     Returns:
         str: The text with Unicode escape sequences converted back to Unicode characters.
     """
-    return text.encode('utf-8').decode('unicode_escape').encode('utf-8')
+    return text.encode('utf-8').decode('unicode_escape')
     
 
 def update_src20_balances(db, block_index, block_time, processed_src20_in_block):
     balance_updates = []
 
-    # FIXME: we are looping through the list once for insert into db, and then again here for balances validations... combine! 
-    
     for src20_dict in processed_src20_in_block:
         if src20_dict.get('valid') == 1:
 
@@ -1111,7 +1114,7 @@ def process_balance_updates(balance_updates):
         for src20 in balance_updates:
             creator = src20.get('address')
             if '\\' in src20['tick']:
-                tick = decode_unicode_escapes(src20.get('tick')) 
+                tick = decode_unicode_escapes(src20['tick'])
             else:
                 tick = src20.get('tick')
             amt = src20.get('net_change') + src20.get('original_amt')

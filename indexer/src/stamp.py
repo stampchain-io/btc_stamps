@@ -308,19 +308,13 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
             except json.JSONDecodeError:
                 # get a string representation of the bytes object
                 input_data = repr(input_data)[2:-1]
-                # utf8 conversion for src-20 tokens can make invalid ticks valid: 
-                # .decode('utf-8') on c28966f1bf851874bb260c8d96122036700651c4ec414fca000ca8089da3176
-                # original: ,"tick":"S\xd0\xa2AMP"  conversion to: ,"tick":"STAMP"
-                # ie. input_data = input_data.decode('utf-8')
         if isinstance(input_data, str):
-            # Check if input_data is a string representation of a dictionary
             try:
                 input_data = ast.literal_eval(input_data)
             except ValueError:
                 raise
  
         if isinstance(input_data, dict):
-            # input_data is a dictionary, so convert it directly to a JSON string or return as a dictionary
             if output_format == 'dict':
                 return input_data
             elif output_format == 'string':
@@ -787,7 +781,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
             tick_escape = escape_non_ascii_characters(src20_dict['tick'])
-            _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape.lower(), processed_src20_in_block)
+            _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape, processed_src20_in_block)
             stamp['quantity'] = deploy_max if deploy_max is not None else 0
         else:
             return None, None
