@@ -132,9 +132,8 @@ class Src20Processor:
             self.src20_dict['total_balance_destination'] = running_user_balance
             self.src20_dict['dec'] = self.dec
         elif operation == 'DEPLOY':
-            if not self.src20_dict['dec']:
+            if self.src20_dict.get('dec') is None:
                 self.src20_dict['dec'] = 18
-            pass
         else:
             raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
         
@@ -173,10 +172,8 @@ class Src20Processor:
         
         if not self.deploy_lim and not self.deploy_max:
             self.update_valid_src20_list(operation='DEPLOY')
-            return
         else:
             self.set_status_and_log('DE', tick=self.src20_dict['tick'])
-            return
             
 
     def handle_mint(self):
