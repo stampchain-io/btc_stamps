@@ -56,7 +56,7 @@ class TestSrc20Variations(unittest.TestCase):
                     "block_time": test_case["block_time"],
                     "is_op_return": test_case["is_op_return"],
                     "valid_stamps_in_block": test_case["valid_stamps_in_block"],
-                    "valid_src20_in_block": test_case["valid_src20_in_block"],
+                    "processed_src20_in_block": test_case["processed_src20_in_block"],
                     "p2wsh_data": test_case["p2wsh_data"]
                 }
                 stamp_result, src20_result = parse_tx_to_stamp_table(**additional_params)
