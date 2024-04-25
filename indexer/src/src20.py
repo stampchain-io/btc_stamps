@@ -237,10 +237,13 @@ class Src20Processor:
             # Convert the string to a Decimal, assuming it could represent a value with up to 18 decimal places
             amt_decimal = D(self.src20_dict['amt']) / D('1e18')
             amt_decimal_normalized = amt_decimal.normalize()
+            # Convert the decimal.Decimal object to a string and split it on the decimal point
+            amt_decimal_str = str(amt_decimal_normalized).split('.')
 
-            decimal_length = len(amt_decimal_normalized[1]) if len(amt_decimal_normalized) > 1 else 0
+            # Check if there is a decimal part and get its length, otherwise set the length to 0
+            decimal_length = len(amt_decimal_str[1]) if len(amt_decimal_str) > 1 else 0
 
-            if str(decimal_length) > self.dec:
+            if int(decimal_length) > self.dec:
                 # attempt to transfer too many decimals
                 return # TODO: implement this validation
                 self.set_status_and_log('ID', dec_length=decimal_length, dec=self.dec, op='TRANSFER', tick=self.src20_dict['tick'])
