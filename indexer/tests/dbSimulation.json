@@ -97,7 +97,7 @@
             "tick_hash": "9769ee76c3860c370f0914c472886a25f39d34cd9f1a3fe7751df92b3d439409",
             "creator": "bc1qqz5tvzm3uw3w4lruga8aylsk9fs93y0w8fysfe",
             "amt": null,
-            "deci": 18,
+            "deci": 0,
             "lim": 420000,
             "max": 690000000,
             "destination": "1BepCXzZ7RRcPaqUdvBp2jvkJcaRvHMGKz",
