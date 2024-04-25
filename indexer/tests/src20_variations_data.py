@@ -1163,8 +1163,8 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
-      "message": "token previously deployed, - UNKNOWN STATUS DEBUG SIM WITH DECIMAL VALUE HANDLING - TBD /FAIL ? "
+      "src20_success": False,
+      "message": "token previously deployed, - THIS IS OVER THE DEC VALUE ? "
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",
@@ -1192,8 +1192,8 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
-      "message": "token previously deployed, - UNKNOWN STATUS DEBUG SIM WITH DECIMAL VALUE HANDLING - TBD /FAIL ? "
+      "src20_success": False,
+      "message": "token previously deployed, - THIS IS OVER THE DEC VALUE "
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",
@@ -1221,8 +1221,8 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
-      "message": "token previously deployed, - UNKOWN STATUS DEBUG SIM WITH DECIMAL VALUE HANDLING - TBD /FAIL ? "
+      "src20_success": False,
+      "message": "token previously deployed, - THIS IS OVER THE DEC VALUE"
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",
@@ -1250,8 +1250,8 @@ src20_variations_data = [
     },
       "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
-      "message": "token previously deployed, - UNKNOWN STATUS DEBUG SIM WITH DECIMAL VALUE HANDLING - TBD /FAIL ? "
+      "src20_success": False,
+      "message": "token previously deployed, - THIS IS OVER THE DEC VALUE "
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",
@@ -1502,7 +1502,7 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
+      "src20_success": False,
       "message": "token  previously deployed"
     },
     "source": "1SourceAddr",
@@ -1530,7 +1530,7 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
+      "src20_success": False,
       "message": "token  previously deployed -- debug to give user balance"
     },
     "source": "1SourceAddr",
@@ -1558,7 +1558,7 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
+      "src20_success": False,
       "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
     },
     "source": "1SourceAddr",
@@ -1586,7 +1586,7 @@ src20_variations_data = [
     },
     "expectedOutcome": {
       "stamp_success": True,
-      "src20_success": True,
+      "src20_success": False,
       "message": "token  previously deployed -- debug to give user balance"
     },
     "source": "1SourceAddr",

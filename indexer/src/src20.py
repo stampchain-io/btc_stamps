@@ -108,6 +108,7 @@ class Src20Processor:
         'OM': ("OVER MINT {tick} {total_minted} >= {deploy_max}", True),
         'NA': ("INVALID AMT {op} {tick}", True),
         'OMA': ("REDUCED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
+        'ODL': ("REDUCED AMT {tick} FROM:  {original_amt} TO: {adjusted_amt}", False),
         'BB': ("INVALID XFR {tick} - total_balance {balance} < xfer amt {amount}", True),
         'UO': ("UNSUPPORTED OP {op} ", True),
         'ID': ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
@@ -119,26 +120,32 @@ class Src20Processor:
         self.processed_src20_in_block = processed_src20_in_block
         self.is_valid = True
 
+    def normalize_and_validate_amt(self):
+        amt = D(self.src20_dict['amt']).normalize()
+        self.dec = int(self.dec) if self.dec is not None else 18
+        decimal_length = -amt.as_tuple().exponent
 
+        if decimal_length > self.dec:
+            raise ValueError(f"The number of decimal places in 'amt' exceeds the limit of {self.dec}")
+
+        self.src20_dict['amt'] = amt
+        self.src20_dict['dec'] = self.dec
+        return amt
+
+    
     def update_valid_src20_list(self, running_user_balance_creator=None, running_user_balance_destination=None, operation=None, total_minted=None):
         if operation == 'TRANSFER':
-            amt = D(self.src20_dict['amt'])
-            self.src20_dict['dec'] = self.dec
+            amt = self.normalize_and_validate_amt()
             self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - amt
             self.src20_dict['total_balance_destination'] = D(running_user_balance_destination) + amt
             # self.src20_dict['status'] = 'Balance Updated'
         elif operation == 'MINT' and total_minted is not None:
-            self.src20_dict['dec'] = self.dec
-            amt = self.src20_dict['amt']
-            if amt > self.deploy_lim:
-                amt = self.deploy_lim
-                self.src20_dict['amt'] = amt
+            amt = self.normalize_and_validate_amt()
             TOTAL_MINTED_CACHE[self.src20_dict.get("tick")] += amt
-            running_total_mint = int(total_minted) + amt
+            running_total_mint = D(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
             self.src20_dict['total_minted'] = running_total_mint
             self.src20_dict['total_balance_destination'] = running_user_balance
-            self.src20_dict['dec'] = self.dec
         elif operation == 'DEPLOY':
             if self.src20_dict.get('dec') is None:
                 self.src20_dict['dec'] = 18
@@ -204,14 +211,15 @@ class Src20Processor:
                 self.set_status_and_log('OM', total_minted=total_minted, deploy_max=self.deploy_max, tick=self.src20_dict['tick'])
                 return
 
-            if not self.src20_dict['amt']:
-                self.set_status_and_log('NA', op='MINT', tick=self.src20_dict['tick'])
-                return
-
             # Adjust amount if it exceeds available mint
             if self.src20_dict['amt'] > mint_available:
                 self.set_status_and_log('OMA', original_amt=self.src20_dict["amt"], adjusted_amt=mint_available, tick=self.src20_dict['tick'])
                 self.src20_dict['amt'] = mint_available
+
+            # Adjust amount if it exceeds deploy_lim to deploy_lim
+            if self.src20_dict['amt'] > self.deploy_lim:
+                self.set_status_and_log('ODL', original_amt=self.src20_dict["amt"], adjusted_amt=self.deploy_lim, tick=self.src20_dict['tick'])
+                self.src20_dict['amt'] = self.deploy_lim
 
             # Calculate running user balance 
             running_user_balance = D('0')
@@ -232,25 +240,8 @@ class Src20Processor:
         if not self.deploy_lim and not self.deploy_max:
             self.set_status_and_log('ND', op='TRANSFER', tick=self.src20_dict['tick'])
             return
-        if self.dec and self.dec != 18:
-            # Assuming self.src20_dict['amt'] is a string representing a large integer
-            # Convert the string to a Decimal, assuming it could represent a value with up to 18 decimal places
-            amt_decimal = D(self.src20_dict['amt']) / D('1e18')
-            amt_decimal_normalized = amt_decimal.normalize()
-            # Convert the decimal.Decimal object to a string and split it on the decimal point
-            amt_decimal_str = str(amt_decimal_normalized).split('.')
-
-            # Check if there is a decimal part and get its length, otherwise set the length to 0
-            decimal_length = len(amt_decimal_str[1]) if len(amt_decimal_str) > 1 else 0
-
-            if int(decimal_length) > self.dec:
-                # attempt to transfer too many decimals
-                return # TODO: implement this validation
-                self.set_status_and_log('ID', dec_length=decimal_length, dec=self.dec, op='TRANSFER', tick=self.src20_dict['tick'])
-                return
+  
         try:
-            # addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
-            # running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
             if self.src20_dict['creator'] == self.src20_dict['destination']:
                 running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], [self.src20_dict['creator']], self.processed_src20_in_block)
             else:
@@ -1161,16 +1152,17 @@ def clear_zero_balances(db):
     return
 
 
-def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
+def fetch_api_ledger_data(block_index):
     """
-    Validates the ledger for a given block index against the API.
+    Fetches the ledger hash and balance data for a given block index from the API.
 
     Args:
-        block_index (int): The block index to validate.
-        ledger_hash (str): The expected ledger hash.
+        block_index (int): The block index to fetch data for.
+
+    Returns:
+        tuple: A tuple containing the ledger hash and balance data from the API.
 
     Raises:
-        ValueError: If the API ledger hash does not match the ledger hash.
         Exception: If failed to retrieve from the API after retries.
     """
     url = SRC_VALIDATION_API1 + str(block_index)
@@ -1182,31 +1174,51 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
             response = requests.get(url)
             if response.status_code == 200:
                 api_ledger_hash = response.json()['data']['hash']
-                if api_ledger_hash == ledger_hash:
-                    return True
-                else:
-                    api_ledger_validation = response.json()['data']['balance_data']
-                    logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
-                    logger.warning("API ledger validation: %s", api_ledger_validation)
-                    logger.warning("Local Ledger validation: %s", valid_src20_str)
-                    api_ledger_validation_entries = set(api_ledger_validation.split(';'))
-                    valid_src20_str_entries = set(valid_src20_str.split(';'))
-
-                    missing_in_api = valid_src20_str_entries - api_ledger_validation_entries
-                    missing_in_ledger = api_ledger_validation_entries - valid_src20_str_entries
-
-                    for missing in missing_in_api:
-                        logger.warning("Missing in API Ledger: %s", missing)
-                    for missing in missing_in_ledger:
-                        logger.warning("Missing in Local Ledger: %s", missing)
-                    else:
-                        logger.warning("Total mismatches: %s", len(missing_in_api) + len(missing_in_ledger))
-
-                    raise ValueError('API ledger hash does not match local ledger hash')
+                api_ledger_validation = response.json()['data']['balance_data']
+                return api_ledger_hash, api_ledger_validation
             else:
                 retry_count += 1
                 time.sleep(1)
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             retry_count += 1
             time.sleep(1)
+
     raise Exception(f'Failed to retrieve from the API after {max_retries} retries')
+
+
+def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
+    """
+    Validates the ledger for a given block index against the API.
+
+    Args:
+        block_index (int): The block index to validate.
+        ledger_hash (str): The expected ledger hash.
+        valid_src20_str (str): The valid SRC20 string for comparison.
+
+    Raises:
+        ValueError: If the API ledger hash does not match the ledger hash.
+    """
+    try:
+        api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
+    except Exception as e:
+        raise Exception(f"Error fetching API data: {e}")
+
+    if api_ledger_hash == ledger_hash:
+        return True
+    else:
+        logger.warning("API ledger validation does not match ledger validation for block %s", block_index)
+        logger.warning("API ledger validation: %s", api_ledger_validation)
+        logger.warning("Local Ledger validation: %s", valid_src20_str)
+        api_ledger_validation_entries = set(api_ledger_validation.split(';'))
+        valid_src20_str_entries = set(valid_src20_str.split(';'))
+
+        missing_in_api = valid_src20_str_entries - api_ledger_validation_entries
+        missing_in_ledger = api_ledger_validation_entries - valid_src20_str_entries
+
+        for missing in missing_in_api:
+            logger.warning("Missing in API Ledger: %s", missing)
+        for missing in missing_in_ledger:
+            logger.warning("Missing in Local Ledger: %s", missing)
+        logger.warning("Total mismatches: %s", len(missing_in_api) + len(missing_in_ledger))
+
+        raise ValueError('API ledger hash does not match local ledger hash')
