@@ -12,7 +12,7 @@ src20_variations_data = [
     "expectedOutcome": {
       "stamp_success": True,
       "src20_success": True,
-      "message": "SRC-20 token deployment successful"
+      "message": "SRC-20 token deploy, no prior deploy"
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",
@@ -771,7 +771,7 @@ src20_variations_data = [
     "expectedOutcome": {
       "stamp_success": True,
       "src20_success": True,
-      "message": "token  previously deployed --- debug to give user balance"
+      "message": "token previously deployed in simulated data"
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",
@@ -2264,6 +2264,29 @@ src20_variations_data = [
       "stamp_success": True,
       "src20_success": True,
       "message": "token  previously deployed -- debug to give user balance"
+    },
+    "source": "1SourceAddr",
+    "destination": "1DestAddr",
+    "btc_amount": 0.0,
+    "fee": 0.0,
+    "decoded_tx": "{}",
+    "keyburn": 1,
+    "tx_index": 0,
+    "block_index": 0,
+    "block_time": 0,
+    "is_op_return": False,
+    "valid_stamps_in_block": [],
+    "processed_src20_in_block": [],
+    "p2wsh_data": None,
+    "tx_hash": "dummy_tx_hash"
+  },
+ {
+    "description": "SRC-20 token transfer, scenario No.40",
+    "src20JsonString": "{\"p\":\"src-20\",\"op\":\"transfer\",\"tick\":\"kevin\",\"amt\":0.1234}",
+    "expectedOutcome": {
+      "stamp_success": True,
+      "src20_success": True,
+      "message": "token previously deployed"
     },
     "source": "1SourceAddr",
     "destination": "1DestAddr",

@@ -195,23 +195,13 @@ class Src20Processor:
 
 
     def handle_deploy(self):
-        if self.src20_dict['op'] != 'DEPLOY':
-            return False
-        
         if not self.deploy_lim and not self.deploy_max:
-            self.update_valid_src20_list(operation='DEPLOY')
+            self.update_valid_src20_list(operation=self.operation)
         else:
             self.set_status_and_log('DE', tick=self.src20_dict['tick'])
             
 
     def handle_mint(self):
-        if self.src20_dict['op'] != 'MINT':
-            return False
-
-        if not self.deploy_lim and not self.deploy_max:
-            self.set_status_and_log('ND', op='MINT', tick=self.src20_dict['tick'])
-            return
-
         # Ensure deploy_lim does not exceed deploy_max
         self.deploy_lim = int(min(self.deploy_lim, self.deploy_max))
 
@@ -222,10 +212,6 @@ class Src20Processor:
             # Check for over mint condition
             if total_minted >= self.deploy_max:
                 self.set_status_and_log('OM', total_minted=total_minted, deploy_max=self.deploy_max, tick=self.src20_dict['tick'])
-                return
-
-            if not self.src20_dict['amt']: #TODO: This should be filtered out earlier in the validation
-                self.set_status_and_log('NA', op='MINT', tick=self.src20_dict['tick'])
                 return
 
             # Adjust amount if it exceeds available mint
@@ -244,7 +230,7 @@ class Src20Processor:
             if running_user_balance_tuple:
                 running_user_balance = running_user_balance_tuple[0].total_balance
 
-            self.update_valid_src20_list(running_user_balance_creator=running_user_balance, operation='MINT', total_minted=total_minted)
+            self.update_valid_src20_list(running_user_balance_creator=running_user_balance, operation=self.operation, total_minted=total_minted)
 
         except Exception as e:
             logger.error(f"Error in minting operations: {e}")
@@ -252,11 +238,6 @@ class Src20Processor:
 
 
     def handle_transfer(self):
-        if self.src20_dict['op'] != 'TRANSFER':
-            return False
-        if not self.deploy_lim and not self.deploy_max:
-            self.set_status_and_log('ND', op='TRANSFER', tick=self.src20_dict['tick'])
-            return
   
         try:
             if self.src20_dict['creator'] == self.src20_dict['destination']:
@@ -335,6 +316,30 @@ class Src20Processor:
         self.src20_dict['status'] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
 
+    def validate_and_process_operation(self):
+        self.operation = self.src20_dict['op']
+        op_amt_validations = ['TRANSFER', 'MINT']
+
+        if self.operation in op_amt_validations and not self.src20_dict['amt']:
+            self.set_status_and_log('NA', op=self.operation, tick=self.src20_dict['tick'])
+            return
+
+        self.deploy_lim, self.deploy_max, self.dec = get_src20_deploy(self.db, self.tick_value, self.processed_src20_in_block)
+
+        if not self.deploy_lim and not self.deploy_max and self.operation in op_amt_validations:
+            self.set_status_and_log('ND', op=self.operation, tick=self.src20_dict['tick'])
+            return
+
+        if self.operation == 'DEPLOY':
+            self.handle_deploy()
+        elif self.operation == 'MINT':
+            self.handle_mint()
+        elif self.operation == 'TRANSFER':
+            self.handle_transfer()
+        else:
+            self.set_status_and_log('UO', op=self.operation, tick=self.src20_dict.get('tick', 'undefined'))
+
+
     def process(self):
         validator = Src20Validator(self.src20_dict)
         self.src20_dict = validator.process_values()
@@ -346,17 +351,7 @@ class Src20Processor:
             self.is_valid = False
             return
         
-        self.deploy_lim, self.deploy_max, self.dec = get_src20_deploy(self.db, self.tick_value, self.processed_src20_in_block)
-
-        operation = self.src20_dict['op']
-        if operation == 'DEPLOY':
-            self.handle_deploy()
-        elif operation == 'MINT':
-            self.handle_mint()
-        elif operation == 'TRANSFER':
-            self.handle_transfer()
-        else:
-            self.set_status_and_log('UO', op=operation, tick=self.src20_dict.get('tick', 'undefined'))
+        self.validate_and_process_operation()
 
 
 def parse_src20(db, src20_dict, processed_src20_in_block):
