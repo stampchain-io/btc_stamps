@@ -46,6 +46,7 @@ class TestSrc20Variations(unittest.TestCase):
         for test_case in src20_variations_data:
             # stamp_result, src20_result = None, None
             with self.subTest(msg=test_case["description"]):
+                logger.info(f"Running test case: {test_case['description']}")
                 additional_params = {
                     "db": self.db_simulator,
                     "tx_hash": test_case["tx_hash"],
@@ -67,6 +68,7 @@ class TestSrc20Variations(unittest.TestCase):
  
                 stamp_result = False if stamp_result is None else stamp_result
                 if stamp_result != test_case["expectedOutcome"]["stamp_success"]:
+                    logger.error(f"{test_case['description']}")
                     logger.error(f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
                 else:
                     logger.info(f"Success in stamp_result test: {test_case['expectedOutcome']['message']}")
@@ -83,6 +85,7 @@ class TestSrc20Variations(unittest.TestCase):
                 src20_result = False if src20_result is None else src20_result
             
                 if src20_result != test_case["expectedOutcome"]["src20_success"]:
+                    logger.error(f"{test_case['description']}")
                     logger.error(f"Failure in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
                 else:
                     logger.info(f"Success in src20_result test: {test_case['expectedOutcome']['message']}")
