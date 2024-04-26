@@ -13,6 +13,7 @@ import src.log as log
 import config
 import src.util as util
 import src.blocks as blocks
+from src.database import last_db_index
 import src.backend as backend
 from src.aws import get_s3_objects
 
@@ -350,7 +351,7 @@ def initialize_db():
         port=rds_port,
         database=rds_database
     )
-    util.CURRENT_BLOCK_INDEX = blocks.last_db_index(db)
+    util.CURRENT_BLOCK_INDEX = last_db_index(db)
 
     initialize_tables(db)
 
