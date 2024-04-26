@@ -322,7 +322,7 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
         ValueError: If the input_data is a string representation of a dictionary but cannot be evaluated.
         Exception: If an error occurs during the conversion process.
     """
-
+    
     if isinstance(input_data, bytes):
         try:
             input_data = json.loads(input_data, parse_float=D)
@@ -331,9 +331,12 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
 
     if isinstance(input_data, str):
         try:
-            input_data = ast.literal_eval(input_data)
-        except ValueError:
-            raise DataConversionError("Invalid string representation of a dictionary")
+            return json.loads(input_data)
+        except json.JSONDecodeError:
+            try:
+                input_data = ast.literal_eval(input_data)
+            except ValueError:
+                raise DataConversionError("Invalid string representation of a dictionary")
 
     if not isinstance(input_data, dict):
         raise InvalidInputDataError("input_data is not a dictionary, string, or bytes")
