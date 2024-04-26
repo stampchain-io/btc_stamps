@@ -21,6 +21,11 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Install Node.js dependencies
+        run: npm install
+        working-directory: ./app
+  
+
       - name: Build Deno App
         run: |
           deno run -A dev.ts build
