@@ -2,25 +2,31 @@ import json
 import logging
 import re
 import hashlib
-import datetime
 from collections import namedtuple
 import decimal
 import time
 import requests
+import sys
 
 from config import (
     TICK_PATTERN_SET,
-    SRC20_TABLE,
     SRC20_VALID_TABLE,
     SRC_VALIDATION_API1,
     SRC20_BALANCES_TABLE,
-    SRC_BACKGROUND_TABLE
 )
 import src.log as log
+from src.database import (
+    TOTAL_MINTED_CACHE,
+    get_srcbackground_data, 
+    get_total_src20_minted_from_db,
+    get_src20_deploy
+)
+from src.util import decode_unicode_escapes, escape_non_ascii_characters
+
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
-log.set_logger(logger)  # set root logger
+log.set_logger(logger)
 
 class Src20Validator:
     @property
@@ -102,7 +108,7 @@ class Src20Validator:
 
 
 class Src20Processor:
-    STATUS_MESSAGES = {
+    STATUS_MESSAGES = { # second value in tuple  = is_invalid
         'DE': ("INVALID DEPLOY: {tick} DEPLOY EXISTS", True),
         'ND': ("INVALID {op}: {tick} NO DEPLOY", True),
         'OM': ("OVER MINT {tick} {total_minted} >= {deploy_max}", True),
@@ -126,21 +132,30 @@ class Src20Processor:
         decimal_length = -amt.as_tuple().exponent
 
         if decimal_length > self.dec:
-            raise ValueError(f"The number of decimal places in 'amt' exceeds the limit of {self.dec}")
-
-        self.src20_dict['amt'] = amt
-        self.src20_dict['dec'] = self.dec
-        return amt
+            self.decimal_length = decimal_length
+            raise ValueError(f"Decimal places exceeds the limit")
+        else:
+            self.src20_dict['amt'] = amt
+            self.src20_dict['dec'] = self.dec
+            return amt
 
     
     def update_valid_src20_list(self, running_user_balance_creator=None, running_user_balance_destination=None, operation=None, total_minted=None):
         if operation == 'TRANSFER':
-            amt = self.normalize_and_validate_amt()
+            try:
+                amt = self.normalize_and_validate_amt()
+            except ValueError:
+                self.set_status_and_log('ID', tick=self.src20_dict['tick'], dec_length=self.decimal_length, dec=self.dec)
+                return
             self.src20_dict['total_balance_creator'] = D(running_user_balance_creator) - amt
             self.src20_dict['total_balance_destination'] = D(running_user_balance_destination) + amt
             # self.src20_dict['status'] = 'Balance Updated'
         elif operation == 'MINT' and total_minted is not None:
-            amt = self.normalize_and_validate_amt()
+            try:
+                amt = self.normalize_and_validate_amt()
+            except ValueError:
+                self.set_status_and_log('ID', tick=self.src20_dict['tick'], dec_length=self.decimal_length, dec=self.dec)
+                return
             TOTAL_MINTED_CACHE[self.src20_dict.get("tick")] += amt
             running_total_mint = D(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
@@ -153,7 +168,6 @@ class Src20Processor:
             raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
         
         self.src20_dict['valid'] = 1 
-        self.processed_src20_in_block.append(self.src20_dict.copy())
 
 
     def create_running_user_balance_dict(self, running_user_balance_tuple):
@@ -175,7 +189,6 @@ class Src20Processor:
 
         if is_invalid:
             logger.warning(message)
-            self.processed_src20_in_block.append(self.src20_dict.copy())
             self.is_valid = False
         else:
             logger.info(message)
@@ -209,6 +222,10 @@ class Src20Processor:
             # Check for over mint condition
             if total_minted >= self.deploy_max:
                 self.set_status_and_log('OM', total_minted=total_minted, deploy_max=self.deploy_max, tick=self.src20_dict['tick'])
+                return
+
+            if not self.src20_dict['amt']: #TODO: This should be filtered out earlier in the validation
+                self.set_status_and_log('NA', op='MINT', tick=self.src20_dict['tick'])
                 return
 
             # Adjust amount if it exceeds available mint
@@ -245,8 +262,8 @@ class Src20Processor:
             if self.src20_dict['creator'] == self.src20_dict['destination']:
                 running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], [self.src20_dict['creator']], self.processed_src20_in_block)
             else:
-                addresses = {self.src20_dict['creator'], self.src20_dict['destination']}
-                running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], list(addresses), self.processed_src20_in_block)
+                addresses = [self.src20_dict['creator'], self.src20_dict['destination']]
+                running_user_balance_tuple = get_running_user_balances(self.db, self.src20_dict['tick'], self.src20_dict['tick_hash'], addresses, self.processed_src20_in_block)
             running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
 
             running_user_balance_creator = D(running_user_balance_dict.get(self.src20_dict['creator'], 0))
@@ -271,7 +288,7 @@ class Src20Processor:
             return
 
         # Validate the 'holders_of' target deploy
-        target_lim, target_max, dec = get_first_src20_deploy_lim_max(self.db, self.src20_dict['holders_of'], self.processed_src20_in_block)
+        target_lim, target_max, dec = get_src20_deploy(self.db, self.src20_dict['holders_of'], self.processed_src20_in_block)
         if not (target_lim and target_max):
             self.set_status_and_log('DD', f"Invalid {self.src20_dict['holders_of']} AD - Invalid holders_of", is_invalid=True)
             return
@@ -329,7 +346,7 @@ class Src20Processor:
             self.is_valid = False
             return
         
-        self.deploy_lim, self.deploy_max, self.dec = get_first_src20_deploy_lim_max(self.db, self.tick_value, self.processed_src20_in_block)
+        self.deploy_lim, self.deploy_max, self.dec = get_src20_deploy(self.db, self.tick_value, self.processed_src20_in_block)
 
         operation = self.src20_dict['op']
         if operation == 'DEPLOY':
@@ -342,23 +359,14 @@ class Src20Processor:
             self.set_status_and_log('UO', op=operation, tick=self.src20_dict.get('tick', 'undefined'))
 
 
-def process_src20_trx(db, src20_dict, processed_src20_in_block):
+def parse_src20(db, src20_dict, processed_src20_in_block):
     ''' this is to process all SRC-20 Tokens that pass check_format '''
     
     processor = Src20Processor(db, src20_dict, processed_src20_in_block)
     processor.process()
 
-    return processor.is_valid
+    return processor.is_valid, src20_dict
 
-
-DEPLOY_CACHE = {}
-TOTAL_MINTED_CACHE = {}
-
-def reset_src20_globals():
-    global DEPLOY_CACHE
-    global TOTAL_MINTED_CACHE
-    DEPLOY_CACHE = {}
-    TOTAL_MINTED_CACHE = {}
 
 
 def build_src20_svg_string(db, src_20_dict):
@@ -367,38 +375,6 @@ def build_src20_svg_string(db, src_20_dict):
     return svg_image_data
 
 
-def get_srcbackground_data(db, tick):
-    """
-    Retrieves the background image data for a given tick and p value.
-
-    Args:
-        db: The database connection object.
-        tick: The tick value.
-
-    Returns:
-        A tuple containing the base64 image data, font size, and text color.
-        If no data is found, returns (None, None, None).
-    """
-    with db.cursor() as cursor:
-        query = f"""
-            SELECT
-                base64,
-                CASE WHEN font_size IS NULL OR font_size = '' THEN '30px' ELSE font_size END AS font_size,
-                CASE WHEN text_color IS NULL OR text_color = '' THEN 'white' ELSE text_color END AS text_color
-            FROM
-                {SRC_BACKGROUND_TABLE}
-            WHERE
-                tick = %s
-                AND p = %s
-        """
-        cursor.execute(query, (tick, "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
-        result = cursor.fetchone()
-        if result:
-            base64, font_size, text_color = result
-            return base64, font_size, text_color
-        else:
-            return None, None, None
-
 
 def format_address(address):
     return address[:4] + '...' + address[-4:]
@@ -406,8 +382,7 @@ def format_address(address):
 
 def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
     if '\\' in input_dict['tick']:
-        input_dict['tick'] = bytes(input_dict['tick'], "utf-8").decode("unicode_escape")
-        input_dict['tick'] = input_dict['tick'] .replace('\\u', '\\U')
+        input_dict['tick'] = decode_unicode_escapes(input_dict['tick'])
 
     dict_to_use = {}
 
@@ -520,6 +495,8 @@ def check_format(input_string, tx_hash):
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode('utf-8')
+                print('ERROR - BYTESTRING INPUT')
+                sys.exit()
             elif isinstance(input_string, str):
                 input_dict = json.loads(input_string)
             elif isinstance(input_string, dict):
@@ -585,91 +562,6 @@ def check_format(input_string, tx_hash):
     return None
 
 
-def get_first_src20_deploy_lim_max(db, tick, src20_processed_in_block):
-    if tick in DEPLOY_CACHE:
-        return DEPLOY_CACHE[tick]["lim"], DEPLOY_CACHE[tick]["max"], DEPLOY_CACHE[tick]["dec"]
-    processed_blocks = {f"{item['tick']}-{item['op']}": item for item in src20_processed_in_block}
-
-    with db.cursor() as src20_cursor:
-        src20_cursor.execute(f"""
-            SELECT
-                lim, max, deci
-            FROM
-                {SRC20_VALID_TABLE}
-            WHERE
-                tick = %s
-                AND op = 'DEPLOY'
-                AND p = 'SRC-20'
-            ORDER BY
-                block_index ASC
-            LIMIT 1
-        """, (tick,))
-        result = src20_cursor.fetchone()
-
-        if result:
-            lim, max_value, dec = result
-            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value, "dec": dec}
-            return lim, max_value, dec
-        else:
-            lim, max_value, dec = get_first_src20_deploy_lim_max_in_block(processed_blocks, tick)
-            if lim is None or max_value is None:
-                return None, None, None
-            DEPLOY_CACHE[tick] = {"lim": lim, "max": max_value, "dec": dec}
-            return lim, max_value, dec
-
-
-def get_first_src20_deploy_lim_max_in_block(processed_blocks, tick):
-    """
-    Retrieves the 'lim', 'max', and 'dec' values from the processed_blocks dictionary for a given tick.
-
-    Args:
-        processed_blocks (dict): A dictionary containing processed blocks.
-        tick (str): The tick value to search for in the processed_blocks dictionary.
-
-    Returns:
-        tuple: A tuple containing the 'lim', 'max', and 'dec' values for the given tick. If the tick is not found,
-               returns (None, None, None).
-    """
-    key = f"{tick}-DEPLOY"
-    if key in processed_blocks:
-        item = processed_blocks[key]
-        return item["lim"], item["max"], item["dec"]
-    return None, None, None
-
-
-def get_total_minted_from_db(db, tick):
-    '''Retrieve the total amount of tokens minted from the database for a given tick.
-
-    This function performs a database query to fetch the total amount of tokens minted
-    for a specific tick. 
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        tick (int): The tick value for which to retrieve the total minted tokens.
-
-    Returns:
-        int: The total amount of tokens minted for the given tick.
-    '''
-    if tick in TOTAL_MINTED_CACHE:
-        return TOTAL_MINTED_CACHE[tick]
-
-    total_minted = 0
-    with db.cursor() as src20_cursor:
-        src20_cursor.execute(f"""
-            SELECT
-                amt
-            FROM
-                {SRC20_VALID_TABLE}
-            WHERE
-                tick = %s
-                AND op = 'MINT'
-        """, (tick,))
-        for row in src20_cursor.fetchall():
-            total_minted += row[0]
-    TOTAL_MINTED_CACHE[tick] = total_minted
-    return total_minted
-
-
 def get_running_mint_total(db, src20_processed_in_block, tick):
     """
     Get the running mint total for a given tick.
@@ -693,7 +585,7 @@ def get_running_mint_total(db, src20_processed_in_block, tick):
                 total_minted = item["total_minted"]
                 break
     if total_minted == 0:
-        total_minted = get_total_minted_from_db(db, tick)
+        total_minted = get_total_src20_minted_from_db(db, tick)
 
     return D(total_minted)
 
@@ -907,103 +799,7 @@ def get_tick_holders_from_balances(db, tick):
     return tick_holders
 
 
-def insert_into_src20_tables(db, processed_src20_in_block):
-    with db.cursor() as src20_cursor:
-        for i, src20_dict in enumerate(processed_src20_in_block):
-            id = f"{i}_{src20_dict.get('tx_index')}_{src20_dict.get('tx_hash')}"
-            insert_into_src20_table(src20_cursor, SRC20_TABLE, id, src20_dict)
-            if src20_dict.get("valid") == 1:
-                insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
-                
 
-
-
-def insert_into_src20_table(cursor, table_name, id, src20_dict):
-    block_time = src20_dict.get("block_time")
-    if block_time:
-        block_time_utc = datetime.datetime.utcfromtimestamp(block_time)
-    column_names = [
-        "id",
-        "tx_hash",
-        "tx_index",
-        "amt",
-        "block_index",
-        "creator",
-        "deci",
-        "lim",
-        "max",
-        "op",
-        "p",
-        "tick",
-        "destination",
-        "block_time",
-        "tick_hash",
-        "status"
-    ]
-    column_values = [
-        id,
-        src20_dict.get("tx_hash"),
-        src20_dict.get("tx_index"),
-        src20_dict.get("amt"),
-        src20_dict.get("block_index"),
-        src20_dict.get("creator"),
-        src20_dict.get("dec"),
-        src20_dict.get("lim"),
-        src20_dict.get("max"),
-        src20_dict.get("op"),
-        src20_dict.get("p"),
-        src20_dict.get("tick"),
-        src20_dict.get("destination"),
-        block_time_utc,
-        src20_dict.get("tick_hash"),
-        src20_dict.get("status")
-    ]
-
-    if "total_balance_creator" in src20_dict and table_name == SRC20_VALID_TABLE:
-        column_names.append("creator_bal")
-        column_values.append(src20_dict.get("total_balance_creator"))
-
-    if "total_balance_destination" in src20_dict and table_name == SRC20_VALID_TABLE:
-        column_names.append("destination_bal")
-        column_values.append(src20_dict.get("total_balance_destination"))
-
-    placeholders = ", ".join(["%s"] * len(column_names))
-
-    query = f"""
-        INSERT INTO {table_name} ({", ".join(column_names)})
-        VALUES ({placeholders})
-    """
-
-    cursor.execute(query, tuple(column_values))
-
-    return
-
-
-def escape_non_ascii_characters(text):
-    """
-    Encodes non-ASCII characters in the given text using unicode_escape encoding and then decodes it using utf-8 encoding.
-
-    Args:
-        text (str): The text to encode.
-
-    Returns:
-        str: The encoded and decoded text.
-    """
-    return text.encode('unicode_escape').decode('utf-8')
-
-
-def decode_unicode_escapes(text):
-    """
-    Decodes Unicode escape sequences in the given text back to their corresponding Unicode characters.
-
-    Args:
-        text (str): The text containing Unicode escape sequences.
-
-    Returns:
-        str: The text with Unicode escape sequences converted back to Unicode characters.
-    """
-    return text.encode('utf-8').decode('unicode_escape')
-    
 
 def update_src20_balances(db, block_index, block_time, processed_src20_in_block):
     balance_updates = []

@@ -41,6 +41,8 @@ else:
 
 RPC_BATCH_SIZE = 20     # A 1 MB block can hold about 4200 transactions.
 
+TRANSACTIONS_TABLE = "transactions"
+BLOCKS_TABLE = 'blocks'
 STAMP_TABLE = "StampTableV4"
 SRC20_TABLE = "SRC20"
 SRC20_VALID_TABLE = "SRC20Valid"
