@@ -90,7 +90,7 @@ class DBSimulator:
         # Simulate fetching the next row of a query result set
         self.logger.info(self.execute_results)
         # Parse the dictionary to be returned, will need to be specific based upon the function that called 
-        if caller_name == 'get_first_src20_deploy_lim_max':
+        if caller_name == 'get_src20_deploy_in_db':
             # If self.src20valid_params[0] is not None then parse src20valid_results for a tick key value that matches the params
             if self.src20valid_params[0] is not None:
                 for result in self.src20valid_results:
@@ -112,17 +112,18 @@ class DBSimulator:
         caller_name = caller_frame.f_code.co_name
         self.logger.info(f"The calling function is {caller_name}")
 
-        if caller_name == 'get_total_minted_from_db':
+        if caller_name == 'get_total_src20_minted_from_db':
             # return a list of tuples
             return [(0,)] # assume nothing has been minted
+            # return 8
         
-        if caller_name == 'get_next_number':
+        if caller_name == 'get_next_stamp_number':
             return [(1,)]
         
         if caller_name == 'get_total_user_balance_from_balances_db':
             return [("KEVIN", "1SourceAddr", 1000, 0, time.time(), 0)] 
-            return
         
+
         # Simulate fetching all rows of a query result set
         result = self.simulation_data
         self.simulation_data = []  # Clear the simulation data

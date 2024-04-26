@@ -3,7 +3,7 @@ import warnings
 
 import config
 import src.util as util
-from xcprequest import get_cp_version
+from src.xcprequest import get_cp_version
 
 logger = logging.getLogger(__name__)
 

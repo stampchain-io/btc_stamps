@@ -2,15 +2,20 @@ import logging
 logger = logging.getLogger(__name__)
 import binascii
 import re
+import json
+import ast
 import hashlib
 import collections
 import threading
-
+import decimal
 import config
+from src.exceptions import DataConversionError, InvalidInputDataError, SerializationError
+
+D = decimal.Decimal
 
 CP_BLOCK_COUNT = None
 
-CURRENT_BLOCK_INDEX = None # resolves to blocks.last_db_index(db)
+CURRENT_BLOCK_INDEX = None # resolves to database.last_db_index(db)
 
 BLOCK_LEDGER = []
 BLOCK_MESSAGES = []
@@ -162,3 +167,184 @@ def inverse_hash(hashstring):
 
 def ib2h(b):
     return inverse_hash(b2h(b))
+
+
+def check_valid_base64_string(base64_string):
+    """
+    Check if a given string is a valid base64 string.
+
+    Args:
+        base64_string (str): The string to be checked.
+
+    Returns:
+        bool: True if the string is a valid base64 string, False otherwise.
+    """
+    if base64_string is not None and \
+        re.fullmatch(r'^[A-Za-z0-9+/]+={0,2}$', base64_string) and \
+        len(base64_string) % 4 == 0:
+        return True
+    else:
+        return False
+
+
+def base62_encode(num):
+    """
+    Encodes a given number into a base62 string.
+
+    Args:
+        num (int): The number to be encoded.
+
+    Returns:
+        str: The base62 encoded string.
+    """
+    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    base = len(chars)
+    if num == 0:
+        return chars[0]
+    result = []
+    while num:
+        num, rem = divmod(num, base)
+        result.append(chars[rem])
+    return ''.join(reversed(result))
+
+
+def create_base62_hash(str1, str2, length=20):
+    """
+    Creates a base62 hash from two input strings.
+
+    Args:
+        str1 (str): The first input string.
+        str2 (str): The second input string.
+        length (int, optional): The desired length of the base62 hash. Must be between 12 and 20 characters. Defaults to 20.
+
+    Returns:
+        str: The base62 hash of the combined input strings, truncated to the specified length.
+    
+    Raises:
+        ValueError: If the length is not between 12 and 20 characters.
+    """
+    if not 12 <= length <= 20:
+        raise ValueError("Length must be between 12 and 20 characters")
+    combined_str = str1 + "|" + str2
+    hash_bytes = hashlib.sha256(combined_str.encode()).digest()
+    hash_int = int.from_bytes(hash_bytes, byteorder='big')
+    base62_hash = base62_encode(hash_int)
+    return base62_hash[:length]
+
+
+def escape_non_ascii_characters(text):
+    """
+    Encodes non-ASCII characters in the given text using unicode_escape encoding and then decodes it using utf-8 encoding.
+
+    Args:
+        text (str): The text to encode.
+
+    Returns:
+        str: The encoded and decoded text.
+    """
+    return text.encode('unicode_escape').decode('utf-8')
+
+
+def decode_unicode_escapes(text):
+    """
+    Decodes Unicode escape sequences in the given text back to their corresponding Unicode characters.
+
+    Args:
+        text (str): The text containing Unicode escape sequences.
+
+    Returns:
+        str: The text with Unicode escape sequences converted back to Unicode characters.
+    """
+    return text.encode('utf-8').decode('unicode_escape')
+
+def clean_json_string(json_string):
+    """
+    Cleans a JSON string by replacing single quotes with spaces and removing null bytes.
+    THis is so a proper string may be inserted into the Stamp Table. It is not used
+    for inclusion or inclusion of src-20 tokens. 
+    NOTE: this is only here because of the json data type on the Stamp Table 
+    converting this to mediumblob will allow us to store malformed json strings
+    which doesn't matter a whole lot because we do validation later in the SRC20 Tables. 
+
+    Args:
+        json_string (str): The JSON string to be cleaned.
+
+    Returns:
+        str: The cleaned JSON string.
+    """
+    json_string = json_string.replace("'", ' ')
+    json_string = json_string.replace("\\x00", "") # remove null bytes
+    return json_string
+
+
+def convert_decimal_to_string(obj):
+    if isinstance(obj, D):
+        return str(obj)
+    raise TypeError
+
+
+def is_json_string(s):
+    """
+    Check if a string is a valid JSON object.
+
+    Args:
+        s (str): The string to be checked.
+
+    Returns:
+        bool: True if the string is a valid JSON object, False otherwise.
+    """
+    try:
+        s = s.strip() 
+        s = s.rstrip('\r\n')  
+        if s.startswith('{') and s.endswith('}'):
+            json.loads(s)
+            return True
+        else:
+            return False
+    except json.JSONDecodeError:
+        return False
+    
+
+def convert_to_dict_or_string(input_data, output_format='dict'):
+    """
+    Convert the input data to a dictionary or a JSON string.
+    Note this is not using encoding to convert the input string to utf-8 for example
+    this is because utf-8 will not represent all of our character sets properly
+
+    Args:
+        input_data (str, bytes, dict): The input data to be converted.
+        output_format (str, optional): The desired output format. Defaults to 'dict'.
+
+    Returns:
+        dict or str: The converted data in the specified output format.
+
+    Raises:
+        ValueError: If the input_data is a string representation of a dictionary but cannot be evaluated.
+        Exception: If an error occurs during the conversion process.
+    """
+
+    if isinstance(input_data, bytes):
+        try:
+            input_data = json.loads(input_data, parse_float=D)
+        except json.JSONDecodeError:
+            input_data = repr(input_data)[2:-1]
+
+    if isinstance(input_data, str):
+        try:
+            input_data = ast.literal_eval(input_data)
+        except ValueError:
+            raise DataConversionError("Invalid string representation of a dictionary")
+
+    if not isinstance(input_data, dict):
+        raise InvalidInputDataError("input_data is not a dictionary, string, or bytes")
+
+    if output_format == 'dict':
+        return input_data
+    elif output_format == 'string':
+        try:
+            json_string = json.dumps(input_data, ensure_ascii=False, default=convert_decimal_to_string)
+            return clean_json_string(json_string)
+        except Exception as e:
+            raise SerializationError(f"An error occurred during JSON serialization: {e}")
+    else:
+        raise DataConversionError("Invalid output format: {}".format(output_format))

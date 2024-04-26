@@ -10,7 +10,6 @@ import decimal
 import logging
 import http
 import bitcoin as bitcoinlib
-import pymysql as mysql
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
@@ -20,30 +19,38 @@ import concurrent.futures
 # import cProfile
 
 import config
-import src.exceptions as exceptions
 import src.util as util
 import check
 import src.script as script
 import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
-from xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
-from src.stamp import (
-    is_prev_block_parsed,
-    purge_block_db,
-    parse_tx_to_stamp_table,
-    update_parsed_block,
-    rebuild_balances
-)
+from src.xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
+from src.exceptions import BlockAlreadyExistsError, DatabaseInsertError, BlockUpdateError
+
+from src.stamp import parse_stamp
+from src.src20 import parse_src20
 
 from src.src20 import (
     update_src20_balances,
-    insert_into_src20_tables,
     process_balance_updates,
     clear_zero_balances,
     validate_src20_ledger_hash
 )
 
+from src.database import (
+    initialize,
+    insert_transactions,
+    insert_into_stamp_table,
+    next_tx_index,
+    update_block_hashes,
+    update_parsed_block,
+    insert_into_src20_tables,
+    purge_block_db,
+    is_prev_block_parsed,
+    rebuild_balances,
+    insert_block,
+)
 from src.exceptions import DecodeError, BTCOnlyError
 
 D = decimal.Decimal
@@ -51,33 +58,6 @@ logger = logging.getLogger(__name__)
 log.set_logger(logger)  
 
 TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time', 'p2wsh_data'])
-
-
-def initialize(db):
-    """initialize data, create and populate the database."""
-    cursor = db.cursor() 
-
-    cursor.execute('''
-        SELECT MIN(block_index)
-        FROM blocks
-    ''')
-    block_index = cursor.fetchone()[0]
-
-    if block_index is not None and block_index != config.BLOCK_FIRST:
-        raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
-
-
-    cursor.execute(
-        '''DELETE FROM blocks WHERE block_index < {}'''
-        .format(config.BLOCK_FIRST)
-    )
-
-    cursor.execute(
-        '''DELETE FROM transactions WHERE block_index < {}'''
-        .format(config.BLOCK_FIRST)
-    )
-
-    cursor.close()
 
 
 def process_vout(ctx, stamp_issuance=None):
@@ -395,55 +375,6 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
-def insert_transactions(db, transactions):
-    """
-    Insert multiple transactions into the database.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        transactions (list): A list of namedtuples representing transactions.
-
-    Returns:
-        int: The index of the last inserted transaction.
-    """
-    assert util.CURRENT_BLOCK_INDEX is not None
-    try:
-        values = []
-        for tx in transactions:
-            values.append((
-                tx.tx_index,
-                tx.tx_hash,
-                util.CURRENT_BLOCK_INDEX,
-                tx.block_hash,
-                tx.block_time,
-                str(tx.source),
-                str(tx.destination),
-                tx.btc_amount,
-                tx.fee,
-                tx.data,
-                tx.keyburn,
-            ))
-        with db.cursor() as cursor:
-            cursor.executemany(
-                '''INSERT INTO transactions (
-                    tx_index,
-                    tx_hash,
-                    block_index,
-                    block_hash,
-                    block_time,
-                    source,
-                    destination,
-                    btc_amount,
-                    fee,
-                    data,
-                    keyburn
-                ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)''',
-                (values)
-            )
-    except Exception as e:
-        raise ValueError(f"Error occurred while inserting transactions: {e}")
-
-
 def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     assert type(tx_hash) is str
     # NOTE: this is for future reparsing options
@@ -485,131 +416,6 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
         return  (None for _ in range(9))
 
 
-def last_db_index(db):
-    """
-    Retrieve the last block index from the database.
-
-    Args:
-        db: The database connection object.
-
-    Returns:
-        The last block index as an integer.
-    """
-    field_position = config.BLOCK_FIELDS_POSITION
-    cursor = db.cursor()
-
-    try:
-        cursor.execute('''SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)''')
-        blocks = cursor.fetchall()
-        try:
-            last_index = blocks[0][field_position['block_index']]
-        except IndexError:
-            last_index = 0
-    except  mysql.Error:
-        last_index = 0
-    finally:
-        cursor.close()
-    return last_index
-
-
-def next_tx_index(db):
-    """
-    Return the index of the next incremental transaction # from transactions table.
-
-    Parameters:
-    db (object): The database object.
-
-    Returns:
-    int: The index of the next transaction.
-    """
-    cursor = db.cursor()
-
-    cursor.execute('''SELECT tx_index FROM transactions WHERE tx_index = (SELECT MAX(tx_index) from transactions)''')
-    txes = cursor.fetchall()
-    if txes:
-        assert len(txes) == 1
-        tx_index = txes[0][0] + 1
-    else:
-        tx_index = 0
-
-    cursor.close()
-
-    return tx_index
-
-
-def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
-    """
-    Insert a new block into the database, does not commit
-
-    Args:
-        db (object): The database connection object.
-        block_index (int): The index of the block.
-        block_hash (str): The hash of the block.
-        block_time (int): The timestamp of the block.
-        previous_block_hash (str): The hash of the previous block.
-        difficulty (float): The difficulty of the block.
-
-    Returns:
-        None
-    """
-    cursor = db.cursor()
-    logger.info('Inserting MySQL Block: {}'.format(block_index))
-    block_query = '''INSERT INTO blocks(
-                        block_index,
-                        block_hash,
-                        block_time,
-                        previous_block_hash,
-                        difficulty
-                        ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)'''
-    args = (block_index, block_hash, block_time, previous_block_hash, float(difficulty))
-
-    try:
-        cursor.execute(block_query, args)
-        cursor.close()
-    except mysql.IntegrityError:
-        print(f"block {block_index} already exists in mysql") # TODO: this may be ok if we are doing a reparse
-        sys.exit()
-    except Exception as e:
-        print("Error executing query:", block_query)
-        print("Arguments:", args)
-        print("Error message:", e)
-        sys.exit()
-
-
-def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash):
-    """
-    Update the hashes of a block in the MySQL database. This is for comparison across nodes. 
-    So we can validate that each node has the same data.
-
-    Args:
-        db (MySQLConnection): The MySQL database connection.
-        block_index (int): The index of the block to update.
-        txlist_hash (str): The new transaction list hash.
-        ledger_hash (str): The new ledger hash.
-        messages_hash (str): The new messages hash.
-    Returns:
-        None
-    """
-    cursor = db.cursor()
-    logger.info('Updating MySQL Block: {}'.format(block_index))
-    block_query = '''UPDATE blocks SET
-                        txlist_hash = %s,
-                        ledger_hash = %s,
-                        messages_hash = %s
-                        WHERE block_index = %s'''
-
-    args = (txlist_hash, ledger_hash, messages_hash, block_index)
-
-    try:
-        cursor.execute(block_query, args)
-        cursor.close() 
-    except Exception as e:
-        print("Error executing query:", block_query)
-        print("Arguments:", args)
-        print("Error message:", e)
-        sys.exit()
-
-
 def create_check_hashes(db, block_index, valid_stamps_in_block, processed_src20_in_block, txhash_list,
                         previous_ledger_hash=None, previous_txlist_hash=None, previous_messages_hash=None):
     """
@@ -637,7 +443,12 @@ def create_check_hashes(db, block_index, valid_stamps_in_block, processed_src20_
     messages_content = str(txhash_list)
     new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, messages_content)
     
-    update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
+    try:
+        update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
+    except BlockUpdateError as e:
+        logger.error(e)
+        sys.exit("Exiting due to a critical update error.")
+    
     return new_ledger_hash, new_txlist_hash, new_messages_hash
 
 
@@ -853,12 +664,18 @@ def follow(db):
             txhash_list, raw_transactions = backend.get_tx_list(cblock)
             util.CURRENT_BLOCK_INDEX = block_index
 
-            insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty)
-        
+            try:
+                insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty)
+            except BlockAlreadyExistsError as e:
+                logger.warning(e)
+                sys.exit(f"Exiting due to block already existing.")
+            except DatabaseInsertError as e:
+                logger.error(e)
+                sys.exit("Critical database error encountered. Exiting.")
+
             valid_stamps_in_block= []
-            processed_src20_in_block = []
             
-            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START: # this could be moved to the first non cp src20 block
+            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START:
                 valid_src20_str = ''
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                         db,
@@ -901,8 +718,11 @@ def follow(db):
         
             insert_transactions(db, tx_results)
 
+            parsed_stamps = []
+            processed_src20_in_block = []
+
             for result in tx_results:
-                parse_tx_to_stamp_table(
+                _, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(
                     db,
                     result.tx_hash,
                     result.source,
@@ -917,17 +737,28 @@ def follow(db):
                     result.block_time,
                     result.is_op_return,
                     valid_stamps_in_block,
-                    processed_src20_in_block,
                     result.p2wsh_data
                 )
+                if parsed_stamp:
+                    parsed_stamps.append(parsed_stamp) # includes cursed and prevalidated src20 on CP
+                if valid_stamp:
+                    valid_stamps_in_block.append(valid_stamp)
+                if prevalidated_src20:
+                    _, src20_dict = parse_src20(db, prevalidated_src20, processed_src20_in_block)
+                    processed_src20_in_block.append(src20_dict)
+
+            if parsed_stamps:
+                insert_into_stamp_table(db, parsed_stamps)
+
             if processed_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                 insert_into_src20_tables(db, processed_src20_in_block)
                 valid_src20_str = process_balance_updates(balance_updates)
-                if block_index > config.BTC_STAMP_GENESIS_BLOCK and block_index % 100 == 0:
-                    clear_zero_balances(db)
             else:
                 valid_src20_str = ''
+
+            if block_index > config.BTC_STAMP_GENESIS_BLOCK and block_index % 100 == 0:
+                clear_zero_balances(db)
 
             new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                 db,
