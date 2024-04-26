@@ -2,242 +2,46 @@ import logging
 import json
 import base64
 import pybase64
-import hashlib
 import magic
 import subprocess
-import ast
 import re
-import os
 import zlib
 import msgpack
-import io
+import traceback
 from datetime import datetime
 from decimal import Decimal
 
-import config
 import src.log as log
-from xcprequest import parse_base64_from_description
+
+from src.xcprequest import parse_base64_from_description
+from src.database import get_next_stamp_number, check_reissue, get_src20_deploy
+from src.util import ( 
+    escape_non_ascii_characters, 
+    create_base62_hash, 
+    check_valid_base64_string, 
+    is_json_string, 
+    convert_to_dict_or_string
+)
+from src.files import store_files
 from src.src721 import validate_src721_and_process
 from src.src20 import (
     check_format,
     build_src20_svg_string,
-    process_src20_trx,
-    reset_src20_globals,
-    get_first_src20_deploy_lim_max,
-    escape_non_ascii_characters,
 )
-import traceback
-from src.aws import (
-    check_existing_and_upload_to_s3,
+from config import (
+    BMN_BLOCKSTART,
+    STOP_BASE64_REPAIR,
+    CP_P2WSH_BLOCK_START,
+    CP_SRC20_BLOCK_END,
+    STRIP_WHITESPACE,
+    SUPPORTED_SUB_PROTOCOLS,
+    MIME_TYPES,
+    DOMAINNAME,
+    INVALID_BTC_STAMP_SUFFIX,
 )
 
 logger = logging.getLogger(__name__)
-log.set_logger(logger)  # set root logger
-
-CACHED_STAMP = {}
-BLOCK_CACHE = {}
-
-
-def reset_stamp_globals():
-    global CACHED_STAMP
-    global BLOCK_CACHE
-    CACHED_STAMP = {}
-    BLOCK_CACHE = {}
-
-
-def purge_block_db(db, block_index):
-    """Purge transactions from the database. This is for a reorg or
-        where transactions were partially commited. 
-
-    Args:
-        db (Database): The database object.
-        block_index (int): The block index from which to start purging.
-
-    Returns:
-        None
-    """
-    reset_stamp_globals()
-    reset_src20_globals()
-    cursor = db.cursor()
-    
-    tables = [
-        'SRC20Valid',
-        'SRC20',
-        config.STAMP_TABLE,
-        'transactions',
-        'blocks'
-    ]
-
-    for table in tables:
-        logger.warning("Purging {} from database after block: {}".format(table, block_index))
-        cursor.execute('''
-                        DELETE FROM {}
-                        WHERE block_index >= %s
-                        '''.format(table), (block_index,))
-        
-    db.commit()
-    cursor.close()
-
-
-def is_prev_block_parsed(db, block_index):
-    """
-    Check if the previous block has been parsed and indexed.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        block_index (int): The index of the current block.
-
-    Returns:
-        bool: True if the previous block has been parsed and indexed, False otherwise.
-    """
-    block_fields = config.BLOCK_FIELDS_POSITION
-
-    # Check if the block is already in the cache
-    if block_index - 1 in BLOCK_CACHE:
-        block = BLOCK_CACHE[block_index - 1]
-    else:
-        cursor = db.cursor()
-        cursor.execute('''
-                       SELECT * FROM blocks
-                       WHERE block_index = %s
-                       ''', (block_index - 1,))
-        block = cursor.fetchone()
-        cursor.close()
-
-        # Store the fetched block in the cache
-        BLOCK_CACHE[block_index - 1] = block
-
-    if block is not None and block[block_fields['indexed']] == 1:
-        return True
-    else:
-        purge_block_db(db, block_index - 1)
-        rebuild_balances(db)
-        return False
-
-
-def rebuild_balances(db):
-    cursor = db.cursor()
-
-    try:
-        logger.warning("Validating Balances Table..")
-
-        db.begin()
-        query = """
-        SELECT id, tick, tick_hash, address, amt, last_update
-        FROM balances where p = 'SRC-20'
-        """
-        cursor.execute(query)
-        existing_balances = [tuple(row) for row in cursor.fetchall()]  # Convert dictionaries to tuples
-
-        query = """
-        SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
-        FROM SRC20Valid
-        WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
-        ORDER by block_index
-        """
-        cursor.execute(query)
-        src20_valid_list = cursor.fetchall()
-
-        all_balances = {}
-        for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
-            destination_id = tick + '_' + destination
-            destination_amt = Decimal(0) if destination_id not in all_balances else all_balances[destination_id]['amt']
-            destination_amt += amt
-
-            all_balances[destination_id] = {
-                'tick': tick,
-                'tick_hash': tick_hash,
-                'address': destination,
-                'amt': destination_amt,
-                'last_update': block_index,
-                'block_time': block_time
-            }
-
-            if op == 'TRANSFER':
-                creator_id = tick + '_' + creator
-                creator_amt = Decimal(0) if creator_id not in all_balances else all_balances[creator_id]['amt']
-                creator_amt -= amt
-                all_balances[creator_id] = {
-                    'tick': tick,
-                    'tick_hash': tick_hash,
-                    'address': creator,
-                    'amt': creator_amt,
-                    'last_update': block_index,
-                    'block_time': block_time
-                }
-
-        if set(existing_balances) == set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items()):
-            logger.warning("No changes in balances. Skipping deletion and insertion.")
-            cursor.close()
-            return
-        else:
-            logger.warning("Purging and rebuilding {} table".format('balances'))
-
-            query = """
-            DELETE FROM balances
-            """
-            cursor.execute(query)
-
-            logger.warning("Inserting {} balances".format(len(all_balances)))
-
-            cursor.executemany('''INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                                VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['tick_hash'], value['address'], value['amt'],
-                                value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()])
-
-
-            db.commit() 
-
-    except Exception as e:
-        db.rollback()
-        raise e
-
-    finally:
-        cursor.close()
-
-
-def base62_encode(num):
-    """
-    Encodes a given number into a base62 string.
-
-    Args:
-        num (int): The number to be encoded.
-
-    Returns:
-        str: The base62 encoded string.
-    """
-    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    base = len(chars)
-    if num == 0:
-        return chars[0]
-    result = []
-    while num:
-        num, rem = divmod(num, base)
-        result.append(chars[rem])
-    return ''.join(reversed(result))
-
-
-def create_base62_hash(str1, str2, length=20):
-    """
-    Creates a base62 hash from two input strings.
-
-    Args:
-        str1 (str): The first input string.
-        str2 (str): The second input string.
-        length (int, optional): The desired length of the base62 hash. Must be between 12 and 20 characters. Defaults to 20.
-
-    Returns:
-        str: The base62 hash of the combined input strings, truncated to the specified length.
-    
-    Raises:
-        ValueError: If the length is not between 12 and 20 characters.
-    """
-    if not 12 <= length <= 20:
-        raise ValueError("Length must be between 12 and 20 characters")
-    combined_str = str1 + "|" + str2
-    hash_bytes = hashlib.sha256(combined_str.encode()).digest()
-    hash_int = int.from_bytes(hash_bytes, byteorder='big')
-    base62_hash = base62_encode(hash_int)
-    return base62_hash[:length]
+log.set_logger(logger)
 
 
 def get_cpid(stamp, block_index, tx_hash):
@@ -257,95 +61,6 @@ def get_cpid(stamp, block_index, tx_hash):
     return cpid, create_base62_hash(tx_hash, str(block_index), 20)
 
 
-def clean_json_string(json_string):
-    """
-    Cleans a JSON string by replacing single quotes with spaces and removing null bytes.
-    THis is so a proper string may be inserted into the Stamp Table. It is not used
-    for inclusion or inclusion of src-20 tokens. 
-    NOTE: this is only here because of the json data type on the Stamp Table 
-    converting this to mediumblob will allow us to store malformed json strings
-    which doesn't matter a whole lot because we do validation later in the SRC20 Tables. 
-
-    Args:
-        json_string (str): The JSON string to be cleaned.
-
-    Returns:
-        str: The cleaned JSON string.
-    """
-    json_string = json_string.replace("'", ' ')
-    json_string = json_string.replace("\\x00", "") # remove null bytes
-    return json_string
-
-
-def convert_to_dict_or_string(input_data, output_format='dict'):
-    """
-    Convert the input data to a dictionary or a JSON string.
-    Note this is not using encoding to convert the input string to utf-8 for example
-    this is because utf-8 will not represent all of our character sets properly
-
-    Args:
-        input_data (str, bytes, dict): The input data to be converted.
-        output_format (str, optional): The desired output format. Defaults to 'dict'.
-
-    Returns:
-        dict or str: The converted data in the specified output format.
-
-    Raises:
-        ValueError: If the input_data is a string representation of a dictionary but cannot be evaluated.
-        Exception: If an error occurs during the conversion process.
-
-    """
-
-    def convert_decimal_to_string(obj):
-        if isinstance(obj, Decimal):
-            return str(obj)
-        raise TypeError
-
-    try:
-        if isinstance(input_data, bytes):
-            try:
-                input_data = json.loads(input_data, parse_float=Decimal)
-            except json.JSONDecodeError:
-                # get a string representation of the bytes object
-                input_data = repr(input_data)[2:-1]
-        if isinstance(input_data, str):
-            try:
-                input_data = ast.literal_eval(input_data)
-            except ValueError:
-                raise
- 
-        if isinstance(input_data, dict):
-            if output_format == 'dict':
-                return input_data
-            elif output_format == 'string':
-                json_string = json.dumps(input_data, ensure_ascii=False, default=convert_decimal_to_string)
-                return clean_json_string(json_string)
-            else:
-                return f"Invalid output format: {output_format}"
-        else:
-            return f"An error occurred: input_data is not a dictionary, string, or bytes"
-    except Exception as e:
-        return f"An error occurred: {e}"
-
-
-def check_valid_base64_string(base64_string):
-    """
-    Check if a given string is a valid base64 string.
-
-    Args:
-        base64_string (str): The string to be checked.
-
-    Returns:
-        bool: True if the string is a valid base64 string, False otherwise.
-    """
-    if base64_string is not None and \
-        re.fullmatch(r'^[A-Za-z0-9+/]+={0,2}$', base64_string) and \
-        len(base64_string) % 4 == 0:
-        return True
-    else:
-        return False
-
-
 def decode_base64(base64_string, block_index):
     ''' 
     Decode a base64 string into image data.
@@ -362,13 +77,13 @@ def decode_base64(base64_string, block_index):
 
     is_valid_base64_string = True
 
-    if block_index >= config.CP_P2WSH_BLOCK_START:
+    if block_index >= CP_P2WSH_BLOCK_START:
         is_valid_base64_string = check_valid_base64_string(base64_string)
         if not is_valid_base64_string:
             logger.info(f"EXCLUSION: BASE64 DECODE_FAIL invalid string: {base64_string}")
             return None, None
 
-    if block_index <= config.STOP_BASE64_REPAIR:
+    if block_index <= STOP_BASE64_REPAIR:
         image_data = decode_base64_with_repair(base64_string)
         if image_data == None:
             is_valid_base64_string = None
@@ -395,7 +110,7 @@ def decode_base64(base64_string, block_index):
 
 
 def decode_base64_with_repair(base64_string):
-    ''' original function which attemts to add padding to "fix" the base64 string. This was resulting in invalid/corrupted images. '''
+    ''' original function which attempts to add padding to "fix" the base64 string. This was resulting in invalid/corrupted images. '''
     try:
         missing_padding = len(base64_string) % 4
         if missing_padding:
@@ -466,7 +181,7 @@ def get_file_suffix(bytestring_data, block_index):
         None
 
     """
-    if block_index > config.BMN_BLOCKSTART:
+    if block_index > BMN_BLOCKSTART:
         if check_custom_suffix(bytestring_data):
             return 'bmn'
     try:
@@ -474,33 +189,11 @@ def get_file_suffix(bytestring_data, block_index):
         return 'json'
     except (json.JSONDecodeError, UnicodeDecodeError):
         # If it failed to decode as UTF-8 text, pass it to magic to determine the file type
-        if block_index > config.STRIP_WHITESPACE: # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
+        if block_index > STRIP_WHITESPACE: # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
             file_type = magic.from_buffer(bytestring_data.lstrip(), mime=True)
         else:
             file_type = magic.from_buffer(bytestring_data, mime=True)
         return file_type.split('/')[-1]
-
-
-def is_json_string(s):
-    """
-    Check if a string is a valid JSON object.
-
-    Args:
-        s (str): The string to be checked.
-
-    Returns:
-        bool: True if the string is a valid JSON object, False otherwise.
-    """
-    try:
-        s = s.strip() 
-        s = s.rstrip('\r\n')  
-        if s.startswith('{') and s.endswith('}'):
-            json.loads(s)
-            return True
-        else:
-            return False
-    except json.JSONDecodeError:
-        return False
 
 
 def reformat_src_string_get_ident(decoded_data):
@@ -520,7 +213,7 @@ def reformat_src_string_get_ident(decoded_data):
     if not isinstance(decoded_data, dict):
         decoded_data = json.loads(decoded_data)
     decoded_data = {k.lower(): v for k, v in decoded_data.items()}
-    if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in config.SUPPORTED_SUB_PROTOCOLS:
+    if decoded_data and decoded_data.get('p') and decoded_data.get('p').upper() in SUPPORTED_SUB_PROTOCOLS:
         ident = decoded_data['p'].upper()
         file_suffix = 'json'
     else:
@@ -623,88 +316,8 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
     return ident, file_suffix, decoded_data
 
 
-def check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block):
-    ''' 
-    Validate if there was a prior valid stamp for the given cpid in the database or block and adjust is_btc_stamp and is_reissue.
-
-    If stamp_base64 has changed and is not None, then this reissue is a new stamp with a new image. It is considered cursed
-    as named stamp inclusions are cursed only to keep them from stamp numbering initially because of xcp fees.
-
-    Parameters:
-    - db: The database connection object.
-    - cpid: The unique identifier for the stamp.
-    - is_btc_stamp: A boolean indicating if the stamp is a BTC stamp.
-    - valid_stamps_in_block: A list of stamps processed in the block.
-
-    Returns:
-    - is_btc_stamp: The adjusted value of is_btc_stamp after checking for reissue.
-    - is_reissue: A boolean indicating if the stamp is a reissue.
-    '''
-    
-    is_btc_stamp, is_reissue = check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp)
-    if not is_reissue:
-        is_btc_stamp, is_reissue = check_reissue_in_db(db, cpid, is_btc_stamp)
-
-    return is_btc_stamp, is_reissue
-
-
-def check_reissue_in_db(db, cpid, is_btc_stamp):
-    """
-    Check if there is a reissue in the database for a given cpid.
-
-    Parameters:
-    - db: The database connection object.
-    - cpid: The unique identifier for the stamp.
-    - is_btc_stamp: A boolean indicating if the stamp is a BTC stamp.
-    - is_reissue: A boolean indicating if the stamp is a reissue.
-
-    Returns:
-    - is_btc_stamp: The updated value of is_btc_stamp.
-    - is_reissue: The flag indicating if there is a reissue (1) or not (None).
-
-    Note: This could be cached, but there are probably not a lot of updates on the same asset anyway.
-    """
-    is_reissue = None
-    with db.cursor() as cursor:
-        cursor.execute(f'''
-            SELECT is_btc_stamp, is_valid_base64, stamp FROM {config.STAMP_TABLE}
-            WHERE cpid = %s
-            ORDER BY block_index DESC
-            LIMIT 1
-        ''', (cpid,))
-        reissue_results = cursor.fetchall()
-        if reissue_results:
-            is_btc_stamp = None
-            is_reissue = 1
-        return is_btc_stamp, is_reissue
-
-
-def check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp):
-    """
-    Check if a reissue is present in the processed block.
-
-    Args:
-        valid_stamps_in_block (list): List of items processed in the block.
-        cpid (str): CPID value to check.
-        is_btc_stamp (int): Flag indicating if the item is a BTC stamp.
-        is_reissue (int): Flag indicating if the item is a reissue.
-
-    Returns:
-        tuple: A tuple containing the updated values of is_btc_stamp and is_reissue.
-    """
-    is_reissue  = None
-    if valid_stamps_in_block:
-        for item in reversed(valid_stamps_in_block):
-            if item["cpid"] == cpid and (item["is_btc_stamp"] or item["is_cursed)"]):
-                is_btc_stamp = None 
-                is_reissue = 1
-                break
-    return is_btc_stamp, is_reissue
-
-
-
-def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, processed_src20_in_block, p2wsh_data):
+def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
+                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, p2wsh_data):
     """
     Parses a transaction and extracts stamp-related information to be stored in the stamp table.
 
@@ -733,18 +346,19 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
 
     """
 
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed, src20_results) = (
-        None, None, None, None, None, None, None, None, None, None)
+    (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed, stamp_results, src20_dict, prevalidated_src20) = (
+        None,) * 12
     
-    stamp_cursor = db.cursor()
+    valid_stamp = {}
+
     if data is None or data == '':
-        return
+        return (None,) * 4
     stamp = convert_to_dict_or_string(data, output_format='dict')
     if not isinstance(stamp, dict):
-        return
+        return # this will fail - looks redundant
     decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
-    if p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START:
+    if p2wsh_data is not None and block_index >= CP_P2WSH_BLOCK_START:
         stamp_base64 = base64.b64encode(p2wsh_data).decode()
         decoded_base64, is_valid_base64 = decode_base64(stamp_base64, block_index)
         # decoded_base64 = p2wsh_data # bytestring
@@ -759,7 +373,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
 
     valid_cp_src20 = (
         ident == 'SRC-20' and cpid and
-        block_index < config.CP_SRC20_BLOCK_END
+        block_index < CP_SRC20_BLOCK_END
         and keyburn == 1 and stamp.get('quantity') == 0
     )
     valid_src20 = (
@@ -771,7 +385,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     )
     valid_src721 = (
         ident == 'SRC-721'
-        and (keyburn == 1 or (p2wsh_data is not None and block_index >= config.CP_P2WSH_BLOCK_START))
+        and (keyburn == 1 or (p2wsh_data is not None and block_index >= CP_P2WSH_BLOCK_START))
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
     if valid_src20:
@@ -780,11 +394,11 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
-            tick_escape = escape_non_ascii_characters(src20_dict['tick'])
-            _, deploy_max, _ = get_first_src20_deploy_lim_max(db, tick_escape, processed_src20_in_block)
-            stamp['quantity'] = deploy_max if deploy_max is not None else 0
+            # tick_escape = escape_non_ascii_characters(src20_dict['tick'])
+            # _, deploy_max, _ = get_src20_deploy(db, tick_escape, processed_src20_in_block) # FIXME: find another way to do this later
+            # stamp['quantity'] = deploy_max if deploy_max is not None else 0
         else:
-            return None, None
+            return (None,) * 4
         
     if valid_src721:
         src_data = decoded_base64
@@ -796,7 +410,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
     if (
         ident != 'UNKNOWN' and stamp.get('asset_longname') is None
         and (cpid and cpid.startswith('A')) and not is_op_return
-        and file_suffix not in config.INVALID_BTC_STAMP_SUFFIX
+        and file_suffix not in INVALID_BTC_STAMP_SUFFIX
     ):
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
@@ -809,30 +423,30 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         is_cursed = 1
         is_btc_stamp = None
     elif ( # CURSED 
-        cpid and (file_suffix in config.INVALID_BTC_STAMP_SUFFIX or
+        cpid and (file_suffix in INVALID_BTC_STAMP_SUFFIX or
         not cpid.startswith('A') or is_op_return)
     ):
         is_btc_stamp = None
         is_cursed = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
         if is_reissue:
-            return
+            return (None,) * 4
 
     if is_op_return: # this appears to be redundant since it would only apply to src-20 (non cpid)
         is_btc_stamp = None
         is_cursed = 1
 
     if is_btc_stamp:
-        stamp_number = get_next_number(db, 'stamp')
+        stamp_number = get_next_stamp_number(db, 'stamp')
     elif is_cursed:
-        stamp_number = get_next_number(db, 'cursed') # this includes reissued items and op_return
+        stamp_number = get_next_stamp_number(db, 'cursed') # this includes reissued items and op_return
     else:
         if is_reissue:
-            return
+            return (None,) * 4
         else:
             stamp_number = None # need to save these in the db do detect invalid reissuances of prior stamp: trx
     if cpid and (is_btc_stamp):
-        processed_stamps_dict = {
+        valid_stamp = {
             'stamp': stamp_number,
             'tx_hash': tx_hash,
             'cpid': cpid,
@@ -842,10 +456,10 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             'is_cursed': is_cursed,
             'src_data': src_data,
         }
-        valid_stamps_in_block.append(processed_stamps_dict)
-
+        
     if valid_src20 and not is_reissue:
         src20_dict.update({
+            'stamp:': stamp_number,
             'creator': source,
             'tx_hash': tx_hash,
             'tx_index': tx_index,
@@ -853,23 +467,23 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
             'block_time': block_time,
             'destination': destination
         })
-        src20_results = process_src20_trx(db, src20_dict, processed_src20_in_block)
+        prevalidated_src20 = src20_dict
+        # src20_results = parse_src20(db, src20_dict, processed_src20_in_block)
 
-        ## TODO: Add a block activation height here and exit if src20_results = False so we don't save into stamptable either.
 
-    if not stamp_mimetype and file_suffix in config.MIME_TYPES:
-        stamp_mimetype = config.MIME_TYPES[file_suffix]
+    if not stamp_mimetype and file_suffix in MIME_TYPES:
+        stamp_mimetype = MIME_TYPES[file_suffix]
 
     if (
-        ident in config.SUPPORTED_SUB_PROTOCOLS
-        or file_suffix # in config.MIME_TYPES
+        ident in SUPPORTED_SUB_PROTOCOLS
+        or file_suffix # in MIME_TYPES
     ):
         if type(decoded_base64) is str:
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(db, filename, decoded_base64, stamp_mimetype)
 
-    parsed = {
+    parsed_stamp = {
         "stamp": stamp_number,
         "block_index": block_index,
         "cpid": cpid if cpid is not None else stamp_hash,
@@ -882,7 +496,7 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         "message_index": stamp.get('message_index'),
         "stamp_base64": stamp_base64,
         "stamp_mimetype": stamp_mimetype,
-        "stamp_url": 'https://' + config.DOMAINNAME + '/stamps/' + filename if file_suffix is not None and filename is not None else None,
+        "stamp_url": 'https://' + DOMAINNAME + '/stamps/' + filename if file_suffix is not None and filename is not None else None,
         "supply": stamp.get('quantity'),
         "block_time": datetime.utcfromtimestamp(
             block_time
@@ -892,187 +506,14 @@ def parse_tx_to_stamp_table(db, tx_hash, source, destination, btc_amount, fee, d
         "src_data": src_data,
         "stamp_hash": stamp_hash,
         "is_btc_stamp": is_btc_stamp,
+        "is_cursed": is_cursed,
         "is_reissue": is_reissue,
         "file_hash": file_obj_md5,
         "is_valid_base64": is_valid_base64,
     }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
     # filtered_parsed = {k: v for k, v in parsed.items() if k != 'stamp_base64'}
     # logger.warning(f"parsed: {json.dumps(filtered_parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
-    insert_into_stamp_table(stamp_cursor, parsed)
-
-    return True, src20_results
-
-
-def insert_into_stamp_table(stamp_cursor, parsed):
-    stamp_cursor.execute(f'''
-        INSERT INTO {config.STAMP_TABLE}(
-            stamp, block_index, cpid, asset_longname,
-            creator, divisible, keyburn, locked,
-            message_index, stamp_base64,
-            stamp_mimetype, stamp_url, supply, block_time,
-            tx_hash, tx_index, ident, src_data,
-            stamp_hash, is_btc_stamp, is_reissue,
-            file_hash, is_valid_base64
-        ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    ''', (
-        parsed['stamp'], parsed['block_index'],
-        parsed['cpid'], parsed['asset_longname'],
-        parsed['creator'],
-        parsed['divisible'], parsed['keyburn'],
-        parsed['locked'], parsed['message_index'],
-        parsed['stamp_base64'],
-        parsed['stamp_mimetype'], parsed['stamp_url'],
-        parsed['supply'], parsed['block_time'],
-        parsed['tx_hash'], parsed['tx_index'],
-        parsed['ident'], parsed['src_data'],
-        parsed['stamp_hash'], parsed['is_btc_stamp'],
-        parsed['is_reissue'], parsed['file_hash'],
-        parsed['is_valid_base64']
-    ))
-    stamp_cursor.close()
-
-
-def get_next_number(db, identifier):
-    """
-    Return the index of the next transaction.
-
-    Parameters:
-    - db (database connection): The database connection object.
-    - identifier (str): Either 'stamp' or 'cursed' to determine the type of transaction.
-
-    Returns:
-    int: The index of the next transaction.
-    """
-    if identifier not in ['stamp', 'cursed']:
-        raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
-
-    if identifier in CACHED_STAMP:
-        if identifier == 'cursed':
-            next_number = CACHED_STAMP[identifier] - 1
-        else:
-            next_number = CACHED_STAMP[identifier] + 1
-    else:
-        with db.cursor() as cursor:
-            if identifier == 'stamp':
-                query = f'''
-                    SELECT MAX(stamp) from {config.STAMP_TABLE}
-                '''
-                increment = 1
-                default_value = 0
-            else:  # identifier == 'cursed'
-                query = f'''
-                    SELECT MIN(stamp) from {config.STAMP_TABLE}
-                '''
-                increment = -1
-                default_value = -1
-
-            cursor.execute(query)
-            transactions = cursor.fetchone()
-            next_number = transactions[0] + increment if transactions[0] is not None else default_value
-
-    CACHED_STAMP[identifier] = next_number
-    return next_number
-
-
-def get_fileobj_and_md5(decoded_base64):
-    """
-    Get the file object and MD5 hash of a decoded base64 string.
-
-    Args:
-        decoded_base64 (str): The decoded base64 string.
-
-    Returns:
-        tuple: A tuple containing the file object and the MD5 hash.
-
-    Raises:
-        Exception: If an error occurs during the process.
-    """
-    if decoded_base64 is None:
-        logger.warning("decoded_base64 is None")
-        return None, None
-    try:
-        file_obj = io.BytesIO(decoded_base64)
-        file_obj.seek(0)
-        file_obj_md5 = hashlib.md5(file_obj.read()).hexdigest()
-        return file_obj, file_obj_md5
-    except Exception as e:
-        logger.error(f"Error: {e}\n{traceback.format_exc()}")
-        raise
-
-
-def store_files(db, filename, decoded_base64, mime_type):
-    """
-    Store files in either AWS S3 or disk storage.
-
-    Args:
-        db (Database): The database object.
-        filename (str): The name of the file.
-        decoded_base64 (str): The decoded base64 file content.
-        mime_type (str): The MIME type of the file.
-
-    Returns:
-        str: The MD5 hash of the stored file.
-    """
-    file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
-    if (config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and
-        config.AWS_S3_BUCKETNAME and config.AWS_S3_IMAGE_DIR):
-        logger.info(f"uploading {filename} to aws")  # FIXME: there may be cases where we want both aws and disk storage
-        check_existing_and_upload_to_s3(
-            db, filename, mime_type, file_obj, file_obj_md5
-        )
-    else:
-        store_files_to_disk(filename, decoded_base64)
-    return file_obj_md5
-
-
-def store_files_to_disk(filename, decoded_base64):
-    """
-    Stores the decoded base64 data to disk with the given filename.
-
-    Args:
-        filename (str): The name of the file to be stored.
-        decoded_base64 (bytes): The decoded base64 data to be stored.
-
-    Raises:
-        Exception: If there is an error while storing the file.
-
-    Returns:
-        None
-    """
-    if decoded_base64 is None:
-        logger.info(f"decoded_base64 is None")
-        return
-    if filename is None:
-        logger.info(f"filename is None")
-        return
-    try:
-        cwd = os.path.abspath(os.getcwd())
-        base_directory = os.path.join(cwd, "files")
-        os.makedirs(base_directory, mode=0o777, exist_ok=True)
-        file_path = os.path.join(base_directory, filename)
-        with open(file_path, "wb") as f:
-            f.write(decoded_base64)
-    except Exception as e:
-        logger.error(f"Error: {e}\n{traceback.format_exc()}")
-        raise
-
-
-def update_parsed_block(db, block_index):
-    """
-    Update the 'indexed' flag of a block in the database.
-
-    Args:
-        db (database connection): The database connection object.
-        block_index (int): The index of the block to update.
-
-    Returns:
-        None
-    """
-    cursor = db.cursor()
-    cursor.execute('''
-                    UPDATE blocks SET indexed = 1
-                    WHERE block_index = %s
-                    ''', (block_index,))
-    db.commit()
-    cursor.close()
+    stamp_results = True
+    # NOTE: parsed_stamp includes cursed stamps and non-numbered stamps
+    # valid_stamp is is_btc_stamp only
+    return stamp_results, parsed_stamp, valid_stamp, prevalidated_src20
