@@ -1,121 +1,121 @@
 # Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
-The Bitcoin Stamps protocol was initially developed using Counterparty (XCP) on Bitcoin as an immutable storage layer for NFT art (Classic Stamps). It now includes its own separate protocol outside of XCP called SRC-20 which creates transactions directly onto Bitcoin without the XCP transaction layer. This repo supports both Classic Stamps and direct to BTC SRC-20 tokens which are both considered part of Bitcoin Stamps. Bitcoin Stamps are permanently stored in the Bitcoin UTXO set and cannot be pruned from the blockchain. This permanence comes at a price through Bitcoin transaction fees that don't benefit from the witness data discount. The Bitcoin Stamps protocol is intended for use cases where permanence is required and the cost of the transaction is of little concern.
+The Bitcoin Stamps protocol was initially developed using Counterparty (XCP) on
+Bitcoin as an immutable storage layer for NFT art (Classic Stamps). It now
+includes its own separate protocol outside of XCP called SRC-20 which creates
+transactions directly onto Bitcoin without the XCP transaction layer. This repo
+supports both Classic Stamps and direct to BTC SRC-20 tokens which are both
+considered part of Bitcoin Stamps. Bitcoin Stamps are permanently stored in the
+Bitcoin UTXO set and cannot be pruned from the blockchain. This permanence comes
+at a price through Bitcoin transaction fees that don't benefit from the witness
+data discount. The Bitcoin Stamps protocol is intended for use cases where
+permanence is required and the cost of the transaction is of little concern.
 
-This is the public indexer code for [stampchain.io](https://stampchain.io/) which parses the BTC node for all Stamp transactions, and is the primary API source for developers building on the Bitcoin Stamps protocol.
+This is the public indexer code for [stampchain.io](https://stampchain.io/)
+which parses the BTC node for all Stamp transactions, and is the primary API
+source for developers building on the Bitcoin Stamps protocol.
 
 ## Requirements:
 
-- Local full BTC Node or an account with [Quicknode.com](https://www.quicknode.com/) (free tier is fine) or similar service
+- Local full BTC Node or an account with
+  [Quicknode.com](https://www.quicknode.com/) (free tier is fine) or similar
+  service
 - MySQL Database or Default MySQL installation from the Docker installation
 - RECOMMENDED: Local Counterparty Node (optional)
 
-For a simple installation of the entire stack Counterparty fednode can be used to deploy both Counterparty and a full Bitcoin Node. See: [Setting up a Counterparty Node](https://github.com/CounterpartyXCP/Documentation/blob/master/Installation/federated_node.md)
+For a simple installation of the entire stack Counterparty fednode can be used
+to deploy both Counterparty and a full Bitcoin Node. See:
+[Setting up a Counterparty Node](https://github.com/CounterpartyXCP/Documentation/blob/master/Installation/federated_node.md)
 
-The default configuration is using the public [XCP.dev](https://www.xcp.dev/) and stampchain Counterparty API's for XCP asset data. To minimize resource consumption on these free public resources we highly recommend using a local Counterparty node for long term or production use. These public resources are intended for dev/test purposes only. Stampchain operates two Counterparty nodes for redundancy and to ensure the availability of the XCP asset data into the Stampchain API.
+The default configuration is using the public [XCP.dev](https://www.xcp.dev/)
+and stampchain Counterparty API's for XCP asset data. To minimize resource
+consumption on these free public resources we highly recommend using a local
+Counterparty node for long term or production use. These public resources are
+intended for dev/test purposes only. Stampchain operates two Counterparty nodes
+for redundancy and to ensure the availability of the XCP asset data into the
+Stampchain API.
 
 ## Installation & Execution with Docker
 
 ### Step 1. Create & configure the env files
 
-There are 4 env files that need to be created initially. These files are used to configure the indexer, grafana, mysql, and the explorer application.
-The sample files are provided in the repo and can be copied and modified as needed. The sample files are:
+There are 4 env files that need to be created initially. These files are used to
+configure the indexer, grafana, mysql, and the explorer application. The sample
+files are provided in the repo and can be copied and modified as needed. The
+sample files are:
+
 - `/app/.env.sample` - Explorer application environment variables
 - `/docker/.env.grafana.sample` - Grafana environment variables
 - `/docker/.env.mysql.sample` - MySQL environment variables
 - `indexer/.env.sample` - Indexer environment variables
 
 Copy the sample files to the actual env files:
+
 ```shell
 cp app/.env.sample app/.env
 ```
+
 ```shell
 cp docker/.env.grafana.sample docker/.env.grafana
 ```
+
 ```shell
 cp docker/.env.mysql.sample docker/.env.mysql
 ```
+
 ```shell
 cp indexer/.env.sample indexer/.env
 ```
 
-
-
 ### Step 2 - Run the stack
 
-There are two options for running the stack. Option one is to use docker-compose commands directly and option two is to use the Makefile with make commands.
-The Makefile is a wrapper for docker-compose commands and provides a more simplified interface for running the stack.
-
+There are two options for running the stack. Option one is to use docker-compose
+commands directly and option two is to use the Makefile with make commands. The
+Makefile is a wrapper for docker-compose commands and provides a more simplified
+interface for running the stack.
 
 - Option 1. Starting the services with docker-compose commands:
 
-    ```shell
-    # Start all the services
-    cd docker && docker-compose up -d
-    ```
+  ```shell
+  # Start all the services
+  cd docker && docker-compose up -d
+  ```
 
-    ```shell
-    # View the logs for the indexer application
-    cd docker && docker-compose logs -f app
-    ```
+  ```shell
+  # View the logs for the indexer application
+  cd docker && docker-compose logs -f app
+  ```
 
-    ```shell
-    # Shutdown all the services
-    cd docker && docker-compose down
-    ```
-
+  ```shell
+  # Shutdown all the services
+  cd docker && docker-compose down
+  ```
 
 - Option 2. Starting the services with the make commands:
 
-    ```shell
-    # Start the stack
-    make dup
-    ```
+  ```shell
+  # Start the stack
+  make dup
+  ```
 
-    ```shell
-    # View the logs for the indexer application
-    make logs
-    ```
+  ```shell
+  # View the logs for the indexer application
+  make logs
+  ```
 
-     ```shell
-    # Shutdown all the services
-    make down
-    ```
+  ```shell
+  # Shutdown all the services
+  make down
+  ```
 
-     ```shell   
-    # Shutdown all the services and clean volumes
-    make fdown
-    ```
-
+  ```shell
+  # Shutdown all the services and clean volumes
+  make fdown
+  ```
 
 ## Local Execution w/o Docker:
 
-Configure all environment variables for MySQL, Bitcoin Node, and Counterparty as indicated in `config.py`
+Configure all environment variables for MySQL, Bitcoin Node, and Counterparty as
+indicated in `config.py`
 
-`python start.py` 
-
-
-# SRC-20 Normalization Standard
-
-Due to the nature of the character set accepted for SRC-20 tick names Bitcoin Stamps has adopted the ENSIP-15 Standard for character handling to determine valid/invalid tick names and ensure consistent results -  https://docs.ens.domains/ens-improvement-proposals/ensip-15-normalization-standard
-
-A SHA3-256 hash is generated based upon the normalized tick value to properly identify SRC-20 tokens.
-
-Because of the large number of characters in unicode, and the wide variety of scripts represented, inevitably there are different Unicode characters that are similar or even identical when shown in common fonts. This can be abused to trick users into thinking they are interacting with one token or resource, when in fact it is another. This is known as a homoglyph attack.
-
-See: 
-Python Library: https://github.com/namehash/ens-normalize-python
-
-Node Library: https://github.com/adraffy/ens-normalize.js
-
-## Other Notes
-
-When querying the MySQL database directly it may interpret the contents using utf-8 encoding. Note the indexer code will see the correct value for this output. 
-
-```
-select data from transactions where tx_hash = 'c28966f1bf851874bb260c8d96122036700651c4ec414fca000ca8089da3176';
-```
-
-
-
-
+`python start.py`
