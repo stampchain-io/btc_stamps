@@ -4,7 +4,6 @@ import base64
 import pybase64
 import magic
 import subprocess
-import re
 import zlib
 import msgpack
 import traceback
@@ -12,11 +11,10 @@ from datetime import datetime
 from decimal import Decimal
 
 import src.log as log
-
+from src.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 from src.xcprequest import parse_base64_from_description
-from src.database import get_next_stamp_number, check_reissue, get_src20_deploy
+from src.database import get_next_stamp_number, check_reissue
 from src.util import ( 
-    escape_non_ascii_characters, 
     create_base62_hash, 
     check_valid_base64_string, 
     is_json_string, 
@@ -345,17 +343,17 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         Exception: If an unexpected condition occurs during stamp processing.
 
     """
-
-    (file_suffix, filename, src_data, is_reissue, file_obj_md5, is_btc_stamp, ident, is_valid_base64, is_cursed, stamp_results, src20_dict, prevalidated_src20) = (
-        None,) * 12
-    
+    file_suffix = filename = src_data = is_reissue = file_obj_md5 = is_btc_stamp = ident = is_valid_base64 = is_cursed = stamp_results = src20_dict = prevalidated_src20 = None
     valid_stamp = {}
 
-    if data is None or data == '':
+    try:
+        if not data:
+            raise ValueError("Input data is empty or None")
+        stamp = convert_to_dict_or_string(data, output_format='dict')
+    except (DataConversionError, InvalidInputDataError, ValueError) as e:
+        print(f"Invalid SRC-20 JSON {e}")
         return (None,) * 4
-    stamp = convert_to_dict_or_string(data, output_format='dict')
-    if not isinstance(stamp, dict):
-        return # this will fail - looks redundant
+    
     decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
     (cpid, stamp_hash) = get_cpid(stamp, block_index, tx_hash)
     if p2wsh_data is not None and block_index >= CP_P2WSH_BLOCK_START:
@@ -371,23 +369,16 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
 
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
 
-    valid_cp_src20 = (
-        ident == 'SRC-20' and cpid and
-        block_index < CP_SRC20_BLOCK_END
-        and keyburn == 1 and stamp.get('quantity') == 0
-    )
-    valid_src20 = (
-        valid_cp_src20 or
-        (
-            ident == 'SRC-20' and not cpid
-            and keyburn == 1
-        )
-    )
+    is_src20 = ident == 'SRC-20' and keyburn == 1
+
+    valid_cp_src20 = is_src20 and cpid and block_index < CP_SRC20_BLOCK_END and stamp.get('quantity') == 0
+    valid_src20 = valid_cp_src20 or (is_src20 and not cpid)
     valid_src721 = (
         ident == 'SRC-721'
         and (keyburn == 1 or (p2wsh_data is not None and block_index >= CP_P2WSH_BLOCK_START))
         and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
     )
+
     if valid_src20:
         src20_dict = check_format(decoded_base64, tx_hash)
         if src20_dict is not None:
@@ -407,45 +398,27 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
-    if (
-        ident != 'UNKNOWN' and stamp.get('asset_longname') is None
-        and (cpid and cpid.startswith('A')) and not is_op_return
-        and file_suffix not in INVALID_BTC_STAMP_SUFFIX
-    ):
+
+    if ident != 'UNKNOWN' and stamp.get('asset_longname') is None and cpid and cpid.startswith('A') and not is_op_return:
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
-        if is_reissue and is_valid_base64:
-            # possibly make these cursed. in the current logic this would mean duplicate stamps for the same cpid...
-            # these will be written with a null stamp number 
-            pass
-    elif stamp.get('asset_longname') is not None:
-        stamp['cpid'] = stamp.get('asset_longname')
-        is_cursed = 1
-        is_btc_stamp = None
-    elif ( # CURSED 
-        cpid and (file_suffix in INVALID_BTC_STAMP_SUFFIX or
-        not cpid.startswith('A') or is_op_return)
-    ):
+    elif stamp.get('asset_longname') is not None or (cpid and (file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid.startswith('A') or is_op_return)):
         is_btc_stamp = None
         is_cursed = 1
-        is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
-        if is_reissue:
-            return (None,) * 4
+        if cpid:
+            is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
 
-    if is_op_return: # this appears to be redundant since it would only apply to src-20 (non cpid)
-        is_btc_stamp = None
-        is_cursed = 1
-
+    if is_reissue:
+        return (None,) * 4
+    
     if is_btc_stamp:
         stamp_number = get_next_stamp_number(db, 'stamp')
     elif is_cursed:
-        stamp_number = get_next_stamp_number(db, 'cursed') # this includes reissued items and op_return
+        stamp_number = get_next_stamp_number(db, 'cursed')
     else:
-        if is_reissue:
-            return (None,) * 4
-        else:
-            stamp_number = None # need to save these in the db do detect invalid reissuances of prior stamp: trx
-    if cpid and (is_btc_stamp):
+        stamp_number = None
+
+    if cpid and is_btc_stamp:
         valid_stamp = {
             'stamp': stamp_number,
             'tx_hash': tx_hash,
@@ -456,7 +429,7 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
             'is_cursed': is_cursed,
             'src_data': src_data,
         }
-        
+
     if valid_src20 and not is_reissue:
         src20_dict.update({
             'stamp:': stamp_number,
@@ -468,21 +441,19 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
             'destination': destination
         })
         prevalidated_src20 = src20_dict
-        # src20_results = parse_src20(db, src20_dict, processed_src20_in_block)
 
-
+    # Set MIME type based on file_suffix
     if not stamp_mimetype and file_suffix in MIME_TYPES:
         stamp_mimetype = MIME_TYPES[file_suffix]
 
-    if (
-        ident in SUPPORTED_SUB_PROTOCOLS
-        or file_suffix # in MIME_TYPES
-    ):
-        if type(decoded_base64) is str:
+    # Store files if conditions are met
+    if ident in SUPPORTED_SUB_PROTOCOLS or file_suffix:
+        if isinstance(decoded_base64, str):
             decoded_base64 = decoded_base64.encode('utf-8')
         filename = f"{tx_hash}.{file_suffix}"
         file_obj_md5 = store_files(db, filename, decoded_base64, stamp_mimetype)
 
+    # All stamps including cursed
     parsed_stamp = {
         "stamp": stamp_number,
         "block_index": block_index,

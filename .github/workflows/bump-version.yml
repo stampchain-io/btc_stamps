@@ -11,7 +11,7 @@ on:
       - main
 
 jobs:
-  build:
+  versioning:
     runs-on: ubuntu-latest
     if: (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)) && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
     permissions:
@@ -20,6 +20,8 @@ jobs:
     env:
       GIT_USER_NAME: GitHub Action
       GIT_USER_EMAIL: action@github.com
+      SKIP: 'false' 
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,17 +33,27 @@ jobs:
         run: |
           if git log -1 --pretty=format:'%ae' | grep -q "${{ env.GIT_USER_EMAIL }}"; then
             echo "Last commit was made by GitHub Actions. Skipping workflow."
-            echo "skip=true" >> $GITHUB_ENV
+            echo "SKIP=true" >> $GITHUB_ENV
           else
             echo "Last commit was not made by GitHub Actions. Running workflow."
-            echo "skip=false" >> $GITHUB_ENV
+            echo "SKIP=false" >> $GITHUB_ENV
+          fi
+
+      - name: Check for skip keyword in commit message
+        id: check-skip
+        run: |
+          echo "COMMIT_MESSAGE=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
+          if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
+            echo "SKIP=true" >> $GITHUB_ENV
+          else
+            echo "SKIP=false" >> $GITHUB_ENV
           fi
 
       - name: Set up Python
         if: env.skip == 'false'
         uses: actions/setup-python@v4
         with:
-          python-version: 3.9
+          python-version: '3.10'
 
       - name: Install dependencies
         if: env.skip == 'false'
@@ -55,36 +67,44 @@ jobs:
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
           git config --global user.name "${{ env.GIT_USER_NAME }}"
           git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
-    
+
       - name: Get current commit hash
         if: env.skip == 'false'
         id: get_commit
         run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_ENV
-      
+
       - name: Bump version for dev branch
         if: env.skip == 'false' && github.ref == 'refs/heads/dev'
         run: |
-          bump2version --verbose build
+          bump2version build --no-input --verbose --allow-dirty --serialize "{major}.{minor}.{patch}-canary.{build+1}"
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-      
+
       - name: Bump version for main branch
         if: env.skip == 'false' && github.ref == 'refs/heads/main'
         run: |
-          bump2version minor --serialize "v{major}.{minor}.{patch}"
+          bump2version minor --no-input --allow-dirty --serialize "{major}.{minor}.{patch}"
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-      
-      - name: Push changes
-        if: env.skip == 'false'
+
+      - name: Commit and push changes if new version
+        if: env.skip == 'false' && env.NEW_VERSION
         run: |
-          if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
+          # Commit any changes with a message including the new version
+          git commit -am "Bump version to ${{ env.NEW_VERSION }}"
+          # Tag the commit with the new version
+          git tag "v${{ env.NEW_VERSION }}"
+          # Capture the current HEAD hash for comparison
+          CURRENT_HASH=$(git rev-parse HEAD)
+          # Check if the current HEAD is different from the hash before changes
+          if [ "$CURRENT_HASH" != "${{ env.hash }}" ]; then
+            # Push the changes and tags if there's a new commit
             git push origin HEAD:${{ github.ref }}
             git push origin --tags
           else
-            echo "No new commit created."
+            echo "No new commit created, so no push."
           fi
 
       - name: Create Release
-        if: env.skip == 'false'
+        if: env.skip == 'false' && env.NEW_VERSION
         id: create_release
         uses: softprops/action-gh-release@v1
         env:
@@ -92,9 +112,6 @@ jobs:
         with:
           tag_name: ${{ env.NEW_VERSION }}
           name: Release ${{ env.NEW_VERSION }}
-          generate_release_notes: True
-          body: |
-            Changes in this Release:
-          append_body: True
+          generate_release_notes: true
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
