@@ -1,10 +1,10 @@
-name: Deno Check
+name: Deno and Node.js Check
 
 on:
   workflow_call:
 
 jobs:
-  deno-check:
+  deno-and-nodejs-check:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,7 +15,13 @@ jobs:
         with:
           deno-version: 1.x
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: 'npm'
+
       - name: Build Deno App
         run: |
-          cd app
           deno run -A dev.ts build
+        working-directory: ./app
