@@ -19,20 +19,7 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 20
-
-      - name: Cache Node.js modules
-        uses: actions/cache@v3
-        with:
-          path: ./app/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('./app/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-  
-
-      - name: Install Node.js dependencies
-        run: npm install
-        working-directory: ./app
-  
+          cache: 'npm'
 
       - name: Build Deno App
         run: |
