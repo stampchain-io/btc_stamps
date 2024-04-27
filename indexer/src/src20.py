@@ -317,10 +317,10 @@ class Src20Processor:
 
 
     def validate_and_process_operation(self):
-        self.operation = self.src20_dict['op']
+        self.operation = self.src20_dict.get('op')
         op_amt_validations = ['TRANSFER', 'MINT']
 
-        if self.operation in op_amt_validations and not self.src20_dict['amt']:
+        if self.operation in op_amt_validations and not self.src20_dict.get('amt'):
             self.set_status_and_log('NA', op=self.operation, tick=self.src20_dict['tick'])
             return
 
@@ -490,7 +490,7 @@ def check_format(input_string, tx_hash):
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode('utf-8')
-                print('ERROR - BYTESTRING INPUT')
+                print('ERROR - BYTESTRING INPUT') # DEBUG
                 sys.exit()
             elif isinstance(input_string, str):
                 input_dict = json.loads(input_string)
@@ -542,9 +542,12 @@ def check_format(input_string, tx_hash):
                             value = D(value)
                         elif isinstance(value, float): # this was previously only set for transfer
                             value = D(str(value))
-                        else:
-                            logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
+                        elif not isinstance(value, D):
+                            logger.warning(f"EXCLUSION: {key} not a string, integer, or Decimal", input_dict)
                             return None
+                        # else:
+                        #     logger.warning(f"EXCLUSION: {key}::{value} not a string or integer", input_dict)
+                        #     return None
 
                         if not (0 <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
