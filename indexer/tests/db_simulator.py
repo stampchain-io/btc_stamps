@@ -88,8 +88,7 @@ class DBSimulator:
         self.logger.info(f"The calling function is {caller_name}")
 
         # Simulate fetching the next row of a query result set
-        self.logger.info(self.execute_results)
-        # Parse the dictionary to be returned, will need to be specific based upon the function that called 
+        self.logger.info(f"fetchone db results: {self.execute_results}")        # Parse the dictionary to be returned, will need to be specific based upon the function that called 
         if caller_name == 'get_src20_deploy_in_db':
             # If self.src20valid_params[0] is not None then parse src20valid_results for a tick key value that matches the params
             if self.src20valid_params[0] is not None:
