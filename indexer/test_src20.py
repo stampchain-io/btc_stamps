@@ -65,13 +65,14 @@ class TestSrc20Variations(unittest.TestCase):
                     "p2wsh_data": test_case["p2wsh_data"]
                 }
                 stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(**additional_params)
- 
+                print(f"additional_params: {additional_params}")
                 stamp_result = False if stamp_result is None else stamp_result
                 if stamp_result != test_case["expectedOutcome"]["stamp_success"]:
-                    logger.error(f"{test_case['description']}")
-                    logger.error(f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
+                    logger.error(f"FAIL: {test_case['description']}")
+                    logger.error(f"FAIL: {test_case['src20JsonString']}")
+                    logger.error(f"FAIL: in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
                 else:
-                    logger.info(f"Success in stamp_result test: {test_case['expectedOutcome']['message']}")
+                    logger.info(f"Success in stamp_result {test_case['description']} test: {test_case['expectedOutcome']['message']}")
 
 
                 if parsed_stamp:
@@ -85,12 +86,11 @@ class TestSrc20Variations(unittest.TestCase):
                 src20_result = False if src20_result is None else src20_result
             
                 if src20_result != test_case["expectedOutcome"]["src20_success"]:
-                    logger.error(f"{test_case['description']}")
-                    logger.error(f"Failure in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
+                    logger.error(f"FAIL: {test_case['description']}")
+                    logger.error(f"FAIL: {test_case['src20JsonString']}")
+                    logger.error(f"FAIL: in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
                 else:
                     logger.info(f"Success in src20_result test: {test_case['expectedOutcome']['message']}")
-
-
 
                 self.assertEqual(stamp_result, test_case["expectedOutcome"]["stamp_success"], 
                                 msg=f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 src20_variations_data = [
   {
     "description": "1. Basic SRC-20 token deployment",
@@ -2282,7 +2284,7 @@ src20_variations_data = [
   },
  {
     "description": "SRC-20 token transfer, scenario No.40",
-    "src20JsonString": "{\"p\":\"src-20\",\"op\":\"transfer\",\"tick\":\"kevin\",\"amt\":0.1234}",
+    "src20JsonString": "{\"p\":\"src-20\",\"op\":\"transfer\",\"tick\":\"kevin\",\"amt\":.1234}",
     "expectedOutcome": {
       "stamp_success": True,
       "src20_success": True,
@@ -2302,5 +2304,119 @@ src20_variations_data = [
     "processed_src20_in_block": [],
     "p2wsh_data": None,
     "tx_hash": "dummy_tx_hash"
-  }
+  },
+  {
+    "description": "SRC-20 token deploy uint64 str, scenario No.41",
+    "src20JsonString": {
+      "p": "src-20",
+      "op": "deploy",
+      "tick": "uin64",
+      "amt": "18446744073709551615"
+    },
+    "expectedOutcome": {
+      "stamp_success": True,
+      "src20_success": True,
+      "message": "token not previously deployed"
+    },
+    "source": "1SourceAddr",
+    "destination": "1DestAddr",
+    "btc_amount": 0.0,
+    "fee": 0.0,
+    "decoded_tx": "{}",
+    "keyburn": 1,
+    "tx_index": 0,
+    "block_index": 0,
+    "block_time": 0,
+    "is_op_return": False,
+    "valid_stamps_in_block": [],
+    "processed_src20_in_block": [],
+    "p2wsh_data": None,
+    "tx_hash": "dummy_tx_hash"
+  },
+  {
+    "description": "SRC-20 token deploy uint64 dec, scenario No.42",
+    "src20JsonString": {
+      "p": "src-20",
+      "op": "deploy",
+      "tick": "uin64",
+      "amt": 18446744073709551615
+    },
+    "expectedOutcome": {
+      "stamp_success": True,
+      "src20_success": True,
+      "message": "token not previously deployed"
+    },
+    "source": "1SourceAddr",
+    "destination": "1DestAddr",
+    "btc_amount": 0.0,
+    "fee": 0.0,
+    "decoded_tx": "{}",
+    "keyburn": 1,
+    "tx_index": 0,
+    "block_index": 0,
+    "block_time": 0,
+    "is_op_return": False,
+    "valid_stamps_in_block": [],
+    "processed_src20_in_block": [],
+    "p2wsh_data": None,
+    "tx_hash": "utest"
+  },
+  {
+    "description": "SRC-20 token deploy uint64 Decimal(dec.dec),  scenario No.43",
+    "src20JsonString": {
+      "p": "src-20",
+      "op": "deploy",
+      "tick": "uin64",
+      "amt": Decimal('18446744073709551614.999999999999999999'),
+      "dec": 18
+    },
+    "expectedOutcome": {
+      "stamp_success": True,
+      "src20_success": True,
+      "message": "token not previously deployed"
+    },
+    "source": "1SourceAddr",
+    "destination": "1DestAddr",
+    "btc_amount": 0.0,
+    "fee": 0.0,
+    "decoded_tx": "{}",
+    "keyburn": 1,
+    "tx_index": 0,
+    "block_index": 0,
+    "block_time": 0,
+    "is_op_return": False,
+    "valid_stamps_in_block": [],
+    "processed_src20_in_block": [],
+    "p2wsh_data": None,
+    "tx_hash": "utest"
+  },
+ {
+    "description": "SRC-20 token transfer uint64 dec.dec, scenario No.44",
+    "src20JsonString": {
+      "p": "src-20",
+      "op": "transfer",
+      "tick": "u64x",
+      "amt": 18446744073709551614.999999999999999999,
+      "dec": 18
+    },
+    "expectedOutcome": {
+      "stamp_success": True,
+      "src20_success": True,
+      "message": "token previously deployed"
+    },
+    "source": "1SourceAddr",
+    "destination": "1DestAddr",
+    "btc_amount": 0.0,
+    "fee": 0.0,
+    "decoded_tx": "{}",
+    "keyburn": 1,
+    "tx_index": 0,
+    "block_index": 0,
+    "block_time": 0,
+    "is_op_return": False,
+    "valid_stamps_in_block": [],
+    "processed_src20_in_block": [],
+    "p2wsh_data": None,
+    "tx_hash": "utest"
+  },
 ]
