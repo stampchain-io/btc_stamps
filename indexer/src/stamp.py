@@ -292,7 +292,6 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
         ident, file_suffix = reformat_src_string_get_ident(decoded_data)
     elif (type(decoded_data) is str and is_json_string(decoded_data)):
         ident, file_suffix = reformat_src_string_get_ident(decoded_data)
-        # FIXME: we will need to return the json_string to import into the srcx table or import from here
     else:
         try:
             if decoded_data and type(decoded_data) is str:
@@ -345,7 +344,6 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
     """
     file_suffix = filename = src_data = is_reissue = file_obj_md5 = is_btc_stamp = ident = is_valid_base64 = is_cursed = stamp_results = src20_dict = prevalidated_src20 = None
     valid_stamp = {}
-
     try:
         if not data:
             raise ValueError("Input data is empty or None")
@@ -385,9 +383,6 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
             is_btc_stamp = 1
             decoded_base64 = build_src20_svg_string(db, src20_dict)
             file_suffix = 'svg'
-            # tick_escape = escape_non_ascii_characters(src20_dict['tick'])
-            # _, deploy_max, _ = get_src20_deploy(db, tick_escape, processed_src20_in_block) # FIXME: find another way to do this later
-            # stamp['quantity'] = deploy_max if deploy_max is not None else 0
         else:
             return (None,) * 4
         
@@ -399,17 +394,30 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         file_suffix = 'svg'
 
 
-    if ident != 'UNKNOWN' and stamp.get('asset_longname') is None and cpid and cpid.startswith('A') and not is_op_return:
+    if (
+        ident != 'UNKNOWN' and stamp.get('asset_longname') is None
+        and cpid and cpid.startswith('A') and not is_op_return
+        and file_suffix not in INVALID_BTC_STAMP_SUFFIX
+    ):
         is_btc_stamp = 1
         is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
-    elif stamp.get('asset_longname') is not None or (cpid and (file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid.startswith('A') or is_op_return)):
+    elif stamp.get('asset_longname') is not None:
+        stamp['cpid'] = stamp.get('asset_longname')
+        is_cursed = 1
+        is_btc_stamp = None
+    elif ( # CURSED 
+        cpid and (file_suffix in INVALID_BTC_STAMP_SUFFIX or
+        not cpid.startswith('A') or is_op_return)
+    ):
         is_btc_stamp = None
         is_cursed = 1
-        if cpid:
-            is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
+        is_btc_stamp, is_reissue = check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block)
+        if is_reissue:
+            return (None,) * 4
 
-    if is_reissue:
-        return (None,) * 4
+    if is_op_return:
+        is_btc_stamp = None
+        is_cursed = 1
     
     if is_btc_stamp:
         stamp_number = get_next_stamp_number(db, 'stamp')
@@ -417,6 +425,10 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         stamp_number = get_next_stamp_number(db, 'cursed')
     else:
         stamp_number = None
+        if is_reissue:
+            return
+        else:
+            stamp_number = None # need to save these in the db do detect invalid reissuances of prior stamp: trx
 
     if cpid and is_btc_stamp:
         valid_stamp = {
