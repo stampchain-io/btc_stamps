@@ -490,15 +490,12 @@ def check_format(input_string, tx_hash):
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode('utf-8')
-                print('ERROR - BYTESTRING INPUT') # DEBUG
-                sys.exit()
             elif isinstance(input_string, str):
-                input_dict = json.loads(input_string)
+                input_dict = json.loads(input_string, parse_float=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
         except (json.JSONDecodeError, TypeError):
             raise
-        
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
@@ -540,14 +537,13 @@ def check_format(input_string, tx_hash):
                                 return None
                         elif isinstance(value, int):
                             value = D(value)
-                        elif isinstance(value, float): # this was previously only set for transfer
+                        elif isinstance(value, float):
                             value = D(str(value))
-                        elif not isinstance(value, D):
-                            logger.warning(f"EXCLUSION: {key} not a string, integer, or Decimal", input_dict)
+                        elif isinstance(value, D):
+                            value = value
+                        else:
+                            logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
-                        # else:
-                        #     logger.warning(f"EXCLUSION: {key}::{value} not a string or integer", input_dict)
-                        #     return None
 
                         if not (0 <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
