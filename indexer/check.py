@@ -12,8 +12,11 @@ CONSENSUS_HASH_SEED = 'Through our eyes, the universe is perceiving itself. Thro
 CONSENSUS_HASH_VERSION_MAINNET = 1
 
 CHECKPOINTS_MAINNET = {
-    #config.BLOCK_FIRST_MAINNET: {'ledger_hash': 'f55ff4daaf67d34eea686f1869e49e06646bc2fc2590de8489ce16e9e537e5ca', 'txlist_hash': '54d3c971e7aa7cebab9cc07a1922e00c05ec3eb190f0384034719f268bffbf1b'},
-    #780000: {'ledger_hash': '4fef3960cdd3b1909e6fecc3c82722ca9ba465d99182d2829f563f36d02191cc', 'txlist_hash': '175ccc866413d290ec0fe1b24c80226efb64522c94463c2d02e2b1d67982b009'},
+    config.BLOCK_FIRST_MAINNET: {'ledger_hash': '', 'txlist_hash': '40591672fcfed80ef211c245290bf1545078ad6a2403a74ef7491a8c69df969c'},
+    779700: {'ledger_hash': '', 'txlist_hash': '689bab1f3e4e3ac1ed3de15a63cadfc506afa83b3a138de15efc671b34940f66'},
+    781000: {'ledger_hash': '', 'txlist_hash': 'a39aa5e61811269e294cc8d71382c9c6faec630a5b959d63f3721d2a305b23e4'},
+    781100: {'ledger_hash': '', 'txlist_hash': '4a48e68419e983b88f32975631b917e2f5b28aa3b7de784e5297faa44782bdf4'},
+    781300: {'ledger_hash': '', 'txlist_hash': '19238b49941bb884b06b6f7b39f7741f76651c56d63cd0645cc059d2d4991ef2'},
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
@@ -41,7 +44,7 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     if block_index <= config.BLOCK_FIRST and field != 'ledger_hash':
         assert not previous_consensus_hash
         previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)
-    elif block_index == config.CP_SRC20_BLOCK_START + 1 and field == 'ledger_hash':
+    elif block_index == config.CP_SRC20_GENESIS_BLOCK + 1 and field == 'ledger_hash':
         assert not previous_consensus_hash
         previous_consensus_hash = util.shash_string('')
 
@@ -57,21 +60,14 @@ def consensus_hash(db, field, previous_consensus_hash, content):
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
-            raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
+                raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
     elif not previous_consensus_hash and field == 'ledger_hash' and content != '':
-        try:
-            cursor.execute('''SELECT * FROM blocks WHERE ledger_hash IS NOT NULL ORDER BY block_index DESC LIMIT 1''')
-            results = cursor.fetchall()
-            if results:
-                previous_consensus_hash = results[0][field_position[field]]
-            else:
-                previous_consensus_hash = None
-        except IndexError:
-            previous_consensus_hash = None
+        cursor.execute('''SELECT ledger_hash FROM blocks WHERE ledger_hash IS NOT NULL AND ledger_hash <> '' ORDER BY block_index DESC LIMIT 1''')
+        result = cursor.fetchone()
+        previous_consensus_hash = result[0] if result else None
         if not previous_consensus_hash:
-            raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
-
-
+            raise ConsensusError(f'Empty previous {field} for block {block_index}. Please launch a `reparse`.')
+        
     # Calculate current hash.
     if config.TESTNET:
         consensus_hash_version = CONSENSUS_HASH_VERSION_TESTNET
@@ -80,13 +76,13 @@ def consensus_hash(db, field, previous_consensus_hash, content):
     else:
         consensus_hash_version = CONSENSUS_HASH_VERSION_MAINNET
 
-    if field == 'ledger_hash' and block_index == config.CP_SRC20_BLOCK_START:
+    if field == 'ledger_hash' and block_index == config.CP_SRC20_GENESIS_BLOCK:
         calculated_hash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-    elif field == 'ledger_hash' and block_index > config.CP_SRC20_BLOCK_START and content:
+    elif field == 'ledger_hash' and block_index > config.CP_SRC20_GENESIS_BLOCK and content:
         concatenated_content = previous_consensus_hash.encode('utf-8') + content.encode('utf-8')
         calculated_hash = util.shash_string(concatenated_content)
     elif field == 'ledger_hash' and content == '':
-        calculated_hash = None
+        calculated_hash = ''
     else:
         calculated_hash = util.dhash_string(previous_consensus_hash + '{}{}'.format(consensus_hash_version, ''.join(content)))
     # Verify hash (if already in database) or save hash (if not).
