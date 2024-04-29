@@ -478,7 +478,7 @@ def commit_and_update_block(db, block_index):
         sys.exit()
 
 
-def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash):
+def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block):
     """
     Logs the information of a block.
 
@@ -493,10 +493,10 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
     None
     """
     logger = logging.getLogger(__name__)
-    logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s)' % (
+    logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s)' % (
         str(block_index), "{:.2f}".format(time.time() - start_time, 3),
         new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
-        new_txlist_hash[-5:], new_messages_hash[-5:]
+        new_txlist_hash[-5:], new_messages_hash[-5:], stamps_in_block
     ))
 
 
@@ -675,7 +675,7 @@ def follow(db):
 
             valid_stamps_in_block= []
             
-            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_BLOCK_START:
+            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_GENESIS_BLOCK:
                 valid_src20_str = ''
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                         db,
@@ -686,7 +686,7 @@ def follow(db):
                     )
 
                 stamp_issuances_list.pop(block_index, None)
-                log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
+                log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0)
                 block_index = commit_and_update_block(db, block_index)
                 continue
 
@@ -757,7 +757,7 @@ def follow(db):
             else:
                 valid_src20_str = ''
 
-            if block_index > config.BTC_STAMP_GENESIS_BLOCK and block_index % 100 == 0:
+            if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
                 clear_zero_balances(db)
 
             new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
@@ -771,8 +771,9 @@ def follow(db):
             if valid_src20_str:
                 validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
 
+            stamps_in_block = len(valid_stamps_in_block)
             stamp_issuances_list.pop(block_index, None)
-            log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash)
+            log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block)
             block_index = commit_and_update_block(db, block_index)
 
             # profiler.disable()
