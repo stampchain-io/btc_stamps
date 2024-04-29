@@ -260,9 +260,9 @@ def insert_into_stamp_table(db, parsed_stamps):
                     message_index, stamp_base64,
                     stamp_mimetype, stamp_url, supply, block_time,
                     tx_hash, tx_index, ident, src_data,
-                    stamp_hash, is_btc_stamp, is_reissue,
+                    stamp_hash, is_btc_stamp,
                     file_hash, is_valid_base64
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             '''
             
             data = [
@@ -277,7 +277,7 @@ def insert_into_stamp_table(db, parsed_stamps):
                     parsed['tx_hash'], parsed['tx_index'],
                     parsed['ident'], parsed['src_data'],
                     parsed['stamp_hash'], parsed['is_btc_stamp'],
-                    parsed['is_reissue'], parsed['file_hash'],
+                    parsed['file_hash'],
                     parsed['is_valid_base64']
                 ) for parsed in parsed_stamps
             ]
@@ -578,17 +578,13 @@ def get_next_stamp_number(db, identifier):
     return next_number
 
 
-def check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block):
+def check_reissue(db, cpid, valid_stamps_in_block):
     ''' 
-    Validate if there was a prior valid stamp for the given cpid in the database or block and adjust is_btc_stamp and is_reissue.
-
-    If stamp_base64 has changed and is not None, then this reissue is a new stamp with a new image. It is considered cursed
-    as named stamp inclusions are cursed only to keep them from stamp numbering initially because of xcp fees.
+    Validate if there was a prior valid stamp for the given cpid in the database or block .
 
     Parameters:
     - db: The database connection object.
     - cpid: The unique identifier for the stamp.
-    - is_btc_stamp: A boolean indicating if the stamp is a BTC stamp.
     - valid_stamps_in_block: A list of CPID based stamps processed in the block.
 
     Returns:
@@ -598,30 +594,21 @@ def check_reissue(db, cpid, is_btc_stamp, valid_stamps_in_block):
     if not hasattr(check_reissue, "cache"):
         check_reissue.cache = {}
 
-    cache_key = (cpid, is_btc_stamp)
-    if cache_key in check_reissue.cache:
-        return check_reissue.cache[cache_key]
+    if cpid in check_reissue.cache:
+        return True
+    if check_reissue_in_block(valid_stamps_in_block, cpid):
+        return True
+    if check_reissue_in_db(db, cpid):
+        return True
+        
 
-    is_btc_stamp, is_reissue = check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp)
-    if not is_reissue:
-        is_btc_stamp, is_reissue = check_reissue_in_db(db, cpid, is_btc_stamp)
-
-    check_reissue.cache[cache_key] = (is_btc_stamp, is_reissue)
-    return is_btc_stamp, is_reissue
-
-
-def check_reissue_in_block(valid_stamps_in_block, cpid, is_btc_stamp):
-    is_reissue = None
+def check_reissue_in_block(valid_stamps_in_block, cpid):
     for item in reversed(valid_stamps_in_block):
         if item["cpid"] == cpid and (item["is_btc_stamp"] or item.get("is_cursed")):
-            is_btc_stamp = None
-            is_reissue = 1
-            break
-    return is_btc_stamp, is_reissue
+            return True
 
 
-def check_reissue_in_db(db, cpid, is_btc_stamp):
-    is_reissue = None
+def check_reissue_in_db(db, cpid):
     with db.cursor() as cursor:
         cursor.execute(f'''
             SELECT is_btc_stamp FROM {STAMP_TABLE}
@@ -631,10 +618,8 @@ def check_reissue_in_db(db, cpid, is_btc_stamp):
         ''', (cpid,))
         result = cursor.fetchone()
         if result:
-            # Assuming is_btc_stamp is a boolean in the database, adjust accordingly if it's stored differently
-            is_btc_stamp = result[0]
-            is_reissue = 1
-    return is_btc_stamp, is_reissue
+            return True
+
 
 def last_db_index(db):
     """
