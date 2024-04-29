@@ -28,6 +28,7 @@
             "valid": 1
         }
     ],
+
     "blocks": [
         {
             "block_index": 779652,
@@ -41,6 +42,66 @@
             "indexed": 1
         }
     ],
+    "balances": [
+        {
+            "tick": "kevin",
+            "address": "1DestAddr",
+            "total_balance": 1000,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        },
+        {
+            "tick": "kevin",
+            "address": "1SourceAddr",
+            "total_balance": 1000,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        },
+        {
+            "tick": "dec4",
+            "address": "1DestAddr",
+            "total_balance": 1000,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        },
+        {
+            "tick": "dec4",
+            "address": "1SourceAddr",
+            "total_balance": 1000,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        },
+        {
+            "tick": "dec0",
+            "address": "1DestAddr",
+            "total_balance": 1000,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        },
+        {
+            "tick": "dec0",
+            "address": "1SourceAddr",
+            "total_balance": 1000,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        },
+        {
+            "tick": "u64x",
+            "address": "1SourceAddr",
+            "total_balance": 18446744073709551615,
+            "highest_block_index": 779652,
+            "block_time_unix": null,
+            "locked_amt": 0
+        }
+          
+    ],
+
     "SRC20Valid": [
         {
             "id": "1_32739_23765f9bc6b87e078b1f93ed213f90b9004998336575f726e46f34ddbea5e5f3",
