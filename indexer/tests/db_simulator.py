@@ -37,7 +37,19 @@ class DBSimulator:
             return max_stamp
         except KeyError:
             return None
-         
+    
+    def get_simulated_balance(self, tick, address):
+        try:
+            # Assuming self.simulation_data is already loaded as a dictionary
+            for balance in self.simulation_data['balances']:
+                if balance['tick'] == tick and balance['address'] == address:
+                    return balance
+            # If no matching tick and address are found
+            return None
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None               
+            
     def execute(self, query, params=None):
         # Simulate database query execution based on the query string and parameters
         # self.execute_results = None
@@ -111,6 +123,11 @@ class DBSimulator:
         caller_name = caller_frame.f_code.co_name
         self.logger.info(f"The calling function is {caller_name}")
 
+        # Access f_locals from the caller's frame
+        tick = caller_frame.f_locals.get('tick', None)
+        tick_hash = caller_frame.f_locals.get('tick_hash', None)  # Assuming you have a way to use this for filtering
+        addresses = caller_frame.f_locals.get('addresses', [])
+
         if caller_name == 'get_total_src20_minted_from_db':
             # return a list of tuples
             return [(0,)] # assume nothing has been minted
@@ -120,8 +137,15 @@ class DBSimulator:
             return [(1,)]
         
         if caller_name == 'get_total_user_balance_from_balances_db':
-            return [("KEVIN", "1SourceAddr", 1000, 0, time.time(), 0)] 
-        
+            filtered_balances = []
+            for balance in self.simulation_data['balances']:
+                if balance['tick'] == tick and balance['address'] in addresses:
+                    # Assuming you need to return specific fields or the whole balance if it matches
+                    filtered_balances.append((balance['tick'], balance['address'], balance['total_balance'], balance['highest_block_index'], balance['block_time_unix'], balance['locked_amt']))
+            self.logger.info(f"query: balance, tick: {tick}, addresses: {addresses}")
+            self.logger.info(f"filtered_balances: {filtered_balances}")
+            return filtered_balances
+
 
         # Simulate fetching all rows of a query result set
         result = self.simulation_data
