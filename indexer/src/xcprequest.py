@@ -1,4 +1,3 @@
-import asyncio
 import time
 import json
 import config
@@ -26,11 +25,11 @@ def _create_payload(method, params):
     return base_payload
 
 
-def fetch_cp_concurrent(block_index, block_tip, indicator=None): 
+def fetch_cp_concurrent(block_index, block_tip, indicator=None):
     ''' testing with this method because we were initially getting invalid results
         when using the get_blocks[xxx,yyyy,zzz] method to the CP API '''
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        
+
         blocks_to_fetch = 1000
         futures = []
         results_dict = {}  # Create an empty dictionary to store the results
@@ -38,10 +37,10 @@ def fetch_cp_concurrent(block_index, block_tip, indicator=None):
         if block_tip > block_index + blocks_to_fetch:
             block_tip = block_index + blocks_to_fetch
         else:
-            blocks_to_fetch = block_tip - block_index + 1 
+            blocks_to_fetch = block_tip - block_index + 1
 
         pbar = tqdm(total=blocks_to_fetch, desc=f"Fetching CP Trx [{block_index}..{block_tip}]", leave=True)  # Update the total to 500 and add leave=True
-            
+
         while block_index <= block_tip:
             future = executor.submit(get_xcp_block_data, block_index, indicator=indicator)
             future.block_index = block_index  # Save the block_index with the future
@@ -64,15 +63,12 @@ def fetch_cp_concurrent(block_index, block_tip, indicator=None):
 def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
     if indicator is not None:
         pbar = tqdm(desc="Waiting for CP block {} to be parsed...".format(block_index), leave=True, bar_format='{desc}: {elapsed} {bar} [{postfix}]')
-    
+
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
             util.CP_BLOCK_COUNT = _get_block_count()
             logger.info("Current block count: {}".format(util.CP_BLOCK_COUNT))
-            if (
-                util.CP_BLOCK_COUNT is not None
-                and block_index <= util.CP_BLOCK_COUNT
-            ):
+            if (util.CP_BLOCK_COUNT is not None and block_index <= util.CP_BLOCK_COUNT):
                 if indicator is not None:
                     pbar.close()
                 break
@@ -81,9 +77,7 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
                     pbar.refresh()
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except (TypeError, Exception) as e:
-            logger.warning(
-                "Error getting CP block count: {}\nSleeping to retry...".format(e)
-            )
+            logger.warning("Error getting CP block count: {}\nSleeping to retry...".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
     data = None
     while data is None:
@@ -93,22 +87,16 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
                 if data is not None:
                     return data
             else:
-                logger.warning(
-                    "CP_BLOCK_COUNT is None. Sleeping to retry..."
-                )
+                logger.warning("CP_BLOCK_COUNT is None. Sleeping to retry...")
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except Exception as e:
-            logger.warning(
-                "Error getting issuances: {}\n Sleeping to retry...".format(e)
-            )
+            logger.warning("Error getting issuances: {}\n Sleeping to retry...".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
 
 
 def get_cp_version():
     try:
-        logger.warning(
-            f"""Connecting to CP Node: {config.CP_RPC_URL}"""
-        )
+        logger.warning(f"""Connecting to CP Node: {config.CP_RPC_URL}""")
         payload = _create_payload("get_running_info", {})
         headers = {'content-type': 'application/json'}
         response = requests.post(
@@ -271,8 +259,7 @@ def _parse_issuances_from_block(block_data):
         tx_data['msg_index'] = tx.get('message_index')
         tx_data['block_index'] = tx.get('block_index')
         if (
-            tx.get("command") == 'insert'
-            and tx.get("category") == 'issuances'
+            tx.get("command") == 'insert' and tx.get("category") == 'issuances'
         ):
             if (
                 tx_data.get('status', 'invalid') == 'valid'
@@ -319,15 +306,13 @@ def parse_base64_from_description(description):
 
 def _check_for_stamp_issuance(issuance):
     description = issuance["description"]
-   
+
     if (
-        description is not None and
-        description.lower().find("stamp:") != -1
+        description is not None and description.lower().find("stamp:") != -1
     ):
         _, stamp_mimetype = parse_base64_from_description(description)
 
-
-        quantity = issuance["quantity"] #+ prev_qty
+        quantity = issuance["quantity"]  # + prev_qty
         # logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
         if issuance["status"] == "valid":
             filtered_issuance = {

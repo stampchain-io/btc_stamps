@@ -2,7 +2,6 @@ import logging
 import hashlib
 import io
 import os
-import traceback
 import src.log as log
 
 from src.aws import (
@@ -42,7 +41,7 @@ def get_fileobj_and_md5(decoded_base64):
         file_obj_md5 = hashlib.md5(file_obj.read()).hexdigest()
         return file_obj, file_obj_md5
     except Exception as e:
-        logger.error(f"Error: {e}\n{traceback.format_exc()}")
+        logger.error(f"Error: {e}")
         raise
 
 
@@ -60,9 +59,9 @@ def store_files(db, filename, decoded_base64, mime_type):
         str: The MD5 hash of the stored file.
     """
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
-    if (AWS_SECRET_ACCESS_KEY and AWS_ACCESS_KEY_ID and
-        AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR):
-        logger.info(f"uploading {filename} to aws")  # FIXME: there may be cases where we want both aws and disk storage
+    if (AWS_SECRET_ACCESS_KEY and AWS_ACCESS_KEY_ID and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR):
+        # FIXME: there may be cases where we want both aws and disk storage
+        logger.info(f"uploading {filename} to aws")
         check_existing_and_upload_to_s3(
             db, filename, mime_type, file_obj, file_obj_md5
         )
@@ -86,10 +85,10 @@ def store_files_to_disk(filename, decoded_base64):
         None
     """
     if decoded_base64 is None:
-        logger.info(f"decoded_base64 is None")
+        logger.info("decoded_base64 is None")
         return
     if filename is None:
-        logger.info(f"filename is None")
+        logger.info("filename is None")
         return
     try:
         cwd = os.path.abspath(os.getcwd())
@@ -99,5 +98,5 @@ def store_files_to_disk(filename, decoded_base64):
         with open(file_path, "wb") as f:
             f.write(decoded_base64)
     except Exception as e:
-        logger.error(f"Error: {e}\n{traceback.format_exc()}")
+        logger.error(f"Error: {e}")
         raise

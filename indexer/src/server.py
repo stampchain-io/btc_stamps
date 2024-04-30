@@ -40,13 +40,15 @@ def sigterm_handler(_signo, _stack_frame):
     logger.info('Shutting down.')
     logging.shutdown()
     sys.exit(0)
+
+
 signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigterm_handler)
 
 
 # TODO: MySQL Locking Function - perhaps we want this :)
 # This code creates a table called server_lock in the MySQL database and inserts a single row into the table.
-# If another instance of the server tries to insert a row into the table, it will fail with an IntegrityError, 
+# If another instance of the server tries to insert a row into the table, it will fail with an IntegrityError,
 # indicating that another copy of the server is already running.
 
 # class LockingError(Exception):
@@ -105,7 +107,7 @@ def initialize_config(
     except AssertionError as e:
         logger.error(f'SHA Hash Inconsistencies: {e}')
         raise e
-    
+
     # Data directory
     data_dir = appdirs.user_data_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME, roaming=True)
     if not os.path.isdir(data_dir):
@@ -128,7 +130,7 @@ def initialize_config(
     # ignore-scan
     if customnet is not None and len(customnet) > 0:
         config.CUSTOMNET = True
-        config.REGTEST = True # Custom nets are regtests with different parameters
+        config.REGTEST = True  # Custom nets are regtests with different parameters
     else:
         config.CUSTOMNET = False
 
@@ -174,7 +176,6 @@ def initialize_config(
         logger.error("Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback))
     sys.excepthook = handle_exception
 
-
     ##############
     # THINGS WE CONNECT TO
 
@@ -202,8 +203,8 @@ def initialize_config(
         config.BACKEND_PORT = int(config.BACKEND_PORT)
         if not (int(config.BACKEND_PORT) > 1 and int(config.BACKEND_PORT) < 65535):
             raise ConfigurationError('invalid backend API port number')
-    except:
-        raise ConfigurationError("Please specific a valid port number backend-port configuration parameter")
+    except Exception as e:
+        raise ConfigurationError(f"Please specific a valid port number backend-port configuration parameter {e}")
 
     # Backend Core RPC user (Bitcoin Core)
     if backend_user:
@@ -231,7 +232,7 @@ def initialize_config(
         if backend_ssl_no_verify:
             config.BACKEND_SSL_NO_VERIFY = backend_ssl_no_verify
         else:
-            config.BACKEND_SSL_NO_VERIFY = False # Default to on (don't support self‐signed certificates)
+            config.BACKEND_SSL_NO_VERIFY = False  # Default to on (don't support self‐signed certificates)
 
     # Backend Poll Interval
     if backend_poll_interval:
@@ -248,7 +249,6 @@ def initialize_config(
     else:
         config.BACKEND_URL = 'http://' + config.BACKEND_URL
 
-
     ##############
     # OTHER SETTINGS
 
@@ -259,7 +259,7 @@ def initialize_config(
         config.FORCE = False
 
     # Encoding
-    config.PREFIX = b'stamp:' 
+    config.PREFIX = b'stamp:'
     config.CP_PREFIX = b'CNTRPRTY'
 
     config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
@@ -325,7 +325,7 @@ def import_csv_data(cursor, csv_file, insert_query):
             csv.field_size_limit(max_int)
             break
         except OverflowError:
-            max_int = int(max_int/10)
+            max_int = int(max_int / 10)
     with open(csv_file, 'r') as file:
         csv_reader = csv.reader(file)
         for row in csv_reader:
