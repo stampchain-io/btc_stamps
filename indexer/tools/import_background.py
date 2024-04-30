@@ -3,7 +3,6 @@ import pymysql as mysql
 import os
 import mimetypes
 import argparse
-import sys
 from PIL import Image
 from dotenv import load_dotenv
 
