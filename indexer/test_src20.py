@@ -10,9 +10,6 @@ from colour_runner.runner import ColourTextTestRunner
 from tests.src20_variations_data import src20_variations_data
 from tests.db_simulator import DBSimulator
 
-
-
-
 handler = colorlog.StreamHandler()
 handler.setFormatter(colorlog.ColoredFormatter(
     '%(asctime)s - %(log_color)s%(levelname)s:%(name)s:%(message)s',
