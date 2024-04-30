@@ -6,11 +6,12 @@ from src.src20 import parse_src20
 import colorlog
 import logging
 from colour_runner.runner import ColourTextTestRunner
-from indexer.tests.src20_variations_data import src20_variations_data
-from indexer.tests.db_simulator import DBSimulator
+# sys.path.append(str(Path(__file__).resolve().parents[1]))
+from tests.src20_variations_data import src20_variations_data
+from tests.db_simulator import DBSimulator
 
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 
 handler = colorlog.StreamHandler()
 handler.setFormatter(colorlog.ColoredFormatter(
