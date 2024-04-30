@@ -6,7 +6,7 @@ import config
 import src.exceptions as exceptions
 
 
-def get_asm_optimized(scriptpubkey):
+def get_asm(scriptpubkey):
     try:
         asm = []
         for element in scriptpubkey:
