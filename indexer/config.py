@@ -5,25 +5,25 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-# env vars to be set in docker, or locally if connecting to a local btc and/or cp_node
+# env vars to be set in docker, or locally if connecting to local nodes
 RPC_USER = os.environ.get("RPC_USER", 'rpc')
 RPC_PASSWORD = os.environ.get("RPC_PASSWORD", 'rpc')
 RPC_IP = os.environ.get("RPC_IP", '127.0.0.1')
 RPC_PORT = os.environ.get("RPC_PORT", '8332')
 
-CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001/api/rest/") # 'http://127.0.0.1:4000/api/'
+CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001/api/rest/")  # 'http://127.0.0.1:4000/api/'
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
 CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
 
-AWS_ACCESS_KEY_ID=os.environ.get("AWS_ACCESS_KEY_ID", None)
-AWS_SECRET_ACCESS_KEY=os.environ.get("AWS_SECRET_ACCESS_KEY", None)
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", None)
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", None)
 
 AWS_S3_CLIENT = boto3.client(
     's3',
     aws_access_key_id=AWS_ACCESS_KEY_ID,
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-    )
+)
 
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get('AWS_CLOUDFRONT_DISTRIBUTION_ID', None)
 AWS_S3_BUCKETNAME = os.environ.get('AWS_S3_BUCKETNAME', None)
@@ -31,7 +31,7 @@ AWS_S3_IMAGE_DIR = os.environ.get('AWS_S3_IMAGE_DIR', None)
 S3_OBJECTS = []
 AWS_INVALIDATE_CACHE = os.environ.get('AWS_INVALIDATE_CACHE', None)
 
-# Define for Quicknode or simiilar remote nodes which use a token
+# Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 if QUICKNODE_URL and RPC_TOKEN:
@@ -53,13 +53,13 @@ DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ['SRC-721', 'SRC-20']
 INVALID_BTC_STAMP_SUFFIX = ['plain', 'octet-stream', 'js', 'css', 'x-empty', 'json']
 
-CP_STAMP_GENESIS_BLOCK = 779652 # block height of first valid stamp transaction on counterparty
-CP_SRC20_GENESIS_BLOCK = 788041 # This initial start of SRC-20 on Counterparty
-BTC_SRC20_GENESIS_BLOCK = 793068 # block height of first stamp (src-20) 
+CP_STAMP_GENESIS_BLOCK = 779652  # block height of first valid stamp transaction on counterparty
+CP_SRC20_GENESIS_BLOCK = 788041  # This initial start of SRC-20 on Counterparty
+BTC_SRC20_GENESIS_BLOCK = 793068  # block height of first stamp (src-20)
 
-CP_SRC20_END_BLOCK = 796000 # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
-CP_BMN_FEAT_BLOCK_START = 815130 # BMN audio file support
-CP_P2WSH_FEAT_BLOCK_START = 833000 # OLGA / P2WSH transactions
+CP_SRC20_END_BLOCK = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
+CP_BMN_FEAT_BLOCK_START = 815130  # BMN audio file support
+CP_P2WSH_FEAT_BLOCK_START = 833000  # OLGA / P2WSH transactions
 
 # Consensus changes
 STRIP_WHITESPACE = 797200
@@ -70,7 +70,7 @@ STOP_BASE64_REPAIR = 784550
 # FIRST_KEYBURN_BLOCK = 784978
 
 SRC_VALIDATION_API1 = 'https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconciliation/balances_hash?block_height='
-#SRC_VALIDATION_API2 = f'https://api.stampscan.xyz/external/balanceHash?blockIndex={block_index}&secret={API2_VALIDATION_SECRET}'
+# SRC_VALIDATION_API2 = f'https://api.stampscan.xyz/external/balanceHash?blockIndex={block_index}&secret={API2_VALIDATION_SECRET}'
 
 TESTNET = None
 REGTEST = None
@@ -127,17 +127,17 @@ BLOCK_FIELDS_POSITION = {
     'indexed': 8
 }
 
-TXS_FIELDS_POSITION={
-    'tx_index':0,
-    'tx_hash':1,
-    'block_index':2,
-    'block_hash':3,
-    'block_time':4,
-    'source':5,
-    'destination':6,
-    'btc_amount':7,
-    'fee':8,
-    'data':9
+TXS_FIELDS_POSITION = {
+    'tx_index': 0,
+    'tx_hash': 1,
+    'block_index': 2,
+    'block_hash': 3,
+    'block_time': 4,
+    'source': 5,
+    'destination': 6,
+    'btc_amount': 7,
+    'fee': 8,
+    'data': 9
 }
 
 SUPPORTED_CHARS = '.!#$%&()*0123456789<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~'
@@ -169,7 +169,7 @@ DEFAULT_BACKEND_PORT = 8332
 
 BLOCK_FIRST_TESTNET = 310000
 
-BLOCK_FIRST_MAINNET = CP_STAMP_GENESIS_BLOCK # 791243 # 791510  # 791243  # 796000  # 790249  # 779650
+BLOCK_FIRST_MAINNET = CP_STAMP_GENESIS_BLOCK  # 791243 # 791510  # 791243  # 796000  # 790249  # 779650
 
 BLOCK_FIRST_REGTEST = 0
 
@@ -177,4 +177,3 @@ DEFAULT_REQUESTS_TIMEOUT = 20   # 20 seconds
 
 BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
 BACKEND_RPC_BATCH_NUM_WORKERS = 6
-

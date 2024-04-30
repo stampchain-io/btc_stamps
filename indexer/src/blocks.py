@@ -55,7 +55,7 @@ from src.exceptions import DecodeError, BTCOnlyError
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
-log.set_logger(logger)  
+log.set_logger(logger)
 
 TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time', 'p2wsh_data'])
 
@@ -94,23 +94,23 @@ def process_vout(ctx, stamp_issuance=None):
             asm = script.get_asm(vout.scriptPubKey)
         except CScriptInvalidError as e:
             raise DecodeError(e)
-        if asm[-1] == 'OP_CHECKMULTISIG': # the last element in the asm list is OP_CHECKMULTISIG
+        if asm[-1] == 'OP_CHECKMULTISIG':  # the last element in the asm list is OP_CHECKMULTISIG
             try:
                 # NOTE: need to investigate signatures_required, signatures_possible
-                pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm) # this is all the pubkeys from the loop
-                if keyburn_vout is not None: # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
+                pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm)  # this is all the pubkeys from the loop
+                if keyburn_vout is not None:  # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
                     keyburn = keyburn_vout
                 pubkeys_compiled += pubkeys
                 # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
-            except:
-                raise DecodeError('unrecognised output type')
+            except Exception as e:
+                raise DecodeError(f'unrecognised output type {e}')
         elif asm[-1] == 'OP_CHECKSIG':
-            pass # FIXME: not certain if we need to check keyburn on OP_CHECKSIG
-                # see 'A14845889080100805000'
-                #   0: OP_DUP
-                #   1: OP_HASH160
-                #   3: OP_EQUALVERIFY
-                #   4: OP_CHECKSIG
+            pass  # FIXME: not certain if we need to check keyburn on OP_CHECKSIG
+            # see 'A14845889080100805000'
+            #   0: OP_DUP
+            #   1: OP_HASH160
+            #   3: OP_EQUALVERIFY
+            #   4: OP_CHECKSIG
         elif asm[0] == 'OP_RETURN':
             is_op_return = True
         elif stamp_issuance and asm[0] == 0 and len(asm[1]) == 32:
@@ -147,13 +147,12 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         This function parses every transaction, not just stamps/src-20.
         Returns normalized None data for DecodeError and BTCOnlyError.
     """
- 
     TransactionInfo = namedtuple('TransactionInfo', ['source', 'destinations', 'btc_amount', 'fee', 'data', 'ctx', 'keyburn', 'is_op_return', 'p2wsh_data'])
 
     try:
         if not block_index:
             block_index = util.CURRENT_BLOCK_INDEX
-        
+
         destinations, btc_amount, data, p2wsh_data = [], 0, b'', b''
 
         ctx = backend.deserialize(tx_hex)
@@ -167,9 +166,9 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             if pubkeys_compiled and vout_info.is_olga:
                 chunk = b''
                 for pubkey in pubkeys_compiled:
-                    chunk += pubkey       
+                    chunk += pubkey
                 pubkey_len = int.from_bytes(chunk[0:2], byteorder='big')
-                p2wsh_data = chunk[2:2+pubkey_len]
+                p2wsh_data = chunk[2:2 + pubkey_len]
             else:
                 p2wsh_data = None
             return TransactionInfo(None, None, btc_amount, round(fee), None, None, keyburn, is_op_return, p2wsh_data)
@@ -179,9 +178,9 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             for pubkey in pubkeys_compiled:
                 chunk += pubkey[1:-1]       # Skip sign byte and nonce byte. ( this does the concatenation as well)
             try:
-                src20_destination, src20_data = decode_checkmultisig(ctx, chunk) # this only decodes src-20 type trx
-            except:
-                raise DecodeError('unrecognized output type')
+                src20_destination, src20_data = decode_checkmultisig(ctx, chunk)  # this only decodes src-20 type trx
+            except Exception as e:
+                raise DecodeError(f'unrecognized output type {e}')
             assert src20_destination is not None and src20_data is not None
             if src20_data is not None:
                 data += src20_data
@@ -208,7 +207,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
         return TransactionInfo(str(source), destinations, btc_amount, round(fee), data, ctx, keyburn, is_op_return, None)
 
-    except (DecodeError, BTCOnlyError) as e:
+    except (DecodeError, BTCOnlyError):
         return TransactionInfo(b'', None, None, None, None, None, None, None, None)
 
 
@@ -229,7 +228,7 @@ def decode_address(script_pubkey):
         # Attempt standard address decoding
         address = CBitcoinAddress.from_scriptPubKey(script_pubkey)
         return str(address)
-    except Exception as e:
+    except Exception:
         # Handle other types of addresses
         if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:  # Taproot check
             # Extract the witness program for Taproot
@@ -238,7 +237,7 @@ def decode_address(script_pubkey):
             return pubkeyhash_to_addr(witness_program, prefix='bc', encoding='bech32', witver=1)
         else:
             raise ValueError("Unsupported scriptPubKey format")
-        
+
 
 def decode_checkmultisig(ctx, chunk):
     """
@@ -252,14 +251,14 @@ def decode_checkmultisig(ctx, chunk):
     Returns:
         tuple: A tuple containing the destination address (str) and the decoded data (bytes).
                If the chunk does not match the expected format, returns (None, None).
-    
+
     Raises:
         DecodeError: If the decoded data length does not match the expected length.
     """
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    chunk = arc4.arc4_decrypt_chunk(chunk, key) # this is a different method since we are stripping the nonce/sign beforehand
-    if chunk[2:2+len(config.PREFIX)] == config.PREFIX:
-        chunk_length = chunk[:2].hex() # the expected length of the string from the first 2 bytes
+    chunk = arc4.arc4_decrypt_chunk(chunk, key)  # this is a different method since we are stripping the nonce/sign beforehand
+    if chunk[2:2 + len(config.PREFIX)] == config.PREFIX:
+        chunk_length = chunk[:2].hex()  # the expected length of the string from the first 2 bytes
         data = chunk[len(config.PREFIX) + 2:].rstrip(b'\x00')
         data_length = len(chunk[2:].rstrip(b'\x00'))
         if data_length != int(chunk_length, 16):
@@ -271,7 +270,7 @@ def decode_checkmultisig(ctx, chunk):
         return str(destination), data
     else:
         return None, data
-            
+
 
 def reinitialize(db, block_index=None):
     ''' Not yet implemented for stamps  '''
@@ -280,7 +279,7 @@ def reinitialize(db, block_index=None):
     cursor = db.cursor()
 
     # Delete all of the results of parsing (including the undolog) - removed since we aren't using any of these tables,
-    # perhaps we purge from the src table here.. 
+    # perhaps we purge from the src table here..
 
     # Create missing tables
     initialize(db)
@@ -349,21 +348,21 @@ def reparse(db, block_index=None, quiet=False):
             if quiet:
                 root_logger.setLevel(logging.WARNING)
 
-            previous_ledger_hash, previous_txlist_hash, previous_messages_hash = None, None, None
+            # previous_ledger_hash, previous_txlist_hash, previous_messages_hash = None, None, None
             cursor.execute('''SELECT * FROM blocks ORDER BY block_index''')
             for block in cursor.fetchall():
                 util.CURRENT_BLOCK_INDEX = block['block_index']
                 # will need to fetch txhash_list here to parse for consensus hashes in parse_block
-                previous_ledger_hash, previous_txlist_hash, previous_messages_hash, previous_found_messages_hash = parse_block(
-                                                                         db, block['block_index'], txhash_list=None,
-                                                                         previous_ledger_hash=previous_ledger_hash,
-                                                                         previous_txlist_hash=previous_txlist_hash,
-                                                                         previous_messages_hash=previous_messages_hash)
-                if quiet and block['block_index'] % 10 == 0:  # every 10 blocks print status
-                    root_logger.setLevel(logging.INFO)
-                logger.info('Block (re-parse): %s (hashes: L:%s / TX:%s / M:%s%s)' % (
-                    block['block_index'], previous_ledger_hash[-5:], previous_txlist_hash[-5:], previous_messages_hash[-5:],
-                    (' [overwrote %s]' % previous_found_messages_hash) if previous_found_messages_hash and previous_found_messages_hash != previous_messages_hash else ''))
+                # previous_ledger_hash, previous_txlist_hash, previous_messages_hash, previous_found_messages_hash = parse_block(
+                #                                                          db, block['block_index'], txhash_list=None,
+                #                                                          previous_ledger_hash=previous_ledger_hash,
+                #                                                          previous_txlist_hash=previous_txlist_hash,
+                #                                                          previous_messages_hash=previous_messages_hash)
+                # if quiet and block['block_index'] % 10 == 0:  # every 10 blocks print status
+                #     root_logger.setLevel(logging.INFO)
+                # logger.info('Block (re-parse): %s (hashes: L:%s / TX:%s / M:%s%s)' % (
+                #     block['block_index'], previous_ledger_hash[-5:], previous_txlist_hash[-5:], previous_messages_hash[-5:],
+                #     (' [overwrote %s]' % previous_found_messages_hash) if previous_found_messages_hash and previous_found_messages_hash != previous_messages_hash else ''))
                 if quiet and block['block_index'] % 10 == 0:
                     root_logger.setLevel(logging.WARNING)
 
@@ -383,11 +382,11 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     # transactions = cursor.fetchall()
     # cursor.close()
     # if transactions:
-    #     return tx_index 
-    
+    #     return tx_index
+
     if tx_hex is None:
-        tx_hex = backend.getrawtransaction(tx_hash) # TODO: This is the call that is stalling the process the most
-        
+        tx_hex = backend.getrawtransaction(tx_hash)  # TODO: This is the call that is stalling the process the most
+
     transaction_info = get_tx_info(tx_hex, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, 'source', None)
     destination = getattr(transaction_info, 'destinations', None)
@@ -413,7 +412,7 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
 
     else:
         logger.getChild('list_tx.skip').debug('Skipping transaction: {}'.format(tx_hash))
-        return  (None for _ in range(9))
+        return (None for _ in range(9))
 
 
 def create_check_hashes(db, block_index, valid_stamps_in_block, processed_src20_in_block, txhash_list,
@@ -435,20 +434,20 @@ def create_check_hashes(db, block_index, valid_stamps_in_block, processed_src20_
         tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
     """
     txlist_content = str(valid_stamps_in_block)
-    new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content) 
-            
+    new_txlist_hash, found_txlist_hash = check.consensus_hash(db, 'txlist_hash', previous_txlist_hash, txlist_content)
+
     ledger_content = str(processed_src20_in_block)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(db, 'ledger_hash', previous_ledger_hash, ledger_content)
-    
+
     messages_content = str(txhash_list)
     new_messages_hash, found_messages_hash = check.consensus_hash(db, 'messages_hash', previous_messages_hash, messages_content)
-    
+
     try:
         update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
     except BlockUpdateError as e:
         logger.error(e)
         sys.exit("Exiting due to a critical update error.")
-    
+
     return new_ledger_hash, new_txlist_hash, new_messages_hash
 
 
@@ -494,7 +493,7 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
     """
     logger = logging.getLogger(__name__)
     logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s)' % (
-        str(block_index), "{:.2f}".format(time.time() - start_time, 3),
+        str(block_index), "{:.2f}".format(time.time() - start_time),
         new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
         new_txlist_hash[-5:], new_messages_hash[-5:], stamps_in_block
     ))
@@ -502,7 +501,7 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
-    
+
     tx_hex = raw_transactions[tx_hash]
     (
         source,
@@ -525,11 +524,11 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     return TxResult(None, source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, tx_hash, block_index, None, None, p2wsh_data)
 
 
-def follow(db): 
+def follow(db):
     """
     Continuously follows the blockchain, parsing and indexing new blocks
     for src-20 transactions and to gather details about CP trx such as
-    keyburn status. 
+    keyburn status.
 
     Args:
         db: The database connection object.
@@ -537,10 +536,10 @@ def follow(db):
     Returns:
         None
     """
-    
+
     # Check software version.
     # check.software_version()
-    check.cp_version() #FIXME: need to add version checks for the endpoints and hash validations
+    check.cp_version()  # FIXME: need to add version checks for the endpoints and hash validations
     initialize(db)
     rebuild_balances(db)
 
@@ -583,8 +582,7 @@ def follow(db):
                 raise e
         #  check if last block index was full indexed and if not delete it
         #  and set block_index to block_index - 1
-        if (block_index != config.BLOCK_FIRST and
-                not is_prev_block_parsed(db, block_index)):
+        if (block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index)):
             block_index -= 1
 
         if block_index <= block_tip:
@@ -668,22 +666,22 @@ def follow(db):
                 insert_block(db, block_index, block_hash, block_time, previous_block_hash, cblock.difficulty)
             except BlockAlreadyExistsError as e:
                 logger.warning(e)
-                sys.exit(f"Exiting due to block already existing.")
+                sys.exit(f"Exiting due to block already existing. {e}")
             except DatabaseInsertError as e:
                 logger.error(e)
                 sys.exit("Critical database error encountered. Exiting.")
 
-            valid_stamps_in_block= []
-            
+            valid_stamps_in_block = []
+
             if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_GENESIS_BLOCK:
                 valid_src20_str = ''
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-                        db,
-                        block_index,
-                        valid_stamps_in_block,
-                        valid_src20_str,
-                        txhash_list
-                    )
+                    db,
+                    block_index,
+                    valid_stamps_in_block,
+                    valid_src20_str,
+                    txhash_list
+                )
 
                 stamp_issuances_list.pop(block_index, None)
                 log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0)
@@ -715,7 +713,6 @@ def follow(db):
             #         tx_results.append(result)
             #         tx_index = tx_index + 1
 
-        
             insert_transactions(db, tx_results)
 
             parsed_stamps = []
@@ -740,7 +737,7 @@ def follow(db):
                     result.p2wsh_data
                 )
                 if parsed_stamp:
-                    parsed_stamps.append(parsed_stamp) # includes cursed and prevalidated src20 on CP
+                    parsed_stamps.append(parsed_stamp)  # includes cursed and prevalidated src20 on CP
                 if valid_stamp:
                     valid_stamps_in_block.append(valid_stamp)
                 if prevalidated_src20:

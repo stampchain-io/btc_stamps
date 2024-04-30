@@ -8,16 +8,15 @@ import zlib
 import msgpack
 import traceback
 from datetime import datetime
-from decimal import Decimal
 
 import src.log as log
-from src.exceptions import DataConversionError, InvalidInputDataError, SerializationError
+from src.exceptions import DataConversionError, InvalidInputDataError
 from src.xcprequest import parse_base64_from_description
 from src.database import get_next_stamp_number, check_reissue
-from src.util import ( 
-    create_base62_hash, 
-    check_valid_base64_string, 
-    is_json_string, 
+from src.util import (
+    create_base62_hash,
+    check_valid_base64_string,
+    is_json_string,
     convert_to_dict_or_string
 )
 from src.files import store_files
@@ -60,13 +59,13 @@ def get_cpid(stamp, block_index, tx_hash):
 
 
 def decode_base64(base64_string, block_index):
-    ''' 
+    '''
     Decode a base64 string into image data.
-    
+
     Args:
         base64_string (str): The base64 encoded string to decode.
         block_index (int): The block index used for conditional decoding.
-        
+
     Returns:
         tuple: A tuple containing the decoded image data and a boolean indicating success.
             - image_data (bytes): The decoded image data.
@@ -83,7 +82,7 @@ def decode_base64(base64_string, block_index):
 
     if block_index <= STOP_BASE64_REPAIR:
         image_data = decode_base64_with_repair(base64_string)
-        if image_data == None:
+        if image_data is None:
             is_valid_base64_string = None
         return image_data, is_valid_base64_string
     try:
@@ -95,7 +94,7 @@ def decode_base64(base64_string, block_index):
             return image_data, is_valid_base64_string
         except Exception as e2:
             try:
-                # Note: base64 cli returns success on MAC when on linux it returns an error code. 
+                # Note: base64 cli returns success on MAC when on linux it returns an error code.
                 # this will be ok in the docker containers, but a potential problem
                 # will need to verify that there are no instances where this is su
                 command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
@@ -150,7 +149,9 @@ def get_src_or_img_from_data(stamp, block_index):
         base64_string, stamp_mimetype = parse_base64_from_description(
             stamp_description
         )
-        decoded_base64, is_valid_base64 = decode_base64(base64_string, block_index)
+        decoded_base64, is_valid_base64 = decode_base64(
+            base64_string, block_index
+        )
         return decoded_base64, base64_string, stamp_mimetype, is_valid_base64
 
 
@@ -187,7 +188,7 @@ def get_file_suffix(bytestring_data, block_index):
         return 'json'
     except (json.JSONDecodeError, UnicodeDecodeError):
         # If it failed to decode as UTF-8 text, pass it to magic to determine the file type
-        if block_index > STRIP_WHITESPACE: # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
+        if block_index > STRIP_WHITESPACE:  # after this block we attempt to strip whitespace from the beginning of the binary data to catch Mikes A12333916315059997842
             file_type = magic.from_buffer(bytestring_data.lstrip(), mime=True)
         else:
             file_type = magic.from_buffer(bytestring_data, mime=True)
@@ -239,28 +240,28 @@ def zlib_decompress(compressed_data, block_index):
         TypeError: If the decoded data is not JSON-compatible.
     """
     try:
-        uncompressed_data = zlib.decompress(compressed_data) # suffix = plain /  Uncompressed data: b'\x85\xa1p\xa6src-20\xa2op\xa6deploy\xa4tick\xa4ordi\xa3max\xa821000000\xa3lim\xa41000'
+        uncompressed_data = zlib.decompress(compressed_data)  # suffix = plain /  Uncompressed data: b'\x85\xa1p\xa6src-20\xa2op\xa6deploy\xa4tick\xa4ordi\xa3max\xa821000000\xa3lim\xa41000'
         # DEBUG: msgpack support for all stamps
         # uncompressed_file_suffix = get_file_suffix(uncompressed_data, block_index)
         # if uncompressed_file_suffix == 'plain':
         #     print("found plaintext - check for json string")
-        #     # may need to do msgpack here. 
+        #     # may need to do msgpack here.
         #     if (type(uncompressed_data) is str and is_json_string(uncompressed_data)):
         #         print("found json string")
 
-        decoded_data = msgpack.unpackb(uncompressed_data) #  {'p': 'src-20', 'op': 'deploy', 'tick': 'kevin', 'max': '21000000', 'lim': '1000'}
+        decoded_data = msgpack.unpackb(uncompressed_data)  # {'p': 'src-20', 'op': 'deploy', 'tick': 'kevin', 'max': '21000000', 'lim': '1000'}
         json_string = json.dumps(decoded_data)
         file_suffix = "json"
         ident, file_suffix = reformat_src_string_get_ident(json_string)
         return ident, file_suffix, json_string
     except zlib.error:
-        logger.info(f"EXCLUSION: Error decompressing zlib data")
+        logger.info("EXCLUSION: Error decompressing zlib data")
         return 'UNKNOWN', 'zlib', compressed_data
     except msgpack.exceptions.ExtraData:
-        logger.info(f"EXCLUSION: Error decoding MessagePack data")
+        logger.info("EXCLUSION: Error decoding MessagePack data")
         return 'UNKNOWN', 'zlib', compressed_data
     except TypeError:
-        logger.info(f"EXCLUSION: The decoded data is not JSON-compatible")
+        logger.info("EXCLUSION: The decoded data is not JSON-compatible")
         return 'UNKNOWN', 'zlib', compressed_data
 
 
@@ -285,8 +286,9 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
     file_suffix = None
     if type(decoded_data) is bytes:
         try:
-            decoded_data = decoded_data.decode('utf-8') 
+            decoded_data = decoded_data.decode('utf-8')
         except Exception as e:
+            logger.warning(f"Error decoding bytes: {e}")
             pass
     if (type(decoded_data) is dict):
         ident, file_suffix = reformat_src_string_get_ident(decoded_data)
@@ -313,8 +315,8 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
     return ident, file_suffix, decoded_data
 
 
-def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn, 
-                            tx_index, block_index, block_time, is_op_return,  valid_stamps_in_block, p2wsh_data):
+def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn,
+                tx_index, block_index, block_time, is_op_return, valid_stamps_in_block, p2wsh_data):
     """
     Parses a transaction and extracts stamp-related information to be stored in the stamp table.
 
@@ -351,8 +353,8 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
     except (DataConversionError, InvalidInputDataError, ValueError) as e:
         print(f"Invalid SRC-20 JSON {e}")
         return (None,) * 4
-    
-    decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64  = get_src_or_img_from_data(stamp, block_index)
+
+    decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64 = get_src_or_img_from_data(stamp, block_index)
     cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
 
     if cpid and check_reissue(db, cpid, valid_stamps_in_block):
@@ -360,13 +362,16 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
 
     if p2wsh_data is not None and block_index >= CP_P2WSH_FEAT_BLOCK_START:
         stamp_base64 = base64.b64encode(p2wsh_data).decode()
-        decoded_base64, is_valid_base64 = decode_base64(stamp_base64, block_index)
+        decoded_base64, is_valid_base64 = decode_base64(
+            stamp_base64, block_index)
         # decoded_base64 = p2wsh_data # bytestring
-        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
-        is_op_return = None # reset this because p2wsh typically have op_return tx
+        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(
+            decoded_base64, block_index, ident)
+        is_op_return = None  # reset because p2wsh are typically op_return
     elif decoded_base64 is not None:
-        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(decoded_base64, block_index, ident)
-    else:    
+        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(
+            decoded_base64, block_index, ident)
+    else:
         ident, file_suffix = 'UNKNOWN', None
 
     file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
@@ -374,11 +379,7 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
 
     valid_cp_src20 = is_src20 and cpid and block_index < CP_SRC20_END_BLOCK and stamp.get('quantity') == 0
     valid_src20 = valid_cp_src20 or (is_src20 and not cpid)
-    valid_src721 = (
-        ident == 'SRC-721'
-        and (keyburn == 1 or (p2wsh_data is not None and block_index >= CP_P2WSH_FEAT_BLOCK_START))
-        and stamp.get('quantity') <= 1 # A407879294639844200 is 0 qty
-    )
+    valid_src721 = ident == 'SRC-721' and (keyburn == 1 or (p2wsh_data is not None and block_index >= CP_P2WSH_FEAT_BLOCK_START)) and stamp.get('quantity') <= 1
 
     if valid_src20:
         src20_dict = check_format(decoded_base64, tx_hash)
@@ -388,7 +389,7 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
             file_suffix = 'svg'
         else:
             return (None,) * 4
-        
+
     if valid_src721:
         src_data = decoded_base64
         is_btc_stamp = 1
@@ -396,9 +397,7 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         decoded_base64 = svg_output
         file_suffix = 'svg'
 
-    if (ident != 'UNKNOWN' and stamp.get('asset_longname') is None
-            and cpid and cpid.startswith('A') and not is_op_return
-            and file_suffix not in INVALID_BTC_STAMP_SUFFIX):
+    if (ident != 'UNKNOWN' and stamp.get('asset_longname') is None and cpid and cpid.startswith('A') and not is_op_return and file_suffix not in INVALID_BTC_STAMP_SUFFIX):
         is_btc_stamp = 1
     elif stamp.get('asset_longname') is not None:
         stamp['cpid'] = stamp.get('asset_longname')
@@ -476,9 +475,7 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         "is_cursed": is_cursed,
         "file_hash": file_obj_md5,
         "is_valid_base64": is_valid_base64,
-    }  # NOTE:: we may want to insert and update on this table in the case of a reindex where we don't want to remove data....
-    # filtered_parsed = {k: v for k, v in parsed.items() if k != 'stamp_base64'}
-    # logger.warning(f"parsed: {json.dumps(filtered_parsed, indent=4, separators=(', ', ': '), ensure_ascii=False)}")
+    }
     stamp_results = True
     # NOTE: parsed_stamp includes cursed stamps and non-numbered stamps
     # valid_stamp is is_btc_stamp only
