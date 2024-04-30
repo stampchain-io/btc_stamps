@@ -82,7 +82,7 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
 
     def set_up_file_logging():
         assert logfile
-        max_log_size = 20 * 1024 * 1024 # 20 MB
+        max_log_size = 20 * 1024 * 1024  # 20 MB
         fileh = RotatingFileHandler(logfile, maxBytes=max_log_size, backupCount=5)
         fileh.setLevel(logging.DEBUG)
         LOGFORMAT = '%(asctime)s [%(levelname)s] %(message)s'
@@ -92,8 +92,8 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
 
     if LOGGING_SETUP:
         if logfile and not LOGGING_TOFILE_SETUP:
-             set_up_file_logging()
-             LOGGING_TOFILE_SETUP = True
+            set_up_file_logging()
+            LOGGING_TOFILE_SETUP = True
         logger.getChild('log.set_up').debug('logging already setup')
         return
     LOGGING_SETUP = True
