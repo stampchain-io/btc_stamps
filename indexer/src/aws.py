@@ -1,6 +1,6 @@
 import boto3
 import config
-from botocore.exceptions import NoCredentialsError
+# from botocore.exceptions import NoCredentialsError
 import logging
 import time
 
@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
 ''' these functions are for optional file upload to AWS S3 and Cloudfront CDN file invalidation when there is an update.'''
-
 
 
 def get_s3_objects(db, bucket_name, s3_client):
@@ -43,7 +42,7 @@ def get_s3_objects(db, bucket_name, s3_client):
     if results:
         logger.warning(f"Found {len(results)} existing S3 objects from database")
     else:
-        logger.warning(f"No existing S3 objects found in database")
+        logger.warning("No existing S3 objects found in database")
         paginator = s3_client.get_paginator('list_objects_v2')
 
         logger.warning(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
@@ -69,7 +68,7 @@ def get_s3_objects(db, bucket_name, s3_client):
 def update_s3_db_objects(db, filename, file_obj_md5):
     """
     This function updates the s3objects db table with any new objects that have been uploaded to S3.
-    
+
     Parameters:
     - db: The database connection object.
     - filename: The name of the file that has been uploaded to S3.
@@ -81,18 +80,18 @@ def update_s3_db_objects(db, filename, file_obj_md5):
         id = f"{s3_file_path}_{file_obj_md5}"
 
         cursor = db.cursor()
-        
+
         # Check if the filename already exists in the table
         cursor.execute("SELECT id FROM s3objects WHERE path_key = %s", (s3_file_path,))
         existing_id = cursor.fetchone()
-        
+
         if existing_id:
             # Delete the existing row
             cursor.execute("DELETE FROM s3objects WHERE id = %s", (existing_id[0],))
-        
+
         # Insert the new object
         cursor.execute("INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)", (id, s3_file_path, file_obj_md5))
-        
+
         cursor.close()
     except Exception as e:
         logger.warning(f"ERROR: Unable to update the s3objects table. Error: {e}")
