@@ -6,11 +6,11 @@ from src.src20 import parse_src20
 import colorlog
 import logging
 from colour_runner.runner import ColourTextTestRunner
-
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
 from indexer.tests.src20_variations_data import src20_variations_data
 from indexer.tests.db_simulator import DBSimulator
+
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 handler = colorlog.StreamHandler()
 handler.setFormatter(colorlog.ColoredFormatter(
@@ -26,6 +26,7 @@ logger = colorlog.getLogger()
 logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
 
+
 class TestSrc20Variations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -37,9 +38,8 @@ class TestSrc20Variations(unittest.TestCase):
         db_simulation_path = project_root / 'indexer' / 'tests' / 'dbSimulation.json'
         cls.db_simulator = DBSimulator(db_simulation_path)
 
-
     def test_src20_variations(self):
-        valid_stamps_in_block= []
+        valid_stamps_in_block = []
         parsed_stamps = []
         processed_src20_in_block = []
 
@@ -74,17 +74,16 @@ class TestSrc20Variations(unittest.TestCase):
                 else:
                     logger.info(f"Success in stamp_result {test_case['description']} test: {test_case['expectedOutcome']['message']}")
 
-
                 if parsed_stamp:
-                    parsed_stamps.append(parsed_stamp) # includes cursed and prevalidated src20 on CP
+                    parsed_stamps.append(parsed_stamp)  # includes cursed and prevalidated src20 on CP
                 if valid_stamp:
                     valid_stamps_in_block.append(valid_stamp)
                 if prevalidated_src20:
-                   src20_result, src20_dict = parse_src20(self.db_simulator, prevalidated_src20, processed_src20_in_block)
-                   processed_src20_in_block.append(src20_dict)
+                    src20_result, src20_dict = parse_src20(self.db_simulator, prevalidated_src20, processed_src20_in_block)
+                    processed_src20_in_block.append(src20_dict)
 
                 src20_result = False if src20_result is None else src20_result
-            
+
                 if src20_result != test_case["expectedOutcome"]["src20_success"]:
                     logger.error(f"FAIL: {test_case['description']}")
                     logger.error(f"FAIL: {test_case['src20JsonString']}")
@@ -92,11 +91,13 @@ class TestSrc20Variations(unittest.TestCase):
                 else:
                     logger.info(f"Success in src20_result test: {test_case['expectedOutcome']['message']}")
 
-                self.assertEqual(stamp_result, test_case["expectedOutcome"]["stamp_success"], 
-                                msg=f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
+                self.assertEqual(stamp_result, test_case["expectedOutcome"]["stamp_success"],
+                                 msg=f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
 
-                self.assertEqual(src20_result, test_case["expectedOutcome"]["src20_success"], 
-                                msg=f"Failure in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
-                
+                self.assertEqual(src20_result, test_case["expectedOutcome"]["src20_success"],
+                                 msg=f"Failure in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
+
+
 if __name__ == '__main__':
+
     unittest.main(testRunner=ColourTextTestRunner, exit=False, verbosity=3)

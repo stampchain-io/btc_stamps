@@ -1,5 +1,4 @@
 import logging
-logger = logging.getLogger(__name__)
 import binascii
 import re
 import json
@@ -11,28 +10,30 @@ import decimal
 import config
 from src.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
+logger = logging.getLogger(__name__)
 D = decimal.Decimal
 
 CP_BLOCK_COUNT = None
 
-CURRENT_BLOCK_INDEX = None # resolves to database.last_db_index(db)
+CURRENT_BLOCK_INDEX = None  # resolves to database.last_db_index(db)
 
 BLOCK_LEDGER = []
 BLOCK_MESSAGES = []
 
-def chunkify(l, n):
+
+def chunkify(lst, n):
     """
     Splits a list into smaller chunks of size n.
 
     Args:
-        l (list): The list to be chunked.
+        lst (list): The list to be chunked.
         n (int): The size of each chunk.
 
     Returns:
         list: A list of smaller chunks.
     """
     n = max(1, n)
-    return [l[i:i + n] for i in range(0, len(l), n)]
+    return [lst[i:i + n] for i in range(0, len(lst), n)]
 
 
 def dhash(text):
@@ -86,19 +87,19 @@ def shash_string(text):
 #     return hash_obj.hexdigest()
 
 
-### Protocol Changes ###
+# Protocol Changes
 def enabled(change_name, block_index=None):
     """Return True if protocol change is enabled."""
     if config.REGTEST:
-        return True # All changes are always enabled on REGTEST
+        return True  # All changes are always enabled on REGTEST
 
-    if config.TESTNET:
-        index_name = 'testnet_block_index'
-    else:
-        index_name = 'block_index'
-    
-    # we are hard coding all protocol changes to be enabled here for now 
-    enable_block_index =  0 # PROTOCOL_CHANGES[change_name][index_name]
+    # if config.TESTNET:
+    #     index_name = 'testnet_block_index'
+    # else:
+    #     index_name = 'block_index'
+
+    # we are hard coding all protocol changes to be enabled here for now
+    enable_block_index = 0  # PROTOCOL_CHANGES[change_name][index_name]
 
     if not block_index:
         block_index = CURRENT_BLOCK_INDEX
@@ -112,23 +113,23 @@ def enabled(change_name, block_index=None):
 class DictCache:
     """Threadsafe FIFO dict cache"""
     def __init__(self, size=100):
-        if int(size) < 1 :
+        if int(size) < 1:
             raise AttributeError('size < 1 or not a number')
         self.size = size
         self.dict = collections.OrderedDict()
         self.lock = threading.Lock()
 
-    def __getitem__(self,key):
+    def __getitem__(self, key):
         with self.lock:
             return self.dict[key]
 
-    def __setitem__(self,key,value):
+    def __setitem__(self, key, value):
         with self.lock:
             while len(self.dict) >= self.size:
                 self.dict.popitem(last=False)
             self.dict[key] = value
 
-    def __delitem__(self,key):
+    def __delitem__(self, key):
         with self.lock:
             del self.dict[key]
 
@@ -162,7 +163,7 @@ def b2h(b):
 
 def inverse_hash(hashstring):
     hashstring = hashstring[::-1]
-    return ''.join([hashstring[i:i+2][::-1] for i in range(0, len(hashstring), 2)])
+    return ''.join([hashstring[i:i + 2][::-1] for i in range(0, len(hashstring), 2)])
 
 
 def ib2h(b):
@@ -181,7 +182,7 @@ def check_valid_base64_string(base64_string):
     """
     if base64_string is not None and \
         re.fullmatch(r'^[A-Za-z0-9+/]+={0,2}$', base64_string) and \
-        len(base64_string) % 4 == 0:
+            len(base64_string) % 4 == 0:
         return True
     else:
         return False
@@ -219,7 +220,7 @@ def create_base62_hash(str1, str2, length=20):
 
     Returns:
         str: The base62 hash of the combined input strings, truncated to the specified length.
-    
+
     Raises:
         ValueError: If the length is not between 12 and 20 characters.
     """
@@ -257,14 +258,15 @@ def decode_unicode_escapes(text):
     """
     return text.encode('utf-8').decode('unicode_escape')
 
+
 def clean_json_string(json_string):
     """
     Cleans a JSON string by replacing single quotes with spaces and removing null bytes.
     THis is so a proper string may be inserted into the Stamp Table. It is not used
-    for inclusion or inclusion of src-20 tokens. 
-    NOTE: this is only here because of the json data type on the Stamp Table 
+    for inclusion or inclusion of src-20 tokens.
+    NOTE: this is only here because of the json data type on the Stamp Table
     converting this to mediumblob will allow us to store malformed json strings
-    which doesn't matter a whole lot because we do validation later in the SRC20 Tables. 
+    which doesn't matter a whole lot because we do validation later in the SRC20 Tables.
 
     Args:
         json_string (str): The JSON string to be cleaned.
@@ -273,7 +275,7 @@ def clean_json_string(json_string):
         str: The cleaned JSON string.
     """
     json_string = json_string.replace("'", ' ')
-    json_string = json_string.replace("\\x00", "") # remove null bytes
+    json_string = json_string.replace("\\x00", "")  # remove null bytes
     return json_string
 
 
@@ -294,8 +296,8 @@ def is_json_string(s):
         bool: True if the string is a valid JSON object, False otherwise.
     """
     try:
-        s = s.strip() 
-        s = s.rstrip('\r\n')  
+        s = s.strip()
+        s = s.rstrip('\r\n')
         if s.startswith('{') and s.endswith('}'):
             json.loads(s)
             return True
@@ -303,7 +305,7 @@ def is_json_string(s):
             return False
     except json.JSONDecodeError:
         return False
-    
+
 
 def convert_to_dict_or_string(input_data, output_format='dict'):
     """
@@ -322,7 +324,7 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
         ValueError: If the input_data is a string representation of a dictionary but cannot be evaluated.
         Exception: If an error occurs during the conversion process.
     """
-    
+
     if isinstance(input_data, bytes):
         try:
             input_data = json.loads(input_data, parse_float=D)
