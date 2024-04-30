@@ -3,7 +3,7 @@ import warnings
 
 import config
 import src.util as util
-from src.xcprequest import get_cp_version
+# from src.xcprequest import get_cp_version
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,6 @@ class ConsensusError(Exception):
 
 def consensus_hash(db, field, previous_consensus_hash, content):
     field_position = config.BLOCK_FIELDS_POSITION
-    
     cursor = db.cursor()
     block_index = util.CURRENT_BLOCK_INDEX
 
@@ -60,14 +59,14 @@ def consensus_hash(db, field, previous_consensus_hash, content):
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
-                raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
+            raise ConsensusError('Empty previous {} for block {}. Please launch a `reparse`.'.format(field, block_index))
     elif not previous_consensus_hash and field == 'ledger_hash' and content != '':
         cursor.execute('''SELECT ledger_hash FROM blocks WHERE ledger_hash IS NOT NULL AND ledger_hash <> '' ORDER BY block_index DESC LIMIT 1''')
         result = cursor.fetchone()
         previous_consensus_hash = result[0] if result else None
         if not previous_consensus_hash:
             raise ConsensusError(f'Empty previous {field} for block {block_index}. Please launch a `reparse`.')
-        
+
     # Calculate current hash.
     if config.TESTNET:
         consensus_hash_version = CONSENSUS_HASH_VERSION_TESTNET
@@ -149,6 +148,6 @@ def check_change(protocol_change, change_name):
 
 
 def cp_version():
-    cp_version = get_cp_version()
+    # cp_version = get_cp_version()
     # FIXME: Finish version checking validation.
     return

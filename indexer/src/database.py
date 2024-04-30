@@ -15,17 +15,20 @@ from config import (
     TRANSACTIONS_TABLE,
     BLOCKS_TABLE,
 )
-from src.exceptions import BlockAlreadyExistsError, DatabaseInsertError, BlockUpdateError
+from src.exceptions import (
+    BlockAlreadyExistsError,
+    DatabaseInsertError,
+    BlockUpdateError
+)
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
-
 D = decimal.Decimal
 
 
 def initialize(db):
     """initialize data, create and populate the database."""
-    cursor = db.cursor() 
+    cursor = db.cursor()
 
     cursor.execute('''
         SELECT MIN(block_index)
@@ -34,23 +37,23 @@ def initialize(db):
     block_index = cursor.fetchone()[0]
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
-        raise exceptions.DatabaseError('First block in database is not block {}.'.format(config.BLOCK_FIRST))
-
+        raise exceptions.DatabaseError('First block in database is not block '
+                                       '{}.'.format(config.BLOCK_FIRST))
 
     cursor.execute(
         '''DELETE FROM blocks WHERE block_index < {}'''
-        .format(config.BLOCK_FIRST)
-    )
+        .format(config.BLOCK_FIRST))
 
     cursor.execute(
         '''DELETE FROM transactions WHERE block_index < {}'''
-        .format(config.BLOCK_FIRST)
-    )
+        .format(config.BLOCK_FIRST))
 
     cursor.close()
 
 
 TOTAL_MINTED_CACHE = {}
+
+
 def reset_all_caches():
     """
     Clears all function-associated caches within the module.
@@ -100,7 +103,7 @@ def is_prev_block_parsed(db, block_index):
         block_index (int): The index of the current block.
 
     Returns:
-        bool: True if the previous block has been parsed and indexed, False otherwise.
+        bool: True if the previous block has been parsed, False otherwise.
     """
     block_fields = BLOCK_FIELDS_POSITION
 
@@ -134,11 +137,15 @@ def is_prev_block_parsed(db, block_index):
 def insert_into_src20_tables(db, processed_src20_in_block):
     with db.cursor() as src20_cursor:
         for i, src20_dict in enumerate(processed_src20_in_block):
-            id = f"{i}_{src20_dict.get('tx_index')}_{src20_dict.get('tx_hash')}"
+            id = f"{i}_{src20_dict.get('tx_index')}_"
+            id += f"{src20_dict.get('tx_hash')}"
             insert_into_src20_table(src20_cursor, SRC20_TABLE, id, src20_dict)
             if src20_dict.get("valid") == 1:
-                insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
-                
+                insert_into_src20_table(src20_cursor,
+                                        SRC20_VALID_TABLE,
+                                        id,
+                                        src20_dict)
+
 
 def insert_into_src20_table(cursor, table_name, id, src20_dict):
     block_time = src20_dict.get("block_time")
@@ -181,11 +188,13 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
         src20_dict.get("status")
     ]
 
-    if "total_balance_creator" in src20_dict and table_name == SRC20_VALID_TABLE:
+    if "total_balance_creator" in src20_dict and \
+            table_name == SRC20_VALID_TABLE:
         column_names.append("creator_bal")
         column_values.append(src20_dict.get("total_balance_creator"))
 
-    if "total_balance_destination" in src20_dict and table_name == SRC20_VALID_TABLE:
+    if "total_balance_destination" in src20_dict and \
+            table_name == SRC20_VALID_TABLE:
         column_names.append("destination_bal")
         column_values.append(src20_dict.get("total_balance_destination"))
 
@@ -264,7 +273,7 @@ def insert_into_stamp_table(db, parsed_stamps):
                     file_hash, is_valid_base64
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             '''
-            
+
             data = [
                 (
                     parsed['stamp'], parsed['block_index'],
@@ -281,7 +290,7 @@ def insert_into_stamp_table(db, parsed_stamps):
                     parsed['is_valid_base64']
                 ) for parsed in parsed_stamps
             ]
-            
+
             cursor.executemany(insert_query, data)
     except Exception as e:
         raise ValueError(f"Error occurred while inserting to StampTable: {e}")
@@ -311,7 +320,8 @@ def get_srcbackground_data(db, tick):
                 tick = %s
                 AND p = %s
         """
-        cursor.execute(query, (tick, "SRC-20")) # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
+        # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
+        cursor.execute(query, (tick, "SRC-20"))
         result = cursor.fetchone()
         if result:
             base64, font_size, text_color = result
@@ -360,7 +370,8 @@ def rebuild_balances(db):
 
             if op == 'TRANSFER':
                 creator_id = tick + '_' + creator
-                creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]['amt']
+                creator_amt = (D(0) if creator_id not in all_balances else
+                               all_balances[creator_id]['amt'])
                 creator_amt -= amt
                 all_balances[creator_id] = {
                     'tick': tick,
@@ -371,8 +382,11 @@ def rebuild_balances(db):
                     'block_time': block_time
                 }
 
-        if set(existing_balances) == set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items()):
-            logger.info("No changes in balances. Skipping deletion and insertion.")
+        if set(existing_balances) == set((key,) + tuple(value.values())[:-1]
+                                         for key, value in all_balances.items()):
+            logger.info(
+                "No changes in balances. Skipping deletion and insertion."
+                "")
             cursor.close()
             return
         else:
@@ -385,12 +399,13 @@ def rebuild_balances(db):
 
             logger.warning("Inserting {} balances".format(len(all_balances)))
 
+            values = [(key, value['tick'], value['tick_hash'], value['address'], value['amt'],
+                       value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()]
+
             cursor.executemany('''INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                                VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', [(key, value['tick'], value['tick_hash'], value['address'], value['amt'],
-                                value['last_update'], value['block_time'], 'SRC-20') for key, value in all_balances.items()])
+                                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', values)
 
-
-            db.commit() 
+            db.commit()
 
     except Exception as e:
         db.rollback()
@@ -402,7 +417,7 @@ def rebuild_balances(db):
 
 def purge_block_db(db, block_index):
     """Purge transactions from the database. This is for a reorg or
-        where transactions were partially committed. 
+        where transactions were partially committed.
 
     Args:
         db (Database): The database object.
@@ -413,7 +428,7 @@ def purge_block_db(db, block_index):
     """
     reset_all_caches()
     cursor = db.cursor()
-    
+
     tables = [
         SRC20_VALID_TABLE,
         SRC20_TABLE,
@@ -428,7 +443,7 @@ def purge_block_db(db, block_index):
                         DELETE FROM {}
                         WHERE block_index >= %s
                         '''.format(table), (block_index,))
-        
+
     db.commit()
     cursor.close()
 
@@ -503,7 +518,7 @@ def get_total_src20_minted_from_db(db, tick):
     '''Retrieve the total amount of tokens minted from the database for a given tick.
 
     This function performs a database query to fetch the total amount of tokens minted
-    for a specific tick. 
+    for a specific tick.
 
     Args:
         db (DatabaseConnection): The database connection object.
@@ -579,7 +594,7 @@ def get_next_stamp_number(db, identifier):
 
 
 def check_reissue(db, cpid, valid_stamps_in_block):
-    ''' 
+    '''
     Validate if there was a prior valid stamp for the given cpid in the database or block .
 
     Parameters:
@@ -600,7 +615,7 @@ def check_reissue(db, cpid, valid_stamps_in_block):
         return True
     if check_reissue_in_db(db, cpid):
         return True
-        
+
 
 def check_reissue_in_block(valid_stamps_in_block, cpid):
     for item in reversed(valid_stamps_in_block):
@@ -641,7 +656,7 @@ def last_db_index(db):
             last_index = blocks[0][field_position['block_index']]
         except IndexError:
             last_index = 0
-    except  mysql.Error:
+    except mysql.Error:
         last_index = 0
     finally:
         cursor.close()
@@ -708,9 +723,12 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
         cursor.close()
         raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
 
-def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash):
+
+def update_block_hashes(db, block_index, txlist_hash,
+                        ledger_hash, messages_hash):
     """
-    Update the hashes of a block in the MySQL database. This is for comparison across nodes. 
+    Update the hashes of a block in the MySQL database.
+    This is for comoparison of hash tables across nodes.
     So we can validate that each node has the same data.
 
     Args:

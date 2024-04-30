@@ -78,6 +78,7 @@ def fetch_src721_subasset_base64(asset_name, valid_src721_in_block, db):
 
     return base64_string
 
+
 fetch_src721_subasset_base64.cache = {}
 
 
@@ -94,7 +95,7 @@ def fetch_src721_collection(tmp_collection_object, valid_src721_in_block, db):
         dict: The updated collection object with the tx-img key.
     """
     output_object = copy.deepcopy(tmp_collection_object)
-    
+
     for i in range(10):
         key = f"t{i}"
         if key in output_object:
@@ -161,7 +162,7 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
             <foreignObject width="100%" height="100%">
             <style>img {{position:absolute;width:100%;height:100%;}}</style>
             <title>{tmp_coll_name}</title>
-            
+
             <desc>{tmp_coll_description} - provided by stampchain.io</desc>
             <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
 
@@ -171,9 +172,9 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
             svg += f'<img src="{image_src_base64}"/>'
         else:
             continue
-    
+
     svg += "</div></foreignObject></svg>"
-    
+
     return textwrap.dedent(svg)
 
 
@@ -188,11 +189,10 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
     Returns:
         str: The SVG string for the minted token.
     """
-    tick_value = src_data.get('tick', None).upper() if src_data.get('tick') else None
     ts = src_data.get('ts', None)
-    collection_asset = src_data.get('c') # this is the CPID of the collection / parent asset
+    collection_asset = src_data.get('c')  # this is the CPID of the collection / parent asset
     collection_asset_item = None
-    
+
     if collection_asset:
         collection_asset_dict = next((item for item in dict(valid_src721_in_block) if item.get("cpid") == collection_asset), None)
         if collection_asset_dict:
@@ -201,7 +201,7 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
             collection_asset_item = fetch_collection_details(collection_asset, db)
         logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == 'null':
-            logger.debug("this is a mint without a v2 collection asset reference") #DEBUG
+            logger.debug("this is a mint without a v2 collection asset reference")  # DEBUG
             svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
         elif collection_asset_item and ts:
             try:
@@ -212,10 +212,10 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
                 logger.warning(f"ERROR: processing SRC-721 data: {e}")
                 raise
         else:
-            logger.debug("this is a mint without a v2 collection asset reference, or missing ts") #DEBUG
+            logger.debug("this is a mint without a v2 collection asset reference, or missing ts")  # DEBUG
             svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
     else:
-        logger.debug("this is a mint without a collection asset reference") #DEBUG
+        logger.debug("this is a mint without a collection asset reference")  # DEBUG
         svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
     return svg_output
 
@@ -241,14 +241,17 @@ def fetch_collection_details(collection_cpid, db):
             logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
                 collection_asset_item = result[0]
-                logger.debug("got collection asset item from db", collection_asset_item)
+                logger.debug(
+                    f"collection asset item from db {collection_asset_item}"
+                )
             else:
                 collection_asset_item = None
-                logger.warning(f"Failed to fetch deploy src_data for cpid from database")
+                logger.warning("Failed to fetch deploy src_data for cpid from database")
     except Exception as e:
         raise e
 
     fetch_collection_details.cache[collection_cpid] = collection_asset_item
     return collection_asset_item
+
 
 fetch_collection_details.cache = {}
