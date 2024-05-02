@@ -1,11 +1,13 @@
-import datetime
 import logging
 import src.log as log
 import decimal
 import pymysql as mysql
+from typing import List
+from datetime import datetime, timezone
 
 import config
 import src.exceptions as exceptions
+from src.models import StampData
 from config import (
     SRC20_TABLE,
     SRC20_VALID_TABLE,
@@ -149,8 +151,9 @@ def insert_into_src20_tables(db, processed_src20_in_block):
 
 def insert_into_src20_table(cursor, table_name, id, src20_dict):
     block_time = src20_dict.get("block_time")
-    if block_time:
-        block_time_utc = datetime.datetime.utcfromtimestamp(block_time)
+    if isinstance(block_time, int):
+        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+
     column_names = [
         "id",
         "tx_hash",
@@ -183,7 +186,7 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
         src20_dict.get("p"),
         src20_dict.get("tick"),
         src20_dict.get("destination"),
-        block_time_utc,
+        block_time,
         src20_dict.get("tick_hash"),
         src20_dict.get("status")
     ]
@@ -259,7 +262,7 @@ def insert_transactions(db, transactions):
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
 
-def insert_into_stamp_table(db, parsed_stamps):
+def insert_into_stamp_table(db, parsed_stamps: List[StampData]):
     try:
         with db.cursor() as cursor:
             insert_query = f'''
@@ -276,18 +279,17 @@ def insert_into_stamp_table(db, parsed_stamps):
 
             data = [
                 (
-                    parsed['stamp'], parsed['block_index'],
-                    parsed['cpid'], parsed['asset_longname'],
-                    parsed['creator'], parsed['divisible'],
-                    parsed['keyburn'], parsed['locked'],
-                    parsed['message_index'], parsed['stamp_base64'],
-                    parsed['stamp_mimetype'], parsed['stamp_url'],
-                    parsed['supply'], parsed['block_time'],
-                    parsed['tx_hash'], parsed['tx_index'],
-                    parsed['ident'], parsed['src_data'],
-                    parsed['stamp_hash'], parsed['is_btc_stamp'],
-                    parsed['file_hash'],
-                    parsed['is_valid_base64']
+                    parsed.stamp, parsed.block_index,
+                    parsed.cpid, parsed.asset_longname,
+                    parsed.creator, parsed.divisible,
+                    parsed.keyburn, parsed.locked,
+                    parsed.message_index, parsed.stamp_base64,
+                    parsed.stamp_mimetype, parsed.stamp_url,
+                    parsed.supply, parsed.block_time,
+                    parsed.tx_hash, parsed.tx_index,
+                    parsed.ident, parsed.src_data,
+                    parsed.stamp_hash, parsed.is_btc_stamp,
+                    parsed.file_hash, parsed.is_valid_base64
                 ) for parsed in parsed_stamps
             ]
 

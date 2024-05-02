@@ -67,7 +67,7 @@ def store_files(db, filename, decoded_base64, mime_type):
         )
     else:
         store_files_to_disk(filename, decoded_base64)
-    return file_obj_md5
+    return file_obj_md5, filename
 
 
 def store_files_to_disk(filename, decoded_base64):
