@@ -6,9 +6,10 @@ from src.src20 import parse_src20
 import colorlog
 import logging
 from colour_runner.runner import ColourTextTestRunner
-# sys.path.append(str(Path(__file__).resolve().parents[1]))
 from tests.src20_variations_data import src20_variations_data
 from tests.db_simulator import DBSimulator
+from src.models import StampData
+
 
 handler = colorlog.StreamHandler()
 handler.setFormatter(colorlog.ColoredFormatter(
@@ -42,28 +43,30 @@ class TestSrc20Variations(unittest.TestCase):
         processed_src20_in_block = []
 
         for test_case in src20_variations_data:
-            # stamp_result, src20_result = None, None
+            stamp_result, src20_result = None, None
             with self.subTest(msg=test_case["description"]):
                 logger.info(f"Running test case: {test_case['description']}")
-                additional_params = {
-                    "db": self.db_simulator,
-                    "tx_hash": test_case["tx_hash"],
-                    "source": test_case["source"],
-                    "destination": test_case["destination"],
-                    "btc_amount": test_case["btc_amount"],
-                    "fee": test_case["fee"],
-                    "data": test_case['src20JsonString'],
-                    "decoded_tx": test_case["decoded_tx"],
-                    "keyburn": test_case["keyburn"],
-                    "tx_index": test_case["tx_index"],
-                    "block_index": test_case["block_index"],
-                    "block_time": test_case["block_time"],
-                    "is_op_return": test_case["is_op_return"],
-                    "valid_stamps_in_block": test_case["valid_stamps_in_block"],
-                    "p2wsh_data": test_case["p2wsh_data"]
-                }
-                stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(**additional_params)
-                print(f"additional_params: {additional_params}")
+                stamp_data_instance = StampData(
+                    tx_hash=test_case["tx_hash"],
+                    source=test_case["source"],
+                    destination=test_case["destination"],
+                    btc_amount=test_case["btc_amount"],
+                    fee=test_case["fee"],
+                    data=test_case['src20JsonString'],
+                    decoded_tx=test_case["decoded_tx"],
+                    keyburn=test_case["keyburn"],
+                    tx_index=test_case["tx_index"],
+                    block_index=test_case["block_index"],
+                    block_time=test_case["block_time"],
+                    is_op_return=test_case["is_op_return"],
+                    p2wsh_data=test_case["p2wsh_data"]
+                )
+
+                stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(
+                    stamp_data=stamp_data_instance,
+                    db=self.db_simulator,
+                    valid_stamps_in_block=test_case["valid_stamps_in_block"]
+                )
                 stamp_result = False if stamp_result is None else stamp_result
                 if stamp_result != test_case["expectedOutcome"]["stamp_success"]:
                     logger.error(f"FAIL: {test_case['description']}")
