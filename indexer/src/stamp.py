@@ -7,8 +7,8 @@ import subprocess
 import zlib
 import msgpack
 import traceback
-from datetime import datetime
 
+from src.models import ValidStamp, StampData
 import src.log as log
 from src.exceptions import DataConversionError, InvalidInputDataError
 from src.xcprequest import parse_base64_from_description
@@ -315,27 +315,81 @@ def check_decoded_data_fetch_ident(decoded_data, block_index, ident):
     return ident, file_suffix, decoded_data
 
 
-def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded_tx, keyburn,
-                tx_index, block_index, block_time, is_op_return, valid_stamps_in_block, p2wsh_data):
+def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimetype, SUPPORTED_SUB_PROTOCOLS, ident):
+    """
+    Encodes the decoded_base64 string to utf-8 (if it's a string), constructs the filename,
+    and stores the file.
+
+    Args:
+        db: The database connection object.
+        tx_hash (str): The transaction hash.
+        file_suffix (str): The file suffix.
+        decoded_base64 (bytes or str): The decoded base64 data.
+        stamp_mimetype (str): The MIME type of the stamp.
+        SUPPORTED_SUB_PROTOCOLS (list): A list of supported sub-protocols.
+        ident (str): The identifier indicating the type of stamp.
+
+    Returns:
+        The result of the file storage operation.
+    """
+    if ident in SUPPORTED_SUB_PROTOCOLS or file_suffix:
+        if isinstance(decoded_base64, str):
+            decoded_base64 = decoded_base64.encode('utf-8')
+        filename = f"{tx_hash}.{file_suffix}"
+        return store_files(db, filename, decoded_base64, stamp_mimetype)
+    return None, None
+
+
+def create_valid_stamp_dict(stamp_number: int, tx_hash: str, cpid: str, is_btc_stamp: bool,
+                            is_valid_base64: bool, stamp_base64: str, is_cursed: bool,
+                            src_data: str) -> ValidStamp:
+    """
+    Prepares the valid_stamp dictionary with the provided parameters.
+
+    Args:
+        stamp_number (int): The stamp number.
+        tx_hash (str): The transaction hash.
+        cpid (str): The CPID of the stamp.
+        is_btc_stamp (bool): Indicates if the stamp is a BTC stamp.
+        is_valid_base64 (bool): Indicates if the base64 data is valid.
+        stamp_base64 (str): The base64 encoded stamp data.
+        is_cursed (bool): Indicates if the stamp is cursed.
+        src_data (str): The source data of the stamp.
+
+    Returns:
+        ValidStamp: The prepared valid_stamp dictionary.
+    """
+    return ValidStamp(
+        stamp_number=stamp_number,
+        tx_hash=tx_hash,
+        cpid=cpid,
+        is_btc_stamp=is_btc_stamp,
+        is_valid_base64=is_valid_base64,
+        stamp_base64=stamp_base64,
+        is_cursed=is_cursed,
+        src_data=src_data,
+    )
+
+
+def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
+    src20_dict.update({
+        'stamp:': stamp_data.stamp,
+        'creator': stamp_data.creator,
+        'tx_hash': stamp_data.tx_hash,
+        'tx_index': stamp_data.tx_index,
+        'block_index': stamp_data.block_index,
+        'block_time': stamp_data.block_time,
+        'destination': stamp_data.destination
+    })
+    return src20_dict
+
+
+def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidStamp]):
     """
     Parses a transaction and extracts stamp-related information to be stored in the stamp table.
 
     Args:
-        db (object): The database connection object.
-        tx_hash (str): The hash of the transaction.
-        source (str): The source address of the transaction.
-        destination (str): The destination address of the transaction.
-        btc_amount (float): The amount of BTC in the transaction.
-        fee (float): The transaction fee.
-        data (str): The data associated with the transaction.
-        decoded_tx (str): The decoded transaction.
-        keyburn (int): The keyburn value.
-        tx_index (int): The index of the transaction.
-        block_index (int): The index of the block containing the transaction.
-        block_time (int): The timestamp of the block containing the transaction.
-        is_op_return (bool): Indicates if the transaction is an OP_RETURN transaction.
-        valid_stamps_in_block (list): A list to store valid stamps in the block.
-        p2wsh_data (bytes): The P2WSH data associated with the transaction.
+        stamp_data (StampData): An instance of StampData containing all necessary transaction information.
 
     Returns:
         None
@@ -344,139 +398,73 @@ def parse_stamp(db, tx_hash, source, destination, btc_amount, fee, data, decoded
         Exception: If an unexpected condition occurs during stamp processing.
 
     """
-    file_suffix = filename = src_data = file_obj_md5 = is_btc_stamp = ident = is_valid_base64 = is_cursed = stamp_results = src20_dict = prevalidated_src20 = None
-    valid_stamp = {}
+    filename = stamp_results = src20_dict = prevalidated_src20 = None
+    valid_stamp: ValidStamp = {}
+
     try:
-        if not data:
-            raise ValueError("Input data is empty or None")
-        stamp = convert_to_dict_or_string(data, output_format='dict')
+        stamp_data.validate_data()
+        stamp = convert_to_dict_or_string(stamp_data.data, output_format='dict')
     except (DataConversionError, InvalidInputDataError, ValueError) as e:
-        print(f"Invalid SRC-20 JSON {e}")
+        print(f"Invalid Stamp Data {e}")
         return (None,) * 4
 
-    decoded_base64, stamp_base64, stamp_mimetype, is_valid_base64 = get_src_or_img_from_data(stamp, block_index)
-    cpid, stamp_hash = get_cpid(stamp, block_index, tx_hash)
+    stamp_data.get_src_or_img(get_src_or_img_from_data, stamp)
+    stamp_data.update_cpid_and_stamp_hash(get_cpid, stamp)
+    stamp_data.update_stamp_data_rows(stamp)
 
-    if cpid and check_reissue(db, cpid, valid_stamps_in_block):
+    if stamp_data.is_reissue(check_reissue, db, valid_stamps_in_block):
         return (None,) * 4
 
-    if p2wsh_data is not None and block_index >= CP_P2WSH_FEAT_BLOCK_START:
-        stamp_base64 = base64.b64encode(p2wsh_data).decode()
-        decoded_base64, is_valid_base64 = decode_base64(
-            stamp_base64, block_index)
-        # decoded_base64 = p2wsh_data # bytestring
-        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(
-            decoded_base64, block_index, ident)
-        is_op_return = None  # reset because p2wsh are typically op_return
-    elif decoded_base64 is not None:
-        (ident, file_suffix, decoded_base64) = check_decoded_data_fetch_ident(
-            decoded_base64, block_index, ident)
-    else:
-        ident, file_suffix = 'UNKNOWN', None
+    stamp_data.process_stamp_data(decode_base64, check_decoded_data_fetch_ident, CP_P2WSH_FEAT_BLOCK_START)
+    stamp_data.normalize_file_suffix()
 
-    file_suffix = "svg" if file_suffix == "svg+xml" else file_suffix
-    is_src20 = ident == 'SRC-20' and keyburn == 1
-
-    valid_cp_src20 = is_src20 and cpid and block_index < CP_SRC20_END_BLOCK and stamp.get('quantity') == 0
-    valid_src20 = valid_cp_src20 or (is_src20 and not cpid)
-    valid_src721 = ident == 'SRC-721' and (keyburn == 1 or (p2wsh_data is not None and block_index >= CP_P2WSH_FEAT_BLOCK_START)) and stamp.get('quantity') <= 1
-
-    if valid_src20:
-        src20_dict = check_format(decoded_base64, tx_hash)
+    if stamp_data.valid_src20(CP_SRC20_END_BLOCK):
+        src20_dict = check_format(stamp_data.decoded_base64, stamp_data.tx_hash)
         if src20_dict is not None:
-            is_btc_stamp = 1
-            decoded_base64 = build_src20_svg_string(db, src20_dict)
-            file_suffix = 'svg'
+            stamp_data.is_btc_stamp = 1
+            stamp_data.decoded_base64 = build_src20_svg_string(db, src20_dict)
+            stamp_data.file_suffix = 'svg'
         else:
             return (None,) * 4
 
-    if valid_src721:
-        src_data = decoded_base64
-        is_btc_stamp = 1
-        (svg_output, file_suffix) = validate_src721_and_process(src_data, valid_stamps_in_block, db)
-        decoded_base64 = svg_output
-        file_suffix = 'svg'
+    if stamp_data.valid_src721(CP_P2WSH_FEAT_BLOCK_START):
+        stamp_data.src_data = stamp_data.decoded_base64
+        stamp_data.is_btc_stamp = 1
+        svg_output, stamp_data.file_suffix = validate_src721_and_process(stamp_data.src_data, valid_stamps_in_block, db)
+        stamp_data.decoded_base64 = svg_output
+        stamp_data.file_suffix = 'svg'
 
-    if (ident != 'UNKNOWN' and stamp.get('asset_longname') is None and cpid and cpid.startswith('A') and not is_op_return and file_suffix not in INVALID_BTC_STAMP_SUFFIX):
-        is_btc_stamp = 1
-    elif stamp.get('asset_longname') is not None:
-        stamp['cpid'] = stamp.get('asset_longname')
-        is_cursed = 1
-        is_btc_stamp = None
-    elif (cpid and (file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid.startswith('A') or is_op_return)):
-        is_btc_stamp = None
-        is_cursed = 1
+    if (stamp_data.ident != 'UNKNOWN' and stamp_data.asset_longname is None and stamp_data.cpid and stamp_data.cpid.startswith('A') and not stamp_data.is_op_return and stamp_data.file_suffix not in INVALID_BTC_STAMP_SUFFIX):
+        stamp_data.is_btc_stamp = 1
+    elif stamp_data.asset_longname is not None:
+        stamp_data.cpid = stamp_data.asset_longname
+        stamp_data.is_cursed = 1
+        stamp_data.is_btc_stamp = None
+    elif (stamp_data.cpid and (stamp_data.file_suffix in INVALID_BTC_STAMP_SUFFIX or not stamp_data.cpid.startswith('A') or stamp_data.is_op_return)):
+        stamp_data.is_btc_stamp = None
+        stamp_data.is_cursed = 1
 
-    if is_btc_stamp:
-        stamp_number = get_next_stamp_number(db, 'stamp')
-    elif is_cursed:
-        stamp_number = get_next_stamp_number(db, 'cursed')
+    if stamp_data.is_btc_stamp:
+        stamp_data.stamp = get_next_stamp_number(db, 'stamp')
+    elif stamp_data.is_cursed:
+        stamp_data.stamp = get_next_stamp_number(db, 'cursed')
     else:
-        stamp_number = None
+        stamp_data.stamp = None
 
-    if cpid and is_btc_stamp:
-        valid_stamp = {
-            'stamp': stamp_number,
-            'tx_hash': tx_hash,
-            'cpid': cpid,
-            'is_btc_stamp': is_btc_stamp,
-            'is_valid_base64': is_valid_base64,
-            'stamp_base64': stamp_base64,
-            'is_cursed': is_cursed,
-            'src_data': src_data,
-        }
+    if stamp_data.cpid and stamp_data.is_btc_stamp:
+        valid_stamp = create_valid_stamp_dict(
+            stamp_data.stamp, stamp_data.tx_hash, stamp_data.cpid, stamp_data.is_btc_stamp, stamp_data.is_valid_base64, stamp_data.stamp_base64, stamp_data.is_cursed, stamp_data.src_data)
 
-    if valid_src20:
-        src20_dict.update({
-            'stamp:': stamp_number,
-            'creator': source,
-            'tx_hash': tx_hash,
-            'tx_index': tx_index,
-            'block_index': block_index,
-            'block_time': block_time,
-            'destination': destination
-        })
-        prevalidated_src20 = src20_dict
+    if stamp_data.valid_src20(CP_SRC20_END_BLOCK):
+        prevalidated_src20 = append_stamp_data_to_src20_dict(stamp_data, src20_dict)
 
-    # Set MIME type based on file_suffix
-    if not stamp_mimetype and file_suffix in MIME_TYPES:
-        stamp_mimetype = MIME_TYPES[file_suffix]
+    stamp_data.update_mime_type(MIME_TYPES)
 
-    if ident in SUPPORTED_SUB_PROTOCOLS or file_suffix:
-        if isinstance(decoded_base64, str):
-            decoded_base64 = decoded_base64.encode('utf-8')
-        filename = f"{tx_hash}.{file_suffix}"
-        file_obj_md5 = store_files(db, filename, decoded_base64, stamp_mimetype)
+    stamp_data.file_hash, filename = encode_and_store_file(
+        db, stamp_data.tx_hash, stamp_data.file_suffix, stamp_data.decoded_base64, stamp_data.stamp_mimetype, SUPPORTED_SUB_PROTOCOLS, stamp_data.ident)
 
-    # All stamps including cursed
-    parsed_stamp = {
-        "stamp": stamp_number,
-        "block_index": block_index,
-        "cpid": cpid if cpid is not None else stamp_hash,
-        "asset_longname": stamp.get('asset_longname'),
-        "creator": source,
-        "divisible": stamp.get('divisible'),
-        "ident": ident,
-        "keyburn": keyburn,
-        "locked": stamp.get('locked'),
-        "message_index": stamp.get('message_index'),
-        "stamp_base64": stamp_base64,
-        "stamp_mimetype": stamp_mimetype,
-        "stamp_url": 'https://' + DOMAINNAME + '/stamps/' + filename if file_suffix is not None and filename is not None else None,
-        "supply": stamp.get('quantity'),
-        "block_time": datetime.utcfromtimestamp(
-            block_time
-        ).strftime('%Y-%m-%d %H:%M:%S'),
-        "tx_hash": tx_hash,
-        "tx_index": tx_index,
-        "src_data": src_data,
-        "stamp_hash": stamp_hash,
-        "is_btc_stamp": is_btc_stamp,
-        "is_cursed": is_cursed,
-        "file_hash": file_obj_md5,
-        "is_valid_base64": is_valid_base64,
-    }
+    stamp_data.update_cpid_and_stamp_url(DOMAINNAME, filename)
     stamp_results = True
     # NOTE: parsed_stamp includes cursed stamps and non-numbered stamps
     # valid_stamp is is_btc_stamp only
-    return stamp_results, parsed_stamp, valid_stamp, prevalidated_src20
+    return stamp_results, stamp_data, valid_stamp, prevalidated_src20

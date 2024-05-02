@@ -9,13 +9,13 @@ import time
 import decimal
 import logging
 import http
+import concurrent.futures
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
-import concurrent.futures
-
+from typing import List
 # import cProfile
 
 import config
@@ -26,18 +26,19 @@ import src.backend as backend
 import src.arc4 as arc4
 import src.log as log
 from src.xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
-from src.exceptions import BlockAlreadyExistsError, DatabaseInsertError, BlockUpdateError
-
+from src.exceptions import (
+    BlockAlreadyExistsError, DatabaseInsertError,
+    BlockUpdateError, DecodeError, BTCOnlyError
+)
+from src.models import StampData, ValidStamp
 from src.stamp import parse_stamp
-from src.src20 import parse_src20
-
 from src.src20 import (
+    parse_src20,
     update_src20_balances,
     process_balance_updates,
     clear_zero_balances,
     validate_src20_ledger_hash
 )
-
 from src.database import (
     initialize,
     insert_transactions,
@@ -51,7 +52,6 @@ from src.database import (
     rebuild_balances,
     insert_block,
 )
-from src.exceptions import DecodeError, BTCOnlyError
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -415,7 +415,7 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
         return (None for _ in range(9))
 
 
-def create_check_hashes(db, block_index, valid_stamps_in_block, processed_src20_in_block, txhash_list,
+def create_check_hashes(db, block_index, valid_stamps_in_block: list[ValidStamp], processed_src20_in_block, txhash_list,
                         previous_ledger_hash=None, previous_txlist_hash=None, previous_messages_hash=None):
     """
     Calculate and update the hashes for the given block data. This needs to be modified for a reparse.
@@ -477,7 +477,7 @@ def commit_and_update_block(db, block_index):
         sys.exit()
 
 
-def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block):
+def log_block_info(block_index: int, start_time: float, new_ledger_hash: str, new_txlist_hash: str, new_messages_hash: str, stamps_in_block: int, src20_in_block: int):
     """
     Logs the information of a block.
 
@@ -492,10 +492,10 @@ def log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, ne
     None
     """
     logger = logging.getLogger(__name__)
-    logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s)' % (
+    logger.warning('Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s / S20:%s)' % (
         str(block_index), "{:.2f}".format(time.time() - start_time),
         new_ledger_hash[-5:] if new_ledger_hash else 'N/A',
-        new_txlist_hash[-5:], new_messages_hash[-5:], stamps_in_block
+        new_txlist_hash[-5:], new_messages_hash[-5:], stamps_in_block, src20_in_block
     ))
 
 
@@ -671,7 +671,7 @@ def follow(db):
                 logger.error(e)
                 sys.exit("Critical database error encountered. Exiting.")
 
-            valid_stamps_in_block = []
+            valid_stamps_in_block: List[ValidStamp] = []
 
             if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_GENESIS_BLOCK:
                 valid_src20_str = ''
@@ -684,7 +684,7 @@ def follow(db):
                 )
 
                 stamp_issuances_list.pop(block_index, None)
-                log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0)
+                log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0, 0)
                 block_index = commit_and_update_block(db, block_index)
                 continue
 
@@ -715,29 +715,29 @@ def follow(db):
 
             insert_transactions(db, tx_results)
 
-            parsed_stamps = []
+            parsed_stamps: list[StampData] = []
             processed_src20_in_block = []
 
             for result in tx_results:
-                _, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(
-                    db,
-                    result.tx_hash,
-                    result.source,
-                    result.destination,
-                    result.btc_amount,
-                    result.fee,
-                    result.data,
-                    result.decoded_tx,
-                    result.keyburn,
-                    result.tx_index,
-                    result.block_index,
-                    result.block_time,
-                    result.is_op_return,
-                    valid_stamps_in_block,
-                    result.p2wsh_data
+                stamp_data_instance = StampData(
+                    tx_hash=result.tx_hash,
+                    source=result.source,
+                    destination=result.destination,
+                    btc_amount=result.btc_amount,
+                    fee=result.fee,
+                    data=result.data,
+                    decoded_tx=result.decoded_tx,
+                    keyburn=result.keyburn,
+                    tx_index=result.tx_index,
+                    block_index=result.block_index,
+                    block_time=result.block_time,
+                    is_op_return=result.is_op_return,
+                    p2wsh_data=result.p2wsh_data
                 )
-                if parsed_stamp:
-                    parsed_stamps.append(parsed_stamp)  # includes cursed and prevalidated src20 on CP
+                _, stamp_data, valid_stamp, prevalidated_src20 = parse_stamp(stamp_data=stamp_data_instance, db=db, valid_stamps_in_block=valid_stamps_in_block)
+
+                if stamp_data:
+                    parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
                 if valid_stamp:
                     valid_stamps_in_block.append(valid_stamp)
                 if prevalidated_src20:
@@ -769,8 +769,9 @@ def follow(db):
                 validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
 
             stamps_in_block = len(valid_stamps_in_block)
+            src20_in_block = len(processed_src20_in_block)
             stamp_issuances_list.pop(block_index, None)
-            log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block)
+            log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block)
             block_index = commit_and_update_block(db, block_index)
 
             # profiler.disable()
