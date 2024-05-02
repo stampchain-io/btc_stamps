@@ -8,12 +8,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set up Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: 1.x
+          deno-version: v1.x
 
       - name: Build Deno App
         run: |
