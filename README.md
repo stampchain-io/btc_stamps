@@ -1,19 +1,22 @@
 # Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
-The Bitcoin Stamps protocol was initially developed using Counterparty (XCP) on
-Bitcoin as an immutable storage layer for NFT art (Classic Stamps). It now
-includes its own separate protocol outside of XCP called SRC-20 which creates
-transactions directly onto Bitcoin without the XCP transaction layer. This repo
-supports both Classic Stamps and direct to BTC SRC-20 tokens which are both
-considered part of Bitcoin Stamps. Bitcoin Stamps are permanently stored in the
-Bitcoin UTXO set and cannot be pruned from the blockchain. This permanence comes
-at a price through Bitcoin transaction fees that don't benefit from the witness
-data discount. The Bitcoin Stamps protocol is intended for use cases where
-permanence is required and the cost of the transaction is of little concern.
+The Bitcoin Stamps meta-protocol was initially developed using the Counterparty
+(XCP) Bitcoin transaction encoding methods as an immutable storage layer for NFT
+art (Classic Stamps). It now includes its own separate meta-protocol outside of
+XCP called SRC-20 for fungible tokens, which do not conform with the XCP
+transaction format and operate as a fully independent meta-protocol. This repo
+supports both Classic Stamps, OLGA (P2WSH encoded), SRC-721 Stamps, and SRC-20
+tokens, which are all considered part of Bitcoin Stamps. OLGA Stamps using P2WSH
+encoding was added as of block height 833000 to support larger transaction
+(file) sizes and to provide a lower cost of stamping images immutably on
+Bitcoin. Bitcoin Stamps are permanently stored in the UTXO set.
 
-This is the public indexer code for [stampchain.io](https://stampchain.io/)
-which parses the BTC node for all Stamp transactions, and is the primary API
-source for developers building on the Bitcoin Stamps protocol.
+This is the indexer code for [stampchain.io](https://stampchain.io/) which
+parses the BTC node for all Stamp transactions, and is the primary API source
+for developers building on the Bitcoin Stamps protocol. API endpoint
+documentation can be found at:
+
+[stampchain.io/docs](https://stampchain.io/docs)
 
 ## Requirements:
 
@@ -25,7 +28,7 @@ source for developers building on the Bitcoin Stamps protocol.
 
 For a simple installation of the entire stack Counterparty fednode can be used
 to deploy both Counterparty and a full Bitcoin Node. See:
-[Setting up a Counterparty Node](https://github.com/CounterpartyXCP/Documentation/blob/master/Installation/federated_node.md)
+[Setting up a Counterparty Node](https://docs.counterparty.io/docs/basics/getting-started/)
 
 The default configuration is using the public [XCP.dev](https://www.xcp.dev/)
 and stampchain Counterparty API's for XCP asset data. To minimize resource
@@ -116,6 +119,18 @@ interface for running the stack.
 ## Local Execution w/o Docker:
 
 Configure all environment variables for MySQL, Bitcoin Node, and Counterparty as
-indicated in `config.py`
+indicated in `.env`
 
-`python start.py`
+OPTIONAL: create conda environment using python 3.10:
+
+```shell
+conda create -n indexer python=3.10
+conda activate indexer
+```
+
+From the indexer dir execute:
+
+```shell
+pip install -r requirements.txt
+python -m start
+```

@@ -1,15 +1,19 @@
 from dotenv import load_dotenv
 
-load_dotenv()
 
-import src.server as server
+def main():
+    load_dotenv()
 
-db = server.initialize(log_file='log.file', backend_password='rpc', backend_user='rpc')
+    import src.server as server
 
-if db is None:
-    print('Failed to connect to database')
-    exit(1)
-else:
-    cursor = db.cursor()
+    db = server.initialize(log_file='log.file', backend_password='rpc', backend_user='rpc')
 
-server.start_all(db)
+    if db is None:
+        print('Failed to connect to database')
+        exit(1)
+
+    server.start_all(db)
+
+
+if __name__ == "__main__":
+    main()
