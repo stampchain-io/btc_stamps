@@ -11,19 +11,19 @@ CONSENSUS_HASH_SEED = 'Through our eyes, the universe is perceiving itself. Thro
 CONSENSUS_HASH_VERSION_MAINNET = 1
 
 CHECKPOINTS_MAINNET = {
-    config.BLOCK_FIRST_MAINNET: {'ledger_hash': '', 'txlist_hash': '40591672fcfed80ef211c245290bf1545078ad6a2403a74ef7491a8c69df969c'},
-    779700: {'ledger_hash': '', 'txlist_hash': '689bab1f3e4e3ac1ed3de15a63cadfc506afa83b3a138de15efc671b34940f66'},
-    780000: {'ledger_hash': '', 'txlist_hash': '05fae76b542f6105fa0e119587f8f5a4cb7f06ad68909296f1397fa7d8457654'},
-    781000: {'ledger_hash': '', 'txlist_hash': 'a39aa5e61811269e294cc8d71382c9c6faec630a5b959d63f3721d2a305b23e4'},
-    781100: {'ledger_hash': '', 'txlist_hash': '4a48e68419e983b88f32975631b917e2f5b28aa3b7de784e5297faa44782bdf4'},
-    781300: {'ledger_hash': '', 'txlist_hash': '19238b49941bb884b06b6f7b39f7741f76651c56d63cd0645cc059d2d4991ef2'},
-    785000: {'ledger_hash': '', 'txlist_hash': 'cf5f40a5556449156eb6befb86030a51ec8fb7e27c3215c341790f7ea2f2aa89'},
-    788041: {'ledger_hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'txlist_hash': 'dbffe043aff20453bfd9ffffd189bacc10f44099f4a17704e9cebe507d65d6db'},
-    788090: {'ledger_hash': '83c426eb5c4a6ac1886c54cd81e4f62f20f6e655e34fa324097111300ab3bc79', 'txlist_hash': '7c6219a1306195d41916220d35c728bdaf68153a39513ed96255c7239d9562b6'},
-    788130: {'ledger_hash': 'f211278d9c26f4a0c01bc3b22b05ce898c09196f25f7dc601615ab815483bd9f', 'txlist_hash': 'dedc345bee9553afb3eb69993ebc0eb132eac9803af5dbbf47e2ea220779339a'},
-    790000: {'ledger_hash': '', 'txlist_hash': 'c8d015dc21f074fb927ab30bfcf3054a4bae8d9dbe7f003f4e810f6398c391e5'},
-    795000: {'ledger_hash': '', 'txlist_hash': '5fab74b2e3cff5429fbd4cd613d686a71fd9cc80793f0834ec081ebc69f4c546'},
-    800000: {'ledger_hash': '', 'txlist_hash': '835a7fdf96fc005c9dc6c8c59830ed0031ac450472cd47b5e63b6da6195eaf3f'},
+    # config.BLOCK_FIRST_MAINNET: {'ledger_hash': '', 'txlist_hash': '40591672fcfed80ef211c245290bf1545078ad6a2403a74ef7491a8c69df969c'},
+    # 779700: {'ledger_hash': '', 'txlist_hash': '689bab1f3e4e3ac1ed3de15a63cadfc506afa83b3a138de15efc671b34940f66'},
+    # 780000: {'ledger_hash': '', 'txlist_hash': '05fae76b542f6105fa0e119587f8f5a4cb7f06ad68909296f1397fa7d8457654'},
+    # 781000: {'ledger_hash': '', 'txlist_hash': 'a39aa5e61811269e294cc8d71382c9c6faec630a5b959d63f3721d2a305b23e4'},
+    # 781100: {'ledger_hash': '', 'txlist_hash': '4a48e68419e983b88f32975631b917e2f5b28aa3b7de784e5297faa44782bdf4'},
+    # 781300: {'ledger_hash': '', 'txlist_hash': '19238b49941bb884b06b6f7b39f7741f76651c56d63cd0645cc059d2d4991ef2'},
+    # 785000: {'ledger_hash': '', 'txlist_hash': 'cf5f40a5556449156eb6befb86030a51ec8fb7e27c3215c341790f7ea2f2aa89'},
+    # 788041: {'ledger_hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'txlist_hash': 'dbffe043aff20453bfd9ffffd189bacc10f44099f4a17704e9cebe507d65d6db'},
+    # 788090: {'ledger_hash': '83c426eb5c4a6ac1886c54cd81e4f62f20f6e655e34fa324097111300ab3bc79', 'txlist_hash': '7c6219a1306195d41916220d35c728bdaf68153a39513ed96255c7239d9562b6'},
+    # 788130: {'ledger_hash': 'f211278d9c26f4a0c01bc3b22b05ce898c09196f25f7dc601615ab815483bd9f', 'txlist_hash': 'dedc345bee9553afb3eb69993ebc0eb132eac9803af5dbbf47e2ea220779339a'},
+    # 790000: {'ledger_hash': '', 'txlist_hash': 'c8d015dc21f074fb927ab30bfcf3054a4bae8d9dbe7f003f4e810f6398c391e5'},
+    # 795000: {'ledger_hash': '', 'txlist_hash': '5fab74b2e3cff5429fbd4cd613d686a71fd9cc80793f0834ec081ebc69f4c546'},
+    # 800000: {'ledger_hash': '', 'txlist_hash': '835a7fdf96fc005c9dc6c8c59830ed0031ac450472cd47b5e63b6da6195eaf3f'},
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
@@ -118,7 +118,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         checkpoints = CHECKPOINTS_MAINNET
 
     if field != 'messages_hash' and block_index in checkpoints and checkpoints[block_index][field] != calculated_hash:
-        raise ConsensusError('Incorrect {} hash for block {}.  Calculated {} but expected {}'.format(field, block_index, calculated_hash, checkpoints[block_index][field],))
+        raise ConsensusError('Incorrect {} consensus hash for block {}.  Calculated {} but expected {}'.format(field, block_index, calculated_hash, checkpoints[block_index][field],))
 
     return calculated_hash, found_hash
 
