@@ -39,9 +39,6 @@ tqdm = "4.66.2"
 python-dotenv = "1.0.1"
 colour-runner = "0.1.1"
 
-[tool.poetry.group.aws.dependencies]
-boto3 = "1.34.94"
-
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
 
@@ -55,3 +52,8 @@ include = "index_core/**/*"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.flake8]
+max-line-length = 120
+exclude = [".tox", "build"]
+ignore = ["E203", "W503"]
