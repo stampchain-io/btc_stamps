@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "indexer"
-version = "1.8.0"
+version = "1.6.0+canary.0"
 description = "Bitcoin Stamps Indexer"
 # readme = "README.md"
 authors = ["reinamora <reinamora@stampchain.io>"]
@@ -17,6 +17,7 @@ classifiers = [
 ]
 
 [tool.poetry.dev-dependencies]
+taskipy = "^1.7.0"
 bandit = "^1.7.8"
 flake8 = "^3.9.2"
 
@@ -61,3 +62,6 @@ build-backend = "poetry.core.masonry.api"
 max-line-length = 120
 exclude = [".tox", "build"]
 ignore = ["E203", "W503"]
+
+[tool.taskipy.tasks]
+bandit = "bandit -r . -s B608 -lll"
