@@ -81,7 +81,8 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     global LOGGING_TOFILE_SETUP
 
     def set_up_file_logging():
-        assert logfile
+        if not logfile:
+            raise ValueError("logfile must be defined")
         max_log_size = 20 * 1024 * 1024  # 20 MB
         fileh = RotatingFileHandler(logfile, maxBytes=max_log_size, backupCount=5)
         fileh.setLevel(logging.DEBUG)

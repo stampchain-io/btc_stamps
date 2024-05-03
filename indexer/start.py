@@ -6,7 +6,7 @@ def main():
 
     import src.index_core.server as server
 
-    db = server.initialize(log_file='log.file', backend_password='rpc', backend_user='rpc')
+    db = server.initialize(log_file='indexer.log')
 
     if db is None:
         print('Failed to connect to database')

@@ -16,6 +16,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[tool.poetry.dev-dependencies]
+bandit = "*"
+
 [tool.poetry.dependencies]
 python = "^3.9"
 appdirs = "1.4.4"

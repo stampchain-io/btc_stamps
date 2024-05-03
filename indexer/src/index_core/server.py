@@ -33,7 +33,7 @@ def sigterm_handler(_signo, _stack_frame):
     elif _signo == 2:
         signal_name = 'SIGINT'
     else:
-        assert False
+        raise ValueError("Unexpected signal number received")
     logger.info('Received {}.'.format(signal_name))
     logger.info('Stopping backend.')
     # backend.stop() this would typically stop addrindexrs
@@ -101,10 +101,15 @@ def initialize_config(
 ):
 
     try:
-        # ignore-scan
-        assert hashlib.sha3_256(''.encode('utf-8')).hexdigest() == 'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a'
-        assert hashlib.sha256(''.encode('utf-8')).hexdigest() == 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-    except AssertionError as e:
+        sha3_256_hash = hashlib.sha3_256(''.encode('utf-8')).hexdigest()
+        if sha3_256_hash != 'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a':
+            raise ValueError(f"SHA3-256 hash mismatch: {sha3_256_hash}")
+
+        sha256_hash = hashlib.sha256(''.encode('utf-8')).hexdigest()
+        if sha256_hash != 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855':
+            raise ValueError(f"SHA-256 hash mismatch: {sha256_hash}")
+
+    except ValueError as e:
         logger.error(f'SHA Hash Inconsistencies: {e}')
         raise e
 
@@ -241,13 +246,6 @@ def initialize_config(
         config.BACKEND_POLL_INTERVAL = float(
             os.environ.get('BACKEND_POLL_INTERVAL', "0.5")
         )
-
-    # Construct backend URL.
-    config.BACKEND_URL = config.BACKEND_USER + ':' + config.BACKEND_PASSWORD + '@' + config.BACKEND_CONNECT + ':' + str(config.BACKEND_PORT)
-    if config.BACKEND_SSL:
-        config.BACKEND_URL = 'https://' + config.BACKEND_URL
-    else:
-        config.BACKEND_URL = 'http://' + config.BACKEND_URL
 
     ##############
     # OTHER SETTINGS
