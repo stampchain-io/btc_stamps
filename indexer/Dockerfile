@@ -1,14 +1,14 @@
-# Usa una imagen base oficial de Python 3.9
+# Use the official Python 3.10 base image
 FROM python:3.10
 
-#Instala dockerize
+# Install dockerize
 ENV DOCKERIZE_VERSION v0.7.0
 RUN ARCH= && \
     case "$(uname -m)" in \
-        x86_64) ARCH='amd64' ;; \
-        arm64) ARCH='arm64' ;; \
-        aarch64) ARCH='arm64' ;; \
-        *) echo "unsupported architecture"; exit 1 ;; \
+    x86_64) ARCH='amd64' ;; \
+    arm64) ARCH='arm64' ;; \
+    aarch64) ARCH='arm64' ;; \
+    *) echo "unsupported architecture"; exit 1 ;; \
     esac && \
     wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-$ARCH-$DOCKERIZE_VERSION.tar.gz \
     && tar -C /usr/local/bin -xzvf dockerize-linux-$ARCH-$DOCKERIZE_VERSION.tar.gz \
@@ -16,21 +16,28 @@ RUN ARCH= && \
 
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Establece el directorio de trabajo en el contenedor
+# Set the working directory in the container
 WORKDIR /usr/src/app
 
-# Instala las dependencias de Python
-COPY requirements.txt ./
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Poetry
+RUN pip install --upgrade pip && \
+    pip install poetry
 
-# Copia el código fuente de la aplicación en el contenedor
-COPY src ./
+# Copy the pyproject.toml (and optionally poetry.lock) to /usr/src/app
+COPY pyproject.toml poetry.lock* /usr/src/app/
+
+# Install project dependencies with Poetry
+# Note: Configuring Poetry to not create a virtual environment inside the Docker container
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-dev --no-root
+
+# Copy the application source code into the container
+COPY src ./src
 COPY *.py ./
 
-# Crea un usuario no root
-#RUN useradd -m indexer
-#USER indexer
+# Create a non-root user (uncomment if needed)
+# RUN useradd -m indexer
+# USER indexer
 
-# Comando para ejecutar la aplicación
-CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "180s", "python3.9", "start.py"]
+# Command to run the application
+CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "180s", "python3.10", "start.py"]

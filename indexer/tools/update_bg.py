@@ -14,9 +14,9 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=dotenv_path, override=True)
 
 import config
-from src.aws import get_s3_objects
-from src.src20 import build_src20_svg_string 
-from src.stamp import store_files
+from src.index_core.aws import get_s3_objects
+from src.index_core.src20 import build_src20_svg_string
+from src.index_core.stamp import store_files
 
 parser = argparse.ArgumentParser()
 parser.add_argument('ticks_to_update', nargs='+', help=f'''
@@ -27,7 +27,7 @@ args = parser.parse_args()
 
 ticks_to_update = args.ticks_to_update
 
-# we are specifying specific vars here instead of using defaults in config.py 
+# we are specifying specific vars here instead of using defaults in config.py
 # so we can update to production or dev db's specifically
 rds_host = os.environ.get('ST3_HOSTNAME')
 rds_user = os.environ.get('ST3_USER')
@@ -59,7 +59,7 @@ for tick_to_update in ticks_to_update:
 
     for row in src_20_dict:
         tx_hash, p, op, tick, amt, lim, max = row
-        #convert the decimal value of amt to an int
+        # convert the decimal value of amt to an int
         if amt:
             amt = int(amt)
         p = p.upper()
