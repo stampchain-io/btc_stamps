@@ -43,13 +43,12 @@ def initialize(db):
                                        '{}.'.format(config.BLOCK_FIRST))
 
     cursor.execute(
-        '''DELETE FROM blocks WHERE block_index < {}'''
-        .format(config.BLOCK_FIRST))
+        '''DELETE FROM blocks WHERE block_index < %s''',
+        (config.BLOCK_FIRST,))
 
     cursor.execute(
-        '''DELETE FROM transactions WHERE block_index < {}'''
-        .format(config.BLOCK_FIRST))
-
+        '''DELETE FROM transactions WHERE block_index < %s''',
+        (config.BLOCK_FIRST,))
     cursor.close()
 
 
