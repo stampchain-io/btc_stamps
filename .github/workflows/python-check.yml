@@ -18,23 +18,35 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install Poetry
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          curl -sSL https://install.python-poetry.org | python3 -
+        env:
+          POETRY_HOME: ${{ github.workspace }}/.poetry
+        working-directory: ./indexer
+
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
         working-directory: ./indexer
 
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src" >> $GITHUB_ENV
-    
+
+      - name: Security check with Bandit
+        run: poetry run bandit -r .
+        working-directory: ./indexer
+        
       - name: Lint with flake8
         run: |
-          pip install flake8
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         working-directory: ./indexer
 
       - name: Run STAMP/SRC-20 Validations
         run: |
-          python3 -m unittest discover -s . -p "test_src20.py"
+          poetry run python3 -m unittest discover -s . -p "test_src20.py"
         working-directory: ./indexer
-

@@ -177,14 +177,15 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             chunk = b''
             for pubkey in pubkeys_compiled:
                 chunk += pubkey[1:-1]       # Skip sign byte and nonce byte. ( this does the concatenation as well)
-            try:
-                src20_destination, src20_data = decode_checkmultisig(ctx, chunk)  # this only decodes src-20 type trx
-            except Exception as e:
-                raise DecodeError(f'unrecognized output type {e}')
-            assert src20_destination is not None and src20_data is not None
-            if src20_data is not None:
-                data += src20_data
-                destinations = (str(src20_destination))
+        try:
+            src20_destination, src20_data = decode_checkmultisig(ctx, chunk)  # this only decodes src-20 type trx
+        except Exception as e:
+            raise DecodeError(f'unrecognized output type {e}')
+        if src20_destination is None or src20_data is None:
+            raise ValueError("src20_destination and src20_data must not be None")
+        if src20_data is not None:
+            data += src20_data
+            destinations = (str(src20_destination))
 
         if not data:
             raise BTCOnlyError('no data, not a stamp', ctx)
@@ -374,8 +375,9 @@ def reparse(db, block_index=None, quiet=False):
     logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
-def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
-    assert type(tx_hash) is str
+def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None):
+    if not isinstance(tx_hash, str):
+        raise TypeError("tx_hash must be a string")
     # NOTE: this is for future reparsing options
     # cursor = db.cursor()
     # cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,)) # this will include all CP transactinos as well ofc
@@ -398,7 +400,8 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     is_op_return = getattr(transaction_info, 'is_op_return', None)
     p2wsh_data = getattr(transaction_info, 'p2wsh_data', None)
 
-    assert block_index == util.CURRENT_BLOCK_INDEX
+    if block_index != util.CURRENT_BLOCK_INDEX:
+        raise ValueError(f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}")
 
     if stamp_issuance is not None:
         source = str(stamp_issuance['source'])
@@ -627,8 +630,10 @@ def follow(db):
                     db_parent = blocks_dict[0]['block_hash']
 
                     # Compare.
-                    assert type(db_parent) is str
-                    assert type(backend_parent) is str
+                    if not isinstance(db_parent, str):
+                        raise TypeError("db_parent must be a string")
+                    if not isinstance(backend_parent, str):
+                        raise TypeError("backend_parent must be a string")
                     if db_parent == backend_parent:
                         break
                     else:
