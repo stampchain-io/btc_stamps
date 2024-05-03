@@ -677,11 +677,10 @@ def next_tx_index(db):
     """
     cursor = db.cursor()
 
-    cursor.execute('''SELECT tx_index FROM transactions WHERE tx_index = (SELECT MAX(tx_index) from transactions)''')
-    txes = cursor.fetchall()
-    if txes:
-        assert len(txes) == 1
-        tx_index = txes[0][0] + 1
+    cursor.execute('''SELECT MAX(tx_index) FROM transactions''')
+    max_tx_index = cursor.fetchone()[0]
+    if max_tx_index is not None:
+        tx_index = max_tx_index + 1
     else:
         tx_index = 0
 

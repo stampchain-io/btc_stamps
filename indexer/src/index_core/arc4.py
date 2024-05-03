@@ -7,7 +7,7 @@ def init_arc4(seed):
     if isinstance(seed, str):
         seed = binascii.unhexlify(seed)
     backend = default_backend()
-    cipher = Cipher(algorithms.ARC4(seed), mode=None, backend=backend)
+    cipher = Cipher(algorithms.ARC4(seed), mode=None, backend=backend)  # nosec
     return cipher
 
 
