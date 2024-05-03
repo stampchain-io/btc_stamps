@@ -10,3 +10,4 @@ indexer/.env
 .vscode/
 .idea/
 backups/*
+*.log
