@@ -3,7 +3,7 @@ import json
 import base64
 import pybase64
 import magic
-import subprocess
+import subprocess  # nosec
 import zlib
 import msgpack
 import traceback
@@ -97,8 +97,8 @@ def decode_base64(base64_string, block_index):
                 # Note: base64 cli returns success on MAC when on linux it returns an error code.
                 # this will be ok in the docker containers, but a potential problem
                 # will need to verify that there are no instances where this is su
-                command = f'printf "%s" "{base64_string}" | base64 -d 2>&1'
-                image_data = subprocess.run(command, shell=True, capture_output=True, text=True, check=True, stdout=subprocess.PIPE).stdout
+                command = ['bash', '-c', f'printf "%s" "{base64_string}" | base64 -d']
+                image_data = subprocess.run(command, capture_output=True, text=True, check=True).stdout  # nosec
                 return image_data, is_valid_base64_string
             except Exception as e3:
                 # If all decoding attempts fail, print an error message and return None

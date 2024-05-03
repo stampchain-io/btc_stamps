@@ -48,10 +48,12 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
 
     # initialize previous hash on first block.
     if block_index <= config.BLOCK_FIRST and field != 'ledger_hash':
-        assert not previous_consensus_hash
+        if previous_consensus_hash:
+            raise ConsensusError('Expected previous_consensus_hash to be unset for the first block.')
         previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)
     elif block_index == config.CP_SRC20_GENESIS_BLOCK + 1 and field == 'ledger_hash':
-        assert not previous_consensus_hash
+        if previous_consensus_hash:
+            raise ConsensusError('Expected previous_consensus_hash to be unset for the SRC20 genesis block.')
         previous_consensus_hash = util.shash_string('')
 
     # Get previous hash.

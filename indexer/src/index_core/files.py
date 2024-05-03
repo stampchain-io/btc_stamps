@@ -38,7 +38,7 @@ def get_fileobj_and_md5(decoded_base64):
     try:
         file_obj = io.BytesIO(decoded_base64)
         file_obj.seek(0)
-        file_obj_md5 = hashlib.md5(file_obj.read()).hexdigest()
+        file_obj_md5 = hashlib.md5(file_obj.read(), usedforsecurity=False).hexdigest()
         return file_obj, file_obj_md5
     except Exception as e:
         logger.error(f"Error: {e}")
