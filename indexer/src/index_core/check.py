@@ -2,7 +2,7 @@ import logging
 import warnings
 
 import config
-import src.index_core.util as util
+import index_core.util as util
 
 logger = logging.getLogger(__name__)
 

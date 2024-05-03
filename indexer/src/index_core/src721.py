@@ -241,9 +241,7 @@ def fetch_collection_details(collection_cpid, db):
             logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
                 collection_asset_item = result[0]
-                logger.debug(
-                    f"collection asset item from db {collection_asset_item}"
-                )
+                logger.debug("got collection asset item from db", collection_asset_item)
             else:
                 collection_asset_item = None
                 logger.warning("Failed to fetch deploy src_data for cpid from database")
