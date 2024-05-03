@@ -2,12 +2,11 @@ import os
 import pymysql as mysql
 import csv
 from dotenv import load_dotenv
-import os
 
 parent_dir = os.path.dirname(os.getcwd())
 dotenv_path = os.path.join(parent_dir, '.env')
 load_dotenv(dotenv_path)
-            
+
 rds_host = os.environ.get('RDS_HOSTNAME')
 rds_user = os.environ.get('RDS_USER')
 rds_password = os.environ.get('RDS_PASSWORD')

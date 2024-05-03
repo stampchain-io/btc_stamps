@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 def main():
     load_dotenv()
 
-    import src.server as server
+    import src.index_core.server as server
 
     db = server.initialize(log_file='log.file', backend_password='rpc', backend_user='rpc')
 

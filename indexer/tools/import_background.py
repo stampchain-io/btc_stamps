@@ -35,7 +35,7 @@ def main(file_names=file_names, mysql_conn=mysql_conn):
         if not os.path.isfile(file_name):
             print(f"The file '{file_name}' does not exist.")
             continue
-        
+
         file_prefix = os.path.splitext(file_name)[0].upper()
 
         if len(file_prefix.split("-")) != 2:
@@ -54,7 +54,7 @@ def main(file_names=file_names, mysql_conn=mysql_conn):
 
         with open(file_name, 'rb') as f:
             background_bytestring = f.read()
-        
+
         mimetype, _ = mimetypes.guess_type(file_name)
         background_base64 = base64.b64encode(background_bytestring).decode('utf-8')
         bald_background_base64_prefixed = mimetype + ';base64,' + background_base64
