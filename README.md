@@ -131,7 +131,7 @@ Install Dependencies
 
 ```shell
 cd indexer
-poetry install
+poetry install --no-dev
 ```
 
 Execute Indexer:
