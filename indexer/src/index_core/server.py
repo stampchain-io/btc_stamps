@@ -90,7 +90,6 @@ def initialize_config(
     log_file=None,
     testnet=False, regtest=False,
     backend_connect=None, backend_port=None,
-    backend_user=None, backend_password=None,
     backend_ssl=False, backend_ssl_no_verify=False,
     backend_poll_interval=None,
     force=False, verbose=False, console_logfilter=None,
@@ -210,18 +209,6 @@ def initialize_config(
             raise ConfigurationError('invalid backend API port number')
     except Exception as e:
         raise ConfigurationError(f"Please specific a valid port number backend-port configuration parameter {e}")
-
-    # Backend Core RPC user (Bitcoin Core)
-    if backend_user:
-        config.BACKEND_USER = backend_user
-    else:
-        config.BACKEND_USER = 'bitcoinrpc'
-
-    # Backend Core RPC password (Bitcoin Core)
-    if backend_password:
-        config.BACKEND_PASSWORD = backend_password
-    else:
-        raise ConfigurationError('backend RPC password not set. (Use configuration file or --backend-password=PASSWORD)')
 
     # Backend Core RPC SSL
     if backend_ssl:
