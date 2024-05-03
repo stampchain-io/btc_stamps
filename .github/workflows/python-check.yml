@@ -37,8 +37,12 @@ jobs:
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src" >> $GITHUB_ENV
 
+      # - name: Security check with Bandit
+      #   run: poetry run bandit -r . -lll
+      #   working-directory: ./indexer
+      
       - name: Security check with Bandit
-        run: poetry run bandit -r . -lll
+        run: poetry run task bandit
         working-directory: ./indexer
 
       - name: Lint with flake8
