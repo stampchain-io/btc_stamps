@@ -121,16 +121,21 @@ interface for running the stack.
 Configure all environment variables for MySQL, Bitcoin Node, and Counterparty as
 indicated in `.env`
 
-OPTIONAL: create conda environment using python 3.10:
+Install Poetry:
 
 ```shell
-conda create -n indexer python=3.10
-conda activate indexer
+curl -sSL https://install.python-poetry.org | python3 -
 ```
 
-From the indexer dir execute:
+Install Dependencies
 
 ```shell
-pip install -r requirements.txt
-python -m start
+cd indexer
+poetry install
+```
+
+Execute Indexer:
+
+```shell
+poetry run indexer
 ```
