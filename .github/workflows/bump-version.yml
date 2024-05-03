@@ -76,13 +76,13 @@ jobs:
       - name: Bump version for dev branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/dev'
         run: |
-          bump2version build --no-input --verbose --allow-dirty
+          bump2version build --verbose --allow-dirty
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Bump version for main branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/main'
         run: |
-          bump2version minor --no-input --verbose --allow-dirty
+          bump2version minor --verbose --allow-dirty
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Commit and push changes if new version
