@@ -88,14 +88,15 @@ jobs:
       - name: Commit and push changes if new version
         if: env.SKIP == 'false' && env.NEW_VERSION
         run: |
-          # Commit any changes with a message including the new version
-          git commit -am "Bump version to ${{ env.NEW_VERSION }}"
-          # Tag the commit with the new version
-          git tag "v${{ env.NEW_VERSION }}"
-          # Capture the current HEAD hash for comparison
-          CURRENT_HASH=$(git rev-parse HEAD)
-          # Check if the current HEAD is different from the hash before changes
-          if [ "$CURRENT_HASH" != "${{ env.hash }}" ]; then
+          if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
+          # # Commit any changes with a message including the new version
+          # git commit -am "Bump version to ${{ env.NEW_VERSION }}"
+          # # Tag the commit with the new version
+          # git tag "v${{ env.NEW_VERSION }}"
+          # # Capture the current HEAD hash for comparison
+          # CURRENT_HASH=$(git rev-parse HEAD)
+          # # Check if the current HEAD is different from the hash before changes
+          # if [ "$CURRENT_HASH" != "${{ env.hash }}" ]; then
             # Push the changes and tags if there's a new commit
             git push origin HEAD:${{ github.ref }}
             git push origin --tags
