@@ -1,14 +1,14 @@
 import unittest
 from pathlib import Path
 import sys
-from src.stamp import parse_stamp
-from src.src20 import parse_src20
+from src.index_core.stamp import parse_stamp
+from src.index_core.src20 import parse_src20
 import colorlog
 import logging
 from colour_runner.runner import ColourTextTestRunner
 from tests.src20_variations_data import src20_variations_data
 from tests.db_simulator import DBSimulator
-from src.models import StampData
+from src.index_core.models import StampData
 
 
 handler = colorlog.StreamHandler()
