@@ -22,6 +22,10 @@ After bumping the version, the workflow commits the changes, creates a git tag
 with the new version number, and pushes the changes and the new tag to the
 repository.
 
+`bump2version patch --new-version 1.6.1 --verbose --allow-dirty`
+
+`bump2version release --new-version 1.6.1+canary.0 --verbose --allow-dirty`
+
 ## Major Version Update
 
 For major version updates which contain breaking updates to the prior release
