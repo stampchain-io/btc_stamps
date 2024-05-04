@@ -9,6 +9,16 @@ on:
     branches:
       - dev
       - main
+  workflow_dispatch:
+    inputs:
+      versionType:
+        description: 'Type of version to bump (major, minor, patch, build, release)'
+        required: true
+        default: 'patch'
+      preRelease:
+        description: 'Mark as a pre-release version? (true/false)'
+        required: false
+        default: 'false'
 
 jobs:
   versioning:
@@ -45,8 +55,6 @@ jobs:
           echo "COMMIT_MESSAGE=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
           if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
             echo "SKIP=true" >> $GITHUB_ENV
-          else
-            echo "SKIP=false" >> $GITHUB_ENV
           fi
 
       - name: Set up Python
@@ -59,14 +67,14 @@ jobs:
         if: env.SKIP == 'false'
         run: |
           python -m pip install --upgrade pip
-          pip install bump2version || exit 1
+          pip install bump2version
 
       - name: Configure Git
         if: env.SKIP == 'false'
         run: |
-          git config --global user.email "${{ env.GIT_USER_EMAIL }}" || exit 1
-          git config --global user.name "${{ env.GIT_USER_NAME }}" || exit 1
-          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git || exit 1
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
 
       - name: Get current commit hash
         if: env.SKIP == 'false'
@@ -76,21 +84,21 @@ jobs:
       - name: Bump version for dev branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/dev'
         run: |
-          bump2version build --verbose --allow-dirty || exit 1
+          bump2version build --verbose --allow-dirty
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Bump version for main branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/main'
         run: |
-          bump2version minor --verbose --allow-dirty || exit 1
+          bump2version minor --verbose --allow-dirty
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Commit and push changes if new version
         if: env.SKIP == 'false' && env.NEW_VERSION
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
-            git push origin HEAD:${{ github.ref }} || exit 1
-            git push origin --tags || exit 1
+            git push origin HEAD:${{ github.ref }}
+            git push origin --tags
           else
             echo "No new commit created, so no push."
           fi
@@ -102,8 +110,37 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ env.NEW_VERSION }}  # Changed to include 'v' prefix
-          name: Release v${{ env.NEW_VERSION }}  # Changed to include 'v' prefix
+          tag_name: ${{ env.NEW_VERSION }}
+          name: Release ${{ env.NEW_VERSION }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
+
+  manual-versioning:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bump2version
+      
+      - name: Bump version manually
+        run: |
+          bump2version ${{ github.event.inputs.versionType }} --verbose --allow-dirty
+          if [ "${{ github.event.inputs.preRelease }}" == "true" ]; then
+            bump2version release --new-version $(cat VERSION)+canary.0 --verbose --allow-dirty
+          fi
+      
+      - name: Push changes
+        run: |
+          git push origin HEAD:${{ github.ref }}
+          git push origin --tags
