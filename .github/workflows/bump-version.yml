@@ -59,14 +59,14 @@ jobs:
         if: env.SKIP == 'false'
         run: |
           python -m pip install --upgrade pip
-          pip install bump2version
+          pip install bump2version || exit 1
 
       - name: Configure Git
         if: env.SKIP == 'false'
         run: |
-          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
-          git config --global user.name "${{ env.GIT_USER_NAME }}"
-          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}" || exit 1
+          git config --global user.name "${{ env.GIT_USER_NAME }}" || exit 1
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git || exit 1
 
       - name: Get current commit hash
         if: env.SKIP == 'false'
@@ -76,30 +76,21 @@ jobs:
       - name: Bump version for dev branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/dev'
         run: |
-          bump2version build --verbose --allow-dirty
+          bump2version build --verbose --allow-dirty || exit 1
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Bump version for main branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/main'
         run: |
-          bump2version minor --verbose --allow-dirty
+          bump2version minor --verbose --allow-dirty || exit 1
           echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Commit and push changes if new version
         if: env.SKIP == 'false' && env.NEW_VERSION
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
-          # # Commit any changes with a message including the new version
-          # git commit -am "Bump version to ${{ env.NEW_VERSION }}"
-          # # Tag the commit with the new version
-          # git tag "v${{ env.NEW_VERSION }}"
-          # # Capture the current HEAD hash for comparison
-          # CURRENT_HASH=$(git rev-parse HEAD)
-          # # Check if the current HEAD is different from the hash before changes
-          # if [ "$CURRENT_HASH" != "${{ env.hash }}" ]; then
-            # Push the changes and tags if there's a new commit
-            git push origin HEAD:${{ github.ref }}
-            git push origin --tags
+            git push origin HEAD:${{ github.ref }} || exit 1
+            git push origin --tags || exit 1
           else
             echo "No new commit created, so no push."
           fi
@@ -111,8 +102,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.NEW_VERSION }}
-          name: Release ${{ env.NEW_VERSION }}
+          tag_name: v${{ env.NEW_VERSION }}  # Changed to include 'v' prefix
+          name: Release v${{ env.NEW_VERSION }}  # Changed to include 'v' prefix
           generate_release_notes: true
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
