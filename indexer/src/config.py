@@ -2,6 +2,7 @@ import os
 import logging
 from requests.auth import HTTPBasicAuth
 import boto3
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -152,10 +153,25 @@ TICK_PATTERN_SET = UNICODE_SET.union(CHAR_SET)
 
 
 # Versions
-VERSION_MAJOR = 1
-VERSION_MINOR = 0
-VERSION_REVISION = 1
-VERSION_STRING = str(VERSION_MAJOR) + '.' + str(VERSION_MINOR) + '.' + str(VERSION_REVISION)
+VERSION_STRING = "1.0.1+canary.464"
+
+
+def update_version_globals(version_string):
+    global VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION, VERSION_RELEASE, VERSION_BUILD
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)(\+([a-z]+)\.(\d+))?", version_string)
+    if match:
+        VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION, _, VERSION_RELEASE, VERSION_BUILD = match.groups()
+        # Convert the extracted values to their appropriate types
+        VERSION_MAJOR = int(VERSION_MAJOR)
+        VERSION_MINOR = int(VERSION_MINOR)
+        VERSION_REVISION = int(VERSION_REVISION)
+        VERSION_RELEASE = VERSION_RELEASE or ""
+        VERSION_BUILD = int(VERSION_BUILD) if VERSION_BUILD else 0
+    else:
+        raise ValueError("Invalid version string")
+
+
+update_version_globals(VERSION_STRING)
 
 
 BTC_NAME = 'Bitcoin'
