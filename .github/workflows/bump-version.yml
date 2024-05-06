@@ -52,9 +52,10 @@ jobs:
       - name: Check for skip keyword in commit message
         id: check-skip
         run: |
-          echo "COMMIT_MESSAGE=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          printf 'COMMIT_MESSAGE=%s\n' "$COMMIT_MESSAGE" >> $GITHUB_ENV
           if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
-            echo "SKIP=true" >> $GITHUB_ENV
+            printf 'SKIP=true\n' >> $GITHUB_ENV
           fi
 
       - name: Set up Python
@@ -79,19 +80,19 @@ jobs:
       - name: Get current commit hash
         if: env.SKIP == 'false'
         id: get_commit
-        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        run: printf 'hash=%s\n' "$(git rev-parse HEAD)" >> $GITHUB_ENV
 
       - name: Bump version for dev branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/dev'
         run: |
           bump2version build --verbose --allow-dirty
-          echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
+          printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Bump version for main branch
         if: env.SKIP == 'false' && github.ref == 'refs/heads/main'
         run: |
           bump2version minor --verbose --allow-dirty
-          echo "NEW_VERSION=$(cat VERSION)" >> $GITHUB_ENV
+          printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Commit and push changes if new version
         if: env.SKIP == 'false' && env.NEW_VERSION
