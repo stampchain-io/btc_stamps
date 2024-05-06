@@ -11,19 +11,19 @@ CONSENSUS_HASH_SEED = 'Through our eyes, the universe is perceiving itself. Thro
 CONSENSUS_HASH_VERSION_MAINNET = 1
 
 CHECKPOINTS_MAINNET = {
-    # config.BLOCK_FIRST_MAINNET: {'ledger_hash': '', 'txlist_hash': '40591672fcfed80ef211c245290bf1545078ad6a2403a74ef7491a8c69df969c'},
-    # 779700: {'ledger_hash': '', 'txlist_hash': '689bab1f3e4e3ac1ed3de15a63cadfc506afa83b3a138de15efc671b34940f66'},
-    # 780000: {'ledger_hash': '', 'txlist_hash': '05fae76b542f6105fa0e119587f8f5a4cb7f06ad68909296f1397fa7d8457654'},
-    # 781000: {'ledger_hash': '', 'txlist_hash': 'a39aa5e61811269e294cc8d71382c9c6faec630a5b959d63f3721d2a305b23e4'},
-    # 781100: {'ledger_hash': '', 'txlist_hash': '4a48e68419e983b88f32975631b917e2f5b28aa3b7de784e5297faa44782bdf4'},
-    # 781300: {'ledger_hash': '', 'txlist_hash': '19238b49941bb884b06b6f7b39f7741f76651c56d63cd0645cc059d2d4991ef2'},
-    # 785000: {'ledger_hash': '', 'txlist_hash': 'cf5f40a5556449156eb6befb86030a51ec8fb7e27c3215c341790f7ea2f2aa89'},
-    # 788041: {'ledger_hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'txlist_hash': 'dbffe043aff20453bfd9ffffd189bacc10f44099f4a17704e9cebe507d65d6db'},
-    # 788090: {'ledger_hash': '83c426eb5c4a6ac1886c54cd81e4f62f20f6e655e34fa324097111300ab3bc79', 'txlist_hash': '7c6219a1306195d41916220d35c728bdaf68153a39513ed96255c7239d9562b6'},
-    # 788130: {'ledger_hash': 'f211278d9c26f4a0c01bc3b22b05ce898c09196f25f7dc601615ab815483bd9f', 'txlist_hash': 'dedc345bee9553afb3eb69993ebc0eb132eac9803af5dbbf47e2ea220779339a'},
-    # 790000: {'ledger_hash': '', 'txlist_hash': 'c8d015dc21f074fb927ab30bfcf3054a4bae8d9dbe7f003f4e810f6398c391e5'},
-    # 795000: {'ledger_hash': '', 'txlist_hash': '5fab74b2e3cff5429fbd4cd613d686a71fd9cc80793f0834ec081ebc69f4c546'},
-    # 800000: {'ledger_hash': '', 'txlist_hash': '835a7fdf96fc005c9dc6c8c59830ed0031ac450472cd47b5e63b6da6195eaf3f'},
+    config.CP_STAMP_GENESIS_BLOCK: {'ledger_hash': '', 'txlist_hash': '9054d12fff9a20677687906c91d1b196e2d834dc34fb275f2dc54d8c8834cf9d'},
+    779700: {'ledger_hash': '', 'txlist_hash': '05b787543b02aa92aa2a243187a762e2f7a95b412a8ea105677fcc220680d302'},
+    780000: {'ledger_hash': '', 'txlist_hash': 'dd5867614a040d3a90d2a19efe8ae2317cb60f6d7236bb20191de1e8b0a86ed6'},
+    781000: {'ledger_hash': '', 'txlist_hash': 'fd8156664b44b54dba1364ce0a0a78eb0fd6d5bb2c831559337aab2370c0c294'},
+    781100: {'ledger_hash': '', 'txlist_hash': 'facb1127746e4d82fbf47706c3fb4a4f38314251452991d5ba9be008d22812fd'},
+    781300: {'ledger_hash': '', 'txlist_hash': 'dd70a1179c22ed68d15f906cf3fc2f1f72a0250d7bfcdfd00ba04e1339189756'},
+    785000: {'ledger_hash': '', 'txlist_hash': '96f626e23f8f10b9349dba8250db9c7c48d1e5bad8e5997f8762ac2ead9586ab'},
+    788041: {'ledger_hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'txlist_hash': '45589cad7fdb28b6ddeea9aa0ee297a58b0f3208e46f81321626a6e4c6826013'},
+    788090: {'ledger_hash': '83c426eb5c4a6ac1886c54cd81e4f62f20f6e655e34fa324097111300ab3bc79', 'txlist_hash': 'f43e1933447846fd6797828997d0ab7be739670755c7c1393bbc212ae4af86f5'},
+    788130: {'ledger_hash': 'f211278d9c26f4a0c01bc3b22b05ce898c09196f25f7dc601615ab815483bd9f', 'txlist_hash': '667b0fe52a4109c2c4a82789324e6056a909be6ffacf7463f2842d3988467c1d'},
+    790000: {'ledger_hash': '', 'txlist_hash': '68d522a0eeebbe4fde146191613d18f5b26ca8372fe639ac4da0ceb3ab746ad5'},
+    795000: {'ledger_hash': '', 'txlist_hash': 'e6b33fa56c627ebb96b4207113e70fb449ed86e05c77b43f2b1df3be7edf225b'},
+    800000: {'ledger_hash': '', 'txlist_hash': 'e501d2da22d021d3adeb35b1ae10751454b94dce3a11402cca153c45955e40b1'},
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
@@ -160,3 +160,8 @@ def cp_version():
     # cp_version = get_cp_version()
     # FIXME: Finish version checking validation.
     return
+
+
+def software_version():
+    logger.warning('Software version: {}.'.format(config.VERSION_STRING))
+

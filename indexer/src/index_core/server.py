@@ -16,6 +16,8 @@ import index_core.blocks as blocks
 from index_core.database import last_db_index
 import index_core.backend as backend
 from index_core.aws import get_s3_objects
+from index_core.check import software_version
+
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
@@ -117,8 +119,9 @@ def initialize_config(
     if not os.path.isdir(data_dir):
         os.makedirs(data_dir, mode=0o755)
 
-    print("data_dir: {}".format(data_dir))
-    print("log_file: {}".format(log_file))
+    logger.info("data_dir: {}".format(data_dir))
+    logger.info("log_file: {}".format(log_file))
+    software_version()
 
     # testnet
     if testnet:
