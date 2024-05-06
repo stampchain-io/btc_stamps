@@ -19,7 +19,7 @@ classifiers = [
 [tool.poetry.dev-dependencies]
 taskipy = "^1.7.0"
 bandit = "^1.7.8"
-flake8 = "^3.9.2"
+flake8 = "^7.0.0"
 
 [tool.poetry.dependencies]
 python = "^3.9"
