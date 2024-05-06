@@ -161,7 +161,6 @@ def update_version_globals(version_string):
     match = re.match(r"(\d+)\.(\d+)\.(\d+)(\+([a-z]+)\.(\d+))?", version_string)
     if match:
         VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION, _, VERSION_RELEASE, VERSION_BUILD = match.groups()
-        # Convert the extracted values to their appropriate types
         VERSION_MAJOR = int(VERSION_MAJOR)
         VERSION_MINOR = int(VERSION_MINOR)
         VERSION_REVISION = int(VERSION_REVISION)
@@ -172,6 +171,10 @@ def update_version_globals(version_string):
 
 
 update_version_globals(VERSION_STRING)
+
+
+def software_version():
+    logger.warning('Software version: {}.'.format(VERSION_STRING))
 
 
 BTC_NAME = 'Bitcoin'

@@ -541,7 +541,7 @@ def follow(db):
     """
 
     # Check software version.
-    # check.software_version()
+    check.software_version()
     check.cp_version()  # FIXME: need to add version checks for the endpoints and hash validations
     initialize(db)
     rebuild_balances(db)
@@ -659,7 +659,6 @@ def follow(db):
                     stamp_issuances_list = None
                     continue
 
-            # check.software_version() #FIXME: We may want to validate MySQL version here.
             block_hash = backend.getblockhash(block_index)
             cblock = backend.getcblock(block_hash)
             previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
