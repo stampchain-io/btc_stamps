@@ -52,7 +52,7 @@ jobs:
       - name: Check for skip keyword in commit message
         id: check-skip
         run: |
-          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B | tr -d '\n')
           printf 'COMMIT_MESSAGE=%s\n' "$COMMIT_MESSAGE" >> $GITHUB_ENV
           if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
             printf 'SKIP=true\n' >> $GITHUB_ENV
