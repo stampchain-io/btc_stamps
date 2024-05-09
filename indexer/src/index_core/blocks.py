@@ -326,7 +326,6 @@ def reparse(db, block_index=None, quiet=False):
     """
     Exception("reparse() is not implemented yet")
 
-    # check.software_version()
     check.cp_version()
     reparse_start = time.time()
 
@@ -541,7 +540,6 @@ def follow(db):
     """
 
     # Check software version.
-    check.software_version()
     check.cp_version()  # FIXME: need to add version checks for the endpoints and hash validations
     initialize(db)
     rebuild_balances(db)

@@ -30,7 +30,9 @@ jobs:
     env:
       GIT_USER_NAME: GitHub Action
       GIT_USER_EMAIL: action@github.com
-      SKIP: 'false' 
+      SKIP: 'false'
+      NEW_VERSION: ''
+      hash: ''
       
     steps:
       - name: Checkout code
