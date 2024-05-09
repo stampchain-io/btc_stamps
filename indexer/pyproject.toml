@@ -20,6 +20,7 @@ classifiers = [
 taskipy = "^1.8.0"
 bandit = "^1.7.8"
 flake8 = "^7.0.0"
+pillow = "^8.4.0"
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -65,3 +66,4 @@ ignore = ["E203", "W503"]
 
 [tool.taskipy.tasks]
 bandit = "bandit -r . -s B608 -lll"
+import_background = "poetry run python3 tools/import_background.py"
