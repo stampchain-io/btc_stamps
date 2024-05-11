@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
   INDEX `cpid_index` (`cpid`),
+  INDEX `ident_index` (`ident`),
   INDEX `creator_index` (`creator`),
   INDEX `block_index` (`block_index`),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
