@@ -103,7 +103,8 @@ def get_cp_version():
             url,
             data=json.dumps(payload),
             headers=headers,
-            auth=auth
+            auth=auth,
+            timeout=10
         )
         result = json.loads(response.text)["result"]
         version_major = result["version_major"]
@@ -125,6 +126,7 @@ def get_cp_version():
 
 
 def _get_block_count():
+    result = None
     try:
         payload = _create_payload("get_running_info", {})
         headers = {'content-type': 'application/json'}
@@ -132,7 +134,8 @@ def _get_block_count():
             url,
             data=json.dumps(payload),
             headers=headers,
-            auth=auth
+            auth=auth,
+            timeout=10
         )
         logger.info("get_block_count response: {}".format(response.text))
         result = json.loads(response.text)["result"]
@@ -157,7 +160,8 @@ def _get_issuances(params={}):
         url,
         data=json.dumps(payload),
         headers=headers,
-        auth=auth
+        auth=auth,
+        timeout=10
     )
     return json.loads(response.text)["result"]
 
@@ -172,7 +176,8 @@ def _get_sends(params={}):
         url,
         data=json.dumps(payload),
         headers=headers,
-        auth=auth
+        auth=auth,
+        timeout=10
     )
     return json.loads(response.text)["result"]
 
@@ -187,7 +192,8 @@ def _get_block(params={}):
         url,
         data=json.dumps(payload),
         headers=headers,
-        auth=auth
+        auth=auth,
+        timeout=10
     )
     return json.loads(response.text)["result"]
 
