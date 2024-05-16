@@ -56,6 +56,7 @@ from index_core.database import (
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
+skip_logger = logging.getLogger('list_tx.skip')
 
 TxResult = namedtuple('TxResult', ['tx_index', 'source', 'destination', 'btc_amount', 'fee', 'data', 'decoded_tx', 'keyburn', 'is_op_return', 'tx_hash', 'block_index', 'block_hash', 'block_time', 'p2wsh_data'])
 
@@ -299,13 +300,13 @@ def reinitialize(db, block_index=None):
     columns = [column['name'] for column in cursor.execute('''PRAGMA table_info(blocks)''')]
     for field in ['ledger_hash', 'txlist_hash']:
         if field in columns:
-            sql = '''SELECT {} FROM blocks  WHERE block_index = ?'''.format(field)
+            sql = '''SELECT {} FROM blocks  WHERE block_index = ?'''.format(field)  # nosec
             first_block = list(cursor.execute(sql, (config.BLOCK_FIRST,)))
             if first_block:
                 first_hash = first_block[0][field]
                 if first_hash != checkpoints[config.BLOCK_FIRST][field]:
                     logger.info('First hash changed. Cleaning {}.'.format(field))
-                    cursor.execute('''UPDATE blocks SET {} = NULL'''.format(field))
+                    cursor.execute('''UPDATE blocks SET {} = NULL'''.format(field))  # nosec
 
     # For rollbacks, just delete new blocks and then reparse what’s left.
     if block_index:
@@ -413,7 +414,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
         return source, destination, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
 
     else:
-        logger.getChild('list_tx.skip').debug('Skipping transaction: {}'.format(tx_hash))
+        skip_logger.debug('Skipping transaction: {}'.format(tx_hash))
         return (None for _ in range(9))
 
 
