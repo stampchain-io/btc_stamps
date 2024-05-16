@@ -702,13 +702,17 @@ def follow(db):
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
                     if result.data is not None:
-                        result = result._replace(tx_index=tx_index, block_index=block_index, block_hash=block_hash, block_time=block_time)
+                        result = result._replace(block_index=block_index, block_hash=block_hash, block_time=block_time)
                         tx_results.append(result)
-                        tx_index += 1
+                        # tx_index += 1
 
-                tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
+            tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
+            # Assign tx_index after sorting
+            for i, result in enumerate(tx_results):
+                tx_results[i] = result._replace(tx_index=tx_index)
+                tx_index += 1
 
-            # without concurrent execution
+            # # without concurrent execution
             # for tx_hash in txhash_list:
             #     result = process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions)
             #     if result.data is not None:
@@ -722,7 +726,7 @@ def follow(db):
             processed_src20_in_block = []
 
             for result in tx_results:
-                stamp_data_instance = StampData(
+                stamp_data = StampData(
                     tx_hash=result.tx_hash,
                     source=result.source,
                     destination=result.destination,
@@ -737,7 +741,7 @@ def follow(db):
                     is_op_return=result.is_op_return,
                     p2wsh_data=result.p2wsh_data
                 )
-                _, stamp_data, valid_stamp, prevalidated_src20 = parse_stamp(stamp_data=stamp_data_instance, db=db, valid_stamps_in_block=valid_stamps_in_block)
+                _, stamp_data, valid_stamp, prevalidated_src20 = parse_stamp(stamp_data=stamp_data, db=db, valid_stamps_in_block=valid_stamps_in_block)
 
                 if stamp_data:
                     parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
