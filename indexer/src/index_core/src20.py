@@ -659,7 +659,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
                 tick = %s
                 AND tick_hash = %s
                 AND address IN %s
-        """
+        """  # nosec
 
         src20_cursor.execute(query, (tick, tick_hash, tuple(addresses)))
         results = src20_cursor.fetchall()
@@ -708,7 +708,7 @@ def get_total_user_balance_from_db(db, tick, tick_hash, addresses):
                 AND (destination IN %s OR creator IN %s)
                 AND (op = 'TRANSFER' OR op = 'MINT')
             ORDER BY block_index
-        """
+        """  # nosec
 
         src20_cursor.execute(query, (tick, tick_hash, tuple(addresses), tuple(addresses)))
         # src20_cursor.execute(query, {'tick': tick, 'tick_hash': tick_hash, 'addresses': tuple(addresses)})
@@ -759,7 +759,7 @@ def get_tick_holders_from_balances(db, tick):
             WHERE
                 tick = %s
                 AND amt > 0
-        """, (tick,))
+        """, (tick,))  # nosec
         for row in src20_cursor.fetchall():
             tick_holders.append(row[0])
     return tick_holders
@@ -835,7 +835,7 @@ def update_balance_table(db, balance_updates, block_index, block_time):
             balance_dict['net_change'] = net_change
             id_field = balance_dict['tick'] + '_' + balance_dict['address']
 
-            cursor.execute(f"SELECT amt FROM {SRC20_BALANCES_TABLE} WHERE id = %s", (id_field,))
+            cursor.execute(f"SELECT amt FROM {SRC20_BALANCES_TABLE} WHERE id = %s", (id_field,))  # nosec
             result = cursor.fetchone()
             if result is not None:
                 balance_dict['original_amt'] = result[0]
@@ -899,7 +899,7 @@ def clear_zero_balances(db):
         None
     """
     with db.cursor() as cursor:
-        cursor.execute(f"DELETE FROM {SRC20_BALANCES_TABLE} WHERE amt = 0")
+        cursor.execute(f"DELETE FROM {SRC20_BALANCES_TABLE} WHERE amt = 0")  # nosec
     return
 
 
@@ -922,7 +922,7 @@ def fetch_api_ledger_data(block_index):
 
     while retry_count < max_retries:
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 api_ledger_hash = response.json()['data']['hash']
                 api_ledger_validation = response.json()['data']['balance_data']
