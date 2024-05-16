@@ -20,10 +20,9 @@ def get_s3_objects(db, bucket_name, s3_client):
         db (object): The database connection object.
         bucket_name (str): The name of the S3 bucket.
         s3_client (object): The S3 client object.
-        batch_size (int): The number of S3 objects to process in each batch.
 
     Returns:
-        list: A list of dictionaries containing the keys and MD5 hashes of the existing S3 objects.
+        dict: A dictionary mapping keys to dictionaries containing the keys and MD5 hashes of the existing S3 objects.
     """
 
     def process_page(page):
@@ -31,13 +30,13 @@ def get_s3_objects(db, bucket_name, s3_client):
             for obj in page[1]['Contents']:
                 key = obj['Key']
                 md5 = obj['ETag'].strip('"')
-                results.append({'key': key, 'md5': md5})
+                results[key] = {'key': key, 'md5': md5}
 
     logger.warning(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
     cursor.execute("SELECT path_key, md5 FROM s3objects")
-    results = cursor.fetchall() or []
-    results = [{'key': row[0], 'md5': row[1]} for row in results]
+    results = cursor.fetchall() or {}
+    results = {row[0]: {'key': row[0], 'md5': row[1]} for row in results}
     cursor.close()
     if results:
         logger.warning(f"Found {len(results)} existing S3 objects from database")
@@ -54,7 +53,7 @@ def get_s3_objects(db, bucket_name, s3_client):
         execution_time = end_time - start_time
         print(f"Execution time: {execution_time} seconds for {total_pages} pages")
 
-        results = []
+        results = {}
 
         for page in enumerate(pages, start=1):
             process_page(page)
@@ -103,7 +102,7 @@ def add_s3_objects_to_db(db, s3_objects):
 
     Args:
         db (object): The database connection object
-        s3_objects (list): List of S3 objects to be added to the database
+        s3_objects (dict): Dictionary of S3 objects to be added to the database
 
     Returns:
         None
@@ -115,7 +114,7 @@ def add_s3_objects_to_db(db, s3_objects):
         cursor = db.cursor()
 
         query = "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
-        values = [(s3_object['key'] + s3_object['md5'], s3_object['key'], s3_object['md5']) for s3_object in s3_objects]
+        values = [(key + obj['md5'], key, obj['md5']) for key, obj in s3_objects.items()]
 
         # Execute the multi-insert operation
         cursor.executemany(query, values)
@@ -200,7 +199,7 @@ def check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_
     if mime_type is None:
         mime_type = 'binary/octet-stream'
 
-    existing_obj = next((obj for obj in config.S3_OBJECTS if obj['key'] == s3_file_path), None)
+    existing_obj = config.S3_OBJECTS.get(s3_file_path)
     if existing_obj:
         if existing_obj['md5'] == file_obj_md5:
             logger.debug(f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload.")
