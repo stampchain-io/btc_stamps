@@ -66,7 +66,7 @@ def fetch_src721_subasset_base64(asset_name, valid_src721_in_block, db):
     else:
         # Fetch the asset from the database
         with db.cursor() as cursor:
-            sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"
+            sql = f"SELECT stamp_base64 FROM {config.STAMP_TABLE} WHERE cpid = %s"  # nosec
             cursor.execute(sql, (asset_name,))
             result = cursor.fetchone()
             if result:
@@ -236,7 +236,7 @@ def fetch_collection_details(collection_cpid, db):
 
     try:
         with db.cursor() as cursor:
-            cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_cpid,))
+            cursor.execute(f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s", (collection_cpid,))  # nosec
             result = cursor.fetchone()
             logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
