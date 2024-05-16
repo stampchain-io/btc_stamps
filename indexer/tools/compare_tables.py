@@ -40,7 +40,7 @@ print("block_index", block_index)
 
 # fetch tx_hash, stamp from prod db
 prod_cursor.execute('''
-                                        SELECT tx_hash
+                                        SELECT tx_hash, stamp
                                         FROM StampTableV4
                                         WHERE block_index < %s
                                         ''', (block_index,))
@@ -49,7 +49,7 @@ prod_list = prod_cursor.fetchall()
 
 # fetch tx_hash, stamp from dev db
 dev_cursor.execute('''
-                                         SELECT tx_hash
+                                         SELECT tx_hash, stamp
                                          FROM StampTableV4
                                         WHERE block_index < %s
                                          ''', (block_index,))
@@ -74,6 +74,29 @@ dev_cursor.execute('''
 
 dev_src20 = dev_cursor.fetchall()
 
+prod_cursor.execute('''
+                                        SELECT block_index, messages_hash, txlist_hash
+                                        FROM blocks
+                                        WHERE block_index < %s
+                                        ''', (block_index,))
+prod_blocks = prod_cursor.fetchall()
+
+dev_cursor.execute('''
+                                        SELECT block_index, messages_hash, txlist_hash
+                                        FROM blocks
+                                        WHERE block_index < %s
+                                        ''', (block_index,))
+dev_blocks = dev_cursor.fetchall()
+
+
+prod_blocks = sorted(list(prod_blocks))
+dev_blocks = sorted(list(dev_blocks))
+
+# Iterate over the two block lists
+for prod_block, dev_block in zip(prod_blocks, dev_blocks):
+    if prod_block != dev_block:
+        print(f"First BLOCK HASH mismatch found:\nProd block: {prod_block}\nDev block: {dev_block}")
+        break
 
 prod_src20 = set(prod_src20)
 dev_src20 = set(dev_src20)
@@ -119,7 +142,7 @@ if not_in_prod_list:
     results = dev_cursor.fetchall()
 
     print("\nnot in prod StampTableV4 - results from dev db ")
-    for result in results:
+    for result in results[:5]:
         print('result', result)
 
 if not_in_dev_list:
@@ -132,12 +155,10 @@ if not_in_dev_list:
 
     results = prod_cursor.fetchall()
     print(" \nnot in dev StampTableV4 - results from prod db")
-    for result in results:
+    for result in results[:5]:
         print(result)
 
-print(f"\nnot in StampTableV4 incl cursed {prod_host} ", len(not_in_prod_list))
+print(f"\nnot in StampTableV4 Prod incl cursed {prod_host} ", len(not_in_prod_list))
 # print("not_in_prod_list", not_in_prod_list)
-print(f"\nnot in StampTableV4 incl cursed {dev_host} ", len(not_in_dev_list))
+print(f"\nnot in StampTableV4 Dev incl cursed {dev_host} ", len(not_in_dev_list))
 # print(not_in_dev_list)
-
-
