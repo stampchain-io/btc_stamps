@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 import config
 import index_core.exceptions as exceptions
-from index_core.models import StampData
 from config import (
     SRC20_TABLE,
     SRC20_VALID_TABLE,
@@ -261,7 +260,7 @@ def insert_transactions(db, transactions):
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
 
-def insert_into_stamp_table(db, parsed_stamps: List[StampData]):
+def insert_into_stamp_table(db, parsed_stamps: List):
     try:
         with db.cursor() as cursor:
             insert_query = f'''
@@ -508,7 +507,7 @@ def get_src20_deploy_in_db(db, tick):
             ORDER BY
                 block_index ASC
             LIMIT 1
-        """, (tick,))
+        """, (tick,))  # nosec
         result = src20_cursor.fetchone()
         if result:
             return result
