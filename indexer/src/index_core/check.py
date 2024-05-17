@@ -15,15 +15,10 @@ CHECKPOINTS_MAINNET = {
     779700: {'ledger_hash': '', 'txlist_hash': '05b787543b02aa92aa2a243187a762e2f7a95b412a8ea105677fcc220680d302'},
     780000: {'ledger_hash': '', 'txlist_hash': 'dd5867614a040d3a90d2a19efe8ae2317cb60f6d7236bb20191de1e8b0a86ed6'},
     781000: {'ledger_hash': '', 'txlist_hash': 'fd8156664b44b54dba1364ce0a0a78eb0fd6d5bb2c831559337aab2370c0c294'},
+    781141: {'ledger_hash': '', 'txlist_hash': 'cf5d627ffb6a8eea2065884a56810e1a696a97228a24319b1743da43aee18f14'},  # first cursed
     781100: {'ledger_hash': '', 'txlist_hash': 'facb1127746e4d82fbf47706c3fb4a4f38314251452991d5ba9be008d22812fd'},
     781300: {'ledger_hash': '', 'txlist_hash': 'dd70a1179c22ed68d15f906cf3fc2f1f72a0250d7bfcdfd00ba04e1339189756'},
-    785000: {'ledger_hash': '', 'txlist_hash': '96f626e23f8f10b9349dba8250db9c7c48d1e5bad8e5997f8762ac2ead9586ab'},
-    788041: {'ledger_hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'txlist_hash': '45589cad7fdb28b6ddeea9aa0ee297a58b0f3208e46f81321626a6e4c6826013'},
-    788090: {'ledger_hash': '83c426eb5c4a6ac1886c54cd81e4f62f20f6e655e34fa324097111300ab3bc79', 'txlist_hash': 'f43e1933447846fd6797828997d0ab7be739670755c7c1393bbc212ae4af86f5'},
-    788130: {'ledger_hash': 'f211278d9c26f4a0c01bc3b22b05ce898c09196f25f7dc601615ab815483bd9f', 'txlist_hash': '667b0fe52a4109c2c4a82789324e6056a909be6ffacf7463f2842d3988467c1d'},
-    790000: {'ledger_hash': '', 'txlist_hash': '68d522a0eeebbe4fde146191613d18f5b26ca8372fe639ac4da0ceb3ab746ad5'},
-    795000: {'ledger_hash': '', 'txlist_hash': 'e6b33fa56c627ebb96b4207113e70fb449ed86e05c77b43f2b1df3be7edf225b'},
-    800000: {'ledger_hash': '', 'txlist_hash': 'e501d2da22d021d3adeb35b1ae10751454b94dce3a11402cca153c45955e40b1'},
+    782285: {'ledger_hash': '', 'txlist_hash': 'f712708dd191802e9e1903cbad19ca58fc159fbec4eeb2026bfed917815ff38d'},  # first svg stamp
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
@@ -107,7 +102,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
                 field, block_index, calculated_hash, found_hash))
     else:
         # Save new hash.
-        cursor.execute('''UPDATE blocks SET {} = %s WHERE block_index = %s'''.format(field), (calculated_hash, block_index))
+        cursor.execute('''UPDATE blocks SET {} = %s WHERE block_index = %s'''.format(field), (calculated_hash, block_index))  # nosec
 
     # Check against checkpoints.
     if config.TESTNET:
@@ -164,4 +159,3 @@ def cp_version():
 
 def software_version():
     logger.warning('Software version: {}.'.format(config.VERSION_STRING))
-
