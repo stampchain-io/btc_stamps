@@ -7,7 +7,7 @@ stampchain_arweave_wallet = "T9SMEcU-q0eQY7RiePwP_oZO6D4b-6el5AhgAn9o218"
 
 def download_arweave_file(transaction_id, local_file_path):
     url = f"https://arweave.net/{transaction_id}"
-    response = requests.get(url, stream=True)
+    response = requests.get(url, stream=True, timeout=10)
 
     if response.status_code == 200:
         with open(local_file_path, 'wb') as f:
@@ -46,7 +46,7 @@ def get_arweave_transaction(wallet=stampchain_arweave_wallet, tags=[]):
             "tags": formatted_tags
         }
     }
-    response = requests.post(endpoint, json=query)
+    response = requests.post(endpoint, json=query, timeout=10)
     if response.status_code == 200:
         print(response.json())
         return response.json()['data']['transactions']['edges']
