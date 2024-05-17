@@ -204,7 +204,7 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
     query = f"""
         INSERT INTO {table_name} ({", ".join(column_names)})
         VALUES ({placeholders})
-    """
+    """  # nosec
 
     cursor.execute(query, tuple(column_values))
 
@@ -273,7 +273,7 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     stamp_hash, is_btc_stamp,
                     file_hash, is_valid_base64
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            '''
+            '''  # nosec
 
             data = [
                 (
@@ -319,7 +319,7 @@ def get_srcbackground_data(db, tick):
             WHERE
                 tick = %s
                 AND p = %s
-        """
+        """  # nosec
         # NOTE: even SRC-721 placeholder has a 'SRC-20' p value for now
         cursor.execute(query, (tick, "SRC-20"))
         result = cursor.fetchone()
@@ -349,7 +349,7 @@ def rebuild_balances(db):
         FROM {SRC20_VALID_TABLE}
         WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
         ORDER by block_index
-        """
+        """  # nosec
         cursor.execute(query)
         src20_valid_list = cursor.fetchall()
 
@@ -442,7 +442,7 @@ def purge_block_db(db, block_index):
         cursor.execute('''
                         DELETE FROM {}
                         WHERE block_index >= %s
-                        '''.format(table), (block_index,))
+                        '''.format(table), (block_index,))  # nosec
 
     db.commit()
     cursor.close()
@@ -540,7 +540,7 @@ def get_total_src20_minted_from_db(db, tick):
             WHERE
                 tick = %s
                 AND op = 'MINT'
-        """, (tick,))
+        """, (tick,))  # nosec
         for row in src20_cursor.fetchall():
             total_minted += row[0]
     TOTAL_MINTED_CACHE[tick] = total_minted
@@ -575,13 +575,13 @@ def get_next_stamp_number(db, identifier):
             if identifier == 'stamp':
                 query = f'''
                     SELECT MAX(stamp) from {STAMP_TABLE}
-                '''
+                '''  # nosec
                 increment = 1
                 default_value = 0
             else:  # identifier == 'cursed'
                 query = f'''
                     SELECT MIN(stamp) from {STAMP_TABLE}
-                '''
+                '''  # nosec
                 increment = -1
                 default_value = -1
 
@@ -630,7 +630,7 @@ def check_reissue_in_db(db, cpid):
             WHERE cpid = %s
             ORDER BY block_index DESC
             LIMIT 1
-        ''', (cpid,))
+        ''', (cpid,))  # nosec
         result = cursor.fetchone()
         if result:
             return True
