@@ -285,28 +285,6 @@ def convert_decimal_to_string(obj):
     raise TypeError
 
 
-def is_json_string(s):
-    """
-    Check if a string is a valid JSON object.
-
-    Args:
-        s (str): The string to be checked.
-
-    Returns:
-        bool: True if the string is a valid JSON object, False otherwise.
-    """
-    try:
-        s = s.strip()
-        s = s.rstrip('\r\n')
-        if s.startswith('{') and s.endswith('}'):
-            json.loads(s)
-            return True
-        else:
-            return False
-    except json.JSONDecodeError:
-        return False
-
-
 def convert_to_dict_or_string(input_data, output_format='dict'):
     """
     Convert the input data to a dictionary or a JSON string.
