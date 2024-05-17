@@ -17,7 +17,7 @@ from bitcoinlib.keys import pubkeyhash_to_addr
 from collections import namedtuple
 from typing import List
 # import cProfile
-
+# import pstats
 import config
 import index_core.util as util
 import index_core.check as check
@@ -568,7 +568,7 @@ def follow(db):
 
     stamp_issuances_list = None
     # profiler = cProfile.Profile()
-    # profiler.enable()
+    # should_profile = True
 
     while True:
         start_time = time.time()
@@ -722,6 +722,8 @@ def follow(db):
 
             insert_transactions(db, tx_results)
 
+            # if should_profile:
+            #     profiler.enable()
             parsed_stamps: list[StampData] = []
             processed_src20_in_block = []
 
@@ -781,6 +783,9 @@ def follow(db):
             log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block)
             block_index = commit_and_update_block(db, block_index)
 
-            # profiler.disable()
-            # profiler.dump_stats("profile_results.prof")
-            # sys.exit()
+            # if should_profile:
+            #     profiler.disable()
+            #     profiler.dump_stats("profile_results.prof")
+            #     stats = pstats.Stats(profiler).sort_stats('cumulative')
+            #     stats.print_stats()
+            #     should_profile = False
