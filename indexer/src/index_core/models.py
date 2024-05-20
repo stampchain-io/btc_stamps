@@ -289,9 +289,7 @@ class StampData:
     def valid_src721(self):
         if self.block_index < CP_SRC721_GENESIS_BLOCK:
             return False
-        base_condition = self.ident == 'SRC-721' and (self.keyburn == 1 or (self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START))
-        if self.block_index < INCR_SRC721_SUPPLY:
-            base_condition = base_condition and self.supply <= 1
+        base_condition = self.ident == 'SRC-721' and (self.keyburn == 1 or (self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START)) and self.supply <= 1
         return base_condition
 
     def normalize_mime_and_suffix(self):
