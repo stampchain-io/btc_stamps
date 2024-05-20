@@ -44,7 +44,6 @@ msgpack = "1.0.8"
 tqdm = "4.66.4"
 python-dotenv = "1.0.1"
 colour-runner = "0.1.1"
-js2py = "0.74"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
