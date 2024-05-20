@@ -1,8 +1,6 @@
 from typing import TypedDict, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import js2py
-from js2py.internals.simplex import JsException
 import base64
 import re
 import json
@@ -17,7 +15,6 @@ from config import (
     CP_SRC20_END_BLOCK,
     STRIP_WHITESPACE,
     SUPPORTED_SUB_PROTOCOLS,
-    INCR_SRC721_SUPPLY,
     INVALID_BTC_STAMP_SUFFIX,
     DOMAINNAME,
     CP_SRC721_GENESIS_BLOCK,
@@ -125,16 +122,39 @@ class StampData:
         """
         js_code = bytestring_data.decode('utf-8', errors='ignore')
 
-        # Check for common JavaScript syntax elements
-        if not re.search(r'\b(function|var|let|const|if|else|for|while)\b', js_code):
+        # Enhanced regex to detect common JavaScript syntax elements, including ES6 features
+        js_pattern = re.compile(r'\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b')
+        if not js_pattern.search(js_code):
             return False
 
-        try:
-            js2py.parse_js(js_code)
-        except JsException:
-            return False
+        # Check for some common JavaScript structures and constructs
+        js_formatting_patterns = [
+            r'\bfunction\s+\w+\s*\(',          # function declarations
+            r'\bvar\s+\w+\s*=',                # var declarations
+            r'\blet\s+\w+\s*=',                # let declarations
+            r'\bconst\s+\w+\s*=',              # const declarations
+            r'\bif\s*\(.*?\)\s*{',             # if statements
+            r'\belse\s*{',                     # else statements
+            r'\bfor\s*\(.*?\)\s*{',            # for loops
+            r'\bwhile\s*\(.*?\)\s*{',          # while loops
+            r'\bclass\s+\w+\s*{',              # class declarations
+            r'\bimport\s+.*?\s+from\s+["\']',  # import statements
+            r'\bexport\s+(default\s+)?\w+\s*', # export statements
+            r'\bnew\s+\w+\s*\(',               # object instantiation
+            r'\breturn\s+',                    # return statements
+            r'\btypeof\s+\w+',                 # typeof operator
+            r'\binstanceof\s+\w+',             # instanceof operator
+            r'\bcatch\s*\(.*?\)\s*{',          # catch blocks
+            r'\btry\s*{',                      # try blocks
+            r'\bfinally\s*{',                  # finally blocks
+            r'\b=>\s*{',                       # arrow functions
+        ]
 
-        return True
+        for pattern in js_formatting_patterns:
+            if re.search(pattern, js_code):
+                return True
+
+        return False
 
     def decode_and_reformat_src_string(self):
         """
