@@ -919,6 +919,7 @@ def fetch_api_ledger_data(block_index):
     url = SRC_VALIDATION_API1 + str(block_index)
     max_retries = 10
     retry_count = 0
+    backoff_time = 1
 
     while retry_count < max_retries:
         try:
@@ -929,10 +930,12 @@ def fetch_api_ledger_data(block_index):
                 return api_ledger_hash, api_ledger_validation
             else:
                 retry_count += 1
-                time.sleep(1)
+                time.sleep(backoff_time)
+                backoff_time *= 2
         except requests.exceptions.RequestException:
             retry_count += 1
-            time.sleep(1)
+            time.sleep(backoff_time)
+            backoff_time *= 2
 
     raise Exception(f'Failed to retrieve from the API after {max_retries} retries')
 
