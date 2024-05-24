@@ -6,11 +6,14 @@ from collections import namedtuple
 import decimal
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import (
     TICK_PATTERN_SET,
     SRC20_VALID_TABLE,
     SRC_VALIDATION_API1,
+    SRC_VALIDATION_API2,
+    SRC_VALIDATION_SECRET_API2,
     SRC20_BALANCES_TABLE,
 )
 import index_core.log as log
@@ -903,7 +906,7 @@ def clear_zero_balances(db):
     return
 
 
-def fetch_api_ledger_data(block_index):
+def fetch_api_ledger_data(block_index: int):
     """
     Fetches the ledger hash and balance data for a given block index from the API.
 
@@ -911,36 +914,51 @@ def fetch_api_ledger_data(block_index):
         block_index (int): The block index to fetch data for.
 
     Returns:
-        tuple: A tuple containing the ledger hash and balance data from the API.
+        tuple: A tuple containing the ledger hash and balance data from the API, or (None, None) if neither URL is provided.
 
     Raises:
         Exception: If failed to retrieve from the API after retries.
     """
-    url = SRC_VALIDATION_API1 + str(block_index)
+    urls = []
+    if SRC_VALIDATION_API1:
+        urls.append(SRC_VALIDATION_API1 + str(block_index))
+    if SRC_VALIDATION_SECRET_API2 and SRC_VALIDATION_API2:
+        urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
+
+    if not urls:
+        return None, None
+
     max_retries = 10
-    retry_count = 0
     backoff_time = 1
 
-    while retry_count < max_retries:
+    def fetch_url(url):
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=5)
             if response.status_code == 200:
-                api_ledger_hash = response.json()['data']['hash']
-                api_ledger_validation = response.json()['data']['balance_data']
+                data = response.json().get('data', {})
+                api_ledger_hash = data.get('hash')
+                api_ledger_validation = data.get('balance_data')
                 return api_ledger_hash, api_ledger_validation
             else:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2
+                return None, None
         except requests.exceptions.RequestException:
-            retry_count += 1
-            time.sleep(backoff_time)
-            backoff_time *= 2
+            return None, None
+
+    for _ in range(max_retries):
+        with ThreadPoolExecutor() as executor:
+            future_to_url = {executor.submit(fetch_url, url): url for url in urls}
+            for future in as_completed(future_to_url):
+                result = future.result()
+                if result != (None, None):
+                    return result
+
+        time.sleep(backoff_time)
+        backoff_time *= 2
 
     raise Exception(f'Failed to retrieve from the API after {max_retries} retries')
 
 
-def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
+def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
     """
     Validates the ledger for a given block index against the API.
 
