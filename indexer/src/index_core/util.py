@@ -7,8 +7,8 @@ import hashlib
 import collections
 import threading
 import decimal
-import config
-from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
+import src.config as config
+from src.index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal

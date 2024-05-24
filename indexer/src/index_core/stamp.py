@@ -4,17 +4,17 @@ import pybase64
 import subprocess  # nosec
 import json
 
-from index_core.exceptions import DataConversionError, InvalidInputDataError
-from index_core.models import ValidStamp, StampData
-import index_core.log as log
-from index_core.xcprequest import parse_base64_from_description
-from index_core.database import get_next_stamp_number, check_reissue
-from index_core.util import (
+from src.index_core.exceptions import DataConversionError, InvalidInputDataError
+from src.index_core.models import ValidStamp, StampData
+import src.index_core.log as log
+from src.index_core.xcprequest import parse_base64_from_description
+from src.index_core.database import get_next_stamp_number, check_reissue
+from src.index_core.util import (
     check_valid_base64_string,
     convert_to_dict_or_string
 )
-from index_core.files import store_files
-from config import (
+from src.index_core.files import store_files
+from src.config import (
     STOP_BASE64_REPAIR,
     CP_P2WSH_FEAT_BLOCK_START,
 )

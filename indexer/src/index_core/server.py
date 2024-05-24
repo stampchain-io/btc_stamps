@@ -9,14 +9,14 @@ import logging
 import csv
 import hashlib
 
-import index_core.log as log
-import config
-import index_core.util as util
-import index_core.blocks as blocks
-from index_core.database import last_db_index
-import index_core.backend as backend
-from index_core.aws import get_s3_objects
-from index_core.check import software_version
+import src.index_core.log as log
+import src.config as config
+import src.index_core.util as util
+import src.index_core.blocks as blocks
+from src.index_core.database import last_db_index
+import src.index_core.backend as backend
+from src.index_core.aws import get_s3_objects
+from src.index_core.check import software_version
 
 
 logger = logging.getLogger(__name__)

@@ -1,10 +1,10 @@
 import boto3
-import config
+import src.config as config
 # from botocore.exceptions import NoCredentialsError
 import logging
 import time
 
-import index_core.log as log
+import src.index_core.log as log
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger

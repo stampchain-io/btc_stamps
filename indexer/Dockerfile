@@ -21,7 +21,7 @@ WORKDIR /usr/src/app
 
 # Install Poetry
 RUN pip install --upgrade pip && \
-    pip install poetry
+    pip install poetry==1.8.2
 
 # Copy the pyproject.toml (and optionally poetry.lock) to /usr/src/app
 COPY pyproject.toml poetry.lock* /usr/src/app/
@@ -29,6 +29,7 @@ COPY pyproject.toml poetry.lock* /usr/src/app/
 # Install project dependencies with Poetry
 # Note: Configuring Poetry to not create a virtual environment inside the Docker container
 RUN poetry config virtualenvs.create false && \
+    poetry lock --no-update && \
     poetry install --no-dev --no-root
 
 # Copy the application source code into the container

@@ -18,28 +18,28 @@ from collections import namedtuple
 from typing import List
 # import cProfile
 # import pstats
-import config
-import index_core.util as util
-import index_core.check as check
-import index_core.script as script
-import index_core.backend as backend
-import index_core.arc4 as arc4
-import index_core.log as log
-from index_core.xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
-from index_core.exceptions import (
+import src.config as config
+import src.index_core.util as util
+import src.index_core.check as check
+import src.index_core.script as script
+import src.index_core.backend as backend
+import src.index_core.arc4 as arc4
+import src.index_core.log as log
+from src.index_core.xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
+from src.index_core.exceptions import (
     BlockAlreadyExistsError, DatabaseInsertError,
     BlockUpdateError, DecodeError, BTCOnlyError
 )
-from index_core.models import StampData, ValidStamp
-from index_core.stamp import parse_stamp
-from index_core.src20 import (
+from src.index_core.models import StampData, ValidStamp
+from src.index_core.stamp import parse_stamp
+from src.index_core.src20 import (
     parse_src20,
     update_src20_balances,
     process_balance_updates,
     clear_zero_balances,
     validate_src20_ledger_hash
 )
-from index_core.database import (
+from src.index_core.database import (
     initialize,
     insert_transactions,
     insert_into_stamp_table,

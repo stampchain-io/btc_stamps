@@ -6,8 +6,8 @@ import concurrent.futures
 import collections
 import binascii
 import hashlib
-import config
-import index_core.util as util
+import src.config as config
+import src.index_core.util as util
 
 import bitcoin as bitcoinlib
 from bitcoin.core import CBlock

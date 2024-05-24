@@ -2,13 +2,13 @@ import logging
 import hashlib
 import io
 import os
-import index_core.log as log
+import src.index_core.log as log
 
-from index_core.aws import (
+from src.index_core.aws import (
     check_existing_and_upload_to_s3,
 )
 
-from config import (
+from src.config import (
     AWS_SECRET_ACCESS_KEY,
     AWS_ACCESS_KEY_ID,
     AWS_S3_IMAGE_DIR,

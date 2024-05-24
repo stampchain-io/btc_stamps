@@ -2,8 +2,8 @@ import bitcoin as bitcoinlib
 import binascii
 
 
-import config
-import index_core.exceptions as exceptions
+import src.config as config
+import src.index_core.exceptions as exceptions
 
 
 def get_asm(scriptpubkey):

@@ -2,8 +2,8 @@ import textwrap
 import logging
 import copy
 import json
-import config
-from index_core.database import get_srcbackground_data
+import src.config as config
+from src.index_core.database import get_srcbackground_data
 
 logger = logging.getLogger(__name__)
 

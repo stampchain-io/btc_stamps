@@ -1,10 +1,10 @@
 import time
 import json
-import config
+import src.config as config
 import requests
 import logging
 import concurrent.futures
-import index_core.util as util
+import src.index_core.util as util
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
