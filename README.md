@@ -1,3 +1,6 @@
+
+[![Checks On Pull Request](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml)
+
 # Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
 The Bitcoin Stamps meta-protocol was initially developed using the Counterparty
