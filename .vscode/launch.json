@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Poetry: Run Indexer",
+            "type": "python",
+            "request": "launch",
+            "program": "${env:HOME}/.local/bin/poetry",
+            "args": ["run", "indexer"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/indexer",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/indexer/src"
+            },
+            "justMyCode": true
+        },
+        {
+            "name": "Python: start.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/start.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/indexer",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/indexer"
+            },
+            "justMyCode": true,
+        },
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+
+    ]
+}
