@@ -4,8 +4,12 @@ import logging
 import os
 
 import index_core.log as log
-from config import (AWS_ACCESS_KEY_ID, AWS_S3_BUCKETNAME, AWS_S3_IMAGE_DIR,
-                    AWS_SECRET_ACCESS_KEY)
+from config import (
+    AWS_ACCESS_KEY_ID,
+    AWS_S3_BUCKETNAME,
+    AWS_S3_IMAGE_DIR,
+    AWS_SECRET_ACCESS_KEY,
+)
 from index_core.aws import check_existing_and_upload_to_s3
 
 logger = logging.getLogger(__name__)
@@ -52,12 +56,15 @@ def store_files(db, filename, decoded_base64, mime_type):
         str: The MD5 hash of the stored file.
     """
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
-    if (AWS_SECRET_ACCESS_KEY and AWS_ACCESS_KEY_ID and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR):
+    if (
+        AWS_SECRET_ACCESS_KEY
+        and AWS_ACCESS_KEY_ID
+        and AWS_S3_BUCKETNAME
+        and AWS_S3_IMAGE_DIR
+    ):
         # FIXME: there may be cases where we want both aws and disk storage
         logger.info(f"uploading {filename} to aws")
-        check_existing_and_upload_to_s3(
-            db, filename, mime_type, file_obj, file_obj_md5
-        )
+        check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_md5)
     else:
         store_files_to_disk(filename, decoded_base64)
     return file_obj_md5, filename

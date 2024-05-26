@@ -11,7 +11,7 @@ def download_arweave_file(transaction_id, local_file_path):
     response = requests.get(url, stream=True, timeout=10)
 
     if response.status_code == 200:
-        with open(local_file_path, 'wb') as f:
+        with open(local_file_path, "wb") as f:
             for chunk in response.iter_content(1024):
                 f.write(chunk)
         print(f"file downloaded and saved to: {local_file_path}")
@@ -23,8 +23,9 @@ def get_arweave_transaction(wallet=stampchain_arweave_wallet, tags=[]):
     formatted_tags = [
         {
             "name": tag_name,
-            "values": [str(tag_value)]  # Convertir todos los valores a strings
-        } for tag_name, tag_value in tags
+            "values": [str(tag_value)],  # Convertir todos los valores a strings
+        }
+        for tag_name, tag_value in tags
     ]
     query = {
         "query": """
@@ -42,24 +43,19 @@ def get_arweave_transaction(wallet=stampchain_arweave_wallet, tags=[]):
             }
         }
         """,
-        "variables": {
-            "wallet": wallet,
-            "tags": formatted_tags
-        }
+        "variables": {"wallet": wallet, "tags": formatted_tags},
     }
     response = requests.post(endpoint, json=query, timeout=10)
     if response.status_code == 200:
         print(response.json())
-        return response.json()['data']['transactions']['edges']
+        return response.json()["data"]["transactions"]["edges"]
     else:
         raise Exception(f"Error fetching Arweave: {response.status_code}")
 
 
 # TODO currently unused
 def fetch_and_download_arweave_files(
-    wallet=stampchain_arweave_wallet,
-    tags=[],
-    download_path="."
+    wallet=stampchain_arweave_wallet, tags=[], download_path="."
 ):
     try:
         transactions = get_arweave_transaction(wallet, tags)
@@ -69,29 +65,25 @@ def fetch_and_download_arweave_files(
 
     for edge in transactions:
         print(edge)
-        transaction_id = edge['node']['id']
+        transaction_id = edge["node"]["id"]
         tx_hash = next(
-            (
-                tag['value'] for tag in edge['node']['tags']
-                if tag['name'] == 'tx_hash'
-            ),
-            None
+            (tag["value"] for tag in edge["node"]["tags"] if tag["name"] == "tx_hash"),
+            None,
         )
         content_type = next(
             (
-                tag['value'] for tag in edge['node']['tags']
-                if tag['name'] == 'Content-Type'
+                tag["value"]
+                for tag in edge["node"]["tags"]
+                if tag["name"] == "Content-Type"
             ),
-            'text/plain'
+            "text/plain",
         )
-        extension = content_type.split('/')[-1]
-        local_file_path = os.path.join(
-            download_path, f"{tx_hash}.{extension}"
-        )
+        extension = content_type.split("/")[-1]
+        local_file_path = os.path.join(download_path, f"{tx_hash}.{extension}")
         download_arweave_file(transaction_id, local_file_path)
 
 
-'''
+"""
  # USAGE
  tags = [
      (
@@ -107,4 +99,4 @@ def fetch_and_download_arweave_files(
      tags,
      download_path
  )
-'''
+"""

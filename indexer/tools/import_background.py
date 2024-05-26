@@ -9,24 +9,25 @@ from PIL import Image
 
 load_dotenv()
 
-parser = argparse.ArgumentParser(description='Import SRC BG to MySQL')
-parser.add_argument('file_names', nargs='+', help='Names of the files to import in tick-color.ext format')
+parser = argparse.ArgumentParser(description="Import SRC BG to MySQL")
+parser.add_argument(
+    "file_names",
+    nargs="+",
+    help="Names of the files to import in tick-color.ext format",
+)
 args = parser.parse_args()
 
 file_names = args.file_names
 
-rds_host = os.environ.get('RDS_HOSTNAME')
-rds_user = os.environ.get('RDS_USER')
-rds_password = os.environ.get('RDS_PASSWORD')
-rds_database = os.environ.get('RDS_DATABASE')
+rds_host = os.environ.get("RDS_HOSTNAME")
+rds_user = os.environ.get("RDS_USER")
+rds_password = os.environ.get("RDS_PASSWORD")
+rds_database = os.environ.get("RDS_DATABASE")
 
 print(rds_host)
 
 mysql_conn = mysql.connect(
-    host=rds_host,
-    user=rds_user,
-    password=rds_password,
-    database=rds_database
+    host=rds_host, user=rds_user, password=rds_password, database=rds_database
 )
 
 
@@ -47,18 +48,21 @@ def main(file_names=file_names, mysql_conn=mysql_conn):
         text_color = text_color.lower()
 
         mysql_cursor = mysql_conn.cursor()
-        mysql_cursor.execute('''
+        mysql_cursor.execute(
+            """
                              SELECT * FROM SRC20 WHERE tick = %s AND op = 'DEPLOY'
-                                ''', (tick))
+                                """,
+            (tick),
+        )
         if mysql_cursor.rowcount == 0:
             print(f"Tick '{tick}' deploy does not exist in the database.")
 
-        with open(file_name, 'rb') as f:
+        with open(file_name, "rb") as f:
             background_bytestring = f.read()
 
         mimetype, _ = mimetypes.guess_type(file_name)
-        background_base64 = base64.b64encode(background_bytestring).decode('utf-8')
-        bald_background_base64_prefixed = mimetype + ';base64,' + background_base64
+        background_base64 = base64.b64encode(background_bytestring).decode("utf-8")
+        bald_background_base64_prefixed = mimetype + ";base64," + background_base64
 
         image = Image.open(file_name)
         width, height = image.size
@@ -66,10 +70,13 @@ def main(file_names=file_names, mysql_conn=mysql_conn):
             print(f"The image dimensions of '{file_name}' must be 420x420 pixels.")
             continue
 
-        mysql_cursor.execute('''
+        mysql_cursor.execute(
+            """
             REPLACE INTO srcbackground (base64, tick, P, text_color)
             VALUES (%s, %s, %s, %s)
-        ''', (bald_background_base64_prefixed, tick, 'SRC-20', text_color))
+        """,
+            (bald_background_base64_prefixed, tick, "SRC-20", text_color),
+        )
         mysql_conn.commit()
 
         mysql_cursor.close()

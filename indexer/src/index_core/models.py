@@ -11,10 +11,16 @@ import magic
 import msgpack
 
 import index_core.log as log
-from config import (CP_BMN_FEAT_BLOCK_START, CP_P2WSH_FEAT_BLOCK_START,
-                    CP_SRC20_END_BLOCK, CP_SRC721_GENESIS_BLOCK, DOMAINNAME,
-                    INVALID_BTC_STAMP_SUFFIX, STRIP_WHITESPACE,
-                    SUPPORTED_SUB_PROTOCOLS)
+from config import (
+    CP_BMN_FEAT_BLOCK_START,
+    CP_P2WSH_FEAT_BLOCK_START,
+    CP_SRC20_END_BLOCK,
+    CP_SRC721_GENESIS_BLOCK,
+    DOMAINNAME,
+    INVALID_BTC_STAMP_SUFFIX,
+    STRIP_WHITESPACE,
+    SUPPORTED_SUB_PROTOCOLS,
+)
 from index_core.src20 import build_src20_svg_string, check_format
 from index_core.src721 import validate_src721_and_process
 from index_core.util import create_base62_hash
@@ -55,6 +61,7 @@ class StampData:
         valid_stamps_in_block (List[ValidStamp]): A list to store valid stamps in the block.
         p2wsh_data (bytes): The P2WSH data associated with the transaction.
     """
+
     tx_hash: str
     source: str
     destination: str
@@ -93,15 +100,17 @@ class StampData:
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
-        ''' for items that aren't part of the magic module that we want to include '''
-        if bytestring_data[:3] == b'BMN':
+        """for items that aren't part of the magic module that we want to include"""
+        if bytestring_data[:3] == b"BMN":
             return True
         else:
             return None
 
     def is_valid_json_object_or_array(self, s):
         s = s.strip()
-        if (s.startswith('{') and s.endswith('}')) or (s.startswith('[') and s.endswith(']')):
+        if (s.startswith("{") and s.endswith("}")) or (
+            s.startswith("[") and s.endswith("]")
+        ):
             try:
                 json.loads(s)
                 return True
@@ -113,34 +122,36 @@ class StampData:
         """
         Determines if the given bytestring data is JavaScript.
         """
-        js_code = bytestring_data.decode('utf-8', errors='ignore')
+        js_code = bytestring_data.decode("utf-8", errors="ignore")
 
         # Enhanced regex to detect common JavaScript syntax elements, including ES6 features
-        js_pattern = re.compile(r'\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b')
+        js_pattern = re.compile(
+            r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b"
+        )
         if not js_pattern.search(js_code):
             return False
 
         # Check for some common JavaScript structures and constructs
         js_formatting_patterns = [
-            r'\bfunction\s+\w+\s*\(',          # function declarations
-            r'\bvar\s+\w+\s*=',                # var declarations
-            r'\blet\s+\w+\s*=',                # let declarations
-            r'\bconst\s+\w+\s*=',              # const declarations
-            r'\bif\s*\(.*?\)\s*{',             # if statements
-            r'\belse\s*{',                     # else statements
-            r'\bfor\s*\(.*?\)\s*{',            # for loops
-            r'\bwhile\s*\(.*?\)\s*{',          # while loops
-            r'\bclass\s+\w+\s*{',              # class declarations
+            r"\bfunction\s+\w+\s*\(",  # function declarations
+            r"\bvar\s+\w+\s*=",  # var declarations
+            r"\blet\s+\w+\s*=",  # let declarations
+            r"\bconst\s+\w+\s*=",  # const declarations
+            r"\bif\s*\(.*?\)\s*{",  # if statements
+            r"\belse\s*{",  # else statements
+            r"\bfor\s*\(.*?\)\s*{",  # for loops
+            r"\bwhile\s*\(.*?\)\s*{",  # while loops
+            r"\bclass\s+\w+\s*{",  # class declarations
             r'\bimport\s+.*?\s+from\s+["\']',  # import statements
-            r'\bexport\s+(default\s+)?\w+\s*', # export statements
-            r'\bnew\s+\w+\s*\(',               # object instantiation
-            r'\breturn\s+',                    # return statements
-            r'\btypeof\s+\w+',                 # typeof operator
-            r'\binstanceof\s+\w+',             # instanceof operator
-            r'\bcatch\s*\(.*?\)\s*{',          # catch blocks
-            r'\btry\s*{',                      # try blocks
-            r'\bfinally\s*{',                  # finally blocks
-            r'\b=>\s*{',                       # arrow functions
+            r"\bexport\s+(default\s+)?\w+\s*",  # export statements
+            r"\bnew\s+\w+\s*\(",  # object instantiation
+            r"\breturn\s+",  # return statements
+            r"\btypeof\s+\w+",  # typeof operator
+            r"\binstanceof\s+\w+",  # instanceof operator
+            r"\bcatch\s*\(.*?\)\s*{",  # catch blocks
+            r"\btry\s*{",  # try blocks
+            r"\bfinally\s*{",  # finally blocks
+            r"\b=>\s*{",  # arrow functions
         ]
 
         for pattern in js_formatting_patterns:
@@ -157,13 +168,19 @@ class StampData:
         if not isinstance(self.decoded_base64, dict):
             self.decoded_base64 = json.loads(self.decoded_base64)
         self.decoded_base64 = {k.lower(): v for k, v in self.decoded_base64.items()}
-        if self.decoded_base64 and self.decoded_base64.get('p') and self.decoded_base64.get('p').upper() in SUPPORTED_SUB_PROTOCOLS:
-            self.ident = self.decoded_base64['p'].upper()
-            self.file_suffix = 'json'
+        if (
+            self.decoded_base64
+            and self.decoded_base64.get("p")
+            and self.decoded_base64.get("p").upper() in SUPPORTED_SUB_PROTOCOLS
+        ):
+            self.ident = self.decoded_base64["p"].upper()
+            self.file_suffix = "json"
         else:
-            self.file_suffix = 'json'  # a valid json file, but not SRC-20, will be cursed
-            self.stamp_mimetype = 'application/json'
-            self.ident = 'UNKNOWN'
+            self.file_suffix = (
+                "json"  # a valid json file, but not SRC-20, will be cursed
+            )
+            self.stamp_mimetype = "application/json"
+            self.ident = "UNKNOWN"
 
     def zlib_decompress(self, compressed_data):
         """
@@ -176,7 +193,7 @@ class StampData:
             self.file_suffix = "json"
         except (zlib.error, msgpack.exceptions.ExtraData, TypeError) as e:
             logger.info(f"EXCLUSION: {type(e).__name__} occurred")
-            self.ident = 'UNKNOWN'
+            self.ident = "UNKNOWN"
             return
 
         self.handle_json_string()  # this is a big assumption all zlib files will have a string...
@@ -185,40 +202,53 @@ class StampData:
         """
         Updates the file suffix and MIME type based on the given bytestring data.
         """
-        if self.block_index > CP_BMN_FEAT_BLOCK_START and self.check_custom_suffix(bytestring_data):
-            self.file_suffix = 'bmn'
+        if self.block_index > CP_BMN_FEAT_BLOCK_START and self.check_custom_suffix(
+            bytestring_data
+        ):
+            self.file_suffix = "bmn"
             self.stamp_mimetype = None
             return
 
         try:
-            json.loads(bytestring_data.decode('utf-8'))
-            self.file_suffix = 'json'
-            self.stamp_mimetype = 'application/json'
+            json.loads(bytestring_data.decode("utf-8"))
+            self.file_suffix = "json"
+            self.stamp_mimetype = "application/json"
             return
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
-        mime_type = magic.from_buffer(bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data, mime=True)
-        self.file_suffix = mime_type.split('/')[-1]
+        mime_type = magic.from_buffer(
+            (
+                bytestring_data.lstrip()
+                if self.block_index > STRIP_WHITESPACE
+                else bytestring_data
+            ),
+            mime=True,
+        )
+        self.file_suffix = mime_type.split("/")[-1]
         self.stamp_mimetype = mime_type
 
-        if mime_type == 'text/plain' and self.is_javascript(bytestring_data):
-            self.file_suffix = 'js'
-            self.stamp_mimetype = 'application/javascript'
+        if mime_type == "text/plain" and self.is_javascript(bytestring_data):
+            self.file_suffix = "js"
+            self.stamp_mimetype = "application/javascript"
 
     def handle_bytes(self):
         try:
-            self.decoded_base64 = self.decoded_base64.decode('utf-8')  # to check for a text encoded bytestring / src-20, etc
+            self.decoded_base64 = self.decoded_base64.decode(
+                "utf-8"
+            )  # to check for a text encoded bytestring / src-20, etc
         except UnicodeDecodeError:
             self.handle_bytes_again()  # FIXME: if we detect a octet-stream or invalid type here we later flag in stamp.py as cursed
 
     def handle_bytes_again(self):
-        self.update_file_suffix_and_mime_type(self.decoded_base64)  # retry magic on non-utf-8 decoded bytes
-        if self.file_suffix in ['zlib']:
+        self.update_file_suffix_and_mime_type(
+            self.decoded_base64
+        )  # retry magic on non-utf-8 decoded bytes
+        if self.file_suffix in ["zlib"]:
             self.zlib_decompress(self.decoded_base64)
         else:
             # we can likely just flag as cursed here if in invalid filetypes instead of removing the stamp ident later
-            self.ident = 'STAMP'
+            self.ident = "STAMP"
 
     def handle_dict(self):
         self.decode_and_reformat_src_string()
@@ -230,22 +260,22 @@ class StampData:
             self.handle_string()  # for svg stamps
 
     def handle_string(self):
-        self.decoded_base64 = self.decoded_base64.encode('utf-8')
+        self.decoded_base64 = self.decoded_base64.encode("utf-8")
         self.update_file_suffix_and_mime_type(self.decoded_base64)
-        self.ident = 'STAMP'
+        self.ident = "STAMP"
 
     def handle_unknown_type(self):
         self.file_suffix = None
-        self.ident = 'UNKNOWN'
+        self.ident = "UNKNOWN"
         self.stamp_mimetype = None
 
     def check_decoded_data_fetch_ident_mime(self):
-        '''
+        """
         Check the decoded data and fetch the identifier, mime-type, and file suffix.
 
         Raises:
             Exception: If an error occurs during the process.
-        '''
+        """
         # FIXME: this needs some love upstream to simplify. SVG stamps (and CP SRC?) come in as strings, SRC-20 as bytes.
         try:
             if type(self.decoded_base64) is bytes:
@@ -257,9 +287,11 @@ class StampData:
             else:
                 type_func_map = {
                     str: self.handle_string,
-                    bytes: self.handle_bytes_again
+                    bytes: self.handle_bytes_again,
                 }
-                handler = type_func_map.get(type(self.decoded_base64), self.handle_unknown_type)
+                handler = type_func_map.get(
+                    type(self.decoded_base64), self.handle_unknown_type
+                )
                 handler()
 
         except Exception as e:
@@ -271,12 +303,12 @@ class StampData:
             raise ValueError("Input data is empty or None")
 
     def update_stamp_data_rows_from_cp_asset(self, stamp: dict):
-        self.cpid = stamp.get('cpid', None)
-        self.asset_longname = stamp.get('asset_longname')
-        self.supply = stamp.get('quantity')
-        self.locked = stamp.get('locked')
-        self.divisible = stamp.get('divisible')
-        self.message_index = stamp.get('message_index')
+        self.cpid = stamp.get("cpid", None)
+        self.asset_longname = stamp.get("asset_longname")
+        self.supply = stamp.get("quantity")
+        self.locked = stamp.get("locked")
+        self.divisible = stamp.get("divisible")
+        self.message_index = stamp.get("message_index")
 
     def update_stamp_hash_and_block_time(self):
         self.creator = self.source
@@ -286,13 +318,19 @@ class StampData:
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
         if self.cpid and check_reissue_func(db, self.cpid, valid_stamps_in_block):
-            raise ValueError('reissue invalidation')
+            raise ValueError("reissue invalidation")
 
     def is_src20(self):
-        return self.ident == 'SRC-20' and self.keyburn == 1
+        return self.ident == "SRC-20" and self.keyburn == 1
 
     def valid_cp_src20(self):
-        return self.is_src20() and self.cpid and self.block_index < CP_SRC20_END_BLOCK and self.supply == 0 and self.cpid.startswith('A')
+        return (
+            self.is_src20()
+            and self.cpid
+            and self.block_index < CP_SRC20_END_BLOCK
+            and self.supply == 0
+            and self.cpid.startswith("A")
+        )
 
     def valid_src20(self):
         results = self.valid_cp_src20() or (self.is_src20() and not self.cpid)
@@ -302,7 +340,17 @@ class StampData:
     def valid_src721(self):
         if self.block_index < CP_SRC721_GENESIS_BLOCK:
             return False
-        base_condition = self.ident == 'SRC-721' and (self.keyburn == 1 or (self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START)) and self.supply <= 1
+        base_condition = (
+            self.ident == "SRC-721"
+            and (
+                self.keyburn == 1
+                or (
+                    self.p2wsh_data is not None
+                    and self.block_index >= CP_P2WSH_FEAT_BLOCK_START
+                )
+            )
+            and self.supply <= 1
+        )
         return base_condition
 
     def normalize_mime_and_suffix(self):
@@ -310,11 +358,7 @@ class StampData:
         self.normalize_mimetype()
 
     def normalize_file_suffix(self):
-        suffix_map = {
-            'svg+xml': 'svg',
-            'plain': 'txt',
-            'xhtml+xml': 'html'
-        }
+        suffix_map = {"svg+xml": "svg", "plain": "txt", "xhtml+xml": "html"}
         self.file_suffix = suffix_map.get(self.file_suffix, self.file_suffix)
 
     def normalize_mimetype(self):
@@ -322,11 +366,18 @@ class StampData:
             self.stamp_mimetype = None
 
     def get_base_64_data_from_trx(self, get_data_func, stamp):
-        self.decoded_base64, self.stamp_base64, self.stamp_mimetype, self.is_valid_base64 = get_data_func(stamp, self.block_index)
+        (
+            self.decoded_base64,
+            self.stamp_base64,
+            self.stamp_mimetype,
+            self.is_valid_base64,
+        ) = get_data_func(stamp, self.block_index)
 
     def process_p2wsh_data(self, decode_base64_func):
         self.stamp_base64 = base64.b64encode(self.p2wsh_data).decode()
-        self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
+        self.decoded_base64, self.is_valid_base64 = decode_base64_func(
+            self.stamp_base64, self.block_index
+        )
         self.check_decoded_data_fetch_ident_mime()
         self.is_op_return = None  # reset because p2wsh are typically op_return
 
@@ -335,10 +386,17 @@ class StampData:
 
     def update_cpid_and_stamp_url(self, filename):
         self.cpid = self.cpid if self.cpid else self.stamp_hash
-        self.stamp_url = 'https://' + DOMAINNAME + '/stamps/' + filename if self.file_suffix is not None and filename is not None else None
+        self.stamp_url = (
+            "https://" + DOMAINNAME + "/stamps/" + filename
+            if self.file_suffix is not None and filename is not None
+            else None
+        )
 
     def determine_stamp_data_type(self, decode_base64_func):
-        if self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START:
+        if (
+            self.p2wsh_data is not None
+            and self.block_index >= CP_P2WSH_FEAT_BLOCK_START
+        ):
             self.process_p2wsh_data(decode_base64_func)
         elif self.decoded_base64 is not None:
             self.process_decoded_base64()
@@ -349,12 +407,12 @@ class StampData:
     def validate_and_process_stamp_data(self, decode_base64, db, valid_stamps_in_block):
         self.determine_stamp_data_type(decode_base64)
 
-        ident_known = self.ident != 'UNKNOWN'
-        cpid_starts_with_A = self.cpid and self.cpid.startswith('A')
+        ident_known = self.ident != "UNKNOWN"
+        cpid_starts_with_A = self.cpid and self.cpid.startswith("A")
 
         valid_func_map = {
             self.valid_src20: (self.src20_pre_validation, (db,)),
-            self.valid_src721: (self.process_src721, (valid_stamps_in_block, db))
+            self.valid_src721: (self.process_src721, (valid_stamps_in_block, db)),
         }
 
         for valid_func, (process_func, args) in valid_func_map.items():
@@ -370,27 +428,41 @@ class StampData:
         self.src20_dict = check_format(self.decoded_base64, self.tx_hash)
         if self.src20_dict is not None:
             self.is_btc_stamp = 1
-            self.decoded_base64 = build_src20_svg_string(db, self.src20_dict)  # valid stamps get decoded_base64 back to bytestring here
-            self.file_suffix = 'svg'
-            self.stamp_mimetype = 'image/svg+xml'
+            self.decoded_base64 = build_src20_svg_string(
+                db, self.src20_dict
+            )  # valid stamps get decoded_base64 back to bytestring here
+            self.file_suffix = "svg"
+            self.stamp_mimetype = "image/svg+xml"
         else:
-            raise ValueError('Invalid SRC-20 Pre-check')  # we don't save in stamp_results, stamp_data, valid_stamp, prevalidated_src20
+            raise ValueError(
+                "Invalid SRC-20 Pre-check"
+            )  # we don't save in stamp_results, stamp_data, valid_stamp, prevalidated_src20
 
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = 1
-        svg_output, self.file_suffix = validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
+        svg_output, self.file_suffix = validate_src721_and_process(
+            self.src_data, valid_stamps_in_block, db
+        )
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
-        self.file_suffix = 'svg'
-        self.stamp_mimetype = 'image/svg+xml'
+        self.file_suffix = "svg"
+        self.stamp_mimetype = "image/svg+xml"
 
     def process_all_stamps(self, ident_known, cpid_starts_with_A):
-        if (ident_known and self.asset_longname is None and cpid_starts_with_A and not self.is_op_return and self.file_suffix not in INVALID_BTC_STAMP_SUFFIX):
+        if (
+            ident_known
+            and self.asset_longname is None
+            and cpid_starts_with_A
+            and not self.is_op_return
+            and self.file_suffix not in INVALID_BTC_STAMP_SUFFIX
+        ):
             self.is_btc_stamp = 1
         else:
             if not self.process_cursed_with_asset_longname():
-                self.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
+                self.process_cursed_with_other_conditions(
+                    cpid_starts_with_A, ident_known
+                )
 
     def process_cursed_with_asset_longname(self):
         if self.asset_longname is not None:
@@ -401,15 +473,27 @@ class StampData:
         return False
 
     def process_cursed_with_other_conditions(self, cpid_starts_with_A, ident_known):
-        if self.cpid and (self.file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid_starts_with_A or self.is_op_return or not ident_known):  # added ident_known
+        if self.cpid and (
+            self.file_suffix in INVALID_BTC_STAMP_SUFFIX
+            or not cpid_starts_with_A
+            or self.is_op_return
+            or not ident_known
+        ):  # added ident_known
             self.is_btc_stamp = None
             self.is_cursed = 1
 
     def process_and_store_stamp_data(
-        self, get_src_or_img_from_data, convert_to_dict_or_string, encode_and_store_file, check_reissue, decode_base64, db, valid_stamps_in_block
+        self,
+        get_src_or_img_from_data,
+        convert_to_dict_or_string,
+        encode_and_store_file,
+        check_reissue,
+        decode_base64,
+        db,
+        valid_stamps_in_block,
     ):
         self.validate_data_exists()
-        stamp = convert_to_dict_or_string(self.data, output_format='dict')
+        stamp = convert_to_dict_or_string(self.data, output_format="dict")
 
         self.get_base_64_data_from_trx(get_src_or_img_from_data, stamp)
         if stamp is not None:
@@ -421,8 +505,15 @@ class StampData:
 
         self.normalize_mime_and_suffix()
         # if isinstance(self.decoded_base64, bytes):
-        self.file_hash, filename = encode_and_store_file(  # can be any type (bytestring, string or dict)
-            db, self.tx_hash, self.file_suffix, self.decoded_base64, self.stamp_mimetype)
+        self.file_hash, filename = (
+            encode_and_store_file(  # can be any type (bytestring, string or dict)
+                db,
+                self.tx_hash,
+                self.file_suffix,
+                self.decoded_base64,
+                self.stamp_mimetype,
+            )
+        )
 
         self.update_cpid_and_stamp_url(filename)
         return True
