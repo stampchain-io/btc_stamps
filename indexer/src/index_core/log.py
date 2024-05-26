@@ -87,8 +87,8 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
         max_log_size = 20 * 1024 * 1024  # 20 MB
         fileh = RotatingFileHandler(logfile, maxBytes=max_log_size, backupCount=5)
         fileh.setLevel(logging.DEBUG)
-        LOGFORMAT = '%(asctime)s [%(levelname)s] %(message)s'
-        formatter = logging.Formatter(LOGFORMAT, '%Y-%m-%d-T%H:%M:%S%z')
+        LOGFORMAT = "%(asctime)s [%(levelname)s] %(message)s"
+        formatter = logging.Formatter(LOGFORMAT, "%Y-%m-%d-T%H:%M:%S%z")
         fileh.setFormatter(formatter)
         logger.addHandler(fileh)
 
@@ -96,7 +96,7 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
         if logfile and not LOGGING_TOFILE_SETUP:
             set_up_file_logging()
             LOGGING_TOFILE_SETUP = True
-        logger.getChild('log.set_up').debug('logging already setup')
+        logger.getChild("log.set_up").debug("logging already setup")
         return
     LOGGING_SETUP = True
 
@@ -108,8 +108,12 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     console.setLevel(log_level)
 
     # only add [%(name)s] to LOGFORMAT if we're using console_logfilter
-    LOGFORMAT = '%(log_color)s[%(asctime)s][%(levelname)s]' + ('' if console_logfilter is None else '[%(name)s]') + ' %(message)s%(reset)s'
-    LOGCOLORS = {'WARNING': 'yellow', 'ERROR': 'red', 'CRITICAL': 'red'}
+    LOGFORMAT = (
+        "%(log_color)s[%(asctime)s][%(levelname)s]"
+        + ("" if console_logfilter is None else "[%(name)s]")
+        + " %(message)s%(reset)s"
+    )
+    LOGCOLORS = {"WARNING": "yellow", "ERROR": "red", "CRITICAL": "red"}
     formatter = ColoredFormatter(LOGFORMAT, "%Y-%m-%d %H:%M:%S", log_colors=LOGCOLORS)
     console.setFormatter(formatter)
     logger.addHandler(console)
@@ -126,10 +130,11 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     requests_log = logging.getLogger("requests")
     requests_log.setLevel(log_level)
     requests_log.propagate = False
-    urllib3_log = logging.getLogger('urllib3')
+    urllib3_log = logging.getLogger("urllib3")
     urllib3_log.setLevel(log_level)
     urllib3_log.propagate = False
 
     # Disable InsecureRequestWarning
     import requests
+
     requests.packages.urllib3.disable_warnings()

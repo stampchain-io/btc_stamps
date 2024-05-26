@@ -13,6 +13,6 @@ def init_arc4(seed):
 
 
 def arc4_decrypt_chunk(cyphertext, key):
-    '''Un-obfuscate. initialize key once per attempt.'''
+    """Un-obfuscate. initialize key once per attempt."""
     decryptor = key.decryptor()
     return decryptor.update(cyphertext) + decryptor.finalize()

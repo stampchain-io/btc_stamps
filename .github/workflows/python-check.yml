@@ -45,6 +45,10 @@ jobs:
         run: poetry run task bandit
         working-directory: ./indexer
 
+      - name: Format check with Black
+        run: poetry run black --check .
+        working-directory: ./indexer
+        
       - name: Lint with flake8
         run: |
           poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics

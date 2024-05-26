@@ -9,8 +9,11 @@ import re
 import threading
 
 import config
-from index_core.exceptions import (DataConversionError, InvalidInputDataError,
-                                   SerializationError)
+from index_core.exceptions import (
+    DataConversionError,
+    InvalidInputDataError,
+    SerializationError,
+)
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal
@@ -35,7 +38,7 @@ def chunkify(lst, n):
         list: A list of smaller chunks.
     """
     n = max(1, n)
-    return [lst[i:i + n] for i in range(0, len(lst), n)]
+    return [lst[i : i + n] for i in range(0, len(lst), n)]
 
 
 def dhash(text):
@@ -49,7 +52,7 @@ def dhash(text):
         bytes: The double hash of the input text as bytes.
     """
     if not isinstance(text, bytes):
-        text = bytes(str(text), 'utf-8')
+        text = bytes(str(text), "utf-8")
 
     return hashlib.sha256(hashlib.sha256(text).digest()).digest()
 
@@ -78,9 +81,10 @@ def shash_string(text):
         str: The single hash value represented as a hex string.
     """
     if not isinstance(text, bytes):
-        text = bytes(str(text), 'utf-8')
+        text = bytes(str(text), "utf-8")
 
-    return binascii.hexlify(hashlib.sha256(text).digest()).decode('utf-8')
+    return binascii.hexlify(hashlib.sha256(text).digest()).decode("utf-8")
+
 
 # def shash_string(previous_hash, new_data):
 #     hash_obj = hashlib.sha256()
@@ -114,9 +118,10 @@ def enabled(change_name, block_index=None):
 
 class DictCache:
     """Threadsafe FIFO dict cache"""
+
     def __init__(self, size=100):
         if int(size) < 1:
-            raise AttributeError('size < 1 or not a number')
+            raise AttributeError("size < 1 or not a number")
         self.size = size
         self.dict = collections.OrderedDict()
         self.lock = threading.Lock()
@@ -148,24 +153,24 @@ class DictCache:
             self.dict.move_to_end(key, last=True)
 
 
-URL_USERNAMEPASS_REGEX = re.compile('.+://(.+)@')
+URL_USERNAMEPASS_REGEX = re.compile(".+://(.+)@")
 
 
 def clean_url_for_log(url):
     m = URL_USERNAMEPASS_REGEX.match(url)
     if m and m.group(1):
-        url = url.replace(m.group(1), 'XXXXXXXX')
+        url = url.replace(m.group(1), "XXXXXXXX")
 
     return url
 
 
 def b2h(b):
-    return binascii.hexlify(b).decode('utf-8')
+    return binascii.hexlify(b).decode("utf-8")
 
 
 def inverse_hash(hashstring):
     hashstring = hashstring[::-1]
-    return ''.join([hashstring[i:i + 2][::-1] for i in range(0, len(hashstring), 2)])
+    return "".join([hashstring[i : i + 2][::-1] for i in range(0, len(hashstring), 2)])
 
 
 def ib2h(b):
@@ -182,9 +187,11 @@ def check_valid_base64_string(base64_string):
     Returns:
         bool: True if the string is a valid base64 string, False otherwise.
     """
-    if base64_string is not None and \
-        re.fullmatch(r'^[A-Za-z0-9+/]+={0,2}$', base64_string) and \
-            len(base64_string) % 4 == 0:
+    if (
+        base64_string is not None
+        and re.fullmatch(r"^[A-Za-z0-9+/]+={0,2}$", base64_string)
+        and len(base64_string) % 4 == 0
+    ):
         return True
     else:
         return False
@@ -208,7 +215,7 @@ def base62_encode(num):
     while num:
         num, rem = divmod(num, base)
         result.append(chars[rem])
-    return ''.join(reversed(result))
+    return "".join(reversed(result))
 
 
 def create_base62_hash(str1, str2, length=20):
@@ -230,7 +237,7 @@ def create_base62_hash(str1, str2, length=20):
         raise ValueError("Length must be between 12 and 20 characters")
     combined_str = str1 + "|" + str2
     hash_bytes = hashlib.sha256(combined_str.encode()).digest()
-    hash_int = int.from_bytes(hash_bytes, byteorder='big')
+    hash_int = int.from_bytes(hash_bytes, byteorder="big")
     base62_hash = base62_encode(hash_int)
     return base62_hash[:length]
 
@@ -245,7 +252,7 @@ def escape_non_ascii_characters(text):
     Returns:
         str: The encoded and decoded text.
     """
-    return text.encode('unicode_escape').decode('utf-8')
+    return text.encode("unicode_escape").decode("utf-8")
 
 
 def decode_unicode_escapes(text):
@@ -258,7 +265,7 @@ def decode_unicode_escapes(text):
     Returns:
         str: The text with Unicode escape sequences converted back to Unicode characters.
     """
-    return text.encode('utf-8').decode('unicode_escape')
+    return text.encode("utf-8").decode("unicode_escape")
 
 
 def clean_json_string(json_string):
@@ -276,7 +283,7 @@ def clean_json_string(json_string):
     Returns:
         str: The cleaned JSON string.
     """
-    json_string = json_string.replace("'", ' ')
+    json_string = json_string.replace("'", " ")
     json_string = json_string.replace("\\x00", "")  # remove null bytes
     return json_string
 
@@ -287,7 +294,7 @@ def convert_decimal_to_string(obj):
     raise TypeError
 
 
-def convert_to_dict_or_string(input_data, output_format='dict'):
+def convert_to_dict_or_string(input_data, output_format="dict"):
     """
     Convert the input data to a dictionary or a JSON string.
     Note this is not using encoding to convert the input string to utf-8 for example
@@ -318,18 +325,24 @@ def convert_to_dict_or_string(input_data, output_format='dict'):
             try:
                 input_data = ast.literal_eval(input_data)
             except ValueError:
-                raise DataConversionError("Invalid string representation of a dictionary")
+                raise DataConversionError(
+                    "Invalid string representation of a dictionary"
+                )
 
     if not isinstance(input_data, dict):
         raise InvalidInputDataError("input_data is not a dictionary, string, or bytes")
 
-    if output_format == 'dict':
+    if output_format == "dict":
         return input_data
-    elif output_format == 'string':
+    elif output_format == "string":
         try:
-            json_string = json.dumps(input_data, ensure_ascii=False, default=convert_decimal_to_string)
+            json_string = json.dumps(
+                input_data, ensure_ascii=False, default=convert_decimal_to_string
+            )
             return clean_json_string(json_string)
         except Exception as e:
-            raise SerializationError(f"An error occurred during JSON serialization: {e}")
+            raise SerializationError(
+                f"An error occurred during JSON serialization: {e}"
+            )
     else:
         raise DataConversionError("Invalid output format: {}".format(output_format))
