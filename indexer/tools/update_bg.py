@@ -74,9 +74,7 @@ for tick_to_update in ticks_to_update:
         p = p.upper()
         tick = tick.upper()
         op = op.upper()
-        svg_string = build_src20_svg_string(
-            db, {"p": p, "op": op, "tick": tick, "amt": amt, "lim": lim, "max": max}
-        )
+        svg_string = build_src20_svg_string(db, {"p": p, "op": op, "tick": tick, "amt": amt, "lim": lim, "max": max})
 
         file_suffix = "svg"
         if type(svg_string) is str:

@@ -40,18 +40,26 @@ jobs:
       - name: Check import order with isort
         run: poetry run isort . --check-only
         working-directory: ./indexer
-      
+
+      - name: Format check with Black
+        run: poetry run black --check . --config=pyproject.toml
+        working-directory: ./indexer
+
+      - name: Lint with flake8
+        run: |
+          poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        working-directory: ./indexer
+
       - name: Security check with Bandit
         run: poetry run task bandit
         working-directory: ./indexer
 
-      - name: Format check with Black
-        run: poetry run black --check .
+      - name: Check with mypy
+        run:  poetry run mypy . --explicit-package-bases
         working-directory: ./indexer
         
-      - name: Lint with flake8
-        run: |
-          poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      - name: Check Dependencies for Vulnerabilities
+        run: poetry run run_safety
         working-directory: ./indexer
 
       - name: Run STAMP/SRC-20 Validations

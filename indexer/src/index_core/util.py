@@ -9,11 +9,7 @@ import re
 import threading
 
 import config
-from index_core.exceptions import (
-    DataConversionError,
-    InvalidInputDataError,
-    SerializationError,
-)
+from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal
@@ -21,9 +17,6 @@ D = decimal.Decimal
 CP_BLOCK_COUNT = None
 
 CURRENT_BLOCK_INDEX = None  # resolves to database.last_db_index(db)
-
-BLOCK_LEDGER = []
-BLOCK_MESSAGES = []
 
 
 def chunkify(lst, n):
@@ -187,11 +180,7 @@ def check_valid_base64_string(base64_string):
     Returns:
         bool: True if the string is a valid base64 string, False otherwise.
     """
-    if (
-        base64_string is not None
-        and re.fullmatch(r"^[A-Za-z0-9+/]+={0,2}$", base64_string)
-        and len(base64_string) % 4 == 0
-    ):
+    if base64_string is not None and re.fullmatch(r"^[A-Za-z0-9+/]+={0,2}$", base64_string) and len(base64_string) % 4 == 0:
         return True
     else:
         return False
@@ -325,9 +314,7 @@ def convert_to_dict_or_string(input_data, output_format="dict"):
             try:
                 input_data = ast.literal_eval(input_data)
             except ValueError:
-                raise DataConversionError(
-                    "Invalid string representation of a dictionary"
-                )
+                raise DataConversionError("Invalid string representation of a dictionary")
 
     if not isinstance(input_data, dict):
         raise InvalidInputDataError("input_data is not a dictionary, string, or bytes")
@@ -336,13 +323,9 @@ def convert_to_dict_or_string(input_data, output_format="dict"):
         return input_data
     elif output_format == "string":
         try:
-            json_string = json.dumps(
-                input_data, ensure_ascii=False, default=convert_decimal_to_string
-            )
+            json_string = json.dumps(input_data, ensure_ascii=False, default=convert_decimal_to_string)
             return clean_json_string(json_string)
         except Exception as e:
-            raise SerializationError(
-                f"An error occurred during JSON serialization: {e}"
-            )
+            raise SerializationError(f"An error occurred during JSON serialization: {e}")
     else:
         raise DataConversionError("Invalid output format: {}".format(output_format))

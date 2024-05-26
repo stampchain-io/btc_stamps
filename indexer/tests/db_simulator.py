@@ -29,9 +29,7 @@ class DBSimulator:
 
     def find_max_stamp(self):
         try:
-            max_stamp = max(
-                (entry["stamp"] for entry in self.simulation_data["StampTableV4"])
-            )
+            max_stamp = max((entry["stamp"] for entry in self.simulation_data["StampTableV4"]))
             return max_stamp
         except KeyError:
             return None
@@ -51,11 +49,7 @@ class DBSimulator:
     def execute(self, query, params=None):
         if "SELECT" in query.upper():
             self.execute_results = self.simulate_select_query(query, params)
-        elif (
-            "INSERT" in query.upper()
-            or "UPDATE" in query.upper()
-            or "DELETE" in query.upper()
-        ):
+        elif "INSERT" in query.upper() or "UPDATE" in query.upper() or "DELETE" in query.upper():
             self.simulate_write_query(query, params)
         else:
             self.logger.info(f"Unsupported query type in simulation: {query}")
@@ -187,8 +181,6 @@ if __name__ == "__main__":
 
     # Execute another query and print the results
     db_simulator.execute("SELECT MAX(stamp) FROM StampTableV4")
-    print(
-        "Results:'SELECT MAX(stamp) FROM StampTableV4':", db_simulator.execute_results
-    )
+    print("Results:'SELECT MAX(stamp) FROM StampTableV4':", db_simulator.execute_results)
 
     db_simulator.close()

@@ -33,9 +33,7 @@ def get_s3_objects(db, bucket_name, s3_client):
                 md5 = obj["ETag"].strip('"')
                 results[key] = {"key": key, "md5": md5}
 
-    logger.warning(
-        f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}..."
-    )
+    logger.warning(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
     cursor.execute("SELECT path_key, md5 FROM s3objects")
     results = cursor.fetchall() or {}
@@ -47,9 +45,7 @@ def get_s3_objects(db, bucket_name, s3_client):
         logger.warning("No existing S3 objects found in database")
         paginator = s3_client.get_paginator("list_objects_v2")
 
-        logger.warning(
-            f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait..."
-        )
+        logger.warning(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
 
         start_time = time.time()
         pages = list(
@@ -128,9 +124,7 @@ def add_s3_objects_to_db(db, s3_objects):
         cursor = db.cursor()
 
         query = "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
-        values = [
-            (key + obj["md5"], key, obj["md5"]) for key, obj in s3_objects.items()
-        ]
+        values = [(key + obj["md5"], key, obj["md5"]) for key, obj in s3_objects.items()]
 
         # Execute the multi-insert operation
         cursor.executemany(query, values)
@@ -189,13 +183,9 @@ def upload_file_to_s3(
         extra_args = {"ContentType": content_type}
         if hasattr(file_obj_or_path, "read"):
             file_obj_or_path.seek(0)
-            s3_client.upload_fileobj(
-                file_obj_or_path, bucket_name, s3_file_path, ExtraArgs=extra_args
-            )
+            s3_client.upload_fileobj(file_obj_or_path, bucket_name, s3_file_path, ExtraArgs=extra_args)
         else:
-            s3_client.upload_file(
-                file_obj_or_path, bucket_name, s3_file_path, ExtraArgs=extra_args
-            )
+            s3_client.upload_file(file_obj_or_path, bucket_name, s3_file_path, ExtraArgs=extra_args)
     except Exception as e:
         logger.warning(f"failure uploading to aws {e}")
 
@@ -225,15 +215,11 @@ def check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_
     existing_obj = config.S3_OBJECTS.get(s3_file_path)
     if existing_obj:
         if existing_obj["md5"] == file_obj_md5:
-            logger.debug(
-                f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload."
-            )
+            logger.debug(f"File {filename} with hash {file_obj_md5} already exists in S3. Skipping upload.")
         else:
             try:
                 file_obj.seek(0)
-                logger.debug(
-                    f"Uploading {filename} with changed hash {file_obj_md5} to S3..."
-                )
+                logger.debug(f"Uploading {filename} with changed hash {file_obj_md5} to S3...")
                 upload_file_to_s3(
                     file_obj,
                     config.AWS_S3_BUCKETNAME,
@@ -245,12 +231,8 @@ def check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_
             except Exception as e:
                 logger.warning(f"ERROR: Unable to upload {filename} to S3. Error: {e}")
             if config.AWS_CLOUDFRONT_DISTRIBUTION_ID and config.AWS_INVALIDATE_CACHE:
-                logger.warning(
-                    f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront..."
-                )
-                invalidate_with_retries(
-                    s3_file_path, config.AWS_CLOUDFRONT_DISTRIBUTION_ID
-                )
+                logger.warning(f"Invalidating {filename} with changed hash {file_obj_md5} in Cloudfront...")
+                invalidate_with_retries(s3_file_path, config.AWS_CLOUDFRONT_DISTRIBUTION_ID)
     else:
         try:
             file_obj.seek(0)
@@ -284,9 +266,7 @@ def invalidate_with_retries(s3_file_path, distribution_id):
     try:
         invalidate_s3_files(["/" + s3_file_path], distribution_id)
     except Exception as e:
-        logger.warning(
-            f"WARN: Unable to invalidate {s3_file_path} in Cloudfront. RETRYING: {e}"
-        )
+        logger.warning(f"WARN: Unable to invalidate {s3_file_path} in Cloudfront. RETRYING: {e}")
         retries = 5
         while retries > 0:
             time.sleep(3)
@@ -297,6 +277,4 @@ def invalidate_with_retries(s3_file_path, distribution_id):
                 logger.warning(f"ERROR: Retry failed. Error: {e}")
                 retries -= 1
         if retries == 0:
-            logger.warning(
-                f"ERROR: Maximum retries reached. Unable to invalidate {s3_file_path} in Cloudfront."
-            )
+            logger.warning(f"ERROR: Maximum retries reached. Unable to invalidate {s3_file_path} in Cloudfront.")

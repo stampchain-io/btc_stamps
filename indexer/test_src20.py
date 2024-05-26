@@ -66,12 +66,10 @@ class TestSrc20Variations(unittest.TestCase):
                     p2wsh_data=test_case["p2wsh_data"],
                 )
 
-                stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = (
-                    parse_stamp(
-                        stamp_data=stamp_data_instance,
-                        db=self.db_simulator,
-                        valid_stamps_in_block=test_case["valid_stamps_in_block"],
-                    )
+                stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(
+                    stamp_data=stamp_data_instance,
+                    db=self.db_simulator,
+                    valid_stamps_in_block=test_case["valid_stamps_in_block"],
                 )
                 stamp_result = False if stamp_result is None else stamp_result
                 if stamp_result != test_case["expectedOutcome"]["stamp_success"]:
@@ -86,15 +84,11 @@ class TestSrc20Variations(unittest.TestCase):
                     )
 
                 if parsed_stamp:
-                    parsed_stamps.append(
-                        parsed_stamp
-                    )  # includes cursed and prevalidated src20 on CP
+                    parsed_stamps.append(parsed_stamp)  # includes cursed and prevalidated src20 on CP
                 if valid_stamp:
                     valid_stamps_in_block.append(valid_stamp)
                 if prevalidated_src20:
-                    src20_result, src20_dict = parse_src20(
-                        self.db_simulator, prevalidated_src20, processed_src20_in_block
-                    )
+                    src20_result, src20_dict = parse_src20(self.db_simulator, prevalidated_src20, processed_src20_in_block)
                     processed_src20_in_block.append(src20_dict)
 
                 src20_result = False if src20_result is None else src20_result
@@ -106,9 +100,7 @@ class TestSrc20Variations(unittest.TestCase):
                         f"FAIL: in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}"
                     )
                 else:
-                    logger.info(
-                        f"Success in src20_result test: {test_case['expectedOutcome']['message']}"
-                    )
+                    logger.info(f"Success in src20_result test: {test_case['expectedOutcome']['message']}")
 
                 self.assertEqual(
                     stamp_result,

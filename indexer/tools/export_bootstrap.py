@@ -28,9 +28,7 @@ def main():
     cursor = mysql_conn.cursor()
     cursor.execute("SELECT * FROM srcbackground;")
     results = cursor.fetchall()
-    with open(
-        os.path.join(bootstrap_dir, "srcbackground.csv"), "w", newline=""
-    ) as csvfile:
+    with open(os.path.join(bootstrap_dir, "srcbackground.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         for row in results:
             writer.writerow(row)

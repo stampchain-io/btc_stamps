@@ -54,9 +54,7 @@ def get_arweave_transaction(wallet=stampchain_arweave_wallet, tags=[]):
 
 
 # TODO currently unused
-def fetch_and_download_arweave_files(
-    wallet=stampchain_arweave_wallet, tags=[], download_path="."
-):
+def fetch_and_download_arweave_files(wallet=stampchain_arweave_wallet, tags=[], download_path="."):
     try:
         transactions = get_arweave_transaction(wallet, tags)
     except Exception as e:
@@ -71,11 +69,7 @@ def fetch_and_download_arweave_files(
             None,
         )
         content_type = next(
-            (
-                tag["value"]
-                for tag in edge["node"]["tags"]
-                if tag["name"] == "Content-Type"
-            ),
+            (tag["value"] for tag in edge["node"]["tags"] if tag["name"] == "Content-Type"),
             "text/plain",
         )
         extension = content_type.split("/")[-1]
