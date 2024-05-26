@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 def main():
     load_dotenv()
 
-    import src.index_core.server as server
+    import index_core.server as server
 
     db = server.initialize(log_file="indexer.log")
 

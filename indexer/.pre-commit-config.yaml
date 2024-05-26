@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: run-checks
+        name: Run Checks
+        entry: poetry run run_checks
+        language: system
+        types: [python]
