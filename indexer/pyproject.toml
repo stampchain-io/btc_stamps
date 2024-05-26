@@ -6,7 +6,7 @@ description = "Bitcoin Stamps Indexer"
 authors = ["reinamora <reinamora@stampchain.io>"]
 homepage = "https://stampchain.io"
 repository = "https://github.com/stampchain-io/btc_stamps/"
-documentation = "https:/stampchain.io/docs"
+documentation = "https://stampchain.io/docs"
 license = "AGPL-3.0-or-later"
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -21,7 +21,6 @@ python = "^3.9"
 appdirs = "1.4.4"
 bitcoinlib = "0.6.15"
 colorlog = "6.8.2"
-sha3 = "0.2.1"
 pycoin = "0.92.20230326"
 python-bitcoinlib = "0.12.2"
 python-bitcoinrpc = "1.0"
@@ -50,9 +49,20 @@ pillow = "^10.3.0"
 isort = "^5.10.1"
 mypy = "^1.10.0"
 black = "^24.4.2"
+types-requests = "^2.31.0"
+types-PyMySQL = "^1.0.0"
+types-tqdm = "^4.66.0.20240417"
+boto3-stubs = "^1.34.113"
+msgpack-types = "^0.3.0"
+types-appdirs = "^1.4.3.5"
+types-cachetools = "^5.3.0.7"
+flake8-pyproject = "^1.2.3"
+safety = "^2.3.3"
+toml = "^0.10.2"  
 
 [tool.poetry.scripts]
 indexer = "start:main"
+run_safety = "tools.run_safety:run_safety_check"
 
 [[tool.poetry.packages]]
 from = "src"
@@ -62,11 +72,30 @@ include = "index_core/**/*"
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.black]
+line-length = 127
+
+[tool.isort]
+profile = "black"
+line_length = 127
+
 [tool.flake8]
-max-line-length = 120
+max-line-length = 127
 exclude = [".tox", "build"]
-ignore = ["E203", "W503"]
+extend-ignore = ["E203", "W503", "E402", "E501"]
 
 [tool.taskipy.tasks]
 bandit = "bandit -r . -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
+
+[tool.mypy]
+mypy_path = "src"
+ignore_missing_imports = true
+explicit_package_bases = false
+
+[tool.safety]
+ignore = [
+    "64396",  # Ecdsa does not protect against side-channel attacks
+    "64459",  # The python-ecdsa library is vulnerable to the Minerva attack
+    "67599"   # An issue in pip regarding the --extra-index-url option
+]

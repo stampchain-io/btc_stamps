@@ -26,9 +26,7 @@ rds_database = os.environ.get("RDS_DATABASE")
 
 print(rds_host)
 
-mysql_conn = mysql.connect(
-    host=rds_host, user=rds_user, password=rds_password, database=rds_database
-)
+mysql_conn = mysql.connect(host=rds_host, user=rds_user, password=rds_password, database=rds_database)
 
 
 def main(file_names=file_names, mysql_conn=mysql_conn):

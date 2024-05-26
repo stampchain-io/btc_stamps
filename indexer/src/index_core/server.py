@@ -109,17 +109,11 @@ def initialize_config(
 
     try:
         sha3_256_hash = hashlib.sha3_256("".encode("utf-8")).hexdigest()
-        if (
-            sha3_256_hash
-            != "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
-        ):
+        if sha3_256_hash != "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a":
             raise ValueError(f"SHA3-256 hash mismatch: {sha3_256_hash}")
 
         sha256_hash = hashlib.sha256("".encode("utf-8")).hexdigest()
-        if (
-            sha256_hash
-            != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        ):
+        if sha256_hash != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855":
             raise ValueError(f"SHA-256 hash mismatch: {sha256_hash}")
 
     except ValueError as e:
@@ -127,9 +121,7 @@ def initialize_config(
         raise e
 
     # Data directory
-    data_dir = appdirs.user_data_dir(
-        appauthor=config.STAMPS_NAME, appname=config.APP_NAME, roaming=True
-    )
+    data_dir = appdirs.user_data_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME, roaming=True)
     if not os.path.isdir(data_dir):
         os.makedirs(data_dir, mode=0o755)
 
@@ -174,9 +166,7 @@ def initialize_config(
         config.CHECKDB = False
 
     # Log directory
-    log_dir = appdirs.user_log_dir(
-        appauthor=config.STAMPS_NAME, appname=config.APP_NAME
-    )
+    log_dir = appdirs.user_log_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME)
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir, mode=0o755)
 
@@ -201,9 +191,7 @@ def initialize_config(
 
     # Log unhandled errors.
     def handle_exception(exc_type, exc_value, exc_traceback):
-        logger.error(
-            "Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback)
-        )
+        logger.error("Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback))
 
     sys.excepthook = handle_exception
 
@@ -235,9 +223,7 @@ def initialize_config(
         if not (int(config.BACKEND_PORT) > 1 and int(config.BACKEND_PORT) < 65535):
             raise ConfigurationError("invalid backend API port number")
     except Exception as e:
-        raise ConfigurationError(
-            f"Please specific a valid port number backend-port configuration parameter {e}"
-        )
+        raise ConfigurationError(f"Please specific a valid port number backend-port configuration parameter {e}")
 
     # Backend Core RPC SSL
     if backend_ssl:
@@ -247,25 +233,19 @@ def initialize_config(
 
     # Backend Core RPC SSL Verify
     if backend_ssl_verify is not None:
-        logger.warning(
-            "The server parameter `backend_ssl_verify` is deprecated. Use `backend_ssl_no_verify` instead."
-        )
+        logger.warning("The server parameter `backend_ssl_verify` is deprecated. Use `backend_ssl_no_verify` instead.")
         config.BACKEND_SSL_NO_VERIFY = not backend_ssl_verify
     else:
         if backend_ssl_no_verify:
             config.BACKEND_SSL_NO_VERIFY = backend_ssl_no_verify
         else:
-            config.BACKEND_SSL_NO_VERIFY = (
-                False  # Default to on (don't support self‐signed certificates)
-            )
+            config.BACKEND_SSL_NO_VERIFY = False  # Default to on (don't support self‐signed certificates)
 
     # Backend Poll Interval
     if backend_poll_interval:
         config.BACKEND_POLL_INTERVAL = backend_poll_interval
     else:
-        config.BACKEND_POLL_INTERVAL = float(
-            os.environ.get("BACKEND_POLL_INTERVAL", "0.5")
-        )
+        config.BACKEND_POLL_INTERVAL = float(os.environ.get("BACKEND_POLL_INTERVAL", "0.5"))
 
     ##############
     # OTHER SETTINGS
@@ -381,14 +361,8 @@ def start_all(db):
     # Backend.
     connect_to_backend()
 
-    if (
-        config.AWS_SECRET_ACCESS_KEY
-        and config.AWS_ACCESS_KEY_ID
-        and config.AWS_S3_BUCKETNAME
-    ):
-        config.S3_OBJECTS = get_s3_objects(
-            db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT
-        )
+    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
+        config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
     # Server.
     blocks.follow(db)

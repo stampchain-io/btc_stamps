@@ -43,9 +43,7 @@ def fetch_cp_concurrent(block_index, block_tip, indicator=None):
         )  # Update the total to 500 and add leave=True
 
         while block_index <= block_tip:
-            future = executor.submit(
-                get_xcp_block_data, block_index, indicator=indicator
-            )
+            future = executor.submit(get_xcp_block_data, block_index, indicator=indicator)
             future.block_index = block_index  # Save the block_index with the future
             futures.append(future)
             block_index += 1
@@ -53,9 +51,7 @@ def fetch_cp_concurrent(block_index, block_tip, indicator=None):
         # Process the results as they become available
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
-            results_dict[future.block_index] = (
-                result  # Store the result in the dictionary using future.block_index as the key
-            )
+            results_dict[future.block_index] = result  # Store the result in the dictionary using future.block_index as the key
             pbar.update(1)  # Update the progress bar
 
         pbar.close()  # Close the progress bar
@@ -86,9 +82,7 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
                     pbar.refresh()
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except (TypeError, Exception) as e:
-            logger.warning(
-                "Error getting CP block count: {}\nSleeping to retry...".format(e)
-            )
+            logger.warning("Error getting CP block count: {}\nSleeping to retry...".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
     data = None
     while data is None:
@@ -101,9 +95,7 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
                 logger.warning("CP_BLOCK_COUNT is None. Sleeping to retry...")
                 time.sleep(config.BACKEND_POLL_INTERVAL)
         except Exception as e:
-            logger.warning(
-                "Error getting issuances: {}\n Sleeping to retry...".format(e)
-            )
+            logger.warning("Error getting issuances: {}\n Sleeping to retry...".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
 
 
@@ -112,16 +104,12 @@ def get_cp_version():
         logger.warning(f"""Connecting to CP Node: {config.CP_RPC_URL}""")
         payload = _create_payload("get_running_info", {})
         headers = {"content-type": "application/json"}
-        response = requests.post(
-            url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10
-        )
+        response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
         result = json.loads(response.text)["result"]
         version_major = result["version_major"]
         version_minor = result["version_minor"]
         version_revision = result["version_revision"]
-        version = ".".join(
-            [str(version_major), str(version_minor), str(version_revision)]
-        )
+        version = ".".join([str(version_major), str(version_minor), str(version_revision)])
         return version
     except Exception as e:
         logger.warning("Error getting version info: {}".format(e))
@@ -133,9 +121,7 @@ def _get_block_count():
     try:
         payload = _create_payload("get_running_info", {})
         headers = {"content-type": "application/json"}
-        response = requests.post(
-            url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10
-        )
+        response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
         logger.info("get_block_count response: {}".format(response.text))
         result = json.loads(response.text)["result"]
         if result["last_block"] is None:
@@ -150,27 +136,21 @@ def _get_block_count():
 def _get_issuances(params={}):
     payload = _create_payload("get_issuances", params)
     headers = {"content-type": "application/json"}
-    response = requests.post(
-        url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10
-    )
+    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
     return json.loads(response.text)["result"]
 
 
 def _get_sends(params={}):
     payload = _create_payload("get_sends", params)
     headers = {"content-type": "application/json"}
-    response = requests.post(
-        url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10
-    )
+    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
     return json.loads(response.text)["result"]
 
 
 def _get_block(params={}):
     payload = _create_payload("get_blocks", params)
     headers = {"content-type": "application/json"}
-    response = requests.post(
-        url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10
-    )
+    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
     return json.loads(response.text)["result"]
 
 
@@ -241,9 +221,7 @@ def parse_base64_from_description(description):
         stamp_search = stamp_search.strip()
         if ";" in stamp_search:
             stamp_mimetype, stamp_base64 = stamp_search.split(";", 1)
-            stamp_mimetype = (
-                stamp_mimetype.strip() if len(stamp_mimetype) <= 255 else ""
-            )  # db limit
+            stamp_mimetype = stamp_mimetype.strip() if len(stamp_mimetype) <= 255 else ""  # db limit
             stamp_base64 = stamp_base64.strip() if len(stamp_base64) > 1 else None
         else:
             stamp_mimetype = ""
@@ -276,11 +254,7 @@ def _check_for_stamp_issuance(issuance):
                 "description": issuance["description"],
                 "reset": issuance["reset"],
                 "status": issuance["status"],
-                "asset_longname": (
-                    issuance["asset_longname"]
-                    if "asset_longname" in issuance
-                    else ""  # TODO change to NULL
-                ),
+                "asset_longname": (issuance["asset_longname"] if "asset_longname" in issuance else ""),  # TODO change to NULL
                 "tx_hash": issuance["tx_hash"],
                 "message_index": issuance["msg_index"],
                 "stamp_mimetype": stamp_mimetype,
@@ -290,7 +264,5 @@ def _check_for_stamp_issuance(issuance):
 
 
 def filter_issuances_by_tx_hash(issuances, tx_hash):
-    filtered_issuances = [
-        issuance for issuance in issuances if issuance["tx_hash"] == tx_hash
-    ]
+    filtered_issuances = [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
     return filtered_issuances[0] if filtered_issuances else None

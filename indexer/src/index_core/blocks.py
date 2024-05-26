@@ -40,13 +40,7 @@ from index_core.database import (
     update_block_hashes,
     update_parsed_block,
 )
-from index_core.exceptions import (
-    BlockAlreadyExistsError,
-    BlockUpdateError,
-    BTCOnlyError,
-    DatabaseInsertError,
-    DecodeError,
-)
+from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp
 from index_core.src20 import (
     clear_zero_balances,
@@ -118,9 +112,7 @@ def process_vout(ctx, stamp_issuance=None):
             asm = script.get_asm(vout.scriptPubKey)
         except CScriptInvalidError as e:
             raise DecodeError(e)
-        if (
-            asm[-1] == "OP_CHECKMULTISIG"
-        ):  # the last element in the asm list is OP_CHECKMULTISIG
+        if asm[-1] == "OP_CHECKMULTISIG":  # the last element in the asm list is OP_CHECKMULTISIG
             try:
                 # NOTE: need to investigate signatures_required, signatures_possible
                 pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(
@@ -149,9 +141,7 @@ def process_vout(ctx, stamp_issuance=None):
             pubkeys_compiled += pubkeys
             is_olga = True
 
-    vOutInfo = namedtuple(
-        "vOutInfo", ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga"]
-    )
+    vOutInfo = namedtuple("vOutInfo", ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga"])
 
     return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga)
 
@@ -228,18 +218,12 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 p2wsh_data,
             )
 
-        if (
-            pubkeys_compiled
-        ):  # this is the combination of the two pubkeys which hold the SRC-20 data
+        if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the SRC-20 data
             chunk = b""
             for pubkey in pubkeys_compiled:
-                chunk += pubkey[
-                    1:-1
-                ]  # Skip sign byte and nonce byte. ( this does the concatenation as well)
+                chunk += pubkey[1:-1]  # Skip sign byte and nonce byte. ( this does the concatenation as well)
         try:
-            src20_destination, src20_data = decode_checkmultisig(
-                ctx, chunk
-            )  # this only decodes src-20 type trx
+            src20_destination, src20_data = decode_checkmultisig(ctx, chunk)  # this only decodes src-20 type trx
         except Exception as e:
             raise DecodeError(f"unrecognized output type {e}")
         if src20_destination is None or src20_data is None:
@@ -306,9 +290,7 @@ def decode_address(script_pubkey):
             # Extract the witness program for Taproot
             witness_program = script_pubkey[2:]
             # Decode as Bech32m address
-            return pubkeyhash_to_addr(
-                witness_program, prefix="bc", encoding="bech32", witver=1
-            )
+            return pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
         else:
             raise ValueError("Unsupported scriptPubKey format")
 
@@ -330,13 +312,9 @@ def decode_checkmultisig(ctx, chunk):
         DecodeError: If the decoded data length does not match the expected length.
     """
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    chunk = arc4.arc4_decrypt_chunk(
-        chunk, key
-    )  # this is a different method since we are stripping the nonce/sign beforehand
+    chunk = arc4.arc4_decrypt_chunk(chunk, key)  # this is a different method since we are stripping the nonce/sign beforehand
     if chunk[2 : 2 + len(config.PREFIX)] == config.PREFIX:
-        chunk_length = chunk[
-            :2
-        ].hex()  # the expected length of the string from the first 2 bytes
+        chunk_length = chunk[:2].hex()  # the expected length of the string from the first 2 bytes
         data = chunk[len(config.PREFIX) + 2 :].rstrip(b"\x00")
         data_length = len(chunk[2:].rstrip(b"\x00"))
         if data_length != int(chunk_length, 16):
@@ -373,40 +351,26 @@ def reinitialize(db, block_index=None):
     else:
         checkpoints = check.CHECKPOINTS_MAINNET
 
-    columns = [
-        column["name"] for column in cursor.execute("""PRAGMA table_info(blocks)""")
-    ]
+    columns = [column["name"] for column in cursor.execute("""PRAGMA table_info(blocks)""")]
     for field in ["ledger_hash", "txlist_hash"]:
         if field in columns:
-            sql = """SELECT {} FROM blocks  WHERE block_index = ?""".format(
-                field
-            )  # nosec
+            sql = """SELECT {} FROM blocks  WHERE block_index = ?""".format(field)  # nosec
             first_block = list(cursor.execute(sql, (config.BLOCK_FIRST,)))
             if first_block:
                 first_hash = first_block[0][field]
                 if first_hash != checkpoints[config.BLOCK_FIRST][field]:
                     logger.info("First hash changed. Cleaning {}.".format(field))
-                    cursor.execute(
-                        """UPDATE blocks SET {} = NULL""".format(field)
-                    )  # nosec
+                    cursor.execute("""UPDATE blocks SET {} = NULL""".format(field))  # nosec
 
     # For rollbacks, just delete new blocks and then reparse what’s left.
     if block_index:
-        cursor.execute(
-            """DELETE FROM transactions WHERE block_index > ?""", (block_index,)
-        )
+        cursor.execute("""DELETE FROM transactions WHERE block_index > ?""", (block_index,))
         cursor.execute("""DELETE FROM blocks WHERE block_index > ?""", (block_index,))
-    elif (
-        config.TESTNET or config.REGTEST
-    ):  # block_index NOT specified and we are running testnet
+    elif config.TESTNET or config.REGTEST:  # block_index NOT specified and we are running testnet
         # just blow away the consensus hashes with a full testnet reparse, as we could activate
         # new features retroactively, which could otherwise lead to ConsensusError exceptions being raised.
-        logger.info(
-            "Testnet/regtest full reparse detected: Clearing all consensus hashes before performing reparse."
-        )
-        cursor.execute(
-            """UPDATE blocks SET ledger_hash = NULL, txlist_hash = NULL, messages_hash = NULL"""
-        )
+        logger.info("Testnet/regtest full reparse detected: Clearing all consensus hashes before performing reparse.")
+        cursor.execute("""UPDATE blocks SET ledger_hash = NULL, txlist_hash = NULL, messages_hash = NULL""")
 
     cursor.close()
 
@@ -426,9 +390,7 @@ def reparse(db, block_index=None, quiet=False):
 
     if not reparsed:
         if block_index:
-            logger.info(
-                "Could not roll back from undolog. Performing full reparse instead..."
-            )
+            logger.info("Could not roll back from undolog. Performing full reparse instead...")
 
         if quiet:
             root_logger = logging.getLogger()
@@ -464,9 +426,7 @@ def reparse(db, block_index=None, quiet=False):
 
     cursor.close()
     reparse_end = time.time()
-    logger.info(
-        "Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0)
-    )
+    logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
 
 
 def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None):
@@ -481,13 +441,9 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
     #     return tx_index
 
     if tx_hex is None:
-        tx_hex = backend.getrawtransaction(
-            tx_hash
-        )  # TODO: This is the call that is stalling the process the most
+        tx_hex = backend.getrawtransaction(tx_hash)  # TODO: This is the call that is stalling the process the most
 
-    transaction_info = get_tx_info(
-        tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance
-    )
+    transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, "source", None)
     destination = getattr(transaction_info, "destinations", None)
     btc_amount = getattr(transaction_info, "btc_amount", None)
@@ -499,9 +455,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
     p2wsh_data = getattr(transaction_info, "p2wsh_data", None)
 
     if block_index != util.CURRENT_BLOCK_INDEX:
-        raise ValueError(
-            f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}"
-        )
+        raise ValueError(f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}")
 
     if stamp_issuance is not None:
         source = str(stamp_issuance["source"])
@@ -574,9 +528,7 @@ def create_check_hashes(
     )
 
     try:
-        update_block_hashes(
-            db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash
-        )
+        update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
     except BlockUpdateError as e:
         logger.error(e)
         sys.exit("Exiting due to a critical update error.")
@@ -746,28 +698,21 @@ def follow(db):
                 raise e
         #  check if last block index was full indexed and if not delete it
         #  and set block_index to block_index - 1
-        if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(
-            db, block_index
-        ):
+        if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
             block_index -= 1
 
         if block_index <= block_tip:
 
             db.ping()  # check db connection and reinitialize if needed
 
-            if stamp_issuances_list and (
-                stamp_issuances_list[block_index]
-                or stamp_issuances_list[block_index] == []
-            ):
+            if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                 stamp_issuances = stamp_issuances_list[block_index]
             else:
                 if block_index + 1 == block_tip:
                     indicator = True
                 else:
                     indicator = None
-                stamp_issuances_list = fetch_cp_concurrent(
-                    block_index, block_tip, indicator=indicator
-                )
+                stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
                 stamp_issuances = stamp_issuances_list[block_index]
 
             if block_tip - block_index < 100:
@@ -807,15 +752,9 @@ def follow(db):
                 # Rollback for reorganization.
                 if requires_rollback:
                     # Record reorganization.
-                    logger.warning(
-                        "Blockchain reorganization at block {}.".format(block_index)
-                    )
+                    logger.warning("Blockchain reorganization at block {}.".format(block_index))
                     block_index -= 1
-                    logger.warning(
-                        "Rolling back to block {} to avoid problems.".format(
-                            block_index
-                        )
-                    )
+                    logger.warning("Rolling back to block {} to avoid problems.".format(block_index))
                     # Rollback.
                     purge_block_db(db, block_index)
                     rebuild_balances(db)
@@ -848,19 +787,14 @@ def follow(db):
 
             valid_stamps_in_block: List[ValidStamp] = []
 
-            if (
-                not stamp_issuances_list[block_index]
-                and block_index < config.CP_SRC20_GENESIS_BLOCK
-            ):
+            if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_GENESIS_BLOCK:
                 valid_src20_str = ""
-                new_ledger_hash, new_txlist_hash, new_messages_hash = (
-                    create_check_hashes(
-                        db,
-                        block_index,
-                        valid_stamps_in_block,
-                        valid_src20_str,
-                        txhash_list,
-                    )
+                new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                    db,
+                    block_index,
+                    valid_stamps_in_block,
+                    valid_src20_str,
+                    txhash_list,
                 )
 
                 stamp_issuances_list.pop(block_index, None)
@@ -946,24 +880,18 @@ def follow(db):
                 )
 
                 if stamp_data:
-                    parsed_stamps.append(
-                        stamp_data
-                    )  # includes cursed and prevalidated src20 on CP
+                    parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
                 if valid_stamp:
                     valid_stamps_in_block.append(valid_stamp)
                 if prevalidated_src20:
-                    _, src20_dict = parse_src20(
-                        db, prevalidated_src20, processed_src20_in_block
-                    )
+                    _, src20_dict = parse_src20(db, prevalidated_src20, processed_src20_in_block)
                     processed_src20_in_block.append(src20_dict)
 
             if parsed_stamps:
                 insert_into_stamp_table(db, parsed_stamps)
 
             if processed_src20_in_block:
-                balance_updates = update_src20_balances(
-                    db, block_index, block_time, processed_src20_in_block
-                )
+                balance_updates = update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                 insert_into_src20_tables(db, processed_src20_in_block)
                 valid_src20_str = process_balance_updates(balance_updates)
             else:
@@ -977,9 +905,7 @@ def follow(db):
             )
 
             if valid_src20_str:
-                validate_src20_ledger_hash(
-                    block_index, new_ledger_hash, valid_src20_str
-                )
+                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
 
             stamps_in_block = len(valid_stamps_in_block)
             src20_in_block = len(processed_src20_in_block)

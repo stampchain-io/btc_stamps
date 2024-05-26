@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import subprocess  # nosec
+from typing import Optional
 
 import pybase64
 
@@ -37,9 +38,7 @@ def decode_base64(base64_string, block_index):
     if block_index >= CP_P2WSH_FEAT_BLOCK_START:
         is_valid_base64_string = check_valid_base64_string(base64_string)
         if not is_valid_base64_string:
-            logger.info(
-                f"EXCLUSION: BASE64 DECODE_FAIL invalid string: {base64_string}"
-            )
+            logger.info(f"EXCLUSION: BASE64 DECODE_FAIL invalid string: {base64_string}")
             return None, None
 
     if block_index <= STOP_BASE64_REPAIR:
@@ -60,15 +59,11 @@ def decode_base64(base64_string, block_index):
                 # this will be ok in the docker containers, but a potential problem
                 # will need to verify that there are no instances where this is su
                 command = ["bash", "-c", f'printf "%s" "{base64_string}" | base64 -d']
-                image_data = subprocess.run(
-                    command, capture_output=True, text=True, check=True
-                ).stdout  # nosec
+                image_data = subprocess.run(command, capture_output=True, text=True, check=True).stdout  # nosec
                 return image_data, is_valid_base64_string
             except Exception as e3:
                 # If all decoding attempts fail, print an error message and return None
-                logger.info(
-                    f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}"
-                )
+                logger.info(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
                 return None, None
 
 
@@ -144,7 +139,7 @@ def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimety
 
 
 def create_valid_stamp_dict(
-    stamp_number: int,
+    stamp_number: Optional[int],
     tx_hash: str,
     cpid: str,
     is_btc_stamp: bool,
@@ -153,31 +148,15 @@ def create_valid_stamp_dict(
     is_cursed: bool,
     src_data: str,
 ) -> ValidStamp:
-    """
-    Prepares the valid_stamp dictionary with the provided parameters.
-
-    Args:
-        stamp_number (int): The stamp number.
-        tx_hash (str): The transaction hash.
-        cpid (str): The CPID of the stamp.
-        is_btc_stamp (bool): Indicates if the stamp is a BTC stamp.
-        is_valid_base64 (bool): Indicates if the base64 data is valid.
-        stamp_base64 (str): The base64 encoded stamp data.
-        is_cursed (bool): Indicates if the stamp is cursed.
-        src_data (str): The source data of the stamp.
-
-    Returns:
-        ValidStamp: The prepared valid_stamp dictionary.
-    """
     return ValidStamp(
         stamp_number=stamp_number,
         tx_hash=tx_hash,
         cpid=cpid,
         is_btc_stamp=is_btc_stamp,
-        is_valid_base64=is_valid_base64,
-        stamp_base64=stamp_base64,
-        is_cursed=is_cursed,
-        src_data=src_data,
+        is_valid_base64=is_valid_base64 if is_valid_base64 is not None else False,
+        stamp_base64=stamp_base64 if stamp_base64 is not None else "",
+        is_cursed=is_cursed if is_cursed is not None else False,
+        src_data=src_data if src_data is not None else "",
     )
 
 
@@ -202,7 +181,6 @@ def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidS
 
     Args:
         stamp_data (StampData): An instance of StampData containing all necessary transaction information.
-
     Returns:
         None
 
@@ -211,7 +189,7 @@ def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidS
 
     """
     stamp_results = src20_dict = prevalidated_src20 = None
-    valid_stamp: ValidStamp = {}
+    valid_stamp: Optional[ValidStamp] = None
     try:
         stamp_data.process_and_store_stamp_data(
             get_src_or_img_from_data,
@@ -239,10 +217,10 @@ def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidS
             stamp_data.tx_hash,
             stamp_data.cpid,
             stamp_data.is_btc_stamp,
-            stamp_data.is_valid_base64,
-            stamp_data.stamp_base64,
-            stamp_data.is_cursed,
-            stamp_data.src_data,
+            (bool(stamp_data.is_valid_base64) if stamp_data.is_valid_base64 is not None else False),
+            stamp_data.stamp_base64 if stamp_data.stamp_base64 is not None else "",
+            bool(stamp_data.is_cursed) if stamp_data.is_cursed is not None else False,
+            stamp_data.src_data if stamp_data.src_data is not None else "",
         )
 
     if stamp_data.pval_src20:

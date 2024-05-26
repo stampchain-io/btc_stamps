@@ -25,13 +25,9 @@ dev_password = os.environ.get("RDS_PASSWORD")
 dev_database = "btc_stamps"
 
 print("production", prod_host, "dev", dev_host)
-prod_conn = mysql.connect(
-    host=prod_host, user=prod_user, password=prod_password, database=prod_database
-)
+prod_conn = mysql.connect(host=prod_host, user=prod_user, password=prod_password, database=prod_database)
 
-dev_conn = mysql.connect(
-    host=dev_host, user=dev_user, password=dev_password, database=dev_database
-)
+dev_conn = mysql.connect(host=dev_host, user=dev_user, password=dev_password, database=dev_database)
 
 prod_cursor = prod_conn.cursor()
 dev_cursor = dev_conn.cursor()
@@ -121,9 +117,7 @@ dev_blocks = sorted(list(dev_blocks))
 # Iterate over the two block lists
 for prod_block, dev_block in zip(prod_blocks, dev_blocks):
     if prod_block != dev_block:
-        print(
-            f"First BLOCK HASH mismatch found:\nProd block: {prod_block}\nDev block: {dev_block}"
-        )
+        print(f"First BLOCK HASH mismatch found:\nProd block: {prod_block}\nDev block: {dev_block}")
         break
 
 prod_src20 = set(prod_src20)
