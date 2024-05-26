@@ -1,5 +1,6 @@
-import toml
 import subprocess
+
+import toml
 
 
 def get_safety_ignores(pyproject_path="pyproject.toml"):
