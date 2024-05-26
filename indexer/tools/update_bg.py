@@ -16,9 +16,9 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=dotenv_path, override=True)
 
 import config
-from src.index_core.aws import get_s3_objects
-from src.index_core.src20 import build_src20_svg_string
-from src.index_core.stamp import store_files
+from index_core.aws import get_s3_objects
+from index_core.src20 import build_src20_svg_string
+from index_core.stamp import store_files
 
 parser = argparse.ArgumentParser()
 parser.add_argument(

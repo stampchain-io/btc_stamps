@@ -1,4 +1,4 @@
-[tool.poetry]
+ [tool.poetry]
 name = "indexer"
 version = "1.8.2+canary.9"
 description = "Bitcoin Stamps Indexer"
@@ -21,6 +21,7 @@ python = "^3.9"
 appdirs = "1.4.4"
 bitcoinlib = "0.6.15"
 colorlog = "6.8.2"
+# sha3 = "0.2.1"  # Remove this line if not needed
 pycoin = "0.92.20230326"
 python-bitcoinlib = "0.12.2"
 python-bitcoinrpc = "1.0"
@@ -37,6 +38,8 @@ msgpack = "1.0.8"
 tqdm = "4.66.4"
 python-dotenv = "1.0.1"
 colour-runner = "0.1.1"
+ecdsa = "0.18.0"
+toml = "^0.10.2"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
@@ -58,11 +61,15 @@ types-appdirs = "^1.4.3.5"
 types-cachetools = "^5.3.0.7"
 flake8-pyproject = "^1.2.3"
 safety = "^2.3.3"
-toml = "^0.10.2"  
+pytest = "^7.2.0"
+pytest-cov = "^4.0.0"
+pre-commit = "^3.7.1"
+types-toml = "^0.10.8" 
 
 [tool.poetry.scripts]
 indexer = "start:main"
 run_safety = "tools.run_safety:run_safety_check"
+run_checks = "tools.run_checks:main"
 
 [[tool.poetry.packages]]
 from = "src"
@@ -92,6 +99,8 @@ import_background = "poetry run python3 tools/import_background.py"
 mypy_path = "src"
 ignore_missing_imports = true
 explicit_package_bases = false
+namespace_packages = true
+exclude = 'tools/'
 
 [tool.safety]
 ignore = [
