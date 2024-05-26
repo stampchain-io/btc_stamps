@@ -1,8 +1,9 @@
-import os
 import logging
-from requests.auth import HTTPBasicAuth
-import boto3
+import os
 import re
+
+import boto3
+from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
 

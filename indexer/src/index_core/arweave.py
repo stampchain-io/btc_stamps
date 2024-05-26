@@ -1,5 +1,6 @@
-import requests
 import os
+
+import requests
 
 endpoint = "https://arweave.net/graphql"
 stampchain_arweave_wallet = "T9SMEcU-q0eQY7RiePwP_oZO6D4b-6el5AhgAn9o218"

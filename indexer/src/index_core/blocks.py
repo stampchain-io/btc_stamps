@@ -4,54 +4,45 @@ initialize database.
 Sieve blockchain for Stamp transactions, and add them to the database.
 """
 
+import concurrent.futures
+import decimal
+import http
+import logging
 import sys
 import time
-import decimal
-import logging
-import http
-import concurrent.futures
+from collections import namedtuple
+from typing import List
+
 import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
-from collections import namedtuple
-from typing import List
+
 # import cProfile
 # import pstats
 import config
-import index_core.util as util
-import index_core.check as check
-import index_core.script as script
-import index_core.backend as backend
 import index_core.arc4 as arc4
+import index_core.backend as backend
+import index_core.check as check
 import index_core.log as log
-from index_core.xcprequest import filter_issuances_by_tx_hash, fetch_cp_concurrent
-from index_core.exceptions import (
-    BlockAlreadyExistsError, DatabaseInsertError,
-    BlockUpdateError, DecodeError, BTCOnlyError
-)
+import index_core.script as script
+import index_core.util as util
+from index_core.database import (initialize, insert_block,
+                                 insert_into_src20_tables,
+                                 insert_into_stamp_table, insert_transactions,
+                                 is_prev_block_parsed, next_tx_index,
+                                 purge_block_db, rebuild_balances,
+                                 update_block_hashes, update_parsed_block)
+from index_core.exceptions import (BlockAlreadyExistsError, BlockUpdateError,
+                                   BTCOnlyError, DatabaseInsertError,
+                                   DecodeError)
 from index_core.models import StampData, ValidStamp
+from index_core.src20 import (clear_zero_balances, parse_src20,
+                              process_balance_updates, update_src20_balances,
+                              validate_src20_ledger_hash)
 from index_core.stamp import parse_stamp
-from index_core.src20 import (
-    parse_src20,
-    update_src20_balances,
-    process_balance_updates,
-    clear_zero_balances,
-    validate_src20_ledger_hash
-)
-from index_core.database import (
-    initialize,
-    insert_transactions,
-    insert_into_stamp_table,
-    next_tx_index,
-    update_block_hashes,
-    update_parsed_block,
-    insert_into_src20_tables,
-    purge_block_db,
-    is_prev_block_parsed,
-    rebuild_balances,
-    insert_block,
-)
+from index_core.xcprequest import (fetch_cp_concurrent,
+                                   filter_issuances_by_tx_hash)
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)

@@ -1,30 +1,22 @@
+import decimal
+import hashlib
 import json
 import logging
 import re
-import hashlib
-from collections import namedtuple
-import decimal
 import time
-import requests
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import (
-    TICK_PATTERN_SET,
-    SRC20_VALID_TABLE,
-    SRC_VALIDATION_API1,
-    SRC_VALIDATION_API2,
-    SRC_VALIDATION_SECRET_API2,
-    SRC20_BALANCES_TABLE,
-)
-import index_core.log as log
-from index_core.database import (
-    TOTAL_MINTED_CACHE,
-    get_srcbackground_data,
-    get_total_src20_minted_from_db,
-    get_src20_deploy
-)
-from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
+import requests
 
+import index_core.log as log
+from config import (SRC20_BALANCES_TABLE, SRC20_VALID_TABLE,
+                    SRC_VALIDATION_API1, SRC_VALIDATION_API2,
+                    SRC_VALIDATION_SECRET_API2, TICK_PATTERN_SET)
+from index_core.database import (TOTAL_MINTED_CACHE, get_src20_deploy,
+                                 get_srcbackground_data,
+                                 get_total_src20_minted_from_db)
+from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)

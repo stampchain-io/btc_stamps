@@ -1,19 +1,12 @@
-import logging
 import hashlib
 import io
+import logging
 import os
+
 import index_core.log as log
-
-from index_core.aws import (
-    check_existing_and_upload_to_s3,
-)
-
-from config import (
-    AWS_SECRET_ACCESS_KEY,
-    AWS_ACCESS_KEY_ID,
-    AWS_S3_IMAGE_DIR,
-    AWS_S3_BUCKETNAME
-)
+from config import (AWS_ACCESS_KEY_ID, AWS_S3_BUCKETNAME, AWS_S3_IMAGE_DIR,
+                    AWS_SECRET_ACCESS_KEY)
+from index_core.aws import check_existing_and_upload_to_s3
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger

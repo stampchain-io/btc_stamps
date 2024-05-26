@@ -1,18 +1,19 @@
-import json
-import requests
-from requests.exceptions import Timeout, ConnectionError
-import time
-import concurrent.futures
-import collections
 import binascii
+import collections
+import concurrent.futures
 import hashlib
+import json
+import logging
+import time
+
+import bitcoin as bitcoinlib
+import requests
+from bitcoin.core import CBlock
+from requests.exceptions import ConnectionError, Timeout
+
 import config
 import index_core.util as util
 
-import bitcoin as bitcoinlib
-from bitcoin.core import CBlock
-
-import logging
 logger = logging.getLogger(__name__)
 
 raw_transactions_cache = util.DictCache(

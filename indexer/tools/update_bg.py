@@ -1,7 +1,8 @@
-import pymysql as mysql
+import argparse
 import os
 import sys
-import argparse
+
+import pymysql as mysql
 
 if os.getcwd().endswith('/indexer'):
     sys.path.append(os.getcwd())
@@ -11,6 +12,7 @@ else:
     dotenv_path = os.path.join(os.getcwd(), 'indexer/.env')
 
 from dotenv import load_dotenv
+
 load_dotenv(dotenv_path=dotenv_path, override=True)
 
 import config
