@@ -7,7 +7,6 @@ db
 db_data/
 files/
 indexer/.env
-.vscode/
 .idea/
 backups/*
 *.log
