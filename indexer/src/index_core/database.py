@@ -17,11 +17,7 @@ from config import (
     STAMP_TABLE,
     TRANSACTIONS_TABLE,
 )
-from index_core.exceptions import (
-    BlockAlreadyExistsError,
-    BlockUpdateError,
-    DatabaseInsertError,
-)
+from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -41,17 +37,11 @@ def initialize(db):
     block_index = cursor.fetchone()[0]
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
-        raise exceptions.DatabaseError(
-            "First block in database is not block " "{}.".format(config.BLOCK_FIRST)
-        )
+        raise exceptions.DatabaseError("First block in database is not block " "{}.".format(config.BLOCK_FIRST))
 
-    cursor.execute(
-        """DELETE FROM blocks WHERE block_index < %s""", (config.BLOCK_FIRST,)
-    )
+    cursor.execute("""DELETE FROM blocks WHERE block_index < %s""", (config.BLOCK_FIRST,))
 
-    cursor.execute(
-        """DELETE FROM transactions WHERE block_index < %s""", (config.BLOCK_FIRST,)
-    )
+    cursor.execute("""DELETE FROM transactions WHERE block_index < %s""", (config.BLOCK_FIRST,))
     cursor.close()
 
 
@@ -384,11 +374,7 @@ def rebuild_balances(db):
             block_index,
         ] in src20_valid_list:
             destination_id = tick + "_" + destination
-            destination_amt = (
-                D(0)
-                if destination_id not in all_balances
-                else all_balances[destination_id]["amt"]
-            )
+            destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
             destination_amt += amt
 
             all_balances[destination_id] = {
@@ -402,11 +388,7 @@ def rebuild_balances(db):
 
             if op == "TRANSFER":
                 creator_id = tick + "_" + creator
-                creator_amt = (
-                    D(0)
-                    if creator_id not in all_balances
-                    else all_balances[creator_id]["amt"]
-                )
+                creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
                 creator_amt -= amt
                 all_balances[creator_id] = {
                     "tick": tick,
@@ -417,9 +399,7 @@ def rebuild_balances(db):
                     "block_time": block_time,
                 }
 
-        if set(existing_balances) == set(
-            (key,) + tuple(value.values())[:-1] for key, value in all_balances.items()
-        ):
+        if set(existing_balances) == set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items()):
             logger.info("No changes in balances. Skipping deletion and insertion." "")
             cursor.close()
             return
@@ -486,9 +466,7 @@ def purge_block_db(db, block_index):
     ]
 
     for table in tables:
-        logger.warning(
-            "Purging {} from database after block: {}".format(table, block_index)
-        )
+        logger.warning("Purging {} from database after block: {}".format(table, block_index))
         cursor.execute(
             """
                         DELETE FROM {}
@@ -543,11 +521,7 @@ def get_src20_deploy(db, tick, src20_processed_in_block):
 
 def get_src20_deploy_in_block(processed_blocks, tick):
     for item in processed_blocks:
-        if (
-            item.get("tick") == tick
-            and item.get("op") == "DEPLOY"
-            and item.get("valid") == 1
-        ):
+        if item.get("tick") == tick and item.get("op") == "DEPLOY" and item.get("valid") == 1:
             return item.get("lim"), item.get("max"), item.get("dec")
     return None, None, None
 
@@ -652,11 +626,7 @@ def get_next_stamp_number(db, identifier):
 
             cursor.execute(query)
             transactions = cursor.fetchone()
-            next_number = (
-                transactions[0] + increment
-                if transactions[0] is not None
-                else default_value
-            )
+            next_number = transactions[0] + increment if transactions[0] is not None else default_value
 
     get_next_stamp_number.cached_stamp[identifier] = next_number
     return next_number
@@ -722,9 +692,7 @@ def last_db_index(db):
     cursor = db.cursor()
 
     try:
-        cursor.execute(
-            """SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)"""
-        )
+        cursor.execute("""SELECT * FROM blocks WHERE block_index = (SELECT MAX(block_index) from blocks)""")
         blocks = cursor.fetchall()
         try:
             last_index = blocks[0][field_position["block_index"]]
@@ -761,9 +729,7 @@ def next_tx_index(db):
     return tx_index
 
 
-def insert_block(
-    db, block_index, block_hash, block_time, previous_block_hash, difficulty
-):
+def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
     """
     Insert a new block into the database, does not commit
 
@@ -793,14 +759,10 @@ def insert_block(
         cursor.execute(block_query, args)
     except mysql.IntegrityError as e:
         cursor.close()
-        raise BlockAlreadyExistsError(
-            f"block {block_index} already exists in mysql"
-        ) from e
+        raise BlockAlreadyExistsError(f"block {block_index} already exists in mysql") from e
     except Exception as e:
         cursor.close()
-        raise DatabaseInsertError(
-            f"Error executing query: {block_query} with arguments: {args}. Error message: {e}"
-        ) from e
+        raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
 
 
 def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash):
@@ -831,8 +793,6 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
     try:
         cursor.execute(block_query, args)
     except Exception as e:
-        raise BlockUpdateError(
-            f"Error executing query: {block_query} with arguments: {args}. Error message: {e}"
-        )
+        raise BlockUpdateError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}")
     finally:
         cursor.close()

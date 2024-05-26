@@ -6,7 +6,9 @@ import index_core.util as util
 
 logger = logging.getLogger(__name__)
 
-CONSENSUS_HASH_SEED = "Through our eyes, the universe is perceiving itself. Through our ears, the universe is listening to its harmonies."
+CONSENSUS_HASH_SEED = (
+    "Through our eyes, the universe is perceiving itself. Through our ears, the universe is listening to its harmonies."
+)
 
 CONSENSUS_HASH_VERSION_MAINNET = 1
 
@@ -128,23 +130,17 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     # initialize previous hash on first block.
     if block_index <= config.BLOCK_FIRST and field != "ledger_hash":
         if previous_consensus_hash:
-            raise ConsensusError(
-                "Expected previous_consensus_hash to be unset for the first block."
-            )
+            raise ConsensusError("Expected previous_consensus_hash to be unset for the first block.")
         previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)
     elif block_index == config.CP_SRC20_GENESIS_BLOCK + 1 and field == "ledger_hash":
         if previous_consensus_hash:
-            raise ConsensusError(
-                "Expected previous_consensus_hash to be unset for the SRC20 genesis block."
-            )
+            raise ConsensusError("Expected previous_consensus_hash to be unset for the SRC20 genesis block.")
         previous_consensus_hash = util.shash_string("")
 
     # Get previous hash.
     if not previous_consensus_hash and field != "ledger_hash":
         try:
-            cursor.execute(
-                """SELECT * FROM blocks WHERE block_index = %s""", (block_index - 1,)
-            )
+            cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index - 1,))
             results = cursor.fetchall()
             if results:
                 previous_consensus_hash = results[0][field_position[field]]
@@ -153,11 +149,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
-            raise ConsensusError(
-                "Empty previous {} for block {}. Please launch a `reparse`.".format(
-                    field, block_index
-                )
-            )
+            raise ConsensusError("Empty previous {} for block {}. Please launch a `reparse`.".format(field, block_index))
     elif not previous_consensus_hash and field == "ledger_hash" and content != "":
         cursor.execute(
             """SELECT ledger_hash FROM blocks WHERE ledger_hash IS NOT NULL AND ledger_hash <> '' ORDER BY block_index DESC LIMIT 1"""
@@ -165,9 +157,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         result = cursor.fetchone()
         previous_consensus_hash = result[0] if result else None
         if not previous_consensus_hash:
-            raise ConsensusError(
-                f"Empty previous {field} for block {block_index}. Please launch a `reparse`."
-            )
+            raise ConsensusError(f"Empty previous {field} for block {block_index}. Please launch a `reparse`.")
 
     # Calculate current hash.
     if config.TESTNET:
@@ -178,25 +168,14 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         consensus_hash_version = CONSENSUS_HASH_VERSION_MAINNET
 
     if field == "ledger_hash" and block_index == config.CP_SRC20_GENESIS_BLOCK:
-        calculated_hash = (
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        )
-    elif (
-        field == "ledger_hash"
-        and block_index > config.CP_SRC20_GENESIS_BLOCK
-        and content
-    ):
-        concatenated_content = previous_consensus_hash.encode("utf-8") + content.encode(
-            "utf-8"
-        )
+        calculated_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    elif field == "ledger_hash" and block_index > config.CP_SRC20_GENESIS_BLOCK and content:
+        concatenated_content = previous_consensus_hash.encode("utf-8") + content.encode("utf-8")
         calculated_hash = util.shash_string(concatenated_content)
     elif field == "ledger_hash" and content == "":
         calculated_hash = ""
     else:
-        calculated_hash = util.dhash_string(
-            previous_consensus_hash
-            + "{}{}".format(consensus_hash_version, "".join(content))
-        )
+        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
     # Verify hash (if already in database) or save hash (if not).
     cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
     results = cursor.fetchall()
@@ -227,11 +206,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     else:
         checkpoints = CHECKPOINTS_MAINNET
 
-    if (
-        field != "messages_hash"
-        and block_index in checkpoints
-        and checkpoints[block_index][field] != calculated_hash
-    ):
+    if field != "messages_hash" and block_index in checkpoints and checkpoints[block_index][field] != calculated_hash:
         raise ConsensusError(
             "Incorrect {} consensus hash for block {}.  Calculated {} but expected {}".format(
                 field,

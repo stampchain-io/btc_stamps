@@ -30,7 +30,7 @@ log.set_logger(logger)
 
 
 class ValidStamp(TypedDict):
-    stamp_number: int
+    stamp_number: Optional[int]
     tx_hash: str
     cpid: str
     is_btc_stamp: bool
@@ -108,9 +108,7 @@ class StampData:
 
     def is_valid_json_object_or_array(self, s):
         s = s.strip()
-        if (s.startswith("{") and s.endswith("}")) or (
-            s.startswith("[") and s.endswith("]")
-        ):
+        if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
             try:
                 json.loads(s)
                 return True
@@ -176,9 +174,7 @@ class StampData:
             self.ident = self.decoded_base64["p"].upper()
             self.file_suffix = "json"
         else:
-            self.file_suffix = (
-                "json"  # a valid json file, but not SRC-20, will be cursed
-            )
+            self.file_suffix = "json"  # a valid json file, but not SRC-20, will be cursed
             self.stamp_mimetype = "application/json"
             self.ident = "UNKNOWN"
 
@@ -202,9 +198,7 @@ class StampData:
         """
         Updates the file suffix and MIME type based on the given bytestring data.
         """
-        if self.block_index > CP_BMN_FEAT_BLOCK_START and self.check_custom_suffix(
-            bytestring_data
-        ):
+        if self.block_index > CP_BMN_FEAT_BLOCK_START and self.check_custom_suffix(bytestring_data):
             self.file_suffix = "bmn"
             self.stamp_mimetype = None
             return
@@ -218,11 +212,7 @@ class StampData:
             pass
 
         mime_type = magic.from_buffer(
-            (
-                bytestring_data.lstrip()
-                if self.block_index > STRIP_WHITESPACE
-                else bytestring_data
-            ),
+            (bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data),
             mime=True,
         )
         self.file_suffix = mime_type.split("/")[-1]
@@ -234,16 +224,12 @@ class StampData:
 
     def handle_bytes(self):
         try:
-            self.decoded_base64 = self.decoded_base64.decode(
-                "utf-8"
-            )  # to check for a text encoded bytestring / src-20, etc
+            self.decoded_base64 = self.decoded_base64.decode("utf-8")  # to check for a text encoded bytestring / src-20, etc
         except UnicodeDecodeError:
             self.handle_bytes_again()  # FIXME: if we detect a octet-stream or invalid type here we later flag in stamp.py as cursed
 
     def handle_bytes_again(self):
-        self.update_file_suffix_and_mime_type(
-            self.decoded_base64
-        )  # retry magic on non-utf-8 decoded bytes
+        self.update_file_suffix_and_mime_type(self.decoded_base64)  # retry magic on non-utf-8 decoded bytes
         if self.file_suffix in ["zlib"]:
             self.zlib_decompress(self.decoded_base64)
         else:
@@ -289,9 +275,7 @@ class StampData:
                     str: self.handle_string,
                     bytes: self.handle_bytes_again,
                 }
-                handler = type_func_map.get(
-                    type(self.decoded_base64), self.handle_unknown_type
-                )
+                handler = type_func_map.get(type(self.decoded_base64), self.handle_unknown_type)
                 handler()
 
         except Exception as e:
@@ -342,13 +326,7 @@ class StampData:
             return False
         base_condition = (
             self.ident == "SRC-721"
-            and (
-                self.keyburn == 1
-                or (
-                    self.p2wsh_data is not None
-                    and self.block_index >= CP_P2WSH_FEAT_BLOCK_START
-                )
-            )
+            and (self.keyburn == 1 or (self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START))
             and self.supply <= 1
         )
         return base_condition
@@ -375,9 +353,7 @@ class StampData:
 
     def process_p2wsh_data(self, decode_base64_func):
         self.stamp_base64 = base64.b64encode(self.p2wsh_data).decode()
-        self.decoded_base64, self.is_valid_base64 = decode_base64_func(
-            self.stamp_base64, self.block_index
-        )
+        self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
         self.check_decoded_data_fetch_ident_mime()
         self.is_op_return = None  # reset because p2wsh are typically op_return
 
@@ -387,16 +363,11 @@ class StampData:
     def update_cpid_and_stamp_url(self, filename):
         self.cpid = self.cpid if self.cpid else self.stamp_hash
         self.stamp_url = (
-            "https://" + DOMAINNAME + "/stamps/" + filename
-            if self.file_suffix is not None and filename is not None
-            else None
+            "https://" + DOMAINNAME + "/stamps/" + filename if self.file_suffix is not None and filename is not None else None
         )
 
     def determine_stamp_data_type(self, decode_base64_func):
-        if (
-            self.p2wsh_data is not None
-            and self.block_index >= CP_P2WSH_FEAT_BLOCK_START
-        ):
+        if self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START:
             self.process_p2wsh_data(decode_base64_func)
         elif self.decoded_base64 is not None:
             self.process_decoded_base64()
@@ -441,9 +412,7 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = 1
-        svg_output, self.file_suffix = validate_src721_and_process(
-            self.src_data, valid_stamps_in_block, db
-        )
+        svg_output, self.file_suffix = validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"
@@ -460,9 +429,7 @@ class StampData:
             self.is_btc_stamp = 1
         else:
             if not self.process_cursed_with_asset_longname():
-                self.process_cursed_with_other_conditions(
-                    cpid_starts_with_A, ident_known
-                )
+                self.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
 
     def process_cursed_with_asset_longname(self):
         if self.asset_longname is not None:
@@ -474,10 +441,7 @@ class StampData:
 
     def process_cursed_with_other_conditions(self, cpid_starts_with_A, ident_known):
         if self.cpid and (
-            self.file_suffix in INVALID_BTC_STAMP_SUFFIX
-            or not cpid_starts_with_A
-            or self.is_op_return
-            or not ident_known
+            self.file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid_starts_with_A or self.is_op_return or not ident_known
         ):  # added ident_known
             self.is_btc_stamp = None
             self.is_cursed = 1
@@ -505,14 +469,12 @@ class StampData:
 
         self.normalize_mime_and_suffix()
         # if isinstance(self.decoded_base64, bytes):
-        self.file_hash, filename = (
-            encode_and_store_file(  # can be any type (bytestring, string or dict)
-                db,
-                self.tx_hash,
-                self.file_suffix,
-                self.decoded_base64,
-                self.stamp_mimetype,
-            )
+        self.file_hash, filename = encode_and_store_file(  # can be any type (bytestring, string or dict)
+            db,
+            self.tx_hash,
+            self.file_suffix,
+            self.decoded_base64,
+            self.stamp_mimetype,
         )
 
         self.update_cpid_and_stamp_url(filename)
