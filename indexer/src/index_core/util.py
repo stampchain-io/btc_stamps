@@ -1,14 +1,16 @@
-import logging
-import binascii
-import re
-import json
 import ast
-import hashlib
+import binascii
 import collections
-import threading
 import decimal
+import hashlib
+import json
+import logging
+import re
+import threading
+
 import config
-from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
+from index_core.exceptions import (DataConversionError, InvalidInputDataError,
+                                   SerializationError)
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal

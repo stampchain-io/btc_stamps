@@ -1,10 +1,11 @@
-import base64
-import pymysql as mysql
-import os
-import mimetypes
 import argparse
-from PIL import Image
+import base64
+import mimetypes
+import os
+
+import pymysql as mysql
 from dotenv import load_dotenv
+from PIL import Image
 
 load_dotenv()
 

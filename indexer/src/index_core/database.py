@@ -1,26 +1,18 @@
-import logging
-import index_core.log as log
 import decimal
-import pymysql as mysql
-from typing import List
+import logging
 from datetime import datetime, timezone
+from typing import List
+
+import pymysql as mysql
 
 import config
 import index_core.exceptions as exceptions
-from config import (
-    SRC20_TABLE,
-    SRC20_VALID_TABLE,
-    STAMP_TABLE,
-    SRC_BACKGROUND_TABLE,
-    BLOCK_FIELDS_POSITION,
-    TRANSACTIONS_TABLE,
-    BLOCKS_TABLE,
-)
-from index_core.exceptions import (
-    BlockAlreadyExistsError,
-    DatabaseInsertError,
-    BlockUpdateError
-)
+import index_core.log as log
+from config import (BLOCK_FIELDS_POSITION, BLOCKS_TABLE, SRC20_TABLE,
+                    SRC20_VALID_TABLE, SRC_BACKGROUND_TABLE, STAMP_TABLE,
+                    TRANSACTIONS_TABLE)
+from index_core.exceptions import (BlockAlreadyExistsError, BlockUpdateError,
+                                   DatabaseInsertError)
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)

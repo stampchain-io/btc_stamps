@@ -1,7 +1,8 @@
-import logging
 import decimal
-from colorlog import ColoredFormatter
+import logging
 from logging.handlers import RotatingFileHandler
+
+from colorlog import ColoredFormatter
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal

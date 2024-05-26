@@ -1,23 +1,23 @@
-import os
+import csv
 import decimal
-import sys
-import pymysql as mysql
+import hashlib
+import logging
+import os
 import signal
+import sys
+
 import appdirs
 import bitcoin as bitcoinlib
-import logging
-import csv
-import hashlib
+import pymysql as mysql
 
-import index_core.log as log
 import config
-import index_core.util as util
-import index_core.blocks as blocks
-from index_core.database import last_db_index
 import index_core.backend as backend
+import index_core.blocks as blocks
+import index_core.log as log
+import index_core.util as util
 from index_core.aws import get_s3_objects
 from index_core.check import software_version
-
+from index_core.database import last_db_index
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger

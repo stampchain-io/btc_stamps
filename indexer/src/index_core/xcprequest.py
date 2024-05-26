@@ -1,11 +1,13 @@
-import time
-import json
-import config
-import requests
-import logging
 import concurrent.futures
-import index_core.util as util
+import json
+import logging
+import time
+
+import requests
 from tqdm import tqdm
+
+import config
+import index_core.util as util
 
 logger = logging.getLogger(__name__)
 

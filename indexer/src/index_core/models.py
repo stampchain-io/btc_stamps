@@ -1,29 +1,22 @@
-from typing import TypedDict, Optional, Union
+import base64
+import json
+import logging
+import re
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import base64
-import re
-import json
+from typing import Optional, TypedDict, Union
+
 import magic
 import msgpack
-import zlib
-import logging
+
 import index_core.log as log
-from config import (
-    CP_BMN_FEAT_BLOCK_START,
-    CP_P2WSH_FEAT_BLOCK_START,
-    CP_SRC20_END_BLOCK,
-    STRIP_WHITESPACE,
-    SUPPORTED_SUB_PROTOCOLS,
-    INVALID_BTC_STAMP_SUFFIX,
-    DOMAINNAME,
-    CP_SRC721_GENESIS_BLOCK,
-)
+from config import (CP_BMN_FEAT_BLOCK_START, CP_P2WSH_FEAT_BLOCK_START,
+                    CP_SRC20_END_BLOCK, CP_SRC721_GENESIS_BLOCK, DOMAINNAME,
+                    INVALID_BTC_STAMP_SUFFIX, STRIP_WHITESPACE,
+                    SUPPORTED_SUB_PROTOCOLS)
+from index_core.src20 import build_src20_svg_string, check_format
 from index_core.src721 import validate_src721_and_process
-from index_core.src20 import (
-    check_format,
-    build_src20_svg_string,
-)
 from index_core.util import create_base62_hash
 
 logger = logging.getLogger(__name__)
