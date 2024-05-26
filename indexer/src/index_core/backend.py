@@ -34,77 +34,81 @@ def rpc_call(payload):
     for i in range(TRIES):
         try:
             response = requests.post(
-                url, data=json.dumps(payload),
-                headers={'content-type': 'application/json'},
+                url,
+                data=json.dumps(payload),
+                headers={"content-type": "application/json"},
                 verify=(not config.BACKEND_SSL_NO_VERIFY),
-                timeout=config.REQUESTS_TIMEOUT
+                timeout=config.REQUESTS_TIMEOUT,
             )
             if i > 0:
-                logger.debug('Successfully connected.')
+                logger.debug("Successfully connected.")
             break
         except (Timeout, ConnectionError):
             logger.debug(
-                'Could not connect to backend at `{}`. (Try {}/{})'
-                .format(util.clean_url_for_log(url), i + 1, TRIES)
+                "Could not connect to backend at `{}`. (Try {}/{})".format(
+                    util.clean_url_for_log(url), i + 1, TRIES
+                )
             )
             time.sleep(5)
     if response is None:
         if config.TESTNET:
-            network = 'testnet'
+            network = "testnet"
         elif config.REGTEST:
-            network = 'regtest'
+            network = "regtest"
         else:
-            network = 'mainnet'
+            network = "mainnet"
         raise BackendRPCError(
-            '''
+            """
             Cannot communicate with backend at `{}`.
             (server is set to run on {}, is backend?
-            '''
-            .format(util.clean_url_for_log(url), network)
+            """.format(
+                util.clean_url_for_log(url), network
+            )
         )
     elif response.status_code in (401,):
         raise BackendRPCError(
-            'Authorization error connecting to {}: {} {}'
-            .format(
-                util.clean_url_for_log(url),
-                response.status_code,
-                response.reason
+            "Authorization error connecting to {}: {} {}".format(
+                util.clean_url_for_log(url), response.status_code, response.reason
             )
         )
     elif response.status_code not in (200, 500, 503):
-        raise BackendRPCError(
-            f"{response.status_code} {response.reason}"
-        )
+        raise BackendRPCError(f"{response.status_code} {response.reason}")
 
     # Handle json decode errors
     try:
         response_json = response.json()
     except json.decoder.JSONDecodeError as e:
         raise BackendRPCError(
-            f'''
+            f"""
             Received invalid JSON from backend with a response of:
             {response.status_code} {response.reason} {e}
-            '''
+            """
         )
 
     # Batch query returns a list
     if isinstance(response_json, list):
         return response_json
-    if 'error' not in response_json.keys() or response_json['error'] is None:
-        return response_json['result']
-    elif response_json['error']['code'] == -5:   # RPC_INVALID_ADDRESS_OR_KEY
-        raise BackendRPCError('{} Is `txindex` enabled in {} Core?'.format(
-            response_json['error'], config.BTC_NAME
-        ))
-    elif response_json['error']['code'] in [-28, -8, -2]:
+    if "error" not in response_json.keys() or response_json["error"] is None:
+        return response_json["result"]
+    elif response_json["error"]["code"] == -5:  # RPC_INVALID_ADDRESS_OR_KEY
+        raise BackendRPCError(
+            "{} Is `txindex` enabled in {} Core?".format(
+                response_json["error"], config.BTC_NAME
+            )
+        )
+    elif response_json["error"]["code"] in [-28, -8, -2]:
         # “Verifying blocks...” or “Block height out of range” or “The network does not appear to fully agree!“
-        logger.debug('Backend not ready. Sleeping for ten seconds.')
+        logger.debug("Backend not ready. Sleeping for ten seconds.")
         # If Bitcoin Core takes more than `sys.getrecursionlimit() * 10 = 9970`
         # seconds to start, this’ll hit the maximum recursion depth limit.
         time.sleep(10)
         return rpc_call(payload)
     else:
-        raise BackendRPCError('Error connecting to {}: {}'.format(util.clean_url_for_log(url), response_json['error']))
+        raise BackendRPCError(
+            "Error connecting to {}: {}".format(
+                util.clean_url_for_log(url), response_json["error"]
+            )
+        )
 
 
 def rpc(method, params):
@@ -127,22 +131,24 @@ def rpc_batch(request_list):
         responses.extend(rpc_call(chunk))
 
     chunks = util.chunkify(request_list, config.RPC_BATCH_SIZE)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=config.BACKEND_RPC_BATCH_NUM_WORKERS) as executor:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=config.BACKEND_RPC_BATCH_NUM_WORKERS
+    ) as executor:
         for chunk in chunks:
             executor.submit(make_call, chunk)
     return list(responses)
 
 
 def getblockcount():
-    return rpc('getblockcount', [])
+    return rpc("getblockcount", [])
 
 
 def getblockhash(blockcount):
-    return rpc('getblockhash', [blockcount])
+    return rpc("getblockhash", [blockcount])
 
 
 def getblock(block_hash):  # returns a hex string
-    return rpc('getblock', [block_hash, False])
+    return rpc("getblock", [block_hash, False])
 
 
 def getcblock(block_hash):
@@ -151,7 +157,9 @@ def getcblock(block_hash):
 
 
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
-    return getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing)[tx_hash]
+    return getrawtransaction_batch(
+        [tx_hash], verbose=verbose, skip_missing=skip_missing
+    )[tx_hash]
 
 
 def deserialize(tx_hex):
@@ -167,7 +175,7 @@ def get_tx_list(block):
     tx_hash_list = []
 
     for ctx in block.vtx:
-        if util.enabled('correct_segwit_txids'):  # always enabled
+        if util.enabled("correct_segwit_txids"):  # always enabled
             # This differs from the transactions hash as given by GetHash. GetTxid excludes witness data, while GetHash includes it
             hsh = ctx.GetTxid()
         else:
@@ -189,10 +197,16 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
 
     if len(txhash_list) > config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE:
         # don't try to load in more than BACKEND_RAW_TRANSACTIONS_CACHE_SIZE entries in a single call
-        txhash_list_chunks = util.chunkify(txhash_list, config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+        txhash_list_chunks = util.chunkify(
+            txhash_list, config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE
+        )
         txes = {}
         for txhash_list_chunk in txhash_list_chunks:
-            txes.update(getrawtransaction_batch(txhash_list_chunk, verbose=verbose, skip_missing=skip_missing))
+            txes.update(
+                getrawtransaction_batch(
+                    txhash_list_chunk, verbose=verbose, skip_missing=skip_missing
+                )
+            )
         return txes
 
     tx_hash_call_id = {}
@@ -208,12 +222,14 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
             global monotonic_call_id
             monotonic_call_id = monotonic_call_id + 1
             call_id = "{}".format(monotonic_call_id)
-            payload.append({
-                "method": 'getrawtransaction',
-                "params": [tx_hash, 1],
-                "jsonrpc": "2.0",
-                "id": call_id
-            })
+            payload.append(
+                {
+                    "method": "getrawtransaction",
+                    "params": [tx_hash, 1],
+                    "jsonrpc": "2.0",
+                    "id": call_id,
+                }
+            )
             noncached_txhashes.add(tx_hash)
             tx_hash_call_id[call_id] = tx_hash
     # refresh any/all cache entries that already exist in the cache,
@@ -222,24 +238,38 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
     for tx_hash in txhash_list.difference(noncached_txhashes):
         raw_transactions_cache.refresh(tx_hash)
 
-    _logger.debug("getrawtransaction_batch: txhash_list size: {} / raw_transactions_cache size: {} / # getrawtransaction calls: {}".format(
-        len(txhash_list), len(raw_transactions_cache), len(payload)))
+    _logger.debug(
+        "getrawtransaction_batch: txhash_list size: {} / raw_transactions_cache size: {} / # getrawtransaction calls: {}".format(
+            len(txhash_list), len(raw_transactions_cache), len(payload)
+        )
+    )
 
     # populate cache
     if payload:
         batch_responses = rpc_batch(payload)
         for response in batch_responses:
-            if 'error' not in response or response['error'] is None:
-                tx_hex = response['result']
-                tx_hash = tx_hash_call_id[response['id']]
+            if "error" not in response or response["error"] is None:
+                tx_hex = response["result"]
+                tx_hash = tx_hash_call_id[response["id"]]
                 raw_transactions_cache[tx_hash] = tx_hex
-            elif skip_missing and 'error' in response and response['error']['code'] == -5:
+            elif (
+                skip_missing and "error" in response and response["error"]["code"] == -5
+            ):
                 raw_transactions_cache[tx_hash] = None
-                logging.debug('Missing TX with no raw info skipped (txhash: {}): {}'.format(
-                    tx_hash_call_id.get(response.get('id', '??'), '??'), response['error']))
+                logging.debug(
+                    "Missing TX with no raw info skipped (txhash: {}): {}".format(
+                        tx_hash_call_id.get(response.get("id", "??"), "??"),
+                        response["error"],
+                    )
+                )
             else:
                 # TODO: this seems to happen for bogus transactions? Maybe handle it more gracefully than just erroring out?
-                raise BackendRPCError('{} (txhash:: {})'.format(response['error'], tx_hash_call_id.get(response.get('id', '??'), '??')))
+                raise BackendRPCError(
+                    "{} (txhash:: {})".format(
+                        response["error"],
+                        tx_hash_call_id.get(response.get("id", "??"), "??"),
+                    )
+                )
 
     # get transactions from cache
     result = {}
@@ -248,15 +278,39 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
             if verbose:
                 result[tx_hash] = raw_transactions_cache[tx_hash]
             else:
-                result[tx_hash] = raw_transactions_cache[tx_hash]['hex'] if raw_transactions_cache[tx_hash] is not None else None
-        except KeyError as e:  # shows up most likely due to finickyness with addrindex not always returning results that we need...
+                result[tx_hash] = (
+                    raw_transactions_cache[tx_hash]["hex"]
+                    if raw_transactions_cache[tx_hash] is not None
+                    else None
+                )
+        except (
+            KeyError
+        ) as e:  # shows up most likely due to finickyness with addrindex not always returning results that we need...
             print("Key error in addrindexrs still exists!!!!!")
-            _logger.warning("tx missing in rawtx cache: {} -- txhash_list size: {}, hash: {} / raw_transactions_cache size: {} / # rpc_batch calls: {} / txhash in noncached_txhashes: {} / txhash in txhash_list: {} -- list {}".format(
-                e, len(txhash_list), hashlib.md5(json.dumps(list(txhash_list)).encode(), usedforsecurity=False).hexdigest(), len(raw_transactions_cache), len(payload),
-                tx_hash in noncached_txhashes, tx_hash in txhash_list, list(txhash_list.difference(noncached_txhashes))))
+            _logger.warning(
+                "tx missing in rawtx cache: {} -- txhash_list size: {}, hash: {} / raw_transactions_cache size: {} / # rpc_batch calls: {} / txhash in noncached_txhashes: {} / txhash in txhash_list: {} -- list {}".format(
+                    e,
+                    len(txhash_list),
+                    hashlib.md5(
+                        json.dumps(list(txhash_list)).encode(), usedforsecurity=False
+                    ).hexdigest(),
+                    len(raw_transactions_cache),
+                    len(payload),
+                    tx_hash in noncached_txhashes,
+                    tx_hash in txhash_list,
+                    list(txhash_list.difference(noncached_txhashes)),
+                )
+            )
             if _retry < GETRAWTRANSACTION_MAX_RETRIES:  # try again
-                time.sleep(0.05 * (_retry + 1))  # Wait a bit, hitting the index non-stop may cause it to just break down... TODO: Better handling
-                r = getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing, _retry=_retry + 1)
+                time.sleep(
+                    0.05 * (_retry + 1)
+                )  # Wait a bit, hitting the index non-stop may cause it to just break down... TODO: Better handling
+                r = getrawtransaction_batch(
+                    [tx_hash],
+                    verbose=verbose,
+                    skip_missing=skip_missing,
+                    _retry=_retry + 1,
+                )
                 result[tx_hash] = r[tx_hash]
             else:
                 raise  # already tried again, give up
