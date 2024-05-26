@@ -1,6 +1,7 @@
-import os
-import pymysql as mysql
 import csv
+import os
+
+import pymysql as mysql
 from dotenv import load_dotenv
 
 parent_dir = os.path.dirname(os.getcwd())

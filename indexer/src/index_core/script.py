@@ -1,6 +1,6 @@
-import bitcoin as bitcoinlib
 import binascii
 
+import bitcoin as bitcoinlib
 
 import config
 import index_core.exceptions as exceptions

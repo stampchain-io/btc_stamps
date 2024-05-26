@@ -1,7 +1,8 @@
-import textwrap
-import logging
 import copy
 import json
+import logging
+import textwrap
+
 import config
 from index_core.database import get_srcbackground_data
 
