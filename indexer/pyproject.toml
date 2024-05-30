@@ -72,8 +72,8 @@ types-toml = "^0.10.8"
 indexer = "start:main"
 run_safety = "tools.run_safety:run_safety_check"
 run_checks = "tools.run_checks:main"
-install-hooks = "install_hooks:main"
-postinstall = "install_hooks:main"
+install-hooks = "tools.install_hooks:main"
+postinstall = "tools.install_hooks:main"
 
 [[tool.poetry.packages]]
 from = "src"
