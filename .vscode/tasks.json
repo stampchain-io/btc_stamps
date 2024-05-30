@@ -1,0 +1,16 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Install jq and Extensions",
+            "type": "shell",
+            "command": "${workspaceFolder}/indexer/tools/install_extensions.sh",
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "presentation": {
+                "reveal": "always"
+            }
+        }
+    ]
+}
