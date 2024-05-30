@@ -14,9 +14,9 @@ RPC_PASSWORD = os.environ.get("RPC_PASSWORD", "rpc")
 RPC_IP = os.environ.get("RPC_IP", "127.0.0.1")
 RPC_PORT = os.environ.get("RPC_PORT", "8332")
 
-CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://public.coindaddy.io:4001/api/rest/")  # 'http://127.0.0.1:4000/api/'
+CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://api.counterparty.io:4000")  # 'http://127.0.0.1:4000/api/'
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
-CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "1234")
+CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "rpc")
 CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
 
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", None)
