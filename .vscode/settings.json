@@ -8,6 +8,27 @@
     "python.analysis.extraPaths": [
         "${workspaceFolder}/indexer/src"
     ],
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingTypeStubs": "none"
+    },
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "black",
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true
+    },
+    "python.formatting.blackArgs": [
+        "--line-length=127"
+    ],
+    
+    "python.formatting.blackPath": "${workspaceFolder}/.venv/bin/black",
+    "flake8.args": [
+        "--max-line-length=127",
+        "--exclude=.tox,build",
+        "--extend-ignore=E203,W503,E402,E501"
+    ],
+    "flake8.path": ["${workspaceFolder}/.venv/bin/flake8"],
     "cSpell.words": [
         "arweave",
         "aylsk",
