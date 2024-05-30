@@ -2,7 +2,7 @@ import base64
 import json
 import logging
 import subprocess  # nosec
-from typing import Optional
+from typing import Optional, cast
 
 import pybase64
 
@@ -139,7 +139,7 @@ def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimety
 
 
 def create_valid_stamp_dict(
-    stamp_number: Optional[int],
+    stamp_number: int,
     tx_hash: str,
     cpid: str,
     is_btc_stamp: bool,
@@ -209,7 +209,9 @@ def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidS
     elif stamp_data.is_cursed:
         stamp_data.stamp = get_next_stamp_number(db, "cursed")
     else:
-        stamp_data.stamp = None
+        raise ValueError("stamp_number must be set")
+
+    stamp_data.stamp = cast(int, stamp_data.stamp)
 
     if stamp_data.cpid and stamp_data.is_btc_stamp:
         valid_stamp = create_valid_stamp_dict(

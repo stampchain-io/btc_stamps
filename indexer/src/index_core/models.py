@@ -30,7 +30,7 @@ log.set_logger(logger)
 
 
 class ValidStamp(TypedDict):
-    stamp_number: Optional[int]
+    stamp_number: int
     tx_hash: str
     cpid: str
     is_btc_stamp: bool
