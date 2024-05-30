@@ -3,6 +3,6 @@ repos:
     hooks:
       - id: run-checks
         name: Run Checks
-        entry: poetry run run_checks
+        entry: bash -c 'cd indexer && poetry run run_checks'
         language: system
         types: [python]
