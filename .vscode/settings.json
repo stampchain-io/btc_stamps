@@ -29,6 +29,14 @@
         "--extend-ignore=E203,W503,E402,E501"
     ],
     "flake8.path": ["${workspaceFolder}/.venv/bin/flake8"],
+    "json.schemas": [],
+    "json.validate.enable": false,
+    "files.associations": {
+        "extensions.json": "jsonc"
+    },
+    "cSpell.language": "en",
+    "cSpell.enabled": true,
+    "cSpell.showStatus": true,
     "cSpell.words": [
         "arweave",
         "aylsk",

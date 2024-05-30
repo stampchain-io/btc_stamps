@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "ms-python.python@2023.22.1",
+        "ms-python.black-formatter@2024.2.0",
+        "ms-python.flake8@2023.10.0",
+        "streetsidesoftware.code-spell-checker@3.0.1"
+    ]
+}
