@@ -37,6 +37,10 @@ jobs:
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src" >> $GITHUB_ENV
 
+      - name: Run pre-commit hooks
+        run: poetry run pre-commit run --all-files
+        working-directory: ./indexer
+
       - name: Check import order with isort
         run: poetry run isort . --check-only
         working-directory: ./indexer
