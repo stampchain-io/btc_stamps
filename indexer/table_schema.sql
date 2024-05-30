@@ -83,15 +83,6 @@ CREATE TABLE IF NOT EXISTS `srcbackground` (
   PRIMARY KEY (`tick`,`p`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
-CREATE TABLE IF NOT EXISTS `cp_wallet` (
-  `address` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
-  `cpid` varchar(255) DEFAULT NULL,
-  `quantity` bigint DEFAULT NULL,
-  KEY `index_name` (`address`,`cpid`),
-  INDEX `cpid_index` (`cpid`),
-  INDEX `address_index` (`address`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
-
 CREATE TABLE IF NOT EXISTS `creator` (
   `address` varchar(64) COLLATE utf8mb4_bin NOT NULL,
   `creator` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
@@ -164,9 +155,54 @@ CREATE TABLE IF NOT EXISTS `balances` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS s3objects (
-    `id` VARCHAR(255) NOT NULL,
-    `path_key` VARCHAR(255) NOT NULL,
-    `md5` VARCHAR(255) NOT NULL,
-    PRIMARY KEY (id),
-    index `path_key` (`path_key`)
-)  ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+  `id` VARCHAR(255) NOT NULL,
+  `path_key` VARCHAR(255) NOT NULL,
+  `md5` VARCHAR(255) NOT NULL,
+  PRIMARY KEY (id),
+  index `path_key` (`path_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS collections (
+  `collection_id` BINARY(16) PRIMARY KEY,
+  `collection_name` VARCHAR(255) NOT NULL UNIQUE,
+  `creator_address` VARCHAR(64) COLLATE utf8mb4_bin,
+  FOREIGN KEY (creator_address) REFERENCES creator(address),
+  INDEX (collection_name),
+  INDEX (creator_address)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS collection_stamps (
+  `collection_id` BINARY(16),
+  `stamp_id` INT,
+  FOREIGN KEY (collection_id) REFERENCES collections(collection_id),
+  FOREIGN KEY (stamp_id) REFERENCES StampTableV4(stamp),
+  PRIMARY KEY (collection_id, stamp_id),
+  INDEX (stamp_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+-- example for insert into collections
+-- START TRANSACTION;
+
+-- -- Insert into collections table
+-- INSERT INTO collections (collection_id, collection_name, creator_address)
+-- VALUES (UNHEX(MD5(CONCAT('My Collection', 'creator_address_value'))), 'My Collection', 'creator_address_value');
+
+-- -- Insert into collection_stamps table
+-- INSERT INTO collection_stamps (collection_id, stamp_id)
+-- VALUES
+--   (UNHEX(MD5(CONCAT('My Collection', 'creator_address_value'))), 1),
+--   (UNHEX(MD5(CONCAT('My Collection', 'creator_address_value'))), 2);
+
+-- COMMIT;
+
+-- Find collection by stamp
+-- SELECT c.collection_name
+-- FROM collections c
+-- JOIN collection_stamps cs ON c.collection_id = cs.collection_id
+-- WHERE cs.stamp_id = ?;
+
+-- find all stamps in a collection
+-- SELECT s.stamp, s.stamp_base64, s.stamp_mimetype, s.stamp_url
+-- FROM StampTableV4 s
+-- JOIN collection_stamps cs ON s.stamp = cs.stamp_id
+-- WHERE cs.collection_id = ?;
