@@ -13,6 +13,7 @@ def main():
         "poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics",
         "poetry run isort .",
         "poetry run task bandit",
+        # "poetry run mypy . --explicit-package-bases --check-untyped-defs",
         "poetry run mypy . --explicit-package-bases",
         # "pytest --cov=index_core --cov-report=xml",
         "poetry run run_safety",
