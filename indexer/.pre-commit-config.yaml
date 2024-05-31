@@ -6,3 +6,4 @@ repos:
         entry: bash -c 'cd indexer && poetry run run_checks'
         language: system
         types: [python]
+        args: ['--no-stash']
