@@ -1,4 +1,4 @@
-[!Bitcoin Stamps](https://ipfs.io/ipfs/QmYnuPtWj6NyW1Rrrp5dU489rwPCAfH9Atxuq1Ap7v5cNU)
+![Bitcoin Stamps](https://ipfs.io/ipfs/QmYnuPtWj6NyW1Rrrp5dU489rwPCAfH9Atxuq1Ap7v5cNU)
 
 [![Checks On Pull Request](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml)
 
