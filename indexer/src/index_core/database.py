@@ -1,7 +1,7 @@
 import decimal
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import Any, Callable, Dict, List, TypeVar, cast
 
 import pymysql as mysql
 
@@ -21,7 +21,16 @@ from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, Dat
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
+
 D = decimal.Decimal
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+class CacheMixin:
+    block_cache: Dict[int, Any] = {}
+    deploy_cache: Dict[str, Any] = {}
+    cached_stamp: Dict[str, int] = {}
+    cache: Dict[str, bool] = {}
 
 
 def initialize(db):
@@ -45,7 +54,7 @@ def initialize(db):
     cursor.close()
 
 
-TOTAL_MINTED_CACHE = {}
+TOTAL_MINTED_CACHE: dict[str, int] = {}
 
 
 def reset_all_caches():
@@ -102,31 +111,26 @@ def is_prev_block_parsed(db, block_index):
     Returns:
         bool: True if the previous block has been parsed, False otherwise.
     """
-    block_fields = BLOCK_FIELDS_POSITION
+    func = cast(CacheMixin, is_prev_block_parsed)
+    if not hasattr(func, "block_cache"):
+        func.block_cache = {}
 
-    # Initialize the cache if it doesn't exist
-    if not hasattr(is_prev_block_parsed, "block_cache"):
-        is_prev_block_parsed.block_cache = {}
-
-    # Check if the block is already in the cache
-    if block_index - 1 in is_prev_block_parsed.block_cache:
-        block = is_prev_block_parsed.block_cache[block_index - 1]
+    if block_index - 1 in func.block_cache:
+        block = func.block_cache[block_index - 1]
     else:
         cursor = db.cursor()
         cursor.execute(
             """
-                       SELECT * FROM blocks
-                       WHERE block_index = %s
-                       """,
+            SELECT * FROM blocks
+            WHERE block_index = %s
+            """,
             (block_index - 1,),
         )
         block = cursor.fetchone()
         cursor.close()
+        func.block_cache[block_index - 1] = block
 
-        # Store the fetched block in the cache
-        is_prev_block_parsed.block_cache[block_index - 1] = block
-
-    if block is not None and block[block_fields["indexed"]] == 1:
+    if block is not None and block[BLOCK_FIELDS_POSITION["indexed"]] == 1:
         return True
     else:
         purge_block_db(db, block_index - 1)
@@ -362,7 +366,7 @@ def rebuild_balances(db):
         cursor.execute(query)
         src20_valid_list = cursor.fetchall()
 
-        all_balances = {}
+        all_balances: dict[str, dict[str, Any]] = {}
         for [
             op,
             creator,
@@ -497,25 +501,21 @@ def get_src20_deploy(db, tick, src20_processed_in_block):
                returns (None, None, None).
 
     """
-    # Initialize the cache if it doesn't exist
-    if not hasattr(get_src20_deploy, "deploy_cache"):
-        get_src20_deploy.deploy_cache = {}
-    # Check if the result is already cached
-    if tick in get_src20_deploy.deploy_cache:
-        return get_src20_deploy.deploy_cache[tick]
+    func = cast(CacheMixin, get_src20_deploy)
+    if not hasattr(func, "deploy_cache"):
+        func.deploy_cache = {}
 
-    # Check in the processed_blocks dictionary
+    if tick in func.deploy_cache:
+        return func.deploy_cache[tick]
+
     lim, max_value, dec = get_src20_deploy_in_block(src20_processed_in_block, tick)
     if lim is not None:
-        # Cache and return the result
-        get_src20_deploy.deploy_cache[tick] = (lim, max_value, dec)
+        func.deploy_cache[tick] = (lim, max_value, dec)
         return lim, max_value, dec
 
-    # Database lookup if not found in cache or processed_blocks
     lim, max_value, dec = get_src20_deploy_in_db(db, tick)
     if lim is not None:
-        # Cache and return the result
-        get_src20_deploy.deploy_cache[tick] = (lim, max_value, dec)
+        func.deploy_cache[tick] = (lim, max_value, dec)
     return lim, max_value, dec
 
 
@@ -597,18 +597,18 @@ def get_next_stamp_number(db, identifier):
     Returns:
     int: The index of the next transaction.
     """
-    # Initialize the cache if it doesn't exist
-    if not hasattr(get_next_stamp_number, "cached_stamp"):
-        get_next_stamp_number.cached_stamp = {}
+    func = cast(CacheMixin, get_next_stamp_number)
+    if not hasattr(func, "cached_stamp"):
+        func.cached_stamp = {}
 
     if identifier not in ["stamp", "cursed"]:
         raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    if identifier in get_next_stamp_number.cached_stamp:
+    if identifier in func.cached_stamp:
         if identifier == "cursed":
-            next_number = get_next_stamp_number.cached_stamp[identifier] - 1
+            next_number = func.cached_stamp[identifier] - 1
         else:
-            next_number = get_next_stamp_number.cached_stamp[identifier] + 1
+            next_number = func.cached_stamp[identifier] + 1
     else:
         with db.cursor() as cursor:
             if identifier == "stamp":
@@ -628,13 +628,13 @@ def get_next_stamp_number(db, identifier):
             transactions = cursor.fetchone()
             next_number = transactions[0] + increment if transactions[0] is not None else default_value
 
-    get_next_stamp_number.cached_stamp[identifier] = next_number
+    func.cached_stamp[identifier] = next_number
     return next_number
 
 
 def check_reissue(db, cpid, valid_stamps_in_block):
     """
-    Validate if there was a prior valid stamp for the given cpid in the database or block .
+    Validate if there was a prior valid stamp for the given cpid in the database or block.
 
     Parameters:
     - db: The database connection object.
@@ -645,10 +645,11 @@ def check_reissue(db, cpid, valid_stamps_in_block):
     - is_btc_stamp: The adjusted value of is_btc_stamp after checking for reissue.
     - is_reissue: A boolean indicating if the stamp is a reissue.
     """
-    if not hasattr(check_reissue, "cache"):
-        check_reissue.cache = {}
+    func = cast(CacheMixin, check_reissue)
+    if not hasattr(func, "cache"):
+        func.cache = {}
 
-    if cpid in check_reissue.cache:
+    if cpid in func.cache:
         return True
     if check_reissue_in_block(valid_stamps_in_block, cpid):
         return True

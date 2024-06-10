@@ -43,6 +43,7 @@ from index_core.database import (
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp
 from index_core.src20 import (
+    Src20Dict,
     clear_zero_balances,
     parse_src20,
     process_balance_updates,
@@ -854,8 +855,8 @@ def follow(db):
 
             # if should_profile:
             #     profiler.enable()
-            parsed_stamps: list[StampData] = []
-            processed_src20_in_block = []
+            parsed_stamps: List[StampData] = []
+            processed_src20_in_block: List[Src20Dict] = []
 
             for result in tx_results:
                 stamp_data = StampData(
@@ -889,6 +890,9 @@ def follow(db):
 
             if parsed_stamps:
                 insert_into_stamp_table(db, parsed_stamps)
+                for stamp in parsed_stamps:
+                    stamp.match_and_insert_collection_data(config.LEGACY_COLLECTIONS, db)
+                    # assign stamp numbers here as well
 
             if processed_src20_in_block:
                 balance_updates = update_src20_balances(db, block_index, block_time, processed_src20_in_block)
