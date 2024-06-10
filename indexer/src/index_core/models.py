@@ -1,11 +1,12 @@
 import base64
+import hashlib
 import json
 import logging
 import re
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, TypedDict, Union
+from typing import Dict, List, Optional, TypedDict, Union
 
 import magic
 import msgpack
@@ -115,6 +116,94 @@ class StampData:
             except json.JSONDecodeError:
                 return False
         return False
+
+    precomputed_collections: List[Dict] = field(default_factory=list, init=False)
+
+    @staticmethod
+    def generate_collection_id(name: str) -> bytes:
+        return hashlib.md5(name.encode(), usedforsecurity=False).digest()
+
+    @classmethod
+    def precompute_collections(cls, collections: List[Dict]):
+        cls.precomputed_collections = []
+        for collection in collections:
+            collection_id = cls.generate_collection_id(collection["name"]).hex()
+            file_hashes_set = set(collection.get("file_hashes", []))
+            stamps_set = set(collection.get("stamps", []))
+            cls.precomputed_collections.append(
+                {
+                    "collection_id": collection_id,
+                    "name": collection["name"],
+                    "file_hashes": file_hashes_set,
+                    "stamps": stamps_set,
+                    "creators": collection.get("creators", []),
+                }
+            )
+
+    def match_and_insert_collection_data(self, collections: List[Dict], db):
+        if self.precomputed_collections is None:
+            self.precompute_collections(collections)
+
+        collection_inserts = []
+        stamp_inserts = []
+        creator_inserts = []
+
+        for collection in self.precomputed_collections:
+            if self.file_hash in collection["file_hashes"] or self.stamp in collection["stamps"]:
+                collection_inserts.append((collection["collection_id"], collection["name"]))
+                stamp_inserts.append((collection["collection_id"], self.stamp))
+                for creator in collection["creators"]:
+                    creator_inserts.append((collection["collection_id"], creator))
+
+        if collection_inserts:
+            self.insert_into_collections(db, collection_inserts)
+        if stamp_inserts:
+            self.insert_into_collection_stamps(db, stamp_inserts)
+        if creator_inserts:
+            self.ensure_creators_exist(db, creator_inserts)
+            self.insert_into_collection_creators(db, creator_inserts)
+
+    @staticmethod
+    def ensure_creators_exist(db, creator_inserts: List[tuple]):
+        cursor = db.cursor()
+        for _, creator_address in creator_inserts:
+            cursor.execute("SELECT 1 FROM creator WHERE address = %s", (creator_address,))
+            if cursor.fetchone() is None:
+                cursor.execute("INSERT INTO creator (address) VALUES (%s)", (creator_address,))
+        db.commit()
+
+    @staticmethod
+    def insert_into_collections(db, collection_inserts: List[tuple]):
+        query = """
+        INSERT INTO collections (collection_id, collection_name)
+        VALUES (UNHEX(%s), %s)
+        ON DUPLICATE KEY UPDATE collection_name=VALUES(collection_name)
+        """
+        cursor = db.cursor()
+        cursor.executemany(query, collection_inserts)
+        db.commit()
+
+    @staticmethod
+    def insert_into_collection_stamps(db, stamp_inserts: List[tuple]):
+        query = """
+        INSERT INTO collection_stamps (collection_id, stamp)
+        VALUES (UNHEX(%s), %s)
+        ON DUPLICATE KEY UPDATE collection_id=VALUES(collection_id), stamp=VALUES(stamp)
+        """
+        cursor = db.cursor()
+        cursor.executemany(query, stamp_inserts)
+        db.commit()
+
+    @staticmethod
+    def insert_into_collection_creators(db, creator_inserts: List[tuple]):
+        query = """
+        INSERT INTO collection_creators (collection_id, creator_address)
+        VALUES (UNHEX(%s), %s)
+        ON DUPLICATE KEY UPDATE collection_id=VALUES(collection_id), creator_address=VALUES(creator_address)
+        """
+        cursor = db.cursor()
+        cursor.executemany(query, creator_inserts)
+        db.commit()
 
     def is_javascript(self, bytestring_data):
         """
@@ -398,7 +487,7 @@ class StampData:
     def src20_pre_validation(self, db):
         self.src20_dict = check_format(self.decoded_base64, self.tx_hash)
         if self.src20_dict is not None:
-            self.is_btc_stamp = 1
+            self.is_btc_stamp = True
             self.decoded_base64 = build_src20_svg_string(
                 db, self.src20_dict
             )  # valid stamps get decoded_base64 back to bytestring here
@@ -411,7 +500,7 @@ class StampData:
 
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
-        self.is_btc_stamp = 1
+        self.is_btc_stamp = True
         svg_output, self.file_suffix = validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
@@ -426,7 +515,7 @@ class StampData:
             and not self.is_op_return
             and self.file_suffix not in INVALID_BTC_STAMP_SUFFIX
         ):
-            self.is_btc_stamp = 1
+            self.is_btc_stamp = True
         else:
             if not self.process_cursed_with_asset_longname():
                 self.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
@@ -434,8 +523,8 @@ class StampData:
     def process_cursed_with_asset_longname(self):
         if self.asset_longname is not None:
             self.cpid = self.asset_longname
-            self.is_cursed = 1
-            self.is_btc_stamp = None
+            self.is_cursed = True
+            self.is_btc_stamp = False
             return True
         return False
 
@@ -443,8 +532,8 @@ class StampData:
         if self.cpid and (
             self.file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid_starts_with_A or self.is_op_return or not ident_known
         ):  # added ident_known
-            self.is_btc_stamp = None
-            self.is_cursed = 1
+            self.is_btc_stamp = False
+            self.is_cursed = True
 
     def process_and_store_stamp_data(
         self,

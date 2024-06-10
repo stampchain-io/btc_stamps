@@ -59,7 +59,7 @@ jobs:
         working-directory: ./indexer
 
       - name: Check with mypy
-        run:  poetry run mypy . --explicit-package-bases
+        run:  poetry run mypy . --explicit-package-bases 
         working-directory: ./indexer
         
       - name: Check Dependencies for Vulnerabilities

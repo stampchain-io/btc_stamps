@@ -6,6 +6,7 @@ import re
 import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
 
@@ -26,6 +27,19 @@ logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
 
+class Src20Dict(TypedDict, total=False):
+    tick: Optional[str]
+    p: Optional[str]
+    op: Optional[str]
+    holders_of: Optional[str]
+    max: Optional[Union[str, D]]
+    lim: Optional[Union[str, D]]
+    amt: Optional[Union[str, D]]
+    dec: Optional[Union[str, int]]
+    status: Optional[str]
+    tick_hash: Optional[str]
+
+
 class Src20Validator:
     @property
     def errors(self):
@@ -34,21 +48,21 @@ class Src20Validator:
         """
         return self.validation_errors
 
-    def __init__(self, src20_dict):
+    def __init__(self, src20_dict: Src20Dict):
         self.src20_dict = src20_dict
-        self.validation_errors = []
+        self.validation_errors: List[str] = []
 
-    def process_values(self):
+    def process_values(self) -> Src20Dict:
         num_pattern = re.compile(r"^[0-9]*(\.[0-9]*)?$")
         dec_pattern = re.compile(r"^[0-9]+$")
 
         for key, value in list(self.src20_dict.items()):
             if value == "":
-                self.src20_dict[key] = None
+                self.src20_dict[key] = None  # type: ignore
             elif key in ["tick"]:
-                self._process_tick_value(key, value)
+                self._process_tick_value(key, value)  # type: ignore
             elif key in ["p", "op", "holders_of"]:
-                self._process_uppercase_value(key, value)
+                self._process_uppercase_value(key, value)  # type: ignore
             elif key in ["max", "lim", "amt", "dec"]:
                 self._apply_regex_validation(key, value, num_pattern, dec_pattern)
 
@@ -68,25 +82,25 @@ class Src20Validator:
                 self._update_status(key, f"NN: INVALID DEC VAL {key}")
                 self.src20_dict[key] = None
 
-    def _update_status(self, key, message):
+    def _update_status(self, key: str, message: str) -> None:
         error_message = f"{key}: {message}"
         self.validation_errors.append(error_message)
 
-        if "status" in self.src20_dict:
+        if "status" in self.src20_dict and self.src20_dict["status"] is not None:
             self.src20_dict["status"] += f", {error_message}"
         else:
             self.src20_dict["status"] = error_message
 
-    def _process_tick_value(self, key, value):
+    def _process_tick_value(self, key: str, value: str) -> None:
         self.src20_dict["tick"] = value.lower()
         self.src20_dict["tick"] = escape_non_ascii_characters(self.src20_dict["tick"])
         self.src20_dict["tick_hash"] = self.create_tick_hash(value.lower())
 
-    def _process_uppercase_value(self, key, value):
-        self.src20_dict[key] = value.upper()
+    def _process_uppercase_value(self, key: str, value: str) -> None:
+        self.src20_dict[key] = value.upper()  # type: ignore
 
     @staticmethod
-    def create_tick_hash(tick):
+    def create_tick_hash(tick: str) -> str:
         """
         Create a SHA3-256 of the normalized tick value. This is the final NIST SHA3-256 implementation
         not to be confused with Keccak-256 which is the Ethereum implementation of SHA3-256.
@@ -119,11 +133,14 @@ class Src20Processor:
         self.src20_dict = src20_dict
         self.processed_src20_in_block = processed_src20_in_block
         self.is_valid = True
+        self.dec: Optional[Union[str, int]] = src20_dict.get("dec", 0)
+        self.deploy_lim: Optional[Union[str, D]] = src20_dict.get("deploy_lim", 0)
+        self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
 
     def normalize_and_validate_amt(self):
         amt = D(self.src20_dict["amt"]).normalize()
         self.dec = int(self.dec) if self.dec is not None else 18
-        decimal_length = -amt.as_tuple().exponent
+        decimal_length = -int(amt.as_tuple().exponent)
 
         if decimal_length > self.dec:
             self.decimal_length = decimal_length
@@ -188,7 +205,7 @@ class Src20Processor:
 
         return running_user_balance_dict
 
-    def set_status_and_log(self, status_code, **kwargs):
+    def set_status_and_log(self, status_code: str, **kwargs):
         message_template, is_invalid = self.STATUS_MESSAGES[status_code]
         message = message_template.format(**kwargs)
         status_message = f"{status_code}: {message}"
@@ -207,15 +224,13 @@ class Src20Processor:
             self.set_status_and_log("DE", tick=self.src20_dict["tick"])
 
     def handle_mint(self):
-        # Ensure deploy_lim does not exceed deploy_max
-        self.deploy_lim = int(min(self.deploy_lim, self.deploy_max))
+        self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)
 
         try:
             total_minted = D(get_running_mint_total(self.db, self.processed_src20_in_block, self.src20_dict["tick"]))
-            mint_available = D(self.deploy_max) - total_minted
+            mint_available = D(self.deploy_max) - total_minted if self.deploy_max else D(0)
 
-            # Check for over mint condition
-            if total_minted >= self.deploy_max:
+            if total_minted >= D(self.deploy_max) if self.deploy_max else D(0):
                 self.set_status_and_log(
                     "OM",
                     total_minted=total_minted,
@@ -224,7 +239,6 @@ class Src20Processor:
                 )
                 return
 
-            # Adjust amount if it exceeds available mint
             if self.src20_dict["amt"] > mint_available:
                 self.set_status_and_log(
                     "OMA",
@@ -234,7 +248,6 @@ class Src20Processor:
                 )
                 self.src20_dict["amt"] = mint_available
 
-            # Adjust amount if it exceeds deploy_lim to deploy_lim
             if self.src20_dict["amt"] > self.deploy_lim:
                 self.set_status_and_log(
                     "ODL",
@@ -244,7 +257,6 @@ class Src20Processor:
                 )
                 self.src20_dict["amt"] = self.deploy_lim
 
-            # Calculate running user balance
             running_user_balance = D("0")
             running_user_balance_tuple = get_running_user_balances(
                 self.db,
@@ -915,7 +927,7 @@ def get_tick_holders_from_balances(db, tick):
 
 
 def update_src20_balances(db, block_index, block_time, processed_src20_in_block):
-    balance_updates = []
+    balance_updates: List[Dict[str, Union[str, D]]] = []
 
     for src20_dict in processed_src20_in_block:
         if src20_dict.get("valid") == 1:
