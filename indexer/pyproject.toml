@@ -74,6 +74,7 @@ run_safety = "tools.run_safety:run_safety_check"
 run_checks = "tools.run_checks:main"
 install-hooks = "tools.install_hooks:main"
 postinstall = "tools.install_hooks:main"
+compare_tables = "tools.compare_tables:main"
 
 [[tool.poetry.packages]]
 from = "src"
@@ -110,5 +111,6 @@ exclude = 'tools/'
 ignore = [
     "64396",  # Ecdsa does not protect against side-channel attacks
     "64459",  # The python-ecdsa library is vulnerable to the Minerva attack
-    "67599"   # An issue in pip regarding the --extra-index-url option
+    "67599",   # An issue in pip regarding the --extra-index-url option
+    "70612"   # Jinja2, the from_string function is prone to Server Side Template Injection
 ]

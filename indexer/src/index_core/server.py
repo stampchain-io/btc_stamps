@@ -48,41 +48,6 @@ signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigterm_handler)
 
 
-# TODO: MySQL Locking Function - perhaps we want this :)
-# This code creates a table called server_lock in the MySQL database and inserts a single row into the table.
-# If another instance of the server tries to insert a row into the table, it will fail with an IntegrityError,
-# indicating that another copy of the server is already running.
-
-# class LockingError(Exception):
-#     pass
-
-# def get_lock():
-#     logger.info('Acquiring lock.')
-
-#     db = mysql.connector.connect(
-#         host='your-mysql-hostname',
-#         user='your-username',
-#         password='your-password',
-#         database='your-database-name'
-#     )
-#     cursor = db.cursor()
-
-#     try:
-#         cursor.execute('CREATE TABLE server_lock (id INT PRIMARY KEY)')
-#     except mysql.connector.errors.ProgrammingError:
-#         pass
-
-#     try:
-#         cursor.execute('INSERT INTO server_lock (id) VALUES (1)')
-#         db.commit()
-#     except mysql.connector.errors.IntegrityError:
-#         raise LockingError('Another copy of server is currently running.')
-
-#     logger.debug('Lock acquired.')
-
-# Lock database access by opening a socket.
-
-
 def initialize(*args, **kwargs):
     initialize_config(*args, **kwargs)
     return initialize_db()
@@ -107,6 +72,28 @@ def initialize_config(
     checkdb=False,
 ):
 
+    if testnet:
+        config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
+    elif regtest:
+        config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
+    else:
+        config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
+
+    # Set other config attributes based on parameters
+    config.BACKEND_NAME = "bitcoincore"
+    config.BACKEND_CONNECT = backend_connect or "localhost"
+    config.BACKEND_PORT = int(
+        backend_port or (config.DEFAULT_BACKEND_PORT_TESTNET if testnet else config.DEFAULT_BACKEND_PORT)
+    )
+    config.BACKEND_SSL = backend_ssl
+    config.BACKEND_SSL_NO_VERIFY = backend_ssl_no_verify
+    config.BACKEND_POLL_INTERVAL = float(backend_poll_interval or 0.5)
+    config.FORCE = force
+    config.PREFIX = b"stamp:"
+    config.CP_PREFIX = b"CNTRPRTY"
+    config.REQUESTS_TIMEOUT = requests_timeout
+    config.ESTIMATE_FEE_PER_KB = estimate_fee_per_kb or config.DEFAULT_ESTIMATE_FEE_PER_KB
+
     try:
         sha3_256_hash = hashlib.sha3_256("".encode("utf-8")).hexdigest()
         if sha3_256_hash != "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a":
@@ -129,17 +116,8 @@ def initialize_config(
     logger.info("log_file: {}".format(log_file))
     software_version()
 
-    # testnet
-    if testnet:
-        config.TESTNET = testnet
-    else:
-        config.TESTNET = False
-
     # regtest
-    if regtest:
-        config.REGTEST = regtest
-    else:
-        config.REGTEST = False
+    config.REGTEST = regtest
     # ignore-scan
     if customnet is not None and len(customnet) > 0:
         config.CUSTOMNET = True
@@ -223,7 +201,7 @@ def initialize_config(
         if not (int(config.BACKEND_PORT) > 1 and int(config.BACKEND_PORT) < 65535):
             raise ConfigurationError("invalid backend API port number")
     except Exception as e:
-        raise ConfigurationError(f"Please specific a valid port number backend-port configuration parameter {e}")
+        raise ConfigurationError(f"Please specify a valid port number backend-port configuration parameter {e}")
 
     # Backend Core RPC SSL
     if backend_ssl:

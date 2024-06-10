@@ -162,22 +162,29 @@ CREATE TABLE IF NOT EXISTS s3objects (
   index `path_key` (`path_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
+
 CREATE TABLE IF NOT EXISTS collections (
   `collection_id` BINARY(16) PRIMARY KEY,
   `collection_name` VARCHAR(255) NOT NULL UNIQUE,
+  INDEX (collection_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS collection_creators (
+  `collection_id` BINARY(16),
   `creator_address` VARCHAR(64) COLLATE utf8mb4_bin,
+  FOREIGN KEY (collection_id) REFERENCES collections(collection_id),
   FOREIGN KEY (creator_address) REFERENCES creator(address),
-  INDEX (collection_name),
+  PRIMARY KEY (collection_id, creator_address),
   INDEX (creator_address)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS collection_stamps (
   `collection_id` BINARY(16),
-  `stamp_id` INT,
+  `stamp` INT,
   FOREIGN KEY (collection_id) REFERENCES collections(collection_id),
-  FOREIGN KEY (stamp_id) REFERENCES StampTableV4(stamp),
-  PRIMARY KEY (collection_id, stamp_id),
-  INDEX (stamp_id)
+  FOREIGN KEY (stamp) REFERENCES StampTableV4(stamp),
+  PRIMARY KEY (collection_id, stamp),
+  INDEX (stamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 -- example for insert into collections
