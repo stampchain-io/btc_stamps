@@ -67,3 +67,7 @@ class BlockUpdateError(Exception):
     """Exception for errors that occur during block update operations."""
 
     pass
+
+
+class BitcoindRPCError(Exception):
+    pass
