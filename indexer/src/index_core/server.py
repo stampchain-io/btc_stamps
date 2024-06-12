@@ -9,6 +9,7 @@ import sys
 import appdirs
 import bitcoin as bitcoinlib
 import pymysql as mysql
+from pymysql.connections import Connection
 
 import config
 import index_core.backend as backend
@@ -302,7 +303,7 @@ def import_csv_data(cursor, csv_file, insert_query):
             cursor.execute(insert_query, tuple(row))
 
 
-def initialize_db():
+def initialize_db() -> Connection:
     logger.warning("Initializing database...")
     if config.FORCE:
         logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
@@ -312,9 +313,13 @@ def initialize_db():
     rds_password = os.environ.get("RDS_PASSWORD")
     rds_database = os.environ.get("RDS_DATABASE")
     rds_port = int(os.environ.get("RDS_PORT", 3306))
-    # Database
+
+    if rds_password is None:
+        logger.error("Database password is not set.")
+        raise ValueError("Database password is not set.")
+
     logger.info("Connecting to database (MySQL).")
-    db = mysql.connect(
+    db: Connection = mysql.connect(
         host=rds_host,
         user=rds_user,
         password=rds_password,
@@ -334,7 +339,7 @@ def connect_to_backend():
         backend.getblockcount()
 
 
-def start_all(db):
+def start_all(db: Connection) -> None:
 
     # Backend.
     connect_to_backend()

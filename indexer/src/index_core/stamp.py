@@ -19,6 +19,57 @@ logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
 
+class StampProcessor:
+    def __init__(self, db, valid_stamps_in_block):
+        self.db = db
+        self.valid_stamps_in_block = valid_stamps_in_block
+
+    def process_stamp(self, stamp_data: StampData):
+        stamp_results = src20_dict = prevalidated_src20 = None
+        valid_stamp: Optional[ValidStamp] = None
+        try:
+            stamp_data.process_and_store_stamp_data(
+                get_src_or_img_from_data,
+                convert_to_dict_or_string,
+                encode_and_store_file,
+                check_reissue,
+                decode_base64,
+                self.db,
+                self.valid_stamps_in_block,
+            )
+        except (DataConversionError, InvalidInputDataError, ValueError) as e:
+            logger.warning(f"Invalid Stamp Data: {e}")
+            return (None,) * 4
+
+        if stamp_data.is_btc_stamp:
+            stamp_data.stamp = get_next_stamp_number(self.db, "stamp")
+        elif stamp_data.is_cursed:
+            stamp_data.stamp = get_next_stamp_number(self.db, "cursed")
+        else:
+            raise ValueError("stamp_number must be set")
+
+        stamp_data.stamp = cast(int, stamp_data.stamp)
+
+        if stamp_data.cpid and stamp_data.is_btc_stamp:
+            valid_stamp = create_valid_stamp_dict(
+                stamp_data.stamp,
+                stamp_data.tx_hash,
+                stamp_data.cpid,
+                stamp_data.is_btc_stamp,
+                (bool(stamp_data.is_valid_base64) if stamp_data.is_valid_base64 is not None else False),
+                stamp_data.stamp_base64 if stamp_data.stamp_base64 is not None else "",
+                bool(stamp_data.is_cursed) if stamp_data.is_cursed is not None else False,
+                stamp_data.src_data if stamp_data.src_data is not None else "",
+            )
+
+        if stamp_data.pval_src20:
+            src20_dict = stamp_data.src20_dict
+            prevalidated_src20 = append_stamp_data_to_src20_dict(stamp_data, src20_dict)
+
+        stamp_results = True
+        return stamp_results, stamp_data, valid_stamp, prevalidated_src20
+
+
 def decode_base64(base64_string, block_index):
     """
     Decode a base64 string into image data.
@@ -176,58 +227,5 @@ def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
 
 
 def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidStamp]):
-    """
-    Parses a transaction and extracts stamp-related information to be stored in the stamp table.
-
-    Args:
-        stamp_data (StampData): An instance of StampData containing all necessary transaction information.
-    Returns:
-        None
-
-    Raises:
-        Exception: If an unexpected condition occurs during stamp processing.
-
-    """
-    stamp_results = src20_dict = prevalidated_src20 = None
-    valid_stamp: Optional[ValidStamp] = None
-    try:
-        stamp_data.process_and_store_stamp_data(
-            get_src_or_img_from_data,
-            convert_to_dict_or_string,
-            encode_and_store_file,
-            check_reissue,
-            decode_base64,
-            db,
-            valid_stamps_in_block,
-        )
-    except (DataConversionError, InvalidInputDataError, ValueError) as e:
-        logger.warning(f"Invalid Stamp Data: {e}")
-        return (None,) * 4
-
-    if stamp_data.is_btc_stamp:
-        stamp_data.stamp = get_next_stamp_number(db, "stamp")
-    elif stamp_data.is_cursed:
-        stamp_data.stamp = get_next_stamp_number(db, "cursed")
-    else:
-        raise ValueError("stamp_number must be set")
-
-    stamp_data.stamp = cast(int, stamp_data.stamp)
-
-    if stamp_data.cpid and stamp_data.is_btc_stamp:
-        valid_stamp = create_valid_stamp_dict(
-            stamp_data.stamp,
-            stamp_data.tx_hash,
-            stamp_data.cpid,
-            stamp_data.is_btc_stamp,
-            (bool(stamp_data.is_valid_base64) if stamp_data.is_valid_base64 is not None else False),
-            stamp_data.stamp_base64 if stamp_data.stamp_base64 is not None else "",
-            bool(stamp_data.is_cursed) if stamp_data.is_cursed is not None else False,
-            stamp_data.src_data if stamp_data.src_data is not None else "",
-        )
-
-    if stamp_data.pval_src20:
-        src20_dict = stamp_data.src20_dict
-        prevalidated_src20 = append_stamp_data_to_src20_dict(stamp_data, src20_dict)
-
-    stamp_results = True
-    return stamp_results, stamp_data, valid_stamp, prevalidated_src20
+    processor = StampProcessor(db, valid_stamps_in_block)
+    return processor.process_stamp(stamp_data)

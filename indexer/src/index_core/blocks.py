@@ -17,6 +17,7 @@ import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
+from pymysql.connections import Connection
 
 # import cProfile
 # import pstats
@@ -42,8 +43,8 @@ from index_core.database import (
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp
+from index_core.src20 import Src20Dict  # FIXME: move to models for consistency
 from index_core.src20 import (
-    Src20Dict,
     clear_zero_balances,
     parse_src20,
     process_balance_updates,
@@ -77,6 +78,75 @@ TxResult = namedtuple(
         "p2wsh_data",
     ],
 )
+
+
+class BlockProcessor:
+    def __init__(self, db):
+        self.db: Connection = db
+        self.valid_stamps_in_block: List[ValidStamp] = []
+        self.parsed_stamps: List[StampData] = []
+        self.processed_src20_in_block: List[Src20Dict] = []
+
+    def process_transaction_results(self, tx_results):
+        for result in tx_results:
+            stamp_data = StampData(
+                tx_hash=result.tx_hash,
+                source=result.source,
+                destination=result.destination,
+                btc_amount=result.btc_amount,
+                fee=result.fee,
+                data=result.data,
+                decoded_tx=result.decoded_tx,
+                keyburn=result.keyburn,
+                tx_index=result.tx_index,
+                block_index=result.block_index,
+                block_time=result.block_time,
+                is_op_return=result.is_op_return,
+                p2wsh_data=result.p2wsh_data,
+            )
+            _, stamp_data, valid_stamp, prevalidated_src20 = parse_stamp(
+                stamp_data=stamp_data,
+                db=self.db,
+                valid_stamps_in_block=self.valid_stamps_in_block,
+            )
+
+            if stamp_data:
+                self.parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
+            if valid_stamp:
+                self.valid_stamps_in_block.append(valid_stamp)
+            if prevalidated_src20:
+                _, src20_dict = parse_src20(self.db, prevalidated_src20, self.processed_src20_in_block)
+                self.processed_src20_in_block.append(src20_dict)
+
+        if self.parsed_stamps:
+            insert_into_stamp_table(self.db, self.parsed_stamps)
+            for stamp in self.parsed_stamps:
+                stamp.match_and_insert_collection_data(config.LEGACY_COLLECTIONS, self.db)
+
+    def finalize_block(self, block_index, block_time, txhash_list):
+        if self.processed_src20_in_block:
+            balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
+            insert_into_src20_tables(self.db, self.processed_src20_in_block)
+            valid_src20_str = process_balance_updates(balance_updates)
+        else:
+            valid_src20_str = ""
+
+        if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
+            clear_zero_balances(self.db)
+
+        new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+            self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
+        )
+
+        if valid_src20_str:
+            validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+
+        stamps_in_block = len(self.valid_stamps_in_block)
+        src20_in_block = len(self.processed_src20_in_block)
+        return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block
+
+    def insert_transactions(self, tx_results):
+        insert_transactions(self.db, tx_results)
 
 
 def process_vout(ctx, stamp_issuance=None):
@@ -685,7 +755,6 @@ def follow(db):
         start_time = time.time()
 
         try:
-            # for local nodes ad zmq here
             block_tip = backend.getblockcount()
         except (
             ConnectionRefusedError,
@@ -697,14 +766,12 @@ def follow(db):
                 continue
             else:
                 raise e
-        #  check if last block index was full indexed and if not delete it
-        #  and set block_index to block_index - 1
+
         if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
             block_index -= 1
 
         if block_index <= block_tip:
-
-            db.ping()  # check db connection and reinitialize if needed
+            db.ping()
 
             if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                 stamp_issuances = stamp_issuances_list[block_index]
@@ -722,7 +789,6 @@ def follow(db):
                     if block_index == config.BLOCK_FIRST:
                         break
                     logger.info(f"Checking that block {block_index} is not orphan.")
-                    # Backend parent hash.
                     current_hash = backend.getblockhash(block_index)
                     current_cblock = backend.getcblock(current_hash)
                     backend_parent = bitcoinlib.core.b2lx(current_cblock.hashPrevBlock)
@@ -735,11 +801,10 @@ def follow(db):
                     columns = [desc[0] for desc in cursor.description]
                     cursor.close()
                     blocks_dict = [dict(zip(columns, row)) for row in blocks]
-                    if len(blocks_dict) != 1:  # For empty DB.
+                    if len(blocks_dict) != 1:
                         break
                     db_parent = blocks_dict[0]["block_hash"]
 
-                    # Compare.
                     if not isinstance(db_parent, str):
                         raise TypeError("db_parent must be a string")
                     if not isinstance(backend_parent, str):
@@ -750,13 +815,10 @@ def follow(db):
                         block_index -= 1
                         requires_rollback = True
 
-                # Rollback for reorganization.
                 if requires_rollback:
-                    # Record reorganization.
                     logger.warning("Blockchain reorganization at block {}.".format(block_index))
                     block_index -= 1
                     logger.warning("Rolling back to block {} to avoid problems.".format(block_index))
-                    # Rollback.
                     purge_block_db(db, block_index)
                     rebuild_balances(db)
                     requires_rollback = False
@@ -843,76 +905,14 @@ def follow(db):
                 tx_results[i] = result._replace(tx_index=tx_index)
                 tx_index += 1
 
-            # # without concurrent execution
-            # for tx_hash in txhash_list:
-            #     result = process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions)
-            #     if result.data is not None:
-            #         result = result._replace(tx_index=tx_index, block_index=block_index, block_hash=block_hash, block_time=block_time)
-            #         tx_results.append(result)
-            #         tx_index = tx_index + 1
+            block_processor = BlockProcessor(db)
+            block_processor.insert_transactions(tx_results)
+            block_processor.process_transaction_results(tx_results)
 
-            insert_transactions(db, tx_results)
-
-            # if should_profile:
-            #     profiler.enable()
-            parsed_stamps: List[StampData] = []
-            processed_src20_in_block: List[Src20Dict] = []
-
-            for result in tx_results:
-                stamp_data = StampData(
-                    tx_hash=result.tx_hash,
-                    source=result.source,
-                    destination=result.destination,
-                    btc_amount=result.btc_amount,
-                    fee=result.fee,
-                    data=result.data,
-                    decoded_tx=result.decoded_tx,
-                    keyburn=result.keyburn,
-                    tx_index=result.tx_index,
-                    block_index=result.block_index,
-                    block_time=result.block_time,
-                    is_op_return=result.is_op_return,
-                    p2wsh_data=result.p2wsh_data,
-                )
-                _, stamp_data, valid_stamp, prevalidated_src20 = parse_stamp(
-                    stamp_data=stamp_data,
-                    db=db,
-                    valid_stamps_in_block=valid_stamps_in_block,
-                )
-
-                if stamp_data:
-                    parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
-                if valid_stamp:
-                    valid_stamps_in_block.append(valid_stamp)
-                if prevalidated_src20:
-                    _, src20_dict = parse_src20(db, prevalidated_src20, processed_src20_in_block)
-                    processed_src20_in_block.append(src20_dict)
-
-            if parsed_stamps:
-                insert_into_stamp_table(db, parsed_stamps)
-                for stamp in parsed_stamps:
-                    stamp.match_and_insert_collection_data(config.LEGACY_COLLECTIONS, db)
-                    # assign stamp numbers here as well
-
-            if processed_src20_in_block:
-                balance_updates = update_src20_balances(db, block_index, block_time, processed_src20_in_block)
-                insert_into_src20_tables(db, processed_src20_in_block)
-                valid_src20_str = process_balance_updates(balance_updates)
-            else:
-                valid_src20_str = ""
-
-            if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
-                clear_zero_balances(db)
-
-            new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-                db, block_index, valid_stamps_in_block, valid_src20_str, txhash_list
+            new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block = (
+                block_processor.finalize_block(block_index, block_time, txhash_list)
             )
 
-            if valid_src20_str:
-                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
-
-            stamps_in_block = len(valid_stamps_in_block)
-            src20_in_block = len(processed_src20_in_block)
             stamp_issuances_list.pop(block_index, None)
             log_block_info(
                 block_index,
