@@ -4,12 +4,11 @@ on:
   workflow_call:
 
 jobs:
-  python-check:
+  setup:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']
-
     steps:
       - uses: actions/checkout@v4
 
@@ -37,35 +36,67 @@ jobs:
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src" >> $GITHUB_ENV
 
+  pre-commit:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Run pre-commit hooks
         run: poetry run pre-commit run --all-files
         working-directory: ./indexer
 
+  isort:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Check import order with isort
         run: poetry run isort . --check-only
         working-directory: ./indexer
 
+  black:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Format check with Black
         run: poetry run black --check . --config=pyproject.toml
         working-directory: ./indexer
 
+  flake8:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Lint with flake8
         run: |
           poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         working-directory: ./indexer
 
+  bandit:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Security check with Bandit
         run: poetry run task bandit
         working-directory: ./indexer
 
+  mypy:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Check with mypy
-        run:  poetry run mypy . --explicit-package-bases 
+        run: poetry run mypy . --explicit-package-bases 
         working-directory: ./indexer
-        
+
+  safety:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Check Dependencies for Vulnerabilities
         run: poetry run run_safety
         working-directory: ./indexer
 
+  stamp_tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
       - name: Run STAMP/SRC-20 Validations
         run: |
           poetry run python3 -m unittest discover -s . -p "test_src20.py"
