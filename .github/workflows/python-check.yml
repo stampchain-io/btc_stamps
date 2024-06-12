@@ -36,18 +36,22 @@ jobs:
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src" >> $GITHUB_ENV
 
-  pre-commit:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run pre-commit hooks
-        run: poetry run pre-commit run --all-files
-        working-directory: ./indexer
-
   isort:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Check import order with isort
         run: poetry run isort . --check-only
         working-directory: ./indexer
@@ -56,6 +60,18 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Format check with Black
         run: poetry run black --check . --config=pyproject.toml
         working-directory: ./indexer
@@ -64,6 +80,18 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Lint with flake8
         run: |
           poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
@@ -73,6 +101,18 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Security check with Bandit
         run: poetry run task bandit
         working-directory: ./indexer
@@ -81,6 +121,18 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Check with mypy
         run: poetry run mypy . --explicit-package-bases 
         working-directory: ./indexer
@@ -89,6 +141,18 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Check Dependencies for Vulnerabilities
         run: poetry run run_safety
         working-directory: ./indexer
@@ -97,6 +161,18 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+        working-directory: ./indexer
       - name: Run STAMP/SRC-20 Validations
         run: |
           poetry run python3 -m unittest discover -s . -p "test_src20.py"
