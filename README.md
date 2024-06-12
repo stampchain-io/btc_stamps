@@ -1,17 +1,18 @@
 ![Bitcoin Stamps](https://ipfs.io/ipfs/QmYnuPtWj6NyW1Rrrp5dU489rwPCAfH9Atxuq1Ap7v5cNU)
 
-[![Checks On Pull Request](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml)
-
 # Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
+
+[![Checks On Pull Request](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml)
 [![Bandit](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?event=push&name=Bandit)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
 [![Black](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?event=push&name=Black)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
+
 [![Mypy](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?event=push&name=Mypy)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
 [![Flake8](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?event=push&name=Flake8)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
 [![Safety](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?event=push&name=safety)](https://github.com/OWNER/REPOSITORY/actions/workflows/python-check.yml)
 [![STAMP/SRC-20 Tests](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?event=push&name=stamp_tests)](https://github.com/OWNER/REPOSITORY/actions/workflows/python-check.yml)
 
-The Bitcoin Stamps meta-protocol was initially developed using the Counterparty...
+
 The Bitcoin Stamps meta-protocol was initially developed using the Counterparty
 (XCP) Bitcoin transaction encoding methods as an immutable storage layer for NFT
 art (Classic Stamps). It now includes its own separate meta-protocol outside of
