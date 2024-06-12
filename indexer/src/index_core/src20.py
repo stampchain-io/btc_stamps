@@ -223,6 +223,44 @@ class Src20Processor:
         else:
             self.set_status_and_log("DE", tick=self.src20_dict["tick"])
 
+    def update_balance(self, dest, amt):
+        # Use the same logic as handle_transfer to update the balance of the destination
+        running_user_balance_tuple = get_running_user_balances(
+            self.db,
+            self.src20_dict["tick"],
+            self.src20_dict["tick_hash"],
+            [dest],
+            self.processed_src20_in_block,
+        )
+        running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
+        running_user_balance_destination = D(running_user_balance_dict.get(dest, 0)) + amt
+        self.src20_dict["total_balance_destination"] = running_user_balance_destination
+
+    def decrease_creator_balance(self, amt):
+        # Use the same logic as handle_transfer to decrease the balance of the creator
+        running_user_balance_tuple = get_running_user_balances(
+            self.db,
+            self.src20_dict["tick"],
+            self.src20_dict["tick_hash"],
+            [self.src20_dict["creator"]],
+            self.processed_src20_in_block,
+        )
+        running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
+        running_user_balance_creator = D(running_user_balance_dict.get(self.src20_dict["creator"], 0)) - amt
+        self.src20_dict["total_balance_creator"] = running_user_balance_creator
+
+    def get_creator_balance(self):
+        # Fetch the balance of the creator
+        running_user_balance_tuple = get_running_user_balances(
+            self.db,
+            self.src20_dict["tick"],
+            self.src20_dict["tick_hash"],
+            [self.src20_dict["creator"]],
+            self.processed_src20_in_block,
+        )
+        running_user_balance_dict = self.create_running_user_balance_dict(running_user_balance_tuple)
+        return D(running_user_balance_dict.get(self.src20_dict["creator"], 0))
+
     def handle_mint(self):
         self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)
 
@@ -312,6 +350,10 @@ class Src20Processor:
                 )
                 return
 
+            # Update balances using existing functions
+            self.update_balance(self.src20_dict["destination"], D(self.src20_dict["amt"]))
+            self.decrease_creator_balance(D(self.src20_dict["amt"]))
+
             self.update_valid_src20_list(
                 running_user_balance_creator,
                 running_user_balance_destination,
@@ -322,86 +364,44 @@ class Src20Processor:
             logger.error(f"Error in handle_transfer: {e}")
             raise
 
-    def handle_bulk_transfer(
-        self,
-    ):  # NOTE: this is not yet implemented on a block height activation or in the operation handling
-        # Check if operation is BULK_XFER and if deploy limits are set
-        if self.src20_dict["op"] != "BULK_XFER" or not (self.deploy_lim and self.deploy_max):
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - deployment limits not set or operation mismatch")
+    def handle_bulk_transfer(self):
+        if self.src20_dict["op"] != "BULK_XFER":
+            logger.info(f"Invalid operation {self.src20_dict['tick']} - Only BULK_XFER operation allowed")
             return
 
-        # Validate the 'holders_of' target deploy
-        target_lim, target_max, dec = get_src20_deploy(self.db, self.src20_dict["holders_of"], self.processed_src20_in_block)
-        if not (target_lim and target_max):
-            self.set_status_and_log(
-                "DD",
-                f"Invalid {self.src20_dict['holders_of']} AD - Invalid holders_of",
-                is_invalid=True,
-            )
+        transactions = self.src20_dict.get("transactions", [])
+        if not transactions:
+            logger.warning(f"No transactions provided for BULK_XFER {self.src20_dict['tick']}")
             return
 
-        # Validate 'destinations' is a list
-        if not isinstance(self.src20_dict["destinations"], list):
-            logger.warning(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
-            return
+        total_amount = D(0)
+        for transaction in transactions:
+            amt = D(transaction["amt"])
+            total_amount += amt
 
-        addresses = [self.src20_dict["creator"]]
-        if self.src20_dict["creator"] != self.src20_dict["destination"]:
-            addresses.append(self.src20_dict["destination"])
-
-        running_user_balance_tuple = get_running_user_balances(
-            self.db,
-            self.src20_dict["tick"],
-            self.src20_dict["tick_hash"],
-            addresses,
-            self.processed_src20_in_block,
-        )
-        running_user_balance_creator = getattr(running_user_balance_tuple, "total_balance", D("0"))
-
-        if running_user_balance_creator <= 0:
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - insufficient balance")
-            return
-
-        # Get tick holders and calculate total send amount
-        tick_holders = get_tick_holders_from_balances(self.db, self.src20_dict["holders_of"])
-        tick_holders.remove(self.src20_dict["creator"])  # Remove the creator from the target list
-        total_send_amt = len(tick_holders) * D(self.src20_dict["amt"])
-
-        if D(total_send_amt) > D(running_user_balance_creator):
-            self.src20_dict["status"] = "BB: BULK_XFER over user balance"
+        # Check if the creator has enough balance to cover the total amount
+        creator_balance = self.get_creator_balance()  # Assume this function fetches the balance
+        if creator_balance < total_amount:
             self.set_status_and_log(
                 "BB",
-                op="BULK_XFER",
-                balance=running_user_balance_creator,
-                amount=total_send_amt,
+                balance=creator_balance,
+                amount=total_amount,
                 tick=self.src20_dict["tick"],
             )
             return
 
-        # Prepare transactions for each tick holder
-        new_dicts = []
-        running_dest_balances_tuple = get_running_user_balances(
-            self.db,
-            self.src20_dict["tick"],
-            self.src20_dict["tick_hash"],
-            tick_holders,
-            self.processed_src20_in_block,
-        )
-        running_dest_balance_dict = self.create_running_user_balance_dict(running_dest_balances_tuple)
+        # Process each transaction
+        for transaction in transactions:
+            amt = D(transaction["amt"])
+            dest = transaction["dest"]
 
-        new_dicts = [
-            {
-                **self.src20_dict,
-                "op": "TRANSFER",
-                "destination": th,
-                "total_balance_destination": running_dest_balance_dict.get(th, D("0")) + D(self.src20_dict["amt"]),
-            }
-            for th in tick_holders
-        ]
+            # Update balances using existing functions
+            self.update_balance(dest, amt)
+            self.decrease_creator_balance(amt)
 
-        self.processed_src20_in_block.extend(new_dicts)
-        self.src20_dict["total_balance_creator"] = D(running_user_balance_creator) - D(total_send_amt)
-        self.src20_dict["status"] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
+        # Log successful bulk transfer
+        self.src20_dict["status"] = f"All transactions processed for BULK_XFER {self.src20_dict['tick']}"
+        logger.info(self.src20_dict["status"])
 
     def validate_and_process_operation(self):
         self.operation = self.src20_dict.get("op")
@@ -423,6 +423,8 @@ class Src20Processor:
             self.handle_mint()
         elif self.operation == "TRANSFER":
             self.handle_transfer()
+        elif self.operation == "BULK_XFER":
+            self.handle_bulk_transfer()
         else:
             self.set_status_and_log("UO", op=self.operation, tick=self.src20_dict.get("tick", "undefined"))
 
