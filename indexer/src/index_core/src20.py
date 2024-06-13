@@ -365,22 +365,18 @@ class Src20Processor:
             raise
 
     def handle_bulk_transfer(self):
-        if self.src20_dict["op"] != "BULK_XFER":
-            logger.info(f"Invalid operation {self.src20_dict['tick']} - Only BULK_XFER operation allowed")
-            return
-
-        transactions = self.src20_dict.get("transactions", [])
-        if not transactions:
-            logger.warning(f"No transactions provided for BULK_XFER {self.src20_dict['tick']}")
+        transfers = self.src20_dict.get("transfers", [])
+        if not transfers:
+            logger.warning(f"No transfers provided for BULK_XFER {self.src20_dict['tick']}")
             return
 
         total_amount = D(0)
-        for transaction in transactions:
-            amt = D(transaction["amt"])
+        for transfer in transfers:
+            amt = D(transfer["amt"])
             total_amount += amt
 
         # Check if the creator has enough balance to cover the total amount
-        creator_balance = self.get_creator_balance()  # Assume this function fetches the balance
+        creator_balance = self.get_creator_balance()
         if creator_balance < total_amount:
             self.set_status_and_log(
                 "BB",
@@ -390,21 +386,26 @@ class Src20Processor:
             )
             return
 
-        # Process each transaction
-        for transaction in transactions:
-            amt = D(transaction["amt"])
-            dest = transaction["dest"]
+        # Process each transfer
+        for transfer in transfers:
+            amt = D(transfer["amt"])
+            dest = transfer["dest"]
+
+            if not is_valid_btc_address(dest):
+                self.set_status_and_log("INV", dest=dest, tick=self.src20_dict["tick"])
+                return
 
             # Update balances using existing functions
             self.update_balance(dest, amt)
             self.decrease_creator_balance(amt)
 
         # Log successful bulk transfer
-        self.src20_dict["status"] = f"All transactions processed for BULK_XFER {self.src20_dict['tick']}"
+        self.src20_dict["status"] = f"All transfers processed for BULK_XFER {self.src20_dict['tick']}"
         logger.info(self.src20_dict["status"])
 
     def validate_and_process_operation(self):
         self.operation = self.src20_dict.get("op")
+        self.transfers = self.src20_dict.get("transfers", [])
         op_amt_validations = ["TRANSFER", "MINT"]
 
         if self.operation in op_amt_validations and not self.src20_dict.get("amt"):
@@ -423,7 +424,9 @@ class Src20Processor:
             self.handle_mint()
         elif self.operation == "TRANSFER":
             self.handle_transfer()
-        elif self.operation == "BULK_XFER":
+        elif self.operation == "XFER":
+            self.handle_transfer()
+        elif self.operation == "XFER" and self.transfers:
             self.handle_bulk_transfer()
         else:
             self.set_status_and_log("UO", op=self.operation, tick=self.src20_dict.get("tick", "undefined"))
