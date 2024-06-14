@@ -11,3 +11,4 @@ indexer/.env
 backups/*
 *.log
 indexer/backups/*
+/indexer/tools_priv
