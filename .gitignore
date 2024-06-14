@@ -13,3 +13,4 @@ backups/*
 indexer/backups/*
 indexer/tools_priv
 indexer/tools_priv.diff
+/app

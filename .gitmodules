@@ -1,4 +1,8 @@
 [submodule "indexer/tools_priv"]
   path = indexer/tools_priv
-  url = https://github.com/stampchain-io/btc_stamps_priv_tools.git
+  url = git@github.com:stampchain-io/btc_stamps_priv_tools.git
+  branch = main
+[submodule "app"]
+	path = app
+	url = https://github.com/stampchain-io/BTCStampsExplorer
   branch = main

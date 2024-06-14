@@ -45,6 +45,15 @@ Stampchain API.
 
 ## Installation & Execution with Docker
 
+### Clone the repo
+
+`git clone https://github.com/stampchain-io/btc_stamps.git`
+
+If you wish to use the frontend app and api integrated into the docker config you may use:
+
+`git submodule update --init app`
+
+
 ### Step 1. Create & configure the env files
 
 There are 4 env files that need to be created initially. These files are used to
@@ -52,7 +61,7 @@ configure the indexer, grafana, mysql, and the explorer application. The sample
 files are provided in the repo and can be copied and modified as needed. The
 sample files are:
 
-- `/app/.env.sample` - Explorer application environment variables
+- `/app/.env.sample` - Explorer application environment variables [if submodule installed]
 - `/docker/.env.mysql.sample` - MySQL environment variables
 - `indexer/.env.sample` - Indexer environment variables
 
