@@ -53,7 +53,6 @@ files are provided in the repo and can be copied and modified as needed. The
 sample files are:
 
 - `/app/.env.sample` - Explorer application environment variables
-- `/docker/.env.grafana.sample` - Grafana environment variables
 - `/docker/.env.mysql.sample` - MySQL environment variables
 - `indexer/.env.sample` - Indexer environment variables
 
@@ -61,10 +60,6 @@ Copy the sample files to the actual env files:
 
 ```shell
 cp app/.env.sample app/.env
-```
-
-```shell
-cp docker/.env.grafana.sample docker/.env.grafana
 ```
 
 ```shell
