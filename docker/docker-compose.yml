@@ -15,22 +15,22 @@ services:
     ports:
       - "3306:3306"
 
-  adminer:
-    image: adminer:4.8.1
-    restart: always
-    ports:
-      - "3030:8080"
+  # adminer:
+  #   image: adminer:4.8.1
+  #   restart: always
+  #   ports:
+  #     - "3030:8080"
 
-  grafana:
-    image: grafana/grafana:10.2.3
-    depends_on:
-      - db
-    ports:
-      - "3333:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-    env_file:
-      - .env.grafana
+  # grafana:
+  #   image: grafana/grafana:10.2.3
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "3333:3000"
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #   env_file:
+  #     - .env.grafana
 
   indexer:
     build: ../indexer
