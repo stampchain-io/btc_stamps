@@ -10,3 +10,4 @@ indexer/.env
 .idea/
 backups/*
 *.log
+indexer/backups/*
