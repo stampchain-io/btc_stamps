@@ -13,6 +13,7 @@ RPC_USER = os.environ.get("RPC_USER", "rpc")
 RPC_PASSWORD = os.environ.get("RPC_PASSWORD", "rpc")
 RPC_IP = os.environ.get("RPC_IP", "127.0.0.1")
 RPC_PORT = os.environ.get("RPC_PORT", "8332")
+RPC_TLS = os.environ.get("RPC_TLS", False)
 
 CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://api.counterparty.io:4000")  # 'http://127.0.0.1:4000/api/'
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
@@ -39,6 +40,8 @@ QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 if QUICKNODE_URL and RPC_TOKEN:
     RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{QUICKNODE_URL}/{RPC_TOKEN}"
+elif RPC_TLS:
+    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 else:
     RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 
