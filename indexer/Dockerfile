@@ -26,18 +26,19 @@ RUN pip install --upgrade pip && \
 # Copy the pyproject.toml (and optionally poetry.lock) to /usr/src/app
 COPY pyproject.toml poetry.lock* /usr/src/app/
 
-# Install project dependencies with Poetry
-# Note: Configuring Poetry to not create a virtual environment inside the Docker container
-RUN poetry config virtualenvs.create false && \
-    poetry install --no-dev --no-root
 
 # Copy the application source code into the container
 COPY src ./src
 COPY *.py ./
+
+# Install project dependencies with Poetry
+# Note: Configuring Poetry to not create a virtual environment inside the Docker container
+RUN poetry config virtualenvs.create false 
+RUN poetry install --no-dev
 
 # Create a non-root user (uncomment if needed)
 # RUN useradd -m indexer
 # USER indexer
 
 # Command to run the application
-CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "180s", "python3.10", "start.py"]
+CMD ["poetry", "run", "indexer"]
