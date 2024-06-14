@@ -11,4 +11,5 @@ indexer/.env
 backups/*
 *.log
 indexer/backups/*
-/indexer/tools_priv
+indexer/tools_priv
+indexer/tools_priv.diff
