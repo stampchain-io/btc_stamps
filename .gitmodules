@@ -1,0 +1,3 @@
+[submodule "indexer/tools_priv"]
+	path = indexer/tools_priv
+	url = https://github.com/stampchain-io/btc_stamps_priv_tools.git
