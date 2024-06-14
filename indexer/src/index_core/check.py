@@ -15,7 +15,7 @@ CONSENSUS_HASH_VERSION_MAINNET = 1
 CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
     config.CP_STAMP_GENESIS_BLOCK: {
         "ledger_hash": "",
-        "txlist_hash": "ec4e7f4e223775801e6a9dce0d80be30a70581347ca190d3f5d816c0b5270cd7",
+        "txlist_hash": "f5277855a60219dfff0ea837e6835478cbbc32c3520cb1dc1f13c296594b3a05",
     },
 }
 # 779700: {
