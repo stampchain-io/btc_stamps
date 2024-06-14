@@ -1,0 +1,2 @@
+[alias]
+  update-submodules = submodule update --remote --merge
