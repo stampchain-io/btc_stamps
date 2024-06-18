@@ -3,7 +3,8 @@
 # Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
 
-[![lint+validation](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/main-checks.yml)
+[![Python Checks](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
+![last commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)
 
 The Bitcoin Stamps meta-protocol was initially developed using the Counterparty
 (XCP) Bitcoin transaction encoding methods as an immutable storage layer for NFT
