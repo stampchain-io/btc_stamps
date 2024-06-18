@@ -213,7 +213,7 @@ TICK_PATTERN_SET = UNICODE_SET.union(CHAR_SET)
 
 
 # Versions
-VERSION_STRING = "1.8.2+canary.47"
+VERSION_STRING = "1.8.2+canary.48"
 
 
 def update_version_globals(version_string: str):
