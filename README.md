@@ -3,7 +3,7 @@
 # Bitcoin Stamps (SRC-20) Indexer / API / Explorer
 
 
-[![Python Checks](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
+[![Python Checks](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
 ![last commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)
 
 The Bitcoin Stamps meta-protocol was initially developed using the Counterparty
