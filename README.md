@@ -36,7 +36,7 @@ For a simple installation of the entire stack Counterparty fednode can be used
 to deploy both Counterparty and a full Bitcoin Node. See:
 [Setting up a Counterparty Node](https://docs.counterparty.io/docs/basics/getting-started/)
 
-The default configuration is using the public [XCP.dev](https://www.xcp.dev/)
+The default configuration is using the public [Counterparty.io API](https://api.counterparty.io/)
 and stampchain Counterparty API's for XCP asset data. To minimize resource
 consumption on these free public resources we highly recommend using a local
 Counterparty node for long term or production use. These public resources are
