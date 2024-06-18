@@ -6,9 +6,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  deno-job:
-    uses: ./.github/workflows/deno-check.yml
+  # pause for now while app is in secondary repo
+  # deno-job:
+  #   uses: ./.github/workflows/deno-check.yml
 
   python-job:
-    needs: deno-job
+    # needs: deno-job
     uses: ./.github/workflows/python-check.yml
