@@ -96,7 +96,7 @@ interface for running the stack.
 
   ```shell
   # View the logs for the indexer application
-  cd docker && docker-compose logs -f app
+  cd docker && docker-compose logs -f indexer
   ```
 
   ```shell
