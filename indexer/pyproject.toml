@@ -47,7 +47,7 @@ toml = "^0.10.2"
 arweave-python-client = "1.0.19"
 
 [tool.poetry.group.dev.dependencies]
-taskipy = "^1.8.2"
+taskipy = "^1.13.0"
 bandit = "^1.7.9"
 flake8 = "^7.1.0"
 pillow = "^10.3.0"
