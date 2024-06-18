@@ -1,8 +1,10 @@
 name: Python Check
 
 on:
-  workflow_call:
-
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+    
 jobs:
   python-check:
     runs-on: ubuntu-latest
