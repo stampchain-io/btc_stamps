@@ -138,7 +138,7 @@ jobs:
       
       - name: Bump version manually
         run: |
-          bump2version ${{ github.event.inputs.versionType }} --verbose --allow-dirty
+          bump2version ${{ github.event.inputs.versionType }} --new-version $(bump2version --dry-run --list | grep new_version= | sed -r s,"^.*=",,) --verbose --allow-dirty
           if [ "${{ github.event.inputs.preRelease }}" == "true" ]; then
             bump2version release --new-version $(cat VERSION)+canary.0 --verbose --allow-dirty
           fi
