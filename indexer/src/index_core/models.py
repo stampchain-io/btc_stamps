@@ -170,10 +170,6 @@ class StampData:
             self.insert_into_collection_creators(db, creator_inserts)
 
     @staticmethod
-    def generate_collection_id(name: str) -> bytes:
-        return hashlib.md5(name.encode(), usedforsecurity=False).digest()
-
-    @staticmethod
     def ensure_creators_exist(db, creator_inserts: List[tuple]):
         cursor = db.cursor()
         for _, creator_address in creator_inserts:
