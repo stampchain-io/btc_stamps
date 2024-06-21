@@ -120,12 +120,18 @@ jobs:
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
 
   manual-versioning:
+    env:
+      NEW_VERSION: ''
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
+      - name: Get branch names
+        id: branch-names
+        uses: tj-actions/branch-names@v8
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -138,12 +144,22 @@ jobs:
       
       - name: Bump version manually
         run: |
-          bump2version ${{ github.event.inputs.versionType }} --new-version $(bump2version --dry-run --list | grep new_version= | sed -r s,"^.*=",,) --verbose --allow-dirty
-          if [ "${{ github.event.inputs.preRelease }}" == "true" ]; then
-            bump2version release --new-version $(cat VERSION)+canary.0 --verbose --allow-dirty
-          fi
-      
+          bump2version ${{ github.event.inputs.versionType }} --config-file .bumpversion.${{ steps.branch-names.outputs.current_branch }}.cfg --verbose --allow-dirty
+          printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
+  
       - name: Push changes
         run: |
           git push origin HEAD:${{ github.ref }}
           git push origin --tags
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.NEW_VERSION }}
+          name: Release ${{ env.NEW_VERSION }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ github.event.inputs.preRelease }}
