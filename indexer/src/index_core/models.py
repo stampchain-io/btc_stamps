@@ -6,7 +6,7 @@ import re
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, TypedDict, Union, ClassVar
+from typing import ClassVar, Dict, List, Optional, TypedDict, Union
 
 import magic
 import msgpack
