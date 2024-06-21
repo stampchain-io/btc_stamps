@@ -24,12 +24,14 @@ def _create_payload(method, params):
 
 def fetch_cp_concurrent(block_index, block_tip, indicator=None):
     """testing with this method because we were initially getting invalid results
-    when using the get_blocks[xxx,yyyy,zzz] method to the CP API"""
+    when using the get_blocks[xxx,yyyy,zzz] method to the CP API
+    FIXME: now with version 10.x the concurrent method has been fixed so we can pull multiple blocks at once
+            will need to check CP version first to validate this will work, and fallback to this method"""
     with concurrent.futures.ThreadPoolExecutor() as executor:
 
         blocks_to_fetch = 1000
         futures = []
-        results_dict = {}  # Create an empty dictionary to store the results
+        results_dict = {}
 
         if block_tip > block_index + blocks_to_fetch:
             block_tip = block_index + blocks_to_fetch
@@ -40,23 +42,21 @@ def fetch_cp_concurrent(block_index, block_tip, indicator=None):
             total=blocks_to_fetch,
             desc=f"Fetching CP Trx [{block_index}..{block_tip}]",
             leave=True,
-        )  # Update the total to 500 and add leave=True
+        )
 
         while block_index <= block_tip:
             future = executor.submit(get_xcp_block_data, block_index, indicator=indicator)
-            future.block_index = block_index  # Save the block_index with the future
+            future.block_index = block_index
             futures.append(future)
             block_index += 1
 
-        # Process the results as they become available
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
-            results_dict[future.block_index] = result  # Store the result in the dictionary using future.block_index as the key
-            pbar.update(1)  # Update the progress bar
+            results_dict[future.block_index] = result
+            pbar.update(1)
 
-        pbar.close()  # Close the progress bar
+        pbar.close()
 
-        # Sort the results_dict based on block_index
         sorted_results = dict(sorted(results_dict.items(), key=lambda x: x[0]))
     return sorted_results
 
@@ -71,7 +71,7 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
 
     while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
         try:
-            util.CP_BLOCK_COUNT = _get_block_count()
+            util.CP_BLOCK_COUNT = _get_cp_block_count()
             logger.info("Current block count: {}".format(util.CP_BLOCK_COUNT))
             if util.CP_BLOCK_COUNT is not None and block_index <= util.CP_BLOCK_COUNT:
                 if indicator is not None:
@@ -116,7 +116,7 @@ def get_cp_version():
         return None
 
 
-def _get_block_count():
+def _get_cp_block_count():
     result = None
     try:
         payload = _create_payload("get_running_info", {})
@@ -133,33 +133,11 @@ def _get_block_count():
         return None
 
 
-def _get_issuances(params={}):
-    payload = _create_payload("get_issuances", params)
-    headers = {"content-type": "application/json"}
-    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
-    return json.loads(response.text)["result"]
-
-
-def _get_sends(params={}):
-    payload = _create_payload("get_sends", params)
-    headers = {"content-type": "application/json"}
-    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
-    return json.loads(response.text)["result"]
-
-
 def _get_block(params={}):
     payload = _create_payload("get_blocks", params)
     headers = {"content-type": "application/json"}
     response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
     return json.loads(response.text)["result"]
-
-
-def _get_issuances_by_block(block_index):
-    return _handle_cp_call_with_retry(
-        func=_get_issuances,
-        params={"filters": {"field": "block_index", "op": "==", "value": block_index}},
-        block_index=block_index,
-    )
 
 
 def _get_all_tx_by_block(block_index, indicator=None):
@@ -171,29 +149,10 @@ def _get_all_tx_by_block(block_index, indicator=None):
     )
 
 
-def _get_all_prev_issuances_for_cpid_and_block(cpid, block_index):
-    return _handle_cp_call_with_retry(
-        func=_get_issuances,
-        params={
-            "filters": [
-                {"field": "block_index", "op": "<", "value": block_index},
-                {"field": "asset", "op": "==", "value": cpid},
-            ]
-        },
-        block_index=block_index,
-    )
-
-
 def get_xcp_block_data(block_index, indicator=None):
     block_data_from_xcp = _get_all_tx_by_block(block_index, indicator=indicator)
     parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
     stamp_issuances = parsed_block_data["issuances"]
-    # logger.warning(
-    #     f"""
-    #     XCP Block {block_index}
-    #     - {len(stamp_issuances)} issuances
-    #     """
-    # )
     return stamp_issuances
 
 

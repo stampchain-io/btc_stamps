@@ -4,9 +4,9 @@ import json
 import logging
 import re
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import Dict, List, Optional, TypedDict, Union, ClassVar
 
 import magic
 import msgpack
@@ -98,6 +98,8 @@ class StampData:
     decoded_base64: Optional[Union[str, bytes]] = None
     src20_dict: Optional[dict] = None
     pval_src20: Optional[bool] = None
+    is_posh: Optional[bool] = False
+    precomputed_collections: ClassVar[List[Dict]] = []
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -117,39 +119,43 @@ class StampData:
                 return False
         return False
 
-    precomputed_collections: List[Dict] = field(default_factory=list, init=False)
-
     @staticmethod
     def generate_collection_id(name: str) -> bytes:
         return hashlib.md5(name.encode(), usedforsecurity=False).digest()
 
     @classmethod
     def precompute_collections(cls, collections: List[Dict]):
-        cls.precomputed_collections = []
-        for collection in collections:
-            collection_id = cls.generate_collection_id(collection["name"]).hex()
-            file_hashes_set = set(collection.get("file_hashes", []))
-            stamps_set = set(collection.get("stamps", []))
-            cls.precomputed_collections.append(
-                {
-                    "collection_id": collection_id,
-                    "name": collection["name"],
-                    "file_hashes": file_hashes_set,
-                    "stamps": stamps_set,
-                    "creators": collection.get("creators", []),
-                }
-            )
+        if not cls.precomputed_collections:
+            for collection in collections:
+                collection_id = cls.generate_collection_id(collection["name"]).hex()
+                file_hashes_set = set(collection.get("file_hashes", []))
+                stamps_set = set(collection.get("stamps", []))
+                is_posh = collection.get("is_posh", False)
+                cls.precomputed_collections.append(
+                    {
+                        "collection_id": collection_id,
+                        "name": collection["name"],
+                        "file_hashes": file_hashes_set,
+                        "stamps": stamps_set,
+                        "creators": collection.get("creators", []),
+                        "is_posh": is_posh,
+                    }
+                )
 
     def match_and_insert_collection_data(self, collections: List[Dict], db):
-        if self.precomputed_collections is None:
-            self.precompute_collections(collections)
+        if not self.__class__.precomputed_collections:
+            self.__class__.precompute_collections(collections)
 
         collection_inserts = []
         stamp_inserts = []
         creator_inserts = []
 
-        for collection in self.precomputed_collections:
-            if self.file_hash in collection["file_hashes"] or self.stamp in collection["stamps"]:
+        for collection in self.__class__.precomputed_collections:
+            if (
+                self.file_hash in collection["file_hashes"]
+                or self.stamp in collection["stamps"]
+                or (self.is_posh and collection["is_posh"])
+            ):
                 collection_inserts.append((collection["collection_id"], collection["name"]))
                 stamp_inserts.append((collection["collection_id"], self.stamp))
                 for creator in collection["creators"]:
@@ -162,6 +168,10 @@ class StampData:
         if creator_inserts:
             self.ensure_creators_exist(db, creator_inserts)
             self.insert_into_collection_creators(db, creator_inserts)
+
+    @staticmethod
+    def generate_collection_id(name: str) -> bytes:
+        return hashlib.md5(name.encode(), usedforsecurity=False).digest()
 
     @staticmethod
     def ensure_creators_exist(db, creator_inserts: List[tuple]):
@@ -524,6 +534,7 @@ class StampData:
         if self.asset_longname is not None:
             self.cpid = self.asset_longname
             self.is_cursed = True
+            self.is_posh = True
             self.is_btc_stamp = False
             return True
         return False
@@ -531,9 +542,11 @@ class StampData:
     def process_cursed_with_other_conditions(self, cpid_starts_with_A, ident_known):
         if self.cpid and (
             self.file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid_starts_with_A or self.is_op_return or not ident_known
-        ):  # added ident_known
+        ):
             self.is_btc_stamp = False
             self.is_cursed = True
+        if self.cpid and not cpid_starts_with_A and self.file_suffix not in INVALID_BTC_STAMP_SUFFIX:
+            self.is_posh = True
 
     def process_and_store_stamp_data(
         self,
