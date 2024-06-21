@@ -265,7 +265,11 @@ BACKEND_RPC_BATCH_NUM_WORKERS = 6
 
 from typing import Dict, List, Union
 
-LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int]]]] = [
+LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[bool]]]] = [
+    {
+        "name": "POSH",
+        "is_posh": True,
+    },
     {
         "name": "KEVIN",
         "file_hashes": ["33d7c7c17c36527bd245c59fb37bcea4"],
