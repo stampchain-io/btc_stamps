@@ -13,6 +13,8 @@ from binascii import unhexlify
 from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
 
+from bitcoinlib import encoding
+
 import config
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
@@ -181,7 +183,6 @@ def hex_decode(hexstring):
     except Exception:
         return None
 
-
 def is_valid_pubkey_hex(pubkey_hex):
     try:
         if len(pubkey_hex) != 66:
@@ -193,7 +194,6 @@ def is_valid_pubkey_hex(pubkey_hex):
         return True
     except Exception as e:
         return False
-
 
 def check_valid_eth_address(address: str):
     if not address.startswith("0x"):
@@ -228,12 +228,10 @@ special_characters_pattern = (
     r"[`~!@#$%\^\-\+&\*\(\)_\=＝\=|{}\":;',\\\[\]\.·<>\/\?~！@#￥……&*（）——|{}【】《》'；：“”‘。，、？\s]"
 )
 
-
 def check_contains_special(text):
     special_categories = {"Zs", "Cf"}
     match = re.search(special_characters_pattern, text)
     return any(unicodedata.category(char) in special_categories for char in text) or text.isspace() or match is not None
-
 
 def check_valid_base64_string(base64_string):
     if base64_string is not None and re.fullmatch(r"^[A-Za-z0-9+/]+={0,2}$", base64_string) and len(base64_string) % 4 == 0:
