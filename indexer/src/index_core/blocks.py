@@ -32,6 +32,7 @@ from index_core.database import (
     initialize,
     insert_block,
     insert_into_src20_tables,
+    insert_into_src101_tables,
     insert_into_stamp_table,
     insert_transactions,
     is_prev_block_parsed,
@@ -51,6 +52,8 @@ from index_core.src20 import (
     update_src20_balances,
     validate_src20_ledger_hash,
 )
+from index_core.src101 import Src101Dict  # FIXME: move to models for consistency
+from index_core.src101 import parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash
 
@@ -65,6 +68,7 @@ TxResult = namedtuple(
         "tx_index",
         "source",
         "destination",
+        "destination_nvalue",
         "btc_amount",
         "fee",
         "data",
@@ -86,6 +90,7 @@ class BlockProcessor:
         self.valid_stamps_in_block: List[ValidStamp] = []
         self.parsed_stamps: List[StampData] = []
         self.processed_src20_in_block: List[Src20Dict] = []
+        self.processed_src101_in_block: List[Src101Dict] = []
 
     def process_transaction_results(self, tx_results):
         for result in tx_results:
@@ -93,6 +98,7 @@ class BlockProcessor:
                 tx_hash=result.tx_hash,
                 source=result.source,
                 destination=result.destination,
+                destination_nvalue=result.destination_nvalue,
                 btc_amount=result.btc_amount,
                 fee=result.fee,
                 data=result.data,
@@ -101,22 +107,25 @@ class BlockProcessor:
                 tx_index=result.tx_index,
                 block_index=result.block_index,
                 block_time=result.block_time,
+                block_timestamp=result.block_time,
                 is_op_return=result.is_op_return,
                 p2wsh_data=result.p2wsh_data,
             )
-            _, stamp_data, valid_stamp, prevalidated_src20 = parse_stamp(
+            _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
                 stamp_data=stamp_data,
                 db=self.db,
                 valid_stamps_in_block=self.valid_stamps_in_block,
             )
-
             if stamp_data:
                 self.parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
             if valid_stamp:
                 self.valid_stamps_in_block.append(valid_stamp)
-            if prevalidated_src20:
-                _, src20_dict = parse_src20(self.db, prevalidated_src20, self.processed_src20_in_block)
+            if prevalidated_src and stamp_data.pval_src20:
+                _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
                 self.processed_src20_in_block.append(src20_dict)
+            if prevalidated_src and stamp_data.pval_src101:
+                _, src101_dict = parse_src101(self.db, prevalidated_src, self.processed_src101_in_block)
+                self.processed_src101_in_block.append(src101_dict)
 
         if self.parsed_stamps:
             insert_into_stamp_table(self.db, self.parsed_stamps)
@@ -130,6 +139,10 @@ class BlockProcessor:
             valid_src20_str = process_balance_updates(balance_updates)
         else:
             valid_src20_str = ""
+
+        if self.processed_src101_in_block:
+            insert_into_src101_tables(self.db, self.processed_src101_in_block)
+            update_src101_owners(self.db, block_index, self.processed_src101_in_block)
 
         if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
             clear_zero_balances(self.db)
@@ -245,6 +258,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         [
             "source",
             "destinations",
+            "destination_nvalue",
             "btc_amount",
             "fee",
             "data",
@@ -280,6 +294,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             return TransactionInfo(
                 None,
                 None,
+                None,
                 btc_amount,
                 round(fee),
                 None,
@@ -294,14 +309,16 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             for pubkey in pubkeys_compiled:
                 chunk += pubkey[1:-1]  # Skip sign byte and nonce byte. ( this does the concatenation as well)
         try:
-            src20_destination, src20_data = decode_checkmultisig(ctx, chunk)  # this only decodes src-20 type trx
+            src_destination, src_destination_nvalue, src_data = decode_checkmultisig(
+                ctx, chunk
+            )  # this only decodes src-20 type trx
         except Exception as e:
             raise DecodeError(f"unrecognized output type {e}")
-        if src20_destination is None or src20_data is None:
+        if src_destination is None or src_data is None:
             raise ValueError("src20_destination and src20_data must not be None")
-        if src20_data is not None:
-            data += src20_data
-            destinations = str(src20_destination)
+        if src_data is not None:
+            data += src_data
+            destinations = str(src_destination)
 
         if not data:
             raise BTCOnlyError("no data, not a stamp", ctx)
@@ -325,6 +342,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         return TransactionInfo(
             str(source),
             destinations,
+            src_destination_nvalue,
             btc_amount,
             round(fee),
             data,
@@ -335,7 +353,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         )
 
     except (DecodeError, BTCOnlyError):
-        return TransactionInfo(b"", None, None, None, None, None, None, None, None)
+        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None)
 
 
 def decode_address(script_pubkey):
@@ -393,10 +411,10 @@ def decode_checkmultisig(ctx, chunk):
 
         script_pubkey = ctx.vout[0].scriptPubKey
         destination = decode_address(script_pubkey)
-
-        return str(destination), data
+        destination_nvalue = ctx.vout[0].nValue
+        return str(destination), destination_nvalue, data
     else:
-        return None, data
+        return None, None, data
 
 
 def reinitialize(db, block_index=None):
@@ -517,6 +535,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
     transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, "source", None)
     destination = getattr(transaction_info, "destinations", None)
+    destination_nvalue = getattr(transaction_info, "destination_nvalue", None)
     btc_amount = getattr(transaction_info, "btc_amount", None)
     fee = getattr(transaction_info, "fee", None)
     data = getattr(transaction_info, "data", None)
@@ -543,6 +562,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
         return (
             source,
             destination,
+            destination_nvalue,
             btc_amount,
             fee,
             data,
@@ -554,7 +574,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
 
     else:
         skip_logger.debug("Skipping transaction: {}".format(tx_hash))
-        return (None for _ in range(9))
+        return (None for _ in range(10))
 
 
 def create_check_hashes(
@@ -678,6 +698,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     (
         source,
         destination,
+        destination_nvalue,
         btc_amount,
         fee,
         data,
@@ -686,11 +707,11 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
         is_op_return,
         p2wsh_data,
     ) = list_tx(db, block_index, tx_hash, tx_hex, stamp_issuance=stamp_issuance)
-
     return TxResult(
         None,
         source,
         destination,
+        destination_nvalue,
         btc_amount,
         fee,
         data,
