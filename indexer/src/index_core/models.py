@@ -23,6 +23,7 @@ from config import (
     SUPPORTED_SUB_PROTOCOLS,
 )
 from index_core.src20 import build_src20_svg_string, check_format
+from index_core.src101 import check_src101_inputs
 from index_core.src721 import validate_src721_and_process
 from index_core.util import create_base62_hash
 
@@ -66,6 +67,7 @@ class StampData:
     tx_hash: str
     source: str
     destination: str
+    destination_nvalue: int
     btc_amount: float
     fee: float
     data: str
@@ -74,6 +76,7 @@ class StampData:
     tx_index: int
     block_index: int
     block_time: Union[int, datetime]
+    block_timestamp: int
     is_op_return: bool
     p2wsh_data: bytes
     stamp: Optional[int] = None
@@ -97,7 +100,9 @@ class StampData:
     file_suffix: Optional[str] = None
     decoded_base64: Optional[Union[str, bytes]] = None
     src20_dict: Optional[dict] = None
+    src101_dict: Optional[dict] = None
     pval_src20: Optional[bool] = None
+    pval_src101: Optional[bool] = None
     is_posh: Optional[bool] = False
     precomputed_collections: ClassVar[List[Dict]] = []
     collection_name: Optional[str] = None
@@ -464,6 +469,7 @@ class StampData:
         self.creator = self.source
         self.stamp_hash = create_base62_hash(self.tx_hash, str(self.block_index), 20)
         if isinstance(self.block_time, int):
+            self.block_timestamp = self.block_time
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
@@ -473,6 +479,9 @@ class StampData:
     def is_src20(self):
         return self.ident == "SRC-20" and self.keyburn == 1
 
+    def is_src101(self):
+        return self.ident == "SRC-101" and self.keyburn == 1
+
     def valid_cp_src20(self):
         return (
             self.is_src20()
@@ -481,6 +490,9 @@ class StampData:
             and self.supply == 0
             and self.cpid.startswith("A")
         )
+
+    def valid_cp_src101(self):
+        return self.is_src101() and self.cpid
 
     def valid_src20(self):
         results = self.valid_cp_src20() or (self.is_src20() and not self.cpid)
@@ -496,6 +508,11 @@ class StampData:
             and self.supply <= 1
         )
         return base_condition
+
+    def valid_src101(self):
+        results = self.valid_cp_src101() or (self.is_src101() and not self.cpid)
+        self.pval_src101 = results
+        return results
 
     def normalize_mime_and_suffix(self):
         self.normalize_file_suffix()
@@ -550,6 +567,7 @@ class StampData:
         valid_func_map = {
             self.valid_src20: (self.src20_pre_validation, (db,)),
             self.valid_src721: (self.process_src721, (valid_stamps_in_block, db)),
+            self.valid_src101: (self.src101_pre_validation, ()),
         }
 
         for valid_func, (process_func, args) in valid_func_map.items():
@@ -574,6 +592,14 @@ class StampData:
             raise ValueError(
                 "Invalid SRC-20 Pre-check"
             )  # we don't save in stamp_results, stamp_data, valid_stamp, prevalidated_src20
+
+    def src101_pre_validation(self):
+        # TODO need  more check
+        self.src101_dict = check_src101_inputs(self.decoded_base64, self.tx_hash)
+        if self.src101_dict is not None:
+            self.is_btc_stamp = True
+        else:
+            raise ValueError("Invalid SRC-101 Pre-check")
 
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64

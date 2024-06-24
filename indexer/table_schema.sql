@@ -210,6 +210,102 @@ CREATE TABLE IF NOT EXISTS `src20_metadata` (
   INDEX `deploy_tx_hash` (`deploy_tx_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
+CREATE TABLE IF NOT EXISTS `SRC101` (
+  `id` VARCHAR(255) NOT NULL,
+  `tx_hash` VARCHAR(64) NOT NULL,
+  `tx_index` int NOT NULL,
+  `block_index` int,
+  `p` varchar(32),
+  `op` varchar(32),
+  `name` varchar(32),
+  `tokenid` varchar(64) DEFAULT NULL,
+  `tokenid_utf8` varchar(255)  DEFAULT NULL COLLATE utf8mb4_bin,
+  -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `description` varchar(255),
+  `tick` varchar(32),
+  `wll` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `tick_hash` varchar(64),
+  `deploy_hash` VARCHAR(64) DEFAULT NULL,
+  `creator` varchar(64) COLLATE utf8mb4_bin,
+  `pri` BIGINT UNSIGNED DEFAULT NULL,
+  `dua` BIGINT UNSIGNED DEFAULT NULL,
+  `lim` BIGINT UNSIGNED DEFAULT NULL,
+  `mintstart` BIGINT UNSIGNED DEFAULT NULL,
+  `mintend` BIGINT UNSIGNED DEFAULT NULL,
+  `prim` BOOLEAN DEFAULT NULL,
+  `owner` varchar(255) COLLATE utf8mb4_bin,
+  `toaddress` varchar(255) COLLATE utf8mb4_bin,
+  `destination` varchar(255) COLLATE utf8mb4_bin,
+  `destination_nvalue` BIGINT UNSIGNED DEFAULT NULL,
+  `block_time` datetime DEFAULT NULL,
+  `status` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS `SRC101Valid` (
+  `id` VARCHAR(255) NOT NULL,
+  `tx_hash` VARCHAR(64) NOT NULL,
+  `tx_index` int NOT NULL,
+  `block_index` int,
+  `p` varchar(32),
+  `op` varchar(32),
+  `name` varchar(32),
+  `tokenid` varchar(64) DEFAULT NULL,
+  `tokenid_utf8` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `description` varchar(255),
+  `tick` varchar(32),
+  `wll` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `tick_hash` varchar(64),
+  `deploy_hash` VARCHAR(64) DEFAULT NULL,
+  `creator` varchar(64) COLLATE utf8mb4_bin,
+  `pri` BIGINT UNSIGNED DEFAULT NULL,
+  `dua` BIGINT UNSIGNED DEFAULT NULL,
+  `lim` BIGINT UNSIGNED DEFAULT NULL,
+  `mintstart` BIGINT UNSIGNED DEFAULT NULL,
+  `mintend` BIGINT UNSIGNED DEFAULT NULL,
+  `prim` BOOLEAN DEFAULT NULL,
+  `owner` varchar(255) COLLATE utf8mb4_bin,
+  `toaddress` varchar(255) COLLATE utf8mb4_bin,
+  `destination` varchar(255) COLLATE utf8mb4_bin,
+  `destination_nvalue` BIGINT UNSIGNED DEFAULT NULL,
+  `block_time` datetime DEFAULT NULL,
+  `status` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS `owners` (
+  `index` INT NOT NULL AUTO_INCREMENT,
+  `id` VARCHAR(255) NOT NULL,
+  `p` varchar(32),
+  `deploy_hash` VARCHAR(64) NOT NULL,
+  `tokenid` varchar(64) NOT NULL,
+  `tokenid_utf8` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `preowner` varchar(64) COLLATE utf8mb4_bin,
+  `owner` varchar(64) COLLATE utf8mb4_bin NOT NULL,
+  `address_data` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `txt_data` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `expire_timestamp` BIGINT UNSIGNED DEFAULT NULL,
+  `last_update` int,
+  PRIMARY KEY (`index`),
+  UNIQUE KEY `p_deploy_hash_tokenid_unique` (`p`, `deploy_hash`, `tokenid`),
+  INDEX `id` (`id`),
+  INDEX `owner` (`owner`),
+  INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
+  INDEX `p_deploy_hash_tokenid_utf8` (`p`,`deploy_hash`,`tokenid_utf8`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS `recipients` (
+  `id` VARCHAR(255) NOT NULL,
+  `p` varchar(32),
+  `deploy_hash` VARCHAR(64) NOT NULL,
+  `address` varchar(64) COLLATE utf8mb4_bin NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `p_deploy_hash_address_unique` (`p`, `deploy_hash`, `address`),
+  INDEX `address` (`address`),
+  INDEX `p_deploy_hash_address` (`p`,`deploy_hash`,`address`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 -- example for insert into collections
 -- START TRANSACTION;
