@@ -84,19 +84,23 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
         except (TypeError, Exception) as e:
             logger.warning("Error getting CP block count: {}\nSleeping to retry...".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
+
     data = None
     while data is None:
         try:
             if util.CP_BLOCK_COUNT is not None:
                 data = func(params=params)
-                if data is not None:
+                if data is not None and len(data) > 0:
                     return data
+                else:
+                    logger.warning("Received empty data. Retrying...")
             else:
                 logger.warning("CP_BLOCK_COUNT is None. Sleeping to retry...")
-                time.sleep(config.BACKEND_POLL_INTERVAL)
+            time.sleep(config.BACKEND_POLL_INTERVAL)
         except Exception as e:
             logger.warning("Error getting issuances: {}\n Sleeping to retry...".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
+    # return data
 
 
 def get_cp_version():
