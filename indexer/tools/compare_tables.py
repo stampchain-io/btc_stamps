@@ -202,6 +202,14 @@ def main():
     print(f"\nnot in StampTableV4 Dev incl cursed {dev_host} ", len(not_in_dev_list))
     # print(not_in_dev_list)
 
+    missing_in_prod_list = set(not_in_prod_list) - set(not_in_dev_list)
+    missing_in_StampTableV4_Dev = set(not_in_dev_list) - set(not_in_prod_list)
+
+    print(f"\nmissing in StampTableV4 Prod incl cursed {prod_host} ", len(missing_in_prod_list))
+    print(missing_in_prod_list)
+    print(f"\nmissing in StampTableV4 Dev incl cursed {dev_host} ", len(missing_in_StampTableV4_Dev))
+    print(missing_in_StampTableV4_Dev)
+
 
 if __name__ == "__main__":
     main()
