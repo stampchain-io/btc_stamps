@@ -54,15 +54,21 @@ SRC20_TABLE = "SRC20"
 SRC20_VALID_TABLE = "SRC20Valid"
 SRC20_BALANCES_TABLE = "balances"
 SRC_BACKGROUND_TABLE = "srcbackground"
+SRC101_TABLE = "SRC101"
+SRC101_VALID_TABLE = "SRC101Valid"
+SRC101_OWNERS_TABLE = "owners"
+SRC101_RECIPIENTS_TABLE = "recipients"
 
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
-SUPPORTED_SUB_PROTOCOLS = ["SRC-721", "SRC-20"]
+SUPPORTED_SUB_PROTOCOLS = ["SRC-721", "SRC-20", "SRC-101"]
 INVALID_BTC_STAMP_SUFFIX = ["plain", "octet-stream", "js", "css", "x-empty", "json"]
 
 CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transaction on counterparty
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty
 BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first stamp (src-20)
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
+
+CP_SRC101_GENESIS_BLOCK: int = 0
 
 CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 CP_BMN_FEAT_BLOCK_START: int = 815130  # BMN audio file support
@@ -93,7 +99,7 @@ LOG: Optional[str] = None
 REGTEST: bool = False
 CUSTOMNET: bool = False
 CHECKDB: bool = False
-TESTNET: bool = False
+TESTNET = os.environ.get("TESTNET", False)
 
 # Define additional constants used in server.py
 DEFAULT_BACKEND_PORT: int = 8332
@@ -213,7 +219,7 @@ TICK_PATTERN_SET = UNICODE_SET.union(CHAR_SET)
 
 
 # Versions
-VERSION_STRING = "1.8.5+canary.0"
+VERSION_STRING = "1.8.2+canary.58"
 
 
 def update_version_globals(version_string: str):
@@ -253,8 +259,9 @@ DEFAULT_BACKEND_PORT_REGTEST = 28332
 DEFAULT_BACKEND_PORT_TESTNET = 18332
 DEFAULT_BACKEND_PORT = 8332
 
-BLOCK_FIRST_TESTNET = 310000
+BLOCK_FIRST_TESTNET = int(os.environ.get("BLOCK_FIRST_TESTNET", 2818306))
 
+SRC101_IMG_URL_PREFIX = os.environ.get("SRC101_IMG_URL_PREFIX", "https://testnet.img.bitname.pro/img/")
 BLOCK_FIRST_MAINNET = CP_STAMP_GENESIS_BLOCK
 BLOCK_FIRST_REGTEST = 0
 

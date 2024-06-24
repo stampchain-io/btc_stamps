@@ -8,6 +8,8 @@ import logging
 import re
 import threading
 
+from bitcoinlib import encoding
+
 import config
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
@@ -168,6 +170,42 @@ def inverse_hash(hashstring):
 
 def ib2h(b):
     return inverse_hash(b2h(b))
+
+
+def hex_decode(hexstring):
+    try:
+        return bytes.fromhex(hexstring).decode("utf-8")
+    except Exception:
+        return None
+
+
+def check_valid_eth_address(address: str):
+    if not address.startswith("0x"):
+        return False
+
+    if len(address) != 42:
+        return False
+
+    if not re.match(r"^0x[0-9a-fA-F]{40}$", address):
+        return False
+
+    return True
+
+
+def check_valid_bitcoin_address(address: str):
+    try:
+        if address.startswith("bc1") or address.startswith("tb1"):
+            encoding.addr_bech32_to_pubkeyhash(address)
+        else:
+            encoding.addr_base58_to_pubkeyhash(address)
+        return True
+    except Exception as e:
+        return False
+
+
+def check_valid_tx_hash(tx_hash: str) -> bool:
+    match = re.fullmatch(r"[0-9a-fA-F]{64}", tx_hash)
+    return match is not None
 
 
 def check_valid_base64_string(base64_string):
