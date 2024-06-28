@@ -583,7 +583,8 @@ def create_check_hashes(
     Returns:
         tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
     """
-    txlist_content = str(valid_stamps_in_block)
+    sorted_valid_stamps = sorted(valid_stamps_in_block, key=lambda x: x.get("stamp_number", ""))
+    txlist_content = str(sorted_valid_stamps)
     new_txlist_hash, found_txlist_hash = check.consensus_hash(
         db, block_index, "txlist_hash", previous_txlist_hash, txlist_content
     )

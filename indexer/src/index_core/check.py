@@ -1,6 +1,7 @@
 import logging
 import warnings
-from typing import Dict
+from typing import Dict, Optional, Tuple, Any
+from pymysql.connections import Connection
 
 import config
 import index_core.util as util
@@ -126,7 +127,9 @@ class ConsensusError(Exception):
     pass
 
 
-def consensus_hash(db, block_index, field, previous_consensus_hash, content):
+def consensus_hash(
+    db: Connection, block_index: int, field: str, previous_consensus_hash: Optional[str], content: str
+) -> Tuple[str, Optional[str]]:
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
     # block_index = util.CURRENT_BLOCK_INDEX
