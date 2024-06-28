@@ -1,6 +1,7 @@
 import logging
 import warnings
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple
+
 from pymysql.connections import Connection
 
 import config
