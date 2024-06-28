@@ -2,7 +2,7 @@ import base64
 import hashlib
 import json
 import logging
-import re
+import regex as re
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -219,7 +219,8 @@ class StampData:
 
         # Enhanced regex to detect common JavaScript syntax elements, including ES6 features
         js_pattern = re.compile(
-            r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b"
+            r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b",
+            re.VERSION1,  # Ensure consistent behavior across all Python versions
         )
         if not js_pattern.search(js_code):
             return False
@@ -248,7 +249,7 @@ class StampData:
         ]
 
         for pattern in js_formatting_patterns:
-            if re.search(pattern, js_code):
+            if re.search(pattern, js_code, re.VERSION1):
                 return True
 
         return False
