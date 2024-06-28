@@ -2,7 +2,6 @@ import base64
 import hashlib
 import json
 import logging
-import regex as re
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -10,6 +9,7 @@ from typing import ClassVar, Dict, List, Optional, TypedDict, Union
 
 import magic
 import msgpack
+import regex as re
 
 import index_core.log as log
 from config import (
