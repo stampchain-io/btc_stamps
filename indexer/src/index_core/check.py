@@ -177,13 +177,16 @@ def consensus_hash(
 
     if field == "ledger_hash" and block_index == config.CP_SRC20_GENESIS_BLOCK:
         calculated_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
     elif field == "ledger_hash" and block_index > config.CP_SRC20_GENESIS_BLOCK and content:
-        concatenated_content = previous_consensus_hash.encode("utf-8") + content.encode("utf-8")
+        concatenated_content = (previous_consensus_hash or "").encode("utf-8") + content.encode("utf-8")
         calculated_hash = util.shash_string(concatenated_content)
     elif field == "ledger_hash" and content == "":
         calculated_hash = ""
     else:
-        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
+        calculated_hash = util.dhash_string(
+            (previous_consensus_hash or "") + "{}{}".format(consensus_hash_version, "".join(content))
+        )
     # Verify hash (if already in database) or save hash (if not).
     cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
     results = cursor.fetchall()
@@ -252,13 +255,13 @@ def check_change(protocol_change, change_name):
 
     if not passed:
         explanation = "Your version of {} is v{}, but, as of block {}, the minimum version is v{}.{}.{}. Reason: ‘{}’. Please upgrade to the latest version and restart the server.".format(
-            config.APP_NAME,
-            config.VERSION_STRING,
+            config.APP_NAME or "",
+            config.VERSION_STRING or "",
             protocol_change["block_index"],
             protocol_change["minimum_version_major"],
             protocol_change["minimum_version_minor"],
             protocol_change["minimum_version_revision"],
-            change_name,
+            change_name or "",
         )
         if util.CURRENT_BLOCK_INDEX >= protocol_change["block_index"]:
             raise VersionUpdateRequiredError(explanation)
@@ -273,4 +276,4 @@ def cp_version():
 
 
 def software_version():
-    logger.warning("Software version: {}.".format(config.VERSION_STRING))
+    logger.warning("Software version: {}.".format(config.VERSION_STRING or ""))
