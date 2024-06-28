@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import logging
+import sys
 import time
 
 import requests
@@ -81,26 +82,20 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
                 if indicator is not None:
                     pbar.refresh()
                 time.sleep(config.BACKEND_POLL_INTERVAL)
-        except (TypeError, Exception) as e:
-            logger.warning("Error getting CP block count: {}\nSleeping to retry...".format(e))
+        except Exception as e:
+            logger.warning("Error getting CP block count: {}".format(e))
             time.sleep(config.BACKEND_POLL_INTERVAL)
 
-    data = None
-    while data is None:
-        try:
-            if util.CP_BLOCK_COUNT is not None:
-                data = func(params=params)
-                if data is not None and len(data) > 0:
-                    return data
-                else:
-                    logger.warning("Received empty data. Retrying...")
-            else:
-                logger.warning("CP_BLOCK_COUNT is None. Sleeping to retry...")
-            time.sleep(config.BACKEND_POLL_INTERVAL)
-        except Exception as e:
-            logger.warning("Error getting issuances: {}\n Sleeping to retry...".format(e))
-            time.sleep(config.BACKEND_POLL_INTERVAL)
-    # return data
+    try:
+        data = func(params=params)
+        if data is not None and len(data) > 0:
+            return data
+        else:
+            logger.warning("Received empty data from CP.")
+            return None
+    except Exception as e:
+        logger.warning("Error in CP call: {}".format(e))
+        return None
 
 
 def get_cp_version():
@@ -153,14 +148,37 @@ def _get_all_tx_by_block(block_index, indicator=None):
     )
 
 
-def get_xcp_block_data(block_index, indicator=None):
-    block_data_from_xcp = _get_all_tx_by_block(block_index, indicator=indicator)
-    parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
-    stamp_issuances = parsed_block_data["issuances"]
-    return stamp_issuances
+def get_xcp_block_data(block_index: int, indicator=None):
+    max_retries = 25
+    retry_delay = 5  # seconds
+
+    for attempt in range(max_retries):
+        block_data_from_xcp = _handle_cp_call_with_retry(
+            func=_get_block,
+            params={"block_indexes": [block_index]},
+            block_index=block_index,
+            indicator=indicator,
+        )
+
+        if block_data_from_xcp is not None:
+            try:
+                parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
+                return parsed_block_data["issuances"]
+            except (TypeError, IndexError, KeyError) as e:
+                logger.warning(f"Error parsing block data for block {block_index}: {e}")
+        else:
+            logger.warning(f"Failed to get block data for block {block_index}, attempt {attempt + 1}/{max_retries}")
+
+        if attempt < max_retries - 1:
+            time.sleep(retry_delay)
+
+    logger.error(f"Failed to get block data for block {block_index} after {max_retries} attempts")
+    sys.exit(1)
 
 
 def _parse_issuances_from_block(block_data):
+    if not block_data or not isinstance(block_data, list) or len(block_data) == 0:
+        raise ValueError("Invalid block data format")
     issuances = []
     block_data = json.loads(json.dumps(block_data[0]))
     for tx in block_data["_messages"]:
