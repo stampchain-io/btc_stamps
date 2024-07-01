@@ -88,7 +88,7 @@ def initialize_config(
     )
     config.BACKEND_SSL = backend_ssl
     config.BACKEND_SSL_NO_VERIFY = backend_ssl_no_verify
-    config.BACKEND_POLL_INTERVAL = float(backend_poll_interval or 0.5)
+    config.BACKEND_POLL_INTERVAL = float(backend_poll_interval or 1)
     config.FORCE = force
     config.PREFIX = b"stamp:"
     config.CP_PREFIX = b"CNTRPRTY"
@@ -308,7 +308,7 @@ def initialize_db() -> Connection:
     if config.FORCE:
         logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
 
-    rds_host = os.environ.get("RDS_HOSTNAME")
+    rds_host = os.environ.get("RDS_HOSTNAME", "db")
     rds_user = os.environ.get("RDS_USER")
     rds_password = os.environ.get("RDS_PASSWORD")
     rds_database = os.environ.get("RDS_DATABASE")

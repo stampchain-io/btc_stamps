@@ -1,9 +1,8 @@
-version: '3.8'
 
 services:
   db:
-    image: mysql:8.2.0
-    platform: ${DOCKER_PLATFORM}
+    image: mysql:8.4.0
+    platform: linux/amd64
     volumes:
       - ./db_data:/var/lib/mysql
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
@@ -11,6 +10,8 @@ services:
     restart: always
     env_file:
       - .env.mysql
+    # environment:
+    #   - MYSQL_DATABASE=${RDS_DATABASE:-btc_stamps}
     command: --bind-address=0.0.0.0 --innodb_data_file_path=ibdata1:10M:autoextend
     ports:
       - "3306:3306"
@@ -33,17 +34,26 @@ services:
   #     - .env.grafana
 
   indexer:
-    build: ../indexer
-    command:  dockerize -wait tcp://db:3306 -timeout 5m python3 start.py
+    build: 
+      context: ../indexer
+      dockerfile: Dockerfile
+      args:
+         PYTHON_VERSION: 3.12
+    command: sh -c "dockerize -wait tcp://db:3306 -timeout 5m && poetry run indexer"
     volumes:
       - ../indexer:/usr/src/app
       - ../files:/usr/src/app/files
-    ports:
-      - "8000:8000"
     depends_on:
       - db
     env_file:
       - ../indexer/.env
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'poetry run indexer' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   app:
     build:
       context: ../app
