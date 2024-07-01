@@ -1,8 +1,6 @@
 import logging
 import warnings
-from typing import Dict, Optional, Tuple
-
-from pymysql.connections import Connection
+from typing import Dict
 
 import config
 import index_core.util as util
@@ -128,9 +126,7 @@ class ConsensusError(Exception):
     pass
 
 
-def consensus_hash(
-    db: Connection, block_index: int, field: str, previous_consensus_hash: Optional[str], content: str
-) -> Tuple[str, Optional[str]]:
+def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
     # block_index = util.CURRENT_BLOCK_INDEX
@@ -177,16 +173,14 @@ def consensus_hash(
 
     if field == "ledger_hash" and block_index == config.CP_SRC20_GENESIS_BLOCK:
         calculated_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-
     elif field == "ledger_hash" and block_index > config.CP_SRC20_GENESIS_BLOCK and content:
-        concatenated_content = (previous_consensus_hash or "").encode("utf-8") + content.encode("utf-8")
+        concatenated_content = previous_consensus_hash.encode("utf-8") + content.encode("utf-8")
         calculated_hash = util.shash_string(concatenated_content)
     elif field == "ledger_hash" and content == "":
         calculated_hash = ""
     else:
-        calculated_hash = util.dhash_string(
-            (previous_consensus_hash or "") + "{}{}".format(consensus_hash_version, "".join(content))
-        )
+        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
+
     # Verify hash (if already in database) or save hash (if not).
     cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
     results = cursor.fetchall()
