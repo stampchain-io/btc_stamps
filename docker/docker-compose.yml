@@ -2,7 +2,7 @@
 services:
   db:
     image: mysql:8.4.0
-    platform: linux/amd64
+    platform: ${DOCKER_PLATFORM}
     volumes:
       - ./db_data:/var/lib/mysql
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
