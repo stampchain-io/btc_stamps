@@ -83,8 +83,7 @@ a pull request or open an issue.
 
 # Donate
 
-Bitcoin Stamps is open-source and community funded. The current maintainer
-and original creator of the protocol is Reinamora137.
+Bitcoin Stamps is community funded and the current maintainer is Reinamora137.
 
 Bitcoin received will go towards maintenance, development and, hosting costs 
 for stampchain.io. 
