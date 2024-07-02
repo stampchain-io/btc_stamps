@@ -8,9 +8,8 @@
 ![last commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)
 
 
-This is the indexer, API, and explorer for Bitcoin Stamps. Which is an
+`btc_stamps` is the indexer, API, and explorer for Bitcoin Stamps. Which is an
 experimental meta-protocol built on Bitcoin with no warranty.
-
 
 This code was conceived based on the meta-protocol design created by Mikeinspace
 ([Bitcoin Stamps Github](https://github.com/mikeinspace/stamps)) in Feb 2023 by
