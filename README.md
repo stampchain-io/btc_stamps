@@ -13,7 +13,7 @@ experimental meta-protocol built on Bitcoin with no warranty.
 
 This code was conceived based on the meta-protocol design created by Mikeinspace
 ([Bitcoin Stamps Github](https://github.com/mikeinspace/stamps)) in Feb 2023 by
-Reinamora137. This code has served as the basis for all thins Stamps since inception.
+Reinamora137. This code has served as the basis for all things Stamps since inception.
  See also [Bitcoin Stamps Initial Commit](https://github.com/mikeinspace/stamps/commit/a04461c541cd3eb3c0fcc59eff0f16c24911c014)
 
 Much of the history of Bitcoin Stamps can be seen in this chat: [Bitcoin Stamps Telegram](https://t.me/BitcoinStamps)
