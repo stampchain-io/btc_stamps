@@ -8,20 +8,21 @@
 ![last commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)
 
 
-`btc_stamps` is the indexer, API, and explorer for Bitcoin Stamps. Which is an
-experimental meta-protocol built on Bitcoin with no warranty.
+`btc_stamps` is an indexer, API, and explorer for Bitcoin Stamps. It's an
+experimental meta-protocol built on Bitcoin, provided without warranty. For more
+details, please refer to the [LICENSE](LICENSE) file.
 
-This code was conceived based on the meta-protocol design created by Mikeinspace
-([Bitcoin Stamps Github](https://github.com/mikeinspace/stamps)) in Feb 2023 by
-Reinamora137. This code has served as the basis for all things Stamps since inception.
- See also [Bitcoin Stamps Initial Commit](https://github.com/mikeinspace/stamps/commit/a04461c541cd3eb3c0fcc59eff0f16c24911c014)
+This project originated from the meta-protocol design created by Mikeinspace
+([Bitcoin Stamps Github](https://github.com/mikeinspace/stamps)) in February 2023.
+Reinamora137 developed this code, which has since become the foundation for all
+Stamps-related projects. You can view the [initial commit of Bitcoin Stamps here](https://github.com/mikeinspace/stamps/commit/a04461c541cd3eb3c0fcc59eff0f16c24911c014).
 
-Much of the history of Bitcoin Stamps can be seen in this chat: [Bitcoin Stamps Telegram](https://t.me/BitcoinStamps)
+Much of Bitcoin Stamps' history is documented in the [Bitcoin Stamps Telegram chat](https://t.me/BitcoinStamps).
 
-This code also serves as the indexer and API for [stampchain.io](https://stampchain.io/),
-which is the primary API source for developers building on the Bitcoin Stamps protocol. 
+This codebase also powers the indexer and API for [stampchain.io](https://stampchain.io/),
+the primary API source for developers building on the Bitcoin Stamps protocol. 
 
-API endpoint documentation can be found at:
+For API endpoint documentation, please visit:
 
 [stampchain.io/docs](https://stampchain.io/docs)
 
@@ -117,9 +118,11 @@ Stampchain API.
 
 ## Installation & Execution with Docker
 
-### Clone the repo
+### Clone the repo and switch to the main production branch
 
 `git clone https://github.com/stampchain-io/btc_stamps.git`
+
+`git switch main`
 
 If you wish to use the frontend app and API integrated into the docker config, you may use:
 
