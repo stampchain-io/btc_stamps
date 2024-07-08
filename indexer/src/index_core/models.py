@@ -314,7 +314,7 @@ class StampData:
         self.file_suffix = mime_type.split("/")[-1]
         self.stamp_mimetype = mime_type
 
-        if (mime_type == "text/plain" or mime_type == 'application/javascript') and self.is_javascript(bytestring_data):
+        if (mime_type == "text/plain" or mime_type == "application/javascript") and self.is_javascript(bytestring_data):
             self.file_suffix = "js"
             self.stamp_mimetype = "application/javascript"
 
