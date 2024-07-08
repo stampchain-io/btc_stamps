@@ -31,12 +31,13 @@ CREATE TABLE IF NOT EXISTS transactions (
   `keyburn` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`tx_index`),
   UNIQUE (`tx_hash`),
+  UNIQUE KEY `tx_hash_index` (`tx_hash`, `tx_index`),
   INDEX `block_hash_index` (`block_index`, `block_hash`),
   CONSTRAINT transactions_blocks_fk FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `StampTableV4` (
-  `stamp` int DEFAULT NULL,
+  `stamp` int NOT NULL,
   `block_index` int,
   `cpid` varchar(255) DEFAULT NULL,
   `asset_longname` varchar(255) DEFAULT NULL,
@@ -59,7 +60,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `is_reissue` tinyint(1) DEFAULT NULL,
   `file_hash` varchar(255) DEFAULT NULL,
   `is_valid_base64` tinyint(1) DEFAULT NULL,
-  PRIMARY KEY (`tx_index`, `tx_hash`),
+  PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
   INDEX `cpid_index` (`cpid`),
