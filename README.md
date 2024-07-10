@@ -124,7 +124,7 @@ Stampchain API.
 
 `git switch main`
 
-If you wish to use the frontend app and API integrated into the docker config, you may use:
+If you wish to use the Stamps Explorer and API integrated into the docker config, you may use:
 
 `git submodule update --init app`
 
