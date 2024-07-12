@@ -120,13 +120,20 @@ jobs:
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
 
   manual-versioning:
-    env:
-      NEW_VERSION: ''
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GIT_USER_NAME: GitHub Action
+      GIT_USER_EMAIL: action@github.com
+      NEW_VERSION: ''
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Get branch names
         id: branch-names
@@ -141,18 +148,34 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install bump2version
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
+
+      - name: Get current commit hash
+        id: get_commit
+        run: printf 'hash=%s\n' "$(git rev-parse HEAD)" >> $GITHUB_ENV
       
       - name: Bump version manually
         run: |
           bump2version ${{ github.event.inputs.versionType }} --config-file .bumpversion.${{ steps.branch-names.outputs.current_branch }}.cfg --verbose --allow-dirty
           printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
   
-      - name: Push changes
+      - name: Commit and push changes if new version
+        if: env.NEW_VERSION
         run: |
-          git push origin HEAD:${{ github.ref }}
-          git push origin --tags
+          if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
+            git push origin HEAD:${{ github.ref }}
+            git push origin --tags
+          else
+            echo "No new commit created, so no push."
+          fi
 
       - name: Create Release
+        if: env.NEW_VERSION
         id: create_release
         uses: softprops/action-gh-release@v1
         env:
