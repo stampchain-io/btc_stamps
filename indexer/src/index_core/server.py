@@ -74,6 +74,7 @@ def initialize_config(
 ):
 
     if config.TESTNET or testnet:
+        config.TESTNET = True
         config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
     elif regtest:
         config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
@@ -279,6 +280,15 @@ def initialize_tables(db):
             text_color = VALUES(text_color),
             unicode = VALUES(unicode),
             p = VALUES(p)""",
+        )
+        import_csv_data(
+            cursor,
+            "bootstrap/src101price.csv",
+            """
+            INSERT INTO src101price (len, price)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE len = VALUES(len)
+            """,
         )
         db.commit()
         cursor.close()
