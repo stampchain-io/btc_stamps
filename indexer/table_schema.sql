@@ -218,7 +218,8 @@ CREATE TABLE IF NOT EXISTS `SRC101` (
   `p` varchar(32),
   `op` varchar(32),
   `name` varchar(32),
-  `tokenid` varchar(64) DEFAULT NULL,
+  `root` varchar(32),
+  `tokenid` varchar(255) DEFAULT NULL,
   `tokenid_utf8` varchar(255)  DEFAULT NULL COLLATE utf8mb4_bin,
   -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `description` varchar(255),
@@ -227,7 +228,7 @@ CREATE TABLE IF NOT EXISTS `SRC101` (
   `tick_hash` varchar(64),
   `deploy_hash` VARCHAR(64) DEFAULT NULL,
   `creator` varchar(64) COLLATE utf8mb4_bin,
-  `pri` BIGINT UNSIGNED DEFAULT NULL,
+  `pri` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `dua` BIGINT UNSIGNED DEFAULT NULL,
   `lim` BIGINT UNSIGNED DEFAULT NULL,
   `mintstart` BIGINT UNSIGNED DEFAULT NULL,
@@ -250,7 +251,8 @@ CREATE TABLE IF NOT EXISTS `SRC101Valid` (
   `p` varchar(32),
   `op` varchar(32),
   `name` varchar(32),
-  `tokenid` varchar(64) DEFAULT NULL,
+  `root` varchar(32),
+  `tokenid` varchar(255) DEFAULT NULL,
   `tokenid_utf8` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `description` varchar(255),
@@ -259,7 +261,7 @@ CREATE TABLE IF NOT EXISTS `SRC101Valid` (
   `tick_hash` varchar(64),
   `deploy_hash` VARCHAR(64) DEFAULT NULL,
   `creator` varchar(64) COLLATE utf8mb4_bin,
-  `pri` BIGINT UNSIGNED DEFAULT NULL,
+  `pri` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `dua` BIGINT UNSIGNED DEFAULT NULL,
   `lim` BIGINT UNSIGNED DEFAULT NULL,
   `mintstart` BIGINT UNSIGNED DEFAULT NULL,
@@ -275,17 +277,20 @@ CREATE TABLE IF NOT EXISTS `SRC101Valid` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `owners` (
-  `index` INT NOT NULL AUTO_INCREMENT,
+  `index` INT NOT NULL,
   `id` VARCHAR(255) NOT NULL,
   `p` varchar(32),
   `deploy_hash` VARCHAR(64) NOT NULL,
-  `tokenid` varchar(64) NOT NULL,
+  `tokenid` varchar(255) NOT NULL,
   `tokenid_utf8` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `preowner` varchar(64) COLLATE utf8mb4_bin,
   `owner` varchar(64) COLLATE utf8mb4_bin NOT NULL,
+  `prim` BOOLEAN DEFAULT NULL,
   `address_data` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
-  `txt_data` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `address_btc` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `address_eth` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `txt_data` TEXT DEFAULT NULL COLLATE utf8mb4_bin,
   `expire_timestamp` BIGINT UNSIGNED DEFAULT NULL,
   `last_update` int,
   PRIMARY KEY (`index`),
@@ -305,6 +310,12 @@ CREATE TABLE IF NOT EXISTS `recipients` (
   UNIQUE KEY `p_deploy_hash_address_unique` (`p`, `deploy_hash`, `address`),
   INDEX `address` (`address`),
   INDEX `p_deploy_hash_address` (`p`,`deploy_hash`,`address`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS `src101price` (
+  `len` INT NOT NULL,
+  `price`BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (`len`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 -- example for insert into collections

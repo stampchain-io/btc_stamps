@@ -14,6 +14,7 @@ from config import (
     SRC20_TABLE,
     SRC20_VALID_TABLE,
     SRC101_OWNERS_TABLE,
+    SRC101_PRICE_TABLE,
     SRC101_RECIPIENTS_TABLE,
     SRC101_TABLE,
     SRC101_VALID_TABLE,
@@ -270,7 +271,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         "name",
         "tokenid",
         "tokenid_utf8",
-        # "img",
+        "root",
         "description",
         "tick",
         "wll",
@@ -304,7 +305,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
             if type(src101_dict.get("tokenid_utf8")) == list
             else src101_dict.get("tokenid_utf8")
         ),
-        # src101_dict.get("img"),
+        src101_dict.get("root"),
         src101_dict.get("desc"),
         src101_dict.get("tick"),
         src101_dict.get("wll"),
@@ -852,6 +853,50 @@ def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
             total_minted = result[0]
     TOTAL_MINTED_CACHE[deploy_hash] = total_minted
     return total_minted
+
+
+def get_src101_price(db, deploy_hash, src101_processed_in_block):
+    if not hasattr(get_src101_price, "price_cache"):
+        get_src101_price.price_cache = {}
+    # Check if the result is already cached
+    if deploy_hash in get_src101_price.price_cache:
+        return get_src101_price.price_cache[deploy_hash]
+
+    # Check in the processed_blocks dictionary
+    price = get_src101_price_in_block(src101_processed_in_block, deploy_hash)
+    if price is not None:
+        # Cache and return the result
+        get_src101_price.price_cache[deploy_hash] = price
+        return price
+
+    # Database lookup if not found in cache or processed_blocks
+    price = get_src101_price_in_db(db)
+    if price is not None:
+        # Cache and return the result
+        get_src101_price.price_cache[deploy_hash] = price
+    return price
+
+
+def get_src101_price_in_block(processed_blocks, deploy_hash):
+    for item in processed_blocks:
+        if item.get("deploy_hash") == deploy_hash:
+            return item.get("price")
+    return None
+
+
+def get_src101_price_in_db(db):
+    with db.cursor() as cursor:
+        query = f"""
+            SELECT
+                len,
+                price
+            FROM
+                {SRC101_PRICE_TABLE}
+            ORDER BY len ASC
+            
+        """
+        cursor.execute(query)
+        return [item[1] for item in cursor.fetchall()]
 
 
 def get_next_stamp_number(db, identifier):

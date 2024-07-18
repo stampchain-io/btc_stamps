@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import threading
+import unicodedata
 
 from bitcoinlib import encoding
 
@@ -206,6 +207,17 @@ def check_valid_bitcoin_address(address: str):
 def check_valid_tx_hash(tx_hash: str) -> bool:
     match = re.fullmatch(r"[0-9a-fA-F]{64}", tx_hash)
     return match is not None
+
+
+special_characters_pattern = (
+    r"[`~!@#$%\^\-\+&\*\(\)_\=＝\=|{}\":;',\\\[\]\.·<>\/\?~！@#￥……&*（）——|{}【】《》'；：“”‘。，、？\s]"
+)
+
+
+def check_contains_special(text):
+    special_categories = {"Zs", "Cf"}
+    match = re.search(special_characters_pattern, text)
+    return any(unicodedata.category(char) in special_categories for char in text) or text.isspace() or match is not None
 
 
 def check_valid_base64_string(base64_string):

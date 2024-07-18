@@ -8,8 +8,9 @@ from typing import Optional, TypedDict, Union
 
 import index_core.log as log
 from config import SRC101_IMG_URL_PREFIX, SRC101_OWNERS_TABLE, SRC101_TABLE, SRC101_VALID_TABLE
-from index_core.database import get_src101_deploy
+from index_core.database import get_src101_deploy, get_src101_price
 from index_core.util import (
+    check_contains_special,
     check_valid_base64_string,
     check_valid_bitcoin_address,
     check_valid_eth_address,
@@ -73,7 +74,9 @@ class Src101Validator:
                 self._process_addresslist_value(key, value)
             elif key in ["p", "op"]:
                 self._process_uppercase_value(key, value)
-            elif key in ["lim", "dua", "mintstart", "mintend", "pri"]:
+            elif key in ["root"]:
+                self._process_lowercase_value(key, value)
+            elif key in ["lim", "dua", "mintstart", "mintend"]:
                 self._apply_regex_validation(key, value, num_pattern)
 
         if "type" in self.src101_dict.keys() and "data" in self.src101_dict.keys():
@@ -149,11 +152,18 @@ class Src101Validator:
             utf8valuelist = []
             for v in value:
                 valid = valid and check_valid_base64_string(v)
-                utf8value = base64.b64decode(v).decode("utf8")
-                if utf8value in utf8valuelist:
+                try:
+                    utf8value = base64.urlsafe_b64decode(v).decode("utf-8")
+                    if len(v) > 128:
+                        valid = False
+                    if utf8value in utf8valuelist:
+                        valid = False
+                    elif check_contains_special(utf8value):
+                        valid = False
+                    else:
+                        utf8valuelist.append(utf8value)
+                except Exception as e:
                     valid = False
-                else:
-                    utf8valuelist.append(utf8value)
             if valid:
                 self.src101_dict[key] = value
                 self.src101_dict[key + "_utf8"] = utf8valuelist
@@ -163,6 +173,8 @@ class Src101Validator:
                 self.src101_dict[key + "_utf8"] = None
         elif type(value) == str:
             valid = check_valid_base64_string(value)
+            if len(value) > 128:
+                valid = False
             if valid:
                 self.src101_dict[key] = value.lower()
                 self.src101_dict[key + "_utf8"] = base64.b64decode(value).decode("utf8")
@@ -177,6 +189,9 @@ class Src101Validator:
 
     def _process_uppercase_value(self, key, value):
         self.src101_dict[key] = value.upper()
+
+    def _process_lowercase_value(self, key, value):
+        self.src101_dict[key] = value.lower()
 
     @staticmethod
     def create_tick_hash(tick):
@@ -196,6 +211,7 @@ class Src101Processor:
         "IH": ("INVALID HASH : {op}", False),
         "IND": ("INVALID DUA : {op}", False),
         "ID": ("INVALID DATA {deploy_hash}: {tokenid} ", False),
+        "IDB": ("INVALID BTC DATA {deploy_hash}: {tokenid} ", False),
         "IR": ("INVALID RECIPIENT {deploy_hash}: {recipient} ", False),
         "ITT": ("INVALID TOKENID TYPE {deploy_hash}: {tokenid} ", False),
         "IRV": ("INVALID RECIPIENTVALUE {deploy_hash}: {recipient_nvalue} ", False),
@@ -225,11 +241,13 @@ class Src101Processor:
         src101_preowner=None,
         address_data=None,
         txt_data=None,
+        prim=None,
     ):
         if operation == "TRANSFER":
             self.src101_dict["src101_preowner"] = src101_preowner
             self.src101_dict["src101_owner"] = src101_owner
             self.src101_dict["expire_timestamp"] = expire_timestamp
+            self.src101_dict["prim"] = prim
         elif operation == "MINT":
             self.src101_dict["src101_preowner"] = src101_preowner
             self.src101_dict["src101_owner"] = src101_owner
@@ -243,6 +261,7 @@ class Src101Processor:
             self.src101_dict["src101_preowner"] = src101_preowner
             self.src101_dict["src101_owner"] = src101_owner
             deltatime = self.src101_dict["dua"] * 31536000
+            self.src101_dict["prim"] = prim
             if expire_timestamp <= self.src101_dict["block_timestamp"]:
                 self.src101_dict["expire_timestamp"] = self.src101_dict["block_timestamp"] + deltatime
             else:
@@ -250,14 +269,14 @@ class Src101Processor:
         elif operation == "SETRECORD":
             self.src101_dict["src101_preowner"] = src101_preowner
             self.src101_dict["src101_owner"] = src101_owner
-            # self.src101_dict["address_data"] = address_data
-            # self.src101_dict["txt_data"] = txt_data
             self.src101_dict["expire_timestamp"] = expire_timestamp
         else:
             raise Exception(f"Invalid Operation '{operation}' on SRC20 Table Insert")
 
         self.src101_dict["valid"] = 1
         self.src101_dict["address_data"] = address_data
+        self.src101_dict["address_btc"] = address_data["btc"] if address_data and "btc" in address_data.keys() else None
+        self.src101_dict["address_eth"] = address_data["eth"] if address_data and "eth" in address_data.keys() else None
         self.src101_dict["txt_data"] = txt_data
 
     def set_status_and_log(self, status_code, **kwargs):
@@ -273,10 +292,23 @@ class Src101Processor:
             logger.info(message)
 
     def handle_deploy(self):
-        if not self.deploy_hash and not self.deploy_lim:
-            self.update_valid_src101_list(operation=self.operation)
-        else:
-            raise ValueError("deploy_hash must be none when deploy")
+        try:
+            if (
+                len(self.src101_dict["root"]) >= 32
+                or len(self.src101_dict["name"]) >= 32
+                or len(self.src101_dict["tick"]) >= 32
+                or len(self.src101_dict["wll"]) >= 255
+                or len(self.src101_dict["pri"]) >= 255
+            ):
+                self.set_status_and_log("IDP")
+                return
+            if not self.deploy_hash and not self.deploy_lim:
+                self.update_valid_src101_list(operation=self.operation)
+            else:
+                raise ValueError("deploy_hash must be none when deploy")
+        except Exception as e:
+            logger.error(f"Error in deploy operations: {e}")
+            raise
 
     def handle_mint(self):
         try:
@@ -292,7 +324,13 @@ class Src101Processor:
                 )
                 return
 
-            if self.src101_dict["destination_nvalue"] * len(self.src101_dict["tokenid"]) < self.pri:
+            needValue = 0
+            for t in self.src101_dict["tokenid_utf8"]:
+                if len(t) > len(self.price):
+                    needValue += self.price[len(self.price) - 1]
+                else:
+                    needValue += self.price[len(t) - 1]
+            if self.src101_dict["destination_nvalue"] < needValue:
                 self.set_status_and_log(
                     "IRV", deploy_hash=self.src101_dict["deploy_hash"], recipient_nvalue=self.src101_dict["destination_nvalue"]
                 )
@@ -310,19 +348,26 @@ class Src101Processor:
             # check tokenid
             preowners = []
             for index in range(len(self.src101_dict["tokenid"])):
-                result = get_owner_expire_data_from_owners(
-                    self.db, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"][index]
+                result = get_owner_expire_data_from_running(
+                    self.db,
+                    self.processed_src101_in_block,
+                    self.src101_dict["deploy_hash"],
+                    self.src101_dict["tokenid"][index],
                 )
                 # src101_preowner = result[0]
                 src101_owner = result[1]
                 expire_timestamp = result[2]
-                address_data = result[3]
-                txt_data = result[4]
+                address_data = json.loads(result[3]) if result[3] else result[3]
+                txt_data = json.loads(result[4]) if result[4] else result[4]
                 if expire_timestamp and expire_timestamp > self.src101_dict["block_timestamp"]:
                     del self.src101_dict["tokenid"][index]
                     del self.src101_dict["tokenid_utf8"][index]
                 else:
                     preowners.append(src101_owner)
+
+            if len(self.src101_dict["tokenid"]) == 0:
+                self.set_status_and_log("DM", deploy_hash=self.src101_dict["deploy_hash"], tokenid=self.src101_dict["tokenid"])
+                return
 
             self.update_valid_src101_list(
                 operation=self.operation,
@@ -343,12 +388,15 @@ class Src101Processor:
                 self.set_status_and_log("ND", op=self.src101_dict["op"], deploy_hash=self.src101_dict["deploy_hash"])
                 return
 
-            result = get_owner_expire_data_from_owners(self.db, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"])
+            result = get_owner_expire_data_from_running(
+                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"]
+            )
             src101_preowner = result[0]
             src101_owner = result[1]
             expire_timestamp = result[2]
             address_data = json.loads(result[3]) if result[3] else result[3]
             txt_data = json.loads(result[4]) if result[4] else result[4]
+            prim = result[5]
 
             # check token has mint
             if not self.src101_dict["tokenid"] or not src101_owner or not expire_timestamp:
@@ -376,6 +424,7 @@ class Src101Processor:
                 expire_timestamp=expire_timestamp,
                 address_data=address_data,
                 txt_data=txt_data,
+                prim=prim,
             )
 
         except Exception as e:
@@ -388,12 +437,15 @@ class Src101Processor:
             if not self.src101_dict["deploy_hash"]:
                 self.set_status_and_log("ND", op=self.src101_dict["op"], deploy_hash=self.src101_dict["deploy_hash"])
                 return
-            result = get_owner_expire_data_from_owners(self.db, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"])
+            result = get_owner_expire_data_from_running(
+                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"]
+            )
             src101_preowner = result[0]
             src101_owner = result[1]
             expire_timestamp = result[2]
             address_data = json.loads(result[3]) if result[3] else result[3]
             txt_data = json.loads(result[4]) if result[4] else result[4]
+            prim = result[5]
             # check token has mint
             if not self.src101_dict["tokenid"] or not src101_owner or not expire_timestamp:
                 self.set_status_and_log("NM", deploy_hash=self.src101_dict["deploy_hash"], tokenid=self.src101_dict["tokenid"])
@@ -418,6 +470,7 @@ class Src101Processor:
                 expire_timestamp=expire_timestamp,
                 address_data=address_data,
                 txt_data=txt_data,
+                prim=prim,
             )
 
         except Exception as e:
@@ -430,7 +483,9 @@ class Src101Processor:
             if not self.src101_dict["deploy_hash"]:
                 self.set_status_and_log("ND", op=self.src101_dict["op"], deploy_hash=self.src101_dict["deploy_hash"])
                 return
-            result = get_owner_expire_data_from_owners(self.db, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"])
+            result = get_owner_expire_data_from_running(
+                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"]
+            )
             src101_preowner = result[0]
             src101_owner = result[1]
             expire_timestamp = result[2]
@@ -468,7 +523,6 @@ class Src101Processor:
             if not self.src101_dict["address_data"] and not self.src101_dict["txt_data"]:
                 self.set_status_and_log("ID", deploy_hash=self.src101_dict["deploy_hash"], tokenid=self.src101_dict["tokenid"])
                 return
-
             address_data = self.src101_dict["address_data"] if self.src101_dict["address_data"] else address_data
             txt_data = self.src101_dict["txt_data"] if self.src101_dict["txt_data"] else txt_data
             self.update_valid_src101_list(
@@ -479,6 +533,10 @@ class Src101Processor:
                 address_data=address_data,
                 txt_data=txt_data,
             )
+            if self.src101_dict["prim"] == True and self.src101_dict["address_btc"] != self.src101_dict["creator"]:
+                self.set_status_and_log(
+                    "IDB", deploy_hash=self.src101_dict["deploy_hash"], tokenid=self.src101_dict["tokenid"]
+                )
 
         except Exception as e:
             logger.error(f"Error in handle_setrecord: {e}")
@@ -501,8 +559,9 @@ class Src101Processor:
             self.deploy_lim, self.pri, self.mintstart, self.mintend, self.rec = get_src101_deploy(
                 self.db, self.deploy_hash, self.processed_src101_in_block
             )
+            self.price = get_src101_price(self.db, self.deploy_hash, self.processed_src101_in_block)
         else:
-            self.deploy_lim, self.pri, self.mintstart, self.mintend, self.rec = None, None, None, None, None
+            self.deploy_lim, self.pri, self.mintstart, self.mintend, self.rec, self.price = None, None, None, None, None, None
         if not self.deploy_hash and self.operation in op_hash_validations:
             self.set_status_and_log("ND", op=self.operation, deploy_hash=self.src101_dict["deploy_hash"])
             return
@@ -542,12 +601,14 @@ def parse_src101(db, src101_dict, processed_src101_in_block):
 
 def check_addres_type_data(data):
     try:
-        if "btc" in data.keys():
-            return check_valid_bitcoin_address(data["btc"])
-        elif "eth" in data.keys():
-            return check_valid_eth_address(data["eth"])
-        else:
-            return False
+        valid = False
+        if "btc" in data.keys() and data["btc"]:
+            valid = check_valid_bitcoin_address(data["btc"])
+            if not valid:
+                return valid
+        if "eth" in data.keys() and data["eth"]:
+            valid = check_valid_eth_address(data["eth"])
+        return valid
     except:
         return False
 
@@ -564,10 +625,24 @@ def check_src101_inputs(input_string, tx_hash):
         except (json.JSONDecodeError, TypeError):
             raise
         if input_dict.get("p").lower() == "src-101":
-            deploy_keys = {"p", "op", "name", "lim", "owner", "rec", "tick", "pri", "desc", "mintstart", "mintend", "wll"}
+            deploy_keys = {
+                "p",
+                "op",
+                "name",
+                "lim",
+                "owner",
+                "rec",
+                "tick",
+                "pri",
+                "desc",
+                "mintstart",
+                "mintend",
+                "wll",
+                "root",
+            }
             transfer_keys = {"p", "op", "hash", "toaddress", "tokenid"}
             mint_keys = {"p", "op", "hash", "toaddress", "tokenid", "dua", "prim"}
-            setrecord_keys = {"p", "op", "hash", "tokenid", "type", "data"}
+            setrecord_keys = {"p", "op", "hash", "tokenid", "type", "data", "prim"}
             renew_keys = {"p", "op", "hash", "tokenid", "dua"}
             input_keys = set(input_dict.keys())
             if input_dict.get("op").lower() == "deploy":
@@ -628,6 +703,9 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                                 "expire_timestamp": src101_dict["expire_timestamp"],
                                 "txt_data": src101_dict["txt_data"],
                                 "address_data": address_data,
+                                "address_btc": src101_dict["src101_owner"],
+                                "address_eth": None,
+                                "prim": src101_dict["prim"],
                             }
                             owner_updates.append(owner_dict)
                     else:
@@ -642,8 +720,11 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                             "owner": src101_dict["src101_owner"],
                             "preowner": src101_dict["src101_preowner"],
                             "expire_timestamp": src101_dict["expire_timestamp"],
-                            "txt_data": src101_dict["txt_data"],
-                            "address_data": src101_dict["address_data"],
+                            "txt_data": None,
+                            "address_data": None,
+                            "address_btc": None,
+                            "address_eth": None,
+                            "prim": False,
                         }
                         owner_updates.append(owner_dict)
                     else:
@@ -661,6 +742,9 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                             "preowner": src101_dict["src101_preowner"],
                             "txt_data": src101_dict["txt_data"],
                             "address_data": src101_dict["address_data"],
+                            "address_btc": src101_dict["address_btc"],
+                            "address_eth": src101_dict["address_eth"],
+                            "prim": src101_dict["prim"],
                         }
                         owner_updates.append(owner_dict)
                     else:
@@ -677,11 +761,17 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                             "preowner": src101_dict["src101_preowner"],
                             "txt_data": src101_dict["txt_data"],
                             "address_data": src101_dict["address_data"],
+                            "address_btc": src101_dict["address_btc"],
+                            "address_eth": src101_dict["address_eth"],
+                            "prim": src101_dict["prim"],
                         }
                         owner_updates.append(owner_dict)
                     else:
-                        owner_dict["txt_data"] = (src101_dict["txt_data"],)
+                        owner_dict["txt_data"] = src101_dict["txt_data"]
                         owner_dict["address_data"] = src101_dict["address_data"]
+                        owner_dict["address_btc"] = src101_dict["address_btc"]
+                        owner_dict["address_eth"] = src101_dict["address_eth"]
+
             except Exception as e:
                 logger.error(f"Error updating SRC101 owners: {e}")
                 raise e
@@ -692,25 +782,42 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
 
 def update_owner_table(db, owner_updates, block_index):
     cursor = db.cursor()
-
     for owner_dict in owner_updates:
         try:
+            querystr = (
+                f"SELECT COALESCE(MAX({SRC101_OWNERS_TABLE}.index), 0) FROM {SRC101_OWNERS_TABLE} WHERE deploy_hash = %s"
+            )
+            cursor.execute(querystr, (owner_dict["deploy_hash"],))
+            max_index = cursor.fetchone()[0]
             id_field = owner_dict["p"] + "_" + owner_dict["deploy_hash"] + "_" + owner_dict["tokenid"]
             imgurl = SRC101_IMG_URL_PREFIX + owner_dict["tokenid_utf8"] + ".png"
+            if owner_dict["prim"] and owner_dict["prim"] == True:
+                cursor.execute(
+                    f"""
+                    UPDATE {SRC101_OWNERS_TABLE}
+                    SET prim = FALSE
+                    WHERE address_btc = %s AND prim = TRUE;
+                    """,
+                    (owner_dict["address_btc"],),
+                )
             cursor.execute(
-                """
-                INSERT INTO owners
-                (id, last_update, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, address_data, txt_data, expire_timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                f"""
+                INSERT INTO {SRC101_OWNERS_TABLE}
+                ({SRC101_OWNERS_TABLE}.index, id, last_update, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, address_data, txt_data, expire_timestamp, address_btc, address_eth, prim)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     last_update = VALUES(last_update),
                     preowner = VALUES(preowner),
                     owner = VALUES(owner),
                     address_data= VALUES(address_data),
                     txt_data = VALUES(txt_data),
+                    address_btc = VALUES(address_btc),
+                    address_eth = VALUES(address_eth),
+                    prim = VALUES(prim),
                     expire_timestamp = VALUES(expire_timestamp)
             """,
                 (
+                    max_index + 1,
                     id_field,
                     block_index,
                     owner_dict["p"],
@@ -723,6 +830,9 @@ def update_owner_table(db, owner_updates, block_index):
                     json.dumps(owner_dict["address_data"]) if owner_dict["address_data"] else None,
                     json.dumps(owner_dict["txt_data"]) if owner_dict["txt_data"] else None,
                     owner_dict["expire_timestamp"],
+                    owner_dict["address_btc"],
+                    owner_dict["address_eth"],
+                    owner_dict["prim"],
                 ),
             )
 
@@ -732,13 +842,6 @@ def update_owner_table(db, owner_updates, block_index):
 
     cursor.close()
     return
-
-
-def get_total_from_owners(db, deploy_hash, tokendi):
-    cursor = db.cursor()
-    cursor.execute(f"SELECT owner FROM {SRC101_OWNERS_TABLE} WHERE id = %s", (id_field,))
-    result = cursor.fetchone()
-    return result
 
 
 # def get_owner_from_owners(db, deploy_hash, tokenid):
@@ -755,13 +858,55 @@ def get_total_from_owners(db, deploy_hash, tokendi):
 #     return result
 
 
-def get_owner_expire_data_from_owners(db, deploy_hash, tokenid):
+def get_owner_expire_data_from_running(db, processed_src101_in_block, deploy_hash, tokenid):
+    preowner = None
+    owner = None
+    expire_timestamp = None
+    address_data = None
+    txt_data = None
+    prim = None
+    for d in processed_src101_in_block:
+        if (
+            d
+            and d["tokenid"]
+            and type(d["tokenid"]) == list
+            and tokenid in d["tokenid"]
+            and d["hash"] == deploy_hash
+            and d["valid"] == 1
+        ):
+            preowner = d["src101_preowner"]
+            owner = d["src101_owner"]
+            expire_timestamp = d["expire_timestamp"]
+            address_data = json.dumps(d["address_data"])
+            txt_data = json.dumps(d["txt_data"])
+            prim = d["prim"]
+        elif (
+            d
+            and d["tokenid"]
+            and type(d["tokenid"]) == str
+            and tokenid == d["tokenid"]
+            and d["hash"] == deploy_hash
+            and d["valid"] == 1
+        ):
+            preowner = d["src101_preowner"]
+            owner = d["src101_owner"]
+            expire_timestamp = d["expire_timestamp"]
+            address_data = json.dumps(d["address_data"])
+            txt_data = json.dumps(d["txt_data"])
+            prim = d["prim"]
+    if owner and expire_timestamp:
+        return [preowner, owner, expire_timestamp, address_data, txt_data, prim]
+    return get_owner_expire_data_from_db(db, deploy_hash, tokenid)
+
+
+def get_owner_expire_data_from_db(db, deploy_hash, tokenid):
     cursor = db.cursor()
     id_field = "src-101" + "_" + deploy_hash + "_" + tokenid
     cursor.execute(
-        f"SELECT preowner, owner,expire_timestamp,address_data,txt_data FROM {SRC101_OWNERS_TABLE} WHERE id = %s", (id_field,)
+        f"SELECT preowner, owner,expire_timestamp,address_data,txt_data,prim FROM {SRC101_OWNERS_TABLE} WHERE id = %s",
+        (id_field,),
     )
     result = cursor.fetchone()
     if not result:
-        result = [None, None, None, None, None]
+        result = [None, None, None, None, None, None]
     return result

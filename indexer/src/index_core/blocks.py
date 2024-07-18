@@ -378,7 +378,10 @@ def decode_address(script_pubkey):
             # Extract the witness program for Taproot
             witness_program = script_pubkey[2:]
             # Decode as Bech32m address
-            return pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
+            if config.TESTNET == True:
+                return pubkeyhash_to_addr(witness_program, prefix="tb", encoding="bech32", witver=1)
+            else:
+                return pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
         else:
             raise ValueError("Unsupported scriptPubKey format")
 
@@ -949,3 +952,5 @@ def follow(db):
             #     stats = pstats.Stats(profiler).sort_stats('cumulative')
             #     stats.print_stats()
             #     should_profile = False
+        else:
+            time.sleep(config.BACKEND_POLL_INTERVAL * 5)
