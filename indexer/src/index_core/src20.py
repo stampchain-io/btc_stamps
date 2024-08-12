@@ -2,27 +2,26 @@ import hashlib
 import json
 import logging
 import re
-import sys
 import time
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
-from requests.exceptions import JSONDecodeError
 
 import index_core.log as log
-from config import (  # SRC_VALIDATION_API1,
-    CP_P2WSH_FEAT_BLOCK_START,
+from config import (
     SRC20_BALANCES_TABLE,
     SRC20_VALID_TABLE,
+    SRC_VALIDATION_API1,
     SRC_VALIDATION_API2,
     SRC_VALIDATION_SECRET_API2,
     TICK_PATTERN_SET,
 )
 from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
+
+from decimal import Decimal, getcontext
 
 D = Decimal
 logger = logging.getLogger(__name__)
@@ -72,9 +71,7 @@ class Src20Validator:
 
     def _apply_regex_validation(self, key, value, num_pattern, dec_pattern):
         if key in ["max", "lim", "amt"]:
-            if isinstance(value, D):
-                self.src20_dict[key] = value
-            elif num_pattern.match(str(value)):
+            if num_pattern.match(str(value)):
                 self.src20_dict[key] = D(str(value))
             else:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
@@ -222,46 +219,10 @@ class Src20Processor:
             logger.info(message)
 
     def handle_deploy(self):
-        if self.operation.upper() != "DEPLOY":
-            logger.warning(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
-            return
-
         if not self.deploy_lim and not self.deploy_max:
             self.update_valid_src20_list(operation=self.operation)
-
-            # Extract metadata from the SRC20 DEPLOY json string
-            metadata = {
-                "tick": self.src20_dict["tick"],
-                "tick_hash": self.src20_dict["tick_hash"],
-                "description": self.src20_dict.get("desc"),
-                "x": self.src20_dict.get("x"),
-                "tg": self.src20_dict.get("tg"),
-                "web": self.src20_dict.get("web"),
-                "email": self.src20_dict.get("email"),
-                "deploy_block_index": self.src20_dict["block_index"],
-                "deploy_tx_hash": self.src20_dict["tx_hash"],
-            }
-
-            self.insert_src20_metadata(metadata)
         else:
             self.set_status_and_log("DE", tick=self.src20_dict["tick"])
-
-    def insert_src20_metadata(self, metadata):
-        with self.db.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO src20_metadata
-                (tick, tick_hash, description, x, tg, web, email, deploy_block_index, deploy_tx_hash)
-                VALUES (%(tick)s, %(tick_hash)s, %(description)s, %(x)s, %(tg)s, %(web)s, %(email)s, %(deploy_block_index)s, %(deploy_tx_hash)s)
-                ON DUPLICATE KEY UPDATE
-                description = COALESCE(VALUES(description), description),
-                x = COALESCE(VALUES(x), x),
-                tg = COALESCE(VALUES(tg), tg),
-                web = COALESCE(VALUES(web), web),
-                email = COALESCE(VALUES(email), email)
-                """,
-                metadata,
-            )
 
     def handle_mint(self):
         self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)
@@ -444,7 +405,7 @@ class Src20Processor:
         self.src20_dict["status"] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
     def validate_and_process_operation(self):
-        self.operation = self.src20_dict.get("op", "").upper()
+        self.operation = self.src20_dict.get("op")
         op_amt_validations = ["TRANSFER", "MINT"]
 
         if self.operation in op_amt_validations and not self.src20_dict.get("amt"):
@@ -481,11 +442,11 @@ class Src20Processor:
 
 
 def parse_src20(db, src20_dict, processed_src20_in_block):
-    """
-    Process all SRC-20 tokens that pass check_format.
-    """
+    """this is to process all SRC-20 Tokens that pass check_format"""
+
     processor = Src20Processor(db, src20_dict, processed_src20_in_block)
     processor.process()
+
     return processor.is_valid, src20_dict
 
 
@@ -595,51 +556,41 @@ def convert_to_utf8_string(tick_value):
     return tick_value
 
 
-def check_format(input_string, tx_hash, block_index):
+def check_format(input_string, tx_hash):
     """
-    Check the format of the SRC-20 JSON string and return a dictionary if it meets the validation requirements.
-    This function determines inclusion/exclusion as a valid stamp without affecting stamp numbering.
+    Check the format of the SRC-20 json string and return a dictionary if it meets the validation reqs.
+    This is the original function to determine inclusion/exclusion as a valid stamp.
+    It is not used to validate user balances or full validitiy of the actual values in the string.
+    If this does not evaluate to True the transaction is not saved to the stamp table.
+    Edit with caution as this can impact stamp numbering.
 
-    It uses a custom parse_float function to detect and reject numbers in scientific notation before converting them to Decimal.
-    Super ugly, but a consensus item for stamp numbering.
 
     Args:
         input_string (str or bytes or dict): The input string to be checked.
         tx_hash (str): The transaction hash associated with the input string.
 
     Returns:
-        dict or None: If the input string meets the requirements for SRC-20, a dictionary representing the input string is returned.
-                      Otherwise, None is returned.
+        dict or None: If the input string meets the requirements for src-20, a dictionary representing the input string is returned.
+                     Otherwise, None is returned.
 
     Raises:
         json.JSONDecodeError: If the input string cannot be decoded as JSON.
+
     """
-
-    def parse_no_sci_float(s):
-        if "e" in s.lower():
-            logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
-            raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
-        return D(s)
-
     try:
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
-                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, str):
-                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
+                input_dict = json.loads(input_string, parse_float=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
-            else:
-                logger.warning("EXCLUSION: Input string is neither bytes, str, nor dict")
-                return None
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.warning(f"EXCLUSION: JSON decode error: {e}")
-            return None
+        except (json.JSONDecodeError, TypeError):
+            raise
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
-            tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
+            tick_value = convert_to_utf8_string(input_dict.get("tick"))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
@@ -674,11 +625,8 @@ def check_format(input_string, tx_hash, block_index):
 
                         if isinstance(value, str):
                             try:
-                                if block_index >= CP_P2WSH_FEAT_BLOCK_START:
-                                    value = D(value) if value else D(0)
-                                else:
-                                    value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
-                            except InvalidOperation as e:
+                                value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
+                            except decimal.InvalidOperation as e:
                                 logger.warning(
                                     f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
                                 )
@@ -686,14 +634,14 @@ def check_format(input_string, tx_hash, block_index):
                         elif isinstance(value, int):
                             value = D(value)
                         elif isinstance(value, float):
-                            value_str = format(value, "f")
-                            value = D(value_str)
+                            value = D(str(value))
                         elif isinstance(value, D):
-                            pass
+                            value = value
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
-                        if value.is_nan() or not (D("0") <= value <= uint64_max):
+
+                        if not (0 <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
             return input_dict
@@ -1067,21 +1015,21 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
 
 
 def update_balance_table(db, balance_updates, block_index, block_time):
-    """Update the balances table with the balance_updates list"""
+    """update the balances table with the balance_updates list"""
     cursor = db.cursor()
 
     for balance_dict in balance_updates:
         try:
-            net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
+            net_change = balance_dict.get("credit", 0) - balance_dict.get("debit", 0)
             balance_dict["net_change"] = net_change
             id_field = balance_dict["tick"] + "_" + balance_dict["address"]
 
             cursor.execute(f"SELECT amt FROM {SRC20_BALANCES_TABLE} WHERE id = %s", (id_field,))  # nosec
             result = cursor.fetchone()
             if result is not None:
-                balance_dict["original_amt"] = D(result[0])
+                balance_dict["original_amt"] = result[0]
             else:
-                balance_dict["original_amt"] = D(0)
+                balance_dict["original_amt"] = 0
 
             cursor.execute(
                 """
@@ -1124,37 +1072,24 @@ def process_balance_updates(balance_updates):
     """
 
     valid_src20_list = []
-    if balance_updates:
+    if balance_updates is not None:
         for src20 in balance_updates:
             creator = src20.get("address")
-            tick = src20.get("tick", "")
-            if "\\" in tick:
-                tick = decode_unicode_escapes(tick)
-
-            amt = D(src20.get("net_change", D(0))) + D(src20.get("original_amt", D(0)))
-            amt = amt.normalize()
-
-            amt_str = format_decimal(amt)
-            valid_src20_list.append(f"{tick},{creator},{amt_str}")
-
+            if "\\" in src20["tick"]:
+                tick = decode_unicode_escapes(src20["tick"])
+            else:
+                tick = src20.get("tick")
+            amt = src20.get("net_change") + src20.get("original_amt")
+            amt = D(amt).normalize()
+            if amt == int(amt):
+                amt = int(amt)
+            valid_src20_list.append(f"{tick},{creator},{amt}")
     valid_src20_list = sorted(
         valid_src20_list,
         key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
     )
-
     valid_src20_str = ";".join(valid_src20_list)
     return valid_src20_str
-
-
-def format_decimal(amt):
-    amt = amt.normalize()
-    if amt == int(amt):
-        return f"{int(amt)}"
-    else:
-        s = format(amt, "f").rstrip("0").rstrip(".")
-        if not s:
-            s = "0"
-        return s
 
 
 def clear_zero_balances(db):
@@ -1173,61 +1108,41 @@ def clear_zero_balances(db):
 
 
 def fetch_api_ledger_data(block_index: int):
+    """
+    Fetches the ledger hash and balance data for a given block index from the API.
+
+    Args:
+        block_index (int): The block index to fetch data for.
+
+    Returns:
+        tuple: A tuple containing the ledger hash and balance data from the API, or (None, None) if neither URL is provided.
+
+    Raises:
+        Exception: If failed to retrieve from the API after retries.
+    """
     urls = []
-    # if SRC_VALIDATION_API1:
-    #     urls.append(SRC_VALIDATION_API1 + str(block_index))  # OKX diverges on hashes at 856444 due to their sci notation in strings
+    if SRC_VALIDATION_API1:
+        urls.append(SRC_VALIDATION_API1 + str(block_index))
     if SRC_VALIDATION_SECRET_API2 and SRC_VALIDATION_API2:
         urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
 
     if not urls:
         return None, None
 
-    max_retries = 5
+    max_retries = 10
     backoff_time = 1
 
     def fetch_url(url):
         try:
             response = requests.get(url, timeout=5)
-            logger.debug(f"Fetching URL: {url}")
-            logger.debug(f"Response status code: {response.status_code}")
-            logger.debug(f"Response headers: {response.headers}")
-            logger.debug(f"Raw response text: {response.text}")
-
             if response.status_code == 200:
-                try:
-                    data = response.json()
-                    logger.debug(f"Parsed JSON data: {data}")
-
-                    if "data" in data:
-                        data = data["data"]
-                        logger.debug(f"Data field: {data}")
-
-                        api_ledger_hash = data.get("hash")
-                        api_ledger_validation = data.get("balance_data")
-
-                        logger.debug(f"api_ledger_hash: {api_ledger_hash}")
-                        logger.debug(f"api_ledger_validation: {api_ledger_validation}")
-
-                        if not api_ledger_validation:
-                            logger.error("api_ledger_validation is empty")
-                            return None, None
-
-                        return api_ledger_hash, api_ledger_validation
-                    else:
-                        logger.error("No 'data' key in response JSON")
-                        return None, None
-                except JSONDecodeError as e:
-                    logger.error(f"JSONDecodeError: {e}")
-                    logger.debug(f"Response content: {response.content}")
-                    return None, None
-                except Exception as e:
-                    logger.error(f"Unexpected error parsing JSON: {e}")
-                    return None, None
+                data = response.json().get("data", {})
+                api_ledger_hash = data.get("hash")
+                api_ledger_validation = data.get("balance_data")
+                return api_ledger_hash, api_ledger_validation
             else:
-                logger.error(f"Non-200 response code: {response.status_code} from URL: {url}")
                 return None, None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed for URL {url}: {e}")
+        except requests.exceptions.RequestException:
             return None, None
 
     for _ in range(max_retries):
@@ -1244,135 +1159,104 @@ def fetch_api_ledger_data(block_index: int):
     raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
 
 
-def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
+def normalize_entry(entry):
+    token, address, amount = entry.split(",")
+    normalized_amount = format(D(amount), ".8f")  # Adjust decimal places as needed
+    return f"{token},{address},{normalized_amount}"
+
+
+def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     try:
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
-        if api_ledger_validation is None:
-            raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
     except Exception as e:
-        logger.error(f"Error fetching API data: {e}")
-        # Continue processing even if API data is unavailable
-        return False
+        raise Exception(f"Error fetching API data: {e}")
 
-    if api_ledger_hash == ledger_hash:
+    # Normalize and sort both ledgers
+    api_entries = sorted(normalize_entry(e) for e in api_ledger_validation.split(";"))
+    local_entries = sorted(normalize_entry(e) for e in valid_src20_str.split(";"))
+
+    # Recalculate hashes using normalized data
+    api_normalized_hash = hashlib.sha256(";".join(api_entries).encode()).hexdigest()
+    local_normalized_hash = hashlib.sha256(";".join(local_entries).encode()).hexdigest()
+
+    if api_normalized_hash == local_normalized_hash:
         return True
-
-    logger.warning("API ledger hash does not match local ledger hash")
-    logger.warning("API Hash: %s", api_ledger_hash)
-    logger.warning("Local Hash: %s", ledger_hash)
-
-    local_balances = parse_balances(valid_src20_str)
-    api_balances = parse_balances(api_ledger_validation)
-
-    differences = compare_balances(local_balances, api_balances)
-
-    if differences:
-        print_balance_differences(differences)
     else:
-        print("\nNo differences in balances found, despite hash mismatch.")
+        logger.warning("Normalized API ledger hash does not match normalized local ledger hash")
+        logger.warning(f"API hash: {api_normalized_hash}")
+        logger.warning(f"Local hash: {local_normalized_hash}")
 
-    compare_string_formats(valid_src20_str, api_ledger_validation)
+        # Additional debugging
+        for api_entry, local_entry in zip(api_entries, local_entries):
+            if api_entry != local_entry:
+                logger.warning(f"Mismatch: API {api_entry} vs Local {local_entry}")
 
-    return True
-    # If you want to raise an exception instead, you can uncomment the following line
-    # raise ValueError("API ledger hash does not match local ledger hash")
-
-
-def parse_balances(balance_str):
-    balances = defaultdict(lambda: defaultdict(D))
-    for entry in balance_str.split(";"):
-        tick, address, balance = entry.split(",")
-        balances[tick][address] = D(balance)
-    return balances
-
-
-def compare_balances(local_balances, api_balances):
-    differences = []
-    all_addresses = set()
-    for tick_balances in local_balances.values():
-        all_addresses.update(tick_balances.keys())
-    for tick_balances in api_balances.values():
-        all_addresses.update(tick_balances.keys())
-
-    for address in sorted(all_addresses):
-        address_differences = []
-        for tick in sorted(set(local_balances.keys()) | set(api_balances.keys())):
-            local_balance = local_balances.get(tick, {}).get(address, D("0"))
-            api_balance = api_balances.get(tick, {}).get(address, D("0"))
-            if local_balance != api_balance:
-                address_differences.append((tick, local_balance, api_balance))
-        if address_differences:
-            differences.append((address, address_differences))
-
-    return differences
-
-
-def print_balance_differences(differences):
-    print("\nBalance Differences:")
-    print("--------------------")
-    for address, address_differences in differences:
-        print(f"\nAddress: {address}")
-        print("  {:<10} {:<20} {:<20} {:<20}".format("Tick", "Local Balance", "API Balance", "Difference"))
-        print("  " + "-" * 70)
-        for tick, local_balance, api_balance in address_differences:
-            difference = local_balance - api_balance
-            print(
-                "  {:<10} {:<20} {:<20} {:<20}".format(tick, f"{local_balance:.8f}", f"{api_balance:.8f}", f"{difference:.8f}")
-            )
-
-
-def compare_string_formats(local_str: str, api_str: str):
-    print("\nComparing string formats:")
-    print("-------------------------")
-
-    local_entries = set(local_str.split(";"))
-    api_entries = set(api_str.split(";"))
-
-    local_only = local_entries - api_entries
-    api_only = api_entries - local_entries
-
-    if local_only:
-        print("\nEntries only in local string:")
-        for entry in sorted(local_only):
-            print(f"  {entry}")
-
-    if api_only:
-        print("\nEntries only in API string:")
-        for entry in sorted(api_only):
-            print(f"  {entry}")
-
-    if not local_only and not api_only:
-        print("\nAll entries are present in both strings.")
-
-    # Check for sorting differences
-    local_sorted = sorted(local_entries)
-    api_sorted = sorted(api_entries)
-
-    if local_sorted != api_sorted:
-        print("\nSorting difference detected:")
-        print("  Local sorted:", ";".join(local_sorted))
-        print("  API sorted:  ", ";".join(api_sorted))
-        sys.exit()
-    else:
-        print("\nBoth strings have the same sorting order.")
-
-    local_formatted = set(normalize_entry(entry) for entry in local_entries)
-    api_formatted = set(normalize_entry(entry) for entry in api_entries)
-
-    format_diff = local_formatted.symmetric_difference(api_formatted)
-    if format_diff:
-        print("\nFormatting differences detected:")
-        for entry in sorted(format_diff):
-            local_entry = next((e for e in local_entries if normalize_entry(e) == entry), None)
-            api_entry = next((e for e in api_entries if normalize_entry(e) == entry), None)
-            print(f"  Local: {local_entry}")
-            print(f"  API:   {api_entry}")
-            print()
-    else:
-        print("\nNo formatting differences detected.")
+        raise ValueError("API ledger hash does not match local ledger hash")
 
 
 def normalize_entry(entry):
     token, address, amount = entry.split(",")
-    normalized_amount = format(D(amount), ".18f").rstrip("0").rstrip(".")
+    normalized_amount = format(D(amount), ".8f")  # Adjust decimal places as needed
     return f"{token},{address},{normalized_amount}"
+
+
+def process_balance_updates(balance_updates):
+    valid_src20_list = []
+    if balance_updates is not None:
+        for src20 in balance_updates:
+            creator = src20.get("address")
+            if "\\" in src20["tick"]:
+                tick = decode_unicode_escapes(src20["tick"])
+            else:
+                tick = src20.get("tick")
+            amt = D(src20.get("net_change")) + D(src20.get("original_amt"))
+            amt = amt.normalize()
+            if amt == int(amt):
+                amt = int(amt)
+            valid_src20_list.append(f"{tick},{creator},{amt}")
+    valid_src20_list = sorted(
+        valid_src20_list,
+        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
+    )
+    valid_src20_str = ";".join(valid_src20_list)
+    return valid_src20_str
+
+
+def fetch_api_ledger_data(block_index: int):
+    urls = []
+    if SRC_VALIDATION_API1:
+        urls.append(SRC_VALIDATION_API1 + str(block_index))
+    if SRC_VALIDATION_SECRET_API2 and SRC_VALIDATION_API2:
+        urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
+
+    if not urls:
+        return None, None
+
+    max_retries = 10
+    backoff_time = 1
+
+    def fetch_url(url):
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json().get("data", {})
+                api_ledger_hash = data.get("hash")
+                api_ledger_validation = data.get("balance_data")
+                return api_ledger_hash, api_ledger_validation
+            else:
+                return None, None
+        except requests.exceptions.RequestException:
+            return None, None
+
+    for _ in range(max_retries):
+        with ThreadPoolExecutor() as executor:
+            future_to_url = {executor.submit(fetch_url, url): url for url in urls}
+            for future in as_completed(future_to_url):
+                result = future.result()
+                if result != (None, None):
+                    return result
+
+        time.sleep(backoff_time)
+        backoff_time *= 2
+
+    raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
