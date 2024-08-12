@@ -1,4 +1,3 @@
-import decimal
 import hashlib
 import json
 import logging
@@ -22,7 +21,9 @@ from config import (
 from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
 
-D = decimal.Decimal
+from decimal import Decimal, getcontext
+
+D = Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
@@ -1158,42 +1159,104 @@ def fetch_api_ledger_data(block_index: int):
     raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
 
 
-def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
-    """
-    Validates the ledger for a given block index against the API.
+def normalize_entry(entry):
+    token, address, amount = entry.split(",")
+    normalized_amount = format(D(amount), ".8f")  # Adjust decimal places as needed
+    return f"{token},{address},{normalized_amount}"
 
-    Args:
-        block_index (int): The block index to validate.
-        ledger_hash (str): The expected ledger hash.
-        valid_src20_str (str): The valid SRC20 string for comparison.
 
-    Raises:
-        ValueError: If the API ledger hash does not match the ledger hash.
-    """
+def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     try:
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
     except Exception as e:
         raise Exception(f"Error fetching API data: {e}")
 
-    if api_ledger_hash == ledger_hash:
+    # Normalize and sort both ledgers
+    api_entries = sorted(normalize_entry(e) for e in api_ledger_validation.split(";"))
+    local_entries = sorted(normalize_entry(e) for e in valid_src20_str.split(";"))
+
+    # Recalculate hashes using normalized data
+    api_normalized_hash = hashlib.sha256(";".join(api_entries).encode()).hexdigest()
+    local_normalized_hash = hashlib.sha256(";".join(local_entries).encode()).hexdigest()
+
+    if api_normalized_hash == local_normalized_hash:
         return True
     else:
-        logger.warning(
-            "API ledger validation does not match ledger validation for block %s",
-            block_index,
-        )
-        logger.warning("API ledger validation: %s", api_ledger_validation)
-        logger.warning("Local Ledger validation: %s", valid_src20_str)
-        api_ledger_validation_entries = set(api_ledger_validation.split(";"))
-        valid_src20_str_entries = set(valid_src20_str.split(";"))
+        logger.warning("Normalized API ledger hash does not match normalized local ledger hash")
+        logger.warning(f"API hash: {api_normalized_hash}")
+        logger.warning(f"Local hash: {local_normalized_hash}")
 
-        missing_in_api = valid_src20_str_entries - api_ledger_validation_entries
-        missing_in_ledger = api_ledger_validation_entries - valid_src20_str_entries
-
-        for missing in missing_in_api:
-            logger.warning("Missing in API Ledger: %s", missing)
-        for missing in missing_in_ledger:
-            logger.warning("Missing in Local Ledger: %s", missing)
-        logger.warning("Total mismatches: %s", len(missing_in_api) + len(missing_in_ledger))
+        # Additional debugging
+        for api_entry, local_entry in zip(api_entries, local_entries):
+            if api_entry != local_entry:
+                logger.warning(f"Mismatch: API {api_entry} vs Local {local_entry}")
 
         raise ValueError("API ledger hash does not match local ledger hash")
+
+
+def normalize_entry(entry):
+    token, address, amount = entry.split(",")
+    normalized_amount = format(D(amount), ".8f")  # Adjust decimal places as needed
+    return f"{token},{address},{normalized_amount}"
+
+
+def process_balance_updates(balance_updates):
+    valid_src20_list = []
+    if balance_updates is not None:
+        for src20 in balance_updates:
+            creator = src20.get("address")
+            if "\\" in src20["tick"]:
+                tick = decode_unicode_escapes(src20["tick"])
+            else:
+                tick = src20.get("tick")
+            amt = D(src20.get("net_change")) + D(src20.get("original_amt"))
+            amt = amt.normalize()
+            if amt == int(amt):
+                amt = int(amt)
+            valid_src20_list.append(f"{tick},{creator},{amt}")
+    valid_src20_list = sorted(
+        valid_src20_list,
+        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
+    )
+    valid_src20_str = ";".join(valid_src20_list)
+    return valid_src20_str
+
+
+def fetch_api_ledger_data(block_index: int):
+    urls = []
+    if SRC_VALIDATION_API1:
+        urls.append(SRC_VALIDATION_API1 + str(block_index))
+    if SRC_VALIDATION_SECRET_API2 and SRC_VALIDATION_API2:
+        urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
+
+    if not urls:
+        return None, None
+
+    max_retries = 10
+    backoff_time = 1
+
+    def fetch_url(url):
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json().get("data", {})
+                api_ledger_hash = data.get("hash")
+                api_ledger_validation = data.get("balance_data")
+                return api_ledger_hash, api_ledger_validation
+            else:
+                return None, None
+        except requests.exceptions.RequestException:
+            return None, None
+
+    for _ in range(max_retries):
+        with ThreadPoolExecutor() as executor:
+            future_to_url = {executor.submit(fetch_url, url): url for url in urls}
+            for future in as_completed(future_to_url):
+                result = future.result()
+                if result != (None, None):
+                    return result
+
+        time.sleep(backoff_time)
+        backoff_time *= 2
+
+    raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
