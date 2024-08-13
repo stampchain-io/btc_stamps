@@ -70,7 +70,9 @@ class Src20Validator:
 
     def _apply_regex_validation(self, key, value, num_pattern, dec_pattern):
         if key in ["max", "lim", "amt"]:
-            if num_pattern.match(str(value)):
+            if isinstance(value, Decimal):
+                self.src20_dict[key] = value
+            elif num_pattern.match(str(value)):
                 self.src20_dict[key] = D(str(value))
             else:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
