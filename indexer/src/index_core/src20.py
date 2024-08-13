@@ -5,6 +5,7 @@ import re
 import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal, getcontext
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
@@ -20,8 +21,6 @@ from config import (
 )
 from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
-
-from decimal import Decimal, getcontext
 
 D = Decimal
 logger = logging.getLogger(__name__)
