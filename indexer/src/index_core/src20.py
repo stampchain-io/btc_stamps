@@ -5,7 +5,7 @@ import re
 import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal, getcontext
+from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
@@ -627,7 +627,7 @@ def check_format(input_string, tx_hash):
                         if isinstance(value, str):
                             try:
                                 value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
-                            except decimal.InvalidOperation as e:
+                            except InvalidOperation as e:
                                 logger.warning(
                                     f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
                                 )
@@ -1061,38 +1061,6 @@ def update_balance_table(db, balance_updates, block_index, block_time):
     return
 
 
-def process_balance_updates(balance_updates):
-    """
-    Process the balance updates and return a string representation of valid src20 entries.
-
-    Args:
-        balance_updates (list): A list of balance updates.
-
-    Returns:
-        str: A string representation of valid src20 entries.
-    """
-
-    valid_src20_list = []
-    if balance_updates is not None:
-        for src20 in balance_updates:
-            creator = src20.get("address")
-            if "\\" in src20["tick"]:
-                tick = decode_unicode_escapes(src20["tick"])
-            else:
-                tick = src20.get("tick")
-            amt = src20.get("net_change") + src20.get("original_amt")
-            amt = D(amt).normalize()
-            if amt == int(amt):
-                amt = int(amt)
-            valid_src20_list.append(f"{tick},{creator},{amt}")
-    valid_src20_list = sorted(
-        valid_src20_list,
-        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
-    )
-    valid_src20_str = ";".join(valid_src20_list)
-    return valid_src20_str
-
-
 def clear_zero_balances(db):
     """
     Deletes all balances with an amount of 0 from the database.
@@ -1160,12 +1128,6 @@ def fetch_api_ledger_data(block_index: int):
     raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
 
 
-def normalize_entry(entry):
-    token, address, amount = entry.split(",")
-    normalized_amount = format(D(amount), ".8f")  # Adjust decimal places as needed
-    return f"{token},{address},{normalized_amount}"
-
-
 def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
     try:
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
@@ -1221,43 +1183,3 @@ def process_balance_updates(balance_updates):
     )
     valid_src20_str = ";".join(valid_src20_list)
     return valid_src20_str
-
-
-def fetch_api_ledger_data(block_index: int):
-    urls = []
-    if SRC_VALIDATION_API1:
-        urls.append(SRC_VALIDATION_API1 + str(block_index))
-    if SRC_VALIDATION_SECRET_API2 and SRC_VALIDATION_API2:
-        urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
-
-    if not urls:
-        return None, None
-
-    max_retries = 10
-    backoff_time = 1
-
-    def fetch_url(url):
-        try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                data = response.json().get("data", {})
-                api_ledger_hash = data.get("hash")
-                api_ledger_validation = data.get("balance_data")
-                return api_ledger_hash, api_ledger_validation
-            else:
-                return None, None
-        except requests.exceptions.RequestException:
-            return None, None
-
-    for _ in range(max_retries):
-        with ThreadPoolExecutor() as executor:
-            future_to_url = {executor.submit(fetch_url, url): url for url in urls}
-            for future in as_completed(future_to_url):
-                result = future.result()
-                if result != (None, None):
-                    return result
-
-        time.sleep(backoff_time)
-        backoff_time *= 2
-
-    raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
