@@ -154,6 +154,7 @@ class Src101Validator:
                 valid = valid and check_valid_base64_string(v)
                 try:
                     utf8value = base64.urlsafe_b64decode(v).decode("utf-8")
+                    utf8value = utf8value.lower()
                     if len(v) > 128:
                         valid = False
                     if utf8value in utf8valuelist:
@@ -176,8 +177,8 @@ class Src101Validator:
             if len(value) > 128:
                 valid = False
             if valid:
-                self.src101_dict[key] = value.lower()
-                self.src101_dict[key + "_utf8"] = base64.b64decode(value).decode("utf8")
+                self.src101_dict[key] = value
+                self.src101_dict[key + "_utf8"] = base64.b64decode(value).decode("utf8").lower()
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
                 self.src101_dict[key] = None
@@ -347,7 +348,7 @@ class Src101Processor:
 
             # check tokenid
             preowners = []
-            for index in range(len(self.src101_dict["tokenid"])):
+            for index in reversed(range(len(self.src101_dict["tokenid"]))):
                 result = get_owner_expire_data_from_running(
                     self.db,
                     self.processed_src101_in_block,
@@ -364,7 +365,7 @@ class Src101Processor:
                     del self.src101_dict["tokenid_utf8"][index]
                 else:
                     preowners.append(src101_owner)
-
+            preowners.reverse()
             if len(self.src101_dict["tokenid"]) == 0:
                 self.set_status_and_log("DM", deploy_hash=self.src101_dict["deploy_hash"], tokenid=self.src101_dict["tokenid"])
                 return
