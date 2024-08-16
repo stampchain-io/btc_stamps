@@ -1159,7 +1159,7 @@ def validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
 
 def normalize_entry(entry):
     token, address, amount = entry.split(",")
-    normalized_amount = format(D(amount), ".8f")  # Adjust decimal places as needed
+    normalized_amount = format(D(amount), ".18f")  # Adjust decimal places as needed
     return f"{token},{address},{normalized_amount}"
 
 
