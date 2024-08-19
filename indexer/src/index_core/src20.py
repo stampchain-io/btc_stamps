@@ -1179,6 +1179,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
     if api_ledger_hash == ledger_hash:
         return True
+    logger.warning("API ledger hash does not match local ledger hash")
     # Normalize and sort both ledgers
     api_entries = sorted(normalize_entry(e) for e in api_ledger_validation.split(";"))
     local_entries = sorted(normalize_entry(e) for e in valid_src20_str.split(";"))
@@ -1194,7 +1195,6 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         logger.warning(f"API hash: {api_normalized_hash}")
         logger.warning(f"Local hash: {local_normalized_hash}")
 
-        # Additional debugging
         for api_entry, local_entry in zip(api_entries, local_entries):
             if api_entry != local_entry:
                 logger.warning(f"Mismatch: API {api_entry} vs Local {local_entry}")
