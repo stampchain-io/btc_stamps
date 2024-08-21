@@ -135,7 +135,8 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   INDEX `tick` (`tick`),
   INDEX `op` (`op`),
   INDEX `creator` (`creator`), 
-  INDEX `block_index` (`block_index`)
+  INDEX `block_index` (`block_index`),
+  INDEX `idx_src20valid_tick_op_max_deci_lim` (`tick`, `op`, `max`, `deci`, `lim`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `balances` (
