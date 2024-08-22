@@ -313,7 +313,7 @@ def convert_to_dict_or_string(input_data, output_format="dict"):
         except json.JSONDecodeError:
             try:
                 input_data = ast.literal_eval(input_data)
-            except ValueError:
+            except (ValueError, SyntaxError):
                 raise DataConversionError("Invalid string representation of a dictionary")
 
     if not isinstance(input_data, dict):
