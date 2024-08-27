@@ -150,10 +150,12 @@ def get_src_or_img_from_data(stamp, block_index):
     """
     stamp_mimetype, decoded_base64, is_valid_base64 = None, None, None
     if "description" not in stamp:
-        if "p" in stamp or "P" in stamp and stamp.get("p").upper() == "SRC-20":
+        if ("p" in stamp or "P" in stamp) and stamp.get("p").upper() == "SRC-20":
             return stamp, None, None, 1
-        elif "p" in stamp or "P" in stamp and stamp.get("p").upper() == "SRC-721":
+        elif ("p" in stamp or "P" in stamp) and stamp.get("p").upper() == "SRC-721":
             return stamp, None, None, 1
+        else:
+            raise ValueError("invalid p")
     else:
         stamp_description = stamp.get("description")
         if stamp_description is None:
