@@ -269,6 +269,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         "p",
         "op",
         "name",
+        "tokenid_origin",
         "tokenid",
         "tokenid_utf8",
         "root",
@@ -299,6 +300,11 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("p"),
         src101_dict.get("op"),
         src101_dict.get("name"),
+        (
+            ";".join(src101_dict.get("tokenid_origin"))
+            if type(src101_dict.get("tokenid_origin")) == list
+            else src101_dict.get("tokenid_origin")
+        ),
         ";".join(src101_dict.get("tokenid")) if type(src101_dict.get("tokenid")) == list else src101_dict.get("tokenid"),
         (
             ";".join(src101_dict.get("tokenid_utf8"))
