@@ -182,11 +182,14 @@ class Src101Validator:
             valid = check_valid_base64_string(value)
             if len(value) > 128:
                 valid = False
+            try:
+                utf8value = base64.b64decode(value).decode("utf8").lower()
+                if check_contains_special(utf8value):
+                    valid = False
+            except Exception as e:
+                valid = False
             if valid:
-                utf8value = base64.urlsafe_b64decode(value).decode("utf-8").lower()
-                normvalue = base64.b64encode(utf8value.encode("utf-8")).decode("utf-8")
-                self.src101_dict[key + "_origin"] = value
-                self.src101_dict[key] = normvalue
+                self.src101_dict[key] = value
                 self.src101_dict[key + "_utf8"] = utf8value
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
