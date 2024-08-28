@@ -44,6 +44,7 @@ class Src101Dict(TypedDict, total=False):
     status: Optional[str]
     tick_hash: Optional[str]
     tokenid_utf8: Optional[str]
+    tokenid_origin: Optional[str]
 
 
 class Src101Validator:
@@ -147,14 +148,16 @@ class Src101Validator:
             self.src101_dict[key] = None
 
     def _process_tokenid_value(self, key, value):
+        self.src101_dict[key + "_origin"] = value
         if type(value) == list:
             valid = True
             utf8valuelist = []
+            normvaluelist = []
             for v in value:
                 valid = valid and check_valid_base64_string(v)
                 try:
-                    utf8value = base64.urlsafe_b64decode(v).decode("utf-8")
-                    utf8value = utf8value.lower()
+                    utf8value = base64.urlsafe_b64decode(v).decode("utf-8").lower()
+                    normvalue = base64.b64encode(utf8value.encode("utf-8")).decode("utf-8")
                     if len(v) > 128:
                         valid = False
                     if utf8value in utf8valuelist:
@@ -162,14 +165,17 @@ class Src101Validator:
                     elif check_contains_special(utf8value):
                         valid = False
                     else:
+                        normvaluelist.append(normvalue)
                         utf8valuelist.append(utf8value)
                 except Exception as e:
                     valid = False
             if valid:
-                self.src101_dict[key] = value
+
+                self.src101_dict[key] = normvaluelist
                 self.src101_dict[key + "_utf8"] = utf8valuelist
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
+                self.src101_dict[key + "_origin"] = value
                 self.src101_dict[key] = None
                 self.src101_dict[key + "_utf8"] = None
         elif type(value) == str:
@@ -177,14 +183,18 @@ class Src101Validator:
             if len(value) > 128:
                 valid = False
             if valid:
-                self.src101_dict[key] = value
-                self.src101_dict[key + "_utf8"] = base64.b64decode(value).decode("utf8").lower()
+                utf8value = base64.urlsafe_b64decode(value).decode("utf-8").lower()
+                normvalue = base64.b64encode(utf8value.encode("utf-8")).decode("utf-8")
+                self.src101_dict[key + "_origin"] = value
+                self.src101_dict[key] = normvalue
+                self.src101_dict[key + "_utf8"] = utf8value
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
                 self.src101_dict[key] = None
                 self.src101_dict[key + "_utf8"] = None
         else:
             self._update_status(key, f"IT: INVALID TOKENID VAL TYPE {value}")
+            self.src101_dict[key + "_origin"] = None
             self.src101_dict[key] = None
             self.src101_dict[key + "_utf8"] = None
 
@@ -348,12 +358,12 @@ class Src101Processor:
 
             # check tokenid
             preowners = []
-            for index in reversed(range(len(self.src101_dict["tokenid"]))):
+            for index in reversed(range(len(self.src101_dict["tokenid_utf8"]))):
                 result = get_owner_expire_data_from_running(
                     self.db,
                     self.processed_src101_in_block,
                     self.src101_dict["deploy_hash"],
-                    self.src101_dict["tokenid"][index],
+                    self.src101_dict["tokenid_utf8"][index],
                 )
                 # src101_preowner = result[0]
                 src101_owner = result[1]
@@ -390,7 +400,7 @@ class Src101Processor:
                 return
 
             result = get_owner_expire_data_from_running(
-                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"]
+                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid_utf8"]
             )
             src101_preowner = result[0]
             src101_owner = result[1]
@@ -439,7 +449,7 @@ class Src101Processor:
                 self.set_status_and_log("ND", op=self.src101_dict["op"], deploy_hash=self.src101_dict["deploy_hash"])
                 return
             result = get_owner_expire_data_from_running(
-                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"]
+                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid_utf8"]
             )
             src101_preowner = result[0]
             src101_owner = result[1]
@@ -485,7 +495,7 @@ class Src101Processor:
                 self.set_status_and_log("ND", op=self.src101_dict["op"], deploy_hash=self.src101_dict["deploy_hash"])
                 return
             result = get_owner_expire_data_from_running(
-                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid"]
+                self.db, self.processed_src101_in_block, self.src101_dict["deploy_hash"], self.src101_dict["tokenid_utf8"]
             )
             src101_preowner = result[0]
             src101_owner = result[1]
@@ -859,7 +869,7 @@ def update_owner_table(db, owner_updates, block_index):
 #     return result
 
 
-def get_owner_expire_data_from_running(db, processed_src101_in_block, deploy_hash, tokenid):
+def get_owner_expire_data_from_running(db, processed_src101_in_block, deploy_hash, tokenid_utf8):
     preowner = None
     owner = None
     expire_timestamp = None
@@ -869,43 +879,42 @@ def get_owner_expire_data_from_running(db, processed_src101_in_block, deploy_has
     for d in processed_src101_in_block:
         if (
             d
-            and d["tokenid"]
-            and type(d["tokenid"]) == list
-            and tokenid in d["tokenid"]
-            and d["hash"] == deploy_hash
-            and d["valid"] == 1
+            and d.get("tokenid_utf8")
+            and type(d.get("tokenid_utf8")) == list
+            and tokenid_utf8 in d.get("tokenid_utf8")
+            and d.get("hash") == deploy_hash
+            and d.get("valid", 0) == 1
         ):
-            preowner = d["src101_preowner"]
-            owner = d["src101_owner"]
-            expire_timestamp = d["expire_timestamp"]
-            address_data = json.dumps(d["address_data"])
-            txt_data = json.dumps(d["txt_data"])
-            prim = d["prim"]
+            preowner = d.get("src101_preowner")
+            owner = d.get("src101_owner")
+            expire_timestamp = d.get("expire_timestamp")
+            address_data = json.dumps(d.get("address_data"))
+            txt_data = json.dumps(d.get("txt_data"))
+            prim = d.get("prim")
         elif (
             d
-            and d["tokenid"]
-            and type(d["tokenid"]) == str
-            and tokenid == d["tokenid"]
-            and d["hash"] == deploy_hash
-            and d["valid"] == 1
+            and d.get("tokenid_utf8")
+            and type(d.get("tokenid_utf8")) == str
+            and tokenid_utf8 == d.get("tokenid_utf8")
+            and d.get("hash") == deploy_hash
+            and d.get("valid", 0) == 1
         ):
-            preowner = d["src101_preowner"]
-            owner = d["src101_owner"]
-            expire_timestamp = d["expire_timestamp"]
-            address_data = json.dumps(d["address_data"])
-            txt_data = json.dumps(d["txt_data"])
-            prim = d["prim"]
+            preowner = d.get("src101_preowner")
+            owner = d.get("src101_owner")
+            expire_timestamp = d.get("expire_timestamp")
+            address_data = json.dumps(d.get("address_data"))
+            txt_data = json.dumps(d.get("txt_data"))
+            prim = d.get("prim")
     if owner and expire_timestamp:
         return [preowner, owner, expire_timestamp, address_data, txt_data, prim]
-    return get_owner_expire_data_from_db(db, deploy_hash, tokenid)
+    return get_owner_expire_data_from_db(db, deploy_hash, tokenid_utf8)
 
 
-def get_owner_expire_data_from_db(db, deploy_hash, tokenid):
+def get_owner_expire_data_from_db(db, deploy_hash, tokenid_utf8):
     cursor = db.cursor()
-    id_field = "src-101" + "_" + deploy_hash + "_" + tokenid
     cursor.execute(
-        f"SELECT preowner, owner,expire_timestamp,address_data,txt_data,prim FROM {SRC101_OWNERS_TABLE} WHERE id = %s",
-        (id_field,),
+        f"SELECT preowner, owner,expire_timestamp,address_data,txt_data,prim FROM {SRC101_OWNERS_TABLE} WHERE tokenid_utf8 = %s AND deploy_hash = %s",
+        (tokenid_utf8, deploy_hash),
     )
     result = cursor.fetchone()
     if not result:
