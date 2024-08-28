@@ -148,8 +148,8 @@ class Src101Validator:
             self.src101_dict[key] = None
 
     def _process_tokenid_value(self, key, value):
-        self.src101_dict[key + "_origin"] = value
         if type(value) == list:
+            self.src101_dict[key + "_origin"] = value
             valid = True
             utf8valuelist = []
             normvaluelist = []
@@ -170,15 +170,14 @@ class Src101Validator:
                 except Exception as e:
                     valid = False
             if valid:
-
                 self.src101_dict[key] = normvaluelist
                 self.src101_dict[key + "_utf8"] = utf8valuelist
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key + "_origin"] = value
                 self.src101_dict[key] = None
                 self.src101_dict[key + "_utf8"] = None
         elif type(value) == str:
+            self.src101_dict[key + "_origin"] = value
             valid = check_valid_base64_string(value)
             if len(value) > 128:
                 valid = False
