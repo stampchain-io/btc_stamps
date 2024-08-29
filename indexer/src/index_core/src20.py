@@ -591,7 +591,7 @@ def check_format(input_string, tx_hash):
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
-            tick_value = convert_to_utf8_string(input_dict.get("tick"))
+            tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
