@@ -2477,4 +2477,33 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
+    {
+        "description": "No tick attribute cause AttributeError",
+        "src20JsonString": """{
+          "p": "SRC-20",
+          "op": "DEPLOY",
+          "deci": 8,
+          "lim": 1000000,
+          "max": 1000000000
+        }""",
+        "expectedOutcome": {
+            "stamp_success": False,
+            "src20_success": False,
+            "message": "No tick attribute cause AttributeError",
+        },
+        "source": "1SourceAddr",
+        "destination": "1DestAddr",
+        "btc_amount": 0.0,
+        "fee": 0.0,
+        "decoded_tx": "{}",
+        "keyburn": 1,
+        "tx_index": 0,
+        "block_index": 0,
+        "block_time": 0,
+        "is_op_return": False,
+        "valid_stamps_in_block": [],
+        "processed_src20_in_block": [],
+        "p2wsh_data": None,
+        "tx_hash": "dummy_tx_hash",
+    },
 ]
