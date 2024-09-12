@@ -169,10 +169,7 @@ CREATE TABLE IF NOT EXISTS collections (
   `collection_name` VARCHAR(255) NOT NULL UNIQUE,
   `collection_description` VARCHAR(255),
   `collection_website` VARCHAR(255),
-  `collection_tg` VARCHAR(32),
-  `collection_x` VARCHAR(32),
-  `collection_email` VARCHAR(255),
-  `collection_onchain` TINYINT(1) DEFAULT 0
+  INDEX (collection_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS collection_creators (
