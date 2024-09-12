@@ -100,6 +100,9 @@ class StampData:
     pval_src20: Optional[bool] = None
     is_posh: Optional[bool] = False
     precomputed_collections: ClassVar[List[Dict]] = []
+    collection_name: Optional[str] = None
+    collection_description: Optional[str] = None
+    collection_website: Optional[str] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -150,16 +153,33 @@ class StampData:
         stamp_inserts = []
         creator_inserts = []
 
+        collection_found = False
         for collection in self.__class__.precomputed_collections:
             if (
                 self.file_hash in collection["file_hashes"]
                 or self.stamp in collection["stamps"]
                 or (self.is_posh and collection["is_posh"])
             ):
-                collection_inserts.append((collection["collection_id"], collection["name"]))
+                collection_found = True
+                collection_inserts.append((collection["collection_id"], collection["name"], None, None))
                 stamp_inserts.append((collection["collection_id"], self.stamp))
                 for creator in collection["creators"]:
                     creator_inserts.append((collection["collection_id"], creator))
+
+        if not collection_found:  # FIXME: dynamic collections names based on SRC-721 data will not rollback in a block reorg.
+            if self.collection_name:
+                existing_collection_id = self.get_collection_by_name(db, self.collection_name)
+                if existing_collection_id:
+                    collection_found = True
+                    stamp_inserts.append((existing_collection_id, self.stamp))
+                else:
+                    new_collection_id = self.generate_collection_id(self.collection_name).hex()
+                    collection_inserts.append(
+                        (new_collection_id, self.collection_name, self.collection_description, self.collection_website)
+                    )
+                    # stamp_inserts.append((new_collection_id, self.stamp))  # NOTE: no need to save the deploy in the collection
+                    if self.creator:
+                        creator_inserts.append((new_collection_id, self.creator))
 
         if collection_inserts:
             self.insert_into_collections(db, collection_inserts)
@@ -168,6 +188,15 @@ class StampData:
         if creator_inserts:
             self.ensure_creators_exist(db, creator_inserts)
             self.insert_into_collection_creators(db, creator_inserts)
+
+    def get_collection_by_name(self, db, collection_name):
+        with db.cursor() as cursor:
+            cursor.execute("SELECT collection_id FROM collections WHERE collection_name = %s", (collection_name,))
+            result = cursor.fetchone()
+            if result:
+                collection_id_hex = result[0].hex()
+                return collection_id_hex
+        return None
 
     @staticmethod
     def ensure_creators_exist(db, creator_inserts: List[tuple]):
@@ -181,9 +210,8 @@ class StampData:
     @staticmethod
     def insert_into_collections(db, collection_inserts: List[tuple]):
         query = """
-        INSERT INTO collections (collection_id, collection_name)
-        VALUES (UNHEX(%s), %s)
-        ON DUPLICATE KEY UPDATE collection_name=VALUES(collection_name)
+        INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website)
+        VALUES (UNHEX(%s), %s, %s, %s)
         """
         cursor = db.cursor()
         cursor.executemany(query, collection_inserts)
@@ -508,11 +536,20 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
-        svg_output, self.file_suffix = validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
+        svg_output, self.file_suffix, collection_name, collection_description, collection_website = (
+            validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
+        )
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"
         self.stamp_mimetype = "image/svg+xml"
+
+        if collection_name:
+            self.collection_name = collection_name
+        if collection_description:
+            self.collection_description = collection_description
+        if collection_website:
+            self.collection_website = collection_website
 
     def process_all_stamps(self, ident_known, cpid_starts_with_A):
         if (
