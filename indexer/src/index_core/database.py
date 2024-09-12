@@ -461,6 +461,17 @@ def purge_block_db(db, block_index):
     reset_all_caches()
     cursor = db.cursor()
 
+    # First, delete from collection_stamps
+    logger.warning("Purging collection_stamps from database after block: {}".format(block_index))
+    cursor.execute(
+        """
+        DELETE cs FROM collection_stamps cs
+        JOIN StampTableV4 s ON cs.stamp = s.stamp
+        WHERE s.block_index >= %s
+        """,
+        (block_index,),
+    )
+
     tables = [
         SRC20_VALID_TABLE,
         SRC20_TABLE,
@@ -473,9 +484,9 @@ def purge_block_db(db, block_index):
         logger.warning("Purging {} from database after block: {}".format(table, block_index))
         cursor.execute(
             """
-                        DELETE FROM {}
-                        WHERE block_index >= %s
-                        """.format(
+            DELETE FROM {}
+            WHERE block_index >= %s
+            """.format(
                 table
             ),
             (block_index,),
@@ -667,7 +678,7 @@ def check_reissue_in_db(db, cpid):
     with db.cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT is_btc_stamp FROM {STAMP_TABLE}
+            SELECT stamp FROM {STAMP_TABLE}
             WHERE cpid = %s
             ORDER BY block_index DESC
             LIMIT 1
