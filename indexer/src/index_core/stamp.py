@@ -50,7 +50,7 @@ class StampProcessor:
 
         stamp_data.stamp = cast(int, stamp_data.stamp)
 
-        if stamp_data.cpid and stamp_data.is_btc_stamp:
+        if (stamp_data.cpid and stamp_data.is_btc_stamp) or (stamp_data.is_cursed and not stamp_data.cpid.startswith("A")):
             valid_stamp = create_valid_stamp_dict(
                 stamp_data.stamp,
                 stamp_data.tx_hash,
@@ -184,7 +184,11 @@ def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimety
         if isinstance(decoded_base64, dict):
             decoded_base64 = json.dumps(decoded_base64)
         if isinstance(decoded_base64, str):
-            decoded_base64 = decoded_base64.encode("utf-8")
+            if file_suffix == "png":
+                # For PNG, decode the base64 string to bytes
+                decoded_base64 = base64.b64decode(decoded_base64)
+            else:
+                decoded_base64 = decoded_base64.encode("utf-8")
         filename = f"{tx_hash}.{file_suffix}"
         logger.info(decoded_base64)
         return store_files(db, filename, decoded_base64, stamp_mimetype)
