@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS s3objects (
   index `path_key` (`path_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
+
 CREATE TABLE IF NOT EXISTS collections (
   `collection_id` BINARY(16) PRIMARY KEY,
   `collection_name` VARCHAR(255) NOT NULL UNIQUE,
@@ -190,12 +191,13 @@ CREATE TABLE IF NOT EXISTS collection_stamps (
   INDEX (stamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
+
 CREATE TABLE IF NOT EXISTS `src20_metadata` (
   `tick` varchar(32) NOT NULL,
   `tick_hash` varchar(64) NOT NULL,
   `description` varchar(255) DEFAULT NULL,
-  `x` varchar(32) DEFAULT NULL,
-  `tg` varchar(32) DEFAULT NULL,
+  `x` varchar(255) DEFAULT NULL,
+  `tg` varchar(255) DEFAULT NULL,
   `web` varchar(255) DEFAULT NULL,
   `email` varchar(255) DEFAULT NULL,
   `deploy_block_index` int NOT NULL,
