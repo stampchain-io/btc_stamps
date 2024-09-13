@@ -222,8 +222,52 @@ class Src20Processor:
     def handle_deploy(self):
         if not self.deploy_lim and not self.deploy_max:
             self.update_valid_src20_list(operation=self.operation)
+
+            # Extract metadata from the SRC20 DEPLOY json string
+            metadata = {
+                "tick": self.src20_dict["tick"],
+                "tick_hash": self.src20_dict["tick_hash"],
+                "description": self.src20_dict.get("desc"),
+                "x": self.src20_dict.get("x"),
+                "tg": self.src20_dict.get("tg"),
+                "web": self.src20_dict.get("web"),
+                "email": self.src20_dict.get("email"),
+                "deploy_block_index": self.src20_dict["block_index"],
+                "deploy_tx_hash": self.src20_dict["tx_hash"],
+            }
+
+            self.insert_src20_metadata(metadata)
         else:
             self.set_status_and_log("DE", tick=self.src20_dict["tick"])
+
+    def insert_src20_metadata(self, metadata):
+        with self.db.cursor() as cursor:
+            # First, check if this is a DEPLOY operation
+            cursor.execute(
+                """
+                SELECT 1 FROM SRC20Valid 
+                WHERE tick = %s AND tick_hash = %s AND op = 'DEPLOY'
+                """,
+                (metadata["tick"], metadata["tick_hash"]),
+            )
+            if cursor.fetchone():
+                # If it's a DEPLOY operation, proceed with the insert/update
+                cursor.execute(
+                    """
+                    INSERT INTO src20_metadata 
+                    (tick, tick_hash, description, x, tg, web, email, deploy_block_index, deploy_tx_hash)
+                    VALUES (%(tick)s, %(tick_hash)s, %(description)s, %(x)s, %(tg)s, %(web)s, %(email)s, %(deploy_block_index)s, %(deploy_tx_hash)s)
+                    ON DUPLICATE KEY UPDATE
+                    description = COALESCE(VALUES(description), description),
+                    x = COALESCE(VALUES(x), x),
+                    tg = COALESCE(VALUES(tg), tg),
+                    web = COALESCE(VALUES(web), web),
+                    email = COALESCE(VALUES(email), email)
+                    """,
+                    metadata,
+                )
+            else:
+                logger.warning(f"Attempted to insert metadata for non-DEPLOY operation: {metadata['tick']}")
 
     def handle_mint(self):
         self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)

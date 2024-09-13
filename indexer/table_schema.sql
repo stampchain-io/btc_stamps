@@ -191,6 +191,25 @@ CREATE TABLE IF NOT EXISTS collection_stamps (
   INDEX (stamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
+
+CREATE TABLE IF NOT EXISTS `src20_metadata` (
+  `tick` varchar(32) NOT NULL,
+  `tick_hash` varchar(64) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `x` varchar(255) DEFAULT NULL,
+  `tg` varchar(255) DEFAULT NULL,
+  `web` varchar(255) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `deploy_block_index` int NOT NULL,
+  `deploy_tx_hash` varchar(64) NOT NULL,
+  PRIMARY KEY (`tick`, `tick_hash`),
+  UNIQUE KEY `tick_unique` (`tick`),
+  UNIQUE KEY `tick_hash_unique` (`tick_hash`),
+  INDEX `deploy_block_index` (`deploy_block_index`),
+  INDEX `deploy_tx_hash` (`deploy_tx_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+
 -- example for insert into collections
 -- START TRANSACTION;
 
