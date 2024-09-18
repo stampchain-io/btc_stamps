@@ -26,9 +26,7 @@ def parse_valid_src721_in_block(valid_stamps_in_block):
 def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
     collection_name, collection_description, collection_website = None, None, None
     if valid_stamps_in_block:
-        valid_src721_in_block = parse_valid_src721_in_block(
-            valid_stamps_in_block
-        )  # FIXME: we are not looking for the deploy if it's in the same block of the mint.
+        valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
     else:
         valid_src721_in_block = []
     src721_json = convert_to_dict(src721_json)
@@ -37,7 +35,7 @@ def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
     if "symbol" in src721_json:
         src721_json["tick"] = src721_json.pop("symbol")
     if op_val == "MINT":
-        svg_output, collection_name = create_src721_mint_svg(src721_json, valid_stamps_in_block, db)
+        svg_output, collection_name = create_src721_mint_svg(src721_json, valid_src721_in_block, db)
         file_suffix = "svg"
     elif op_val == "DEPLOY":
         collection_name = src721_json.get("name", None)
