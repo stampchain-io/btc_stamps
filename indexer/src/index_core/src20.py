@@ -245,7 +245,7 @@ class Src20Processor:
             # First, check if this is a DEPLOY operation
             cursor.execute(
                 """
-                SELECT 1 FROM SRC20Valid 
+                SELECT 1 FROM SRC20Valid
                 WHERE tick = %s AND tick_hash = %s AND op = 'DEPLOY'
                 """,
                 (metadata["tick"], metadata["tick_hash"]),
@@ -254,7 +254,7 @@ class Src20Processor:
                 # If it's a DEPLOY operation, proceed with the insert/update
                 cursor.execute(
                     """
-                    INSERT INTO src20_metadata 
+                    INSERT INTO src20_metadata
                     (tick, tick_hash, description, x, tg, web, email, deploy_block_index, deploy_tx_hash)
                     VALUES (%(tick)s, %(tick_hash)s, %(description)s, %(x)s, %(tg)s, %(web)s, %(email)s, %(deploy_block_index)s, %(deploy_tx_hash)s)
                     ON DUPLICATE KEY UPDATE
