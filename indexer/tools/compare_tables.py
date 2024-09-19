@@ -170,7 +170,7 @@ def main():
                         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
                         FROM StampTableV4
                         WHERE tx_hash IN %s and stamp > 0
-                        ORDER BY block_index ASC
+                        ORDER BY tx_index ASC
                         """,
             (not_in_prod_list,),
         )
@@ -187,7 +187,7 @@ def main():
                         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
                         FROM StampTableV4
                         WHERE tx_hash IN %s and stamp > 0
-                        ORDER BY block_index ASC
+                        ORDER BY tx_index ASC
                         """,
             (not_in_dev_list,),
         )
