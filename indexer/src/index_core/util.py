@@ -9,11 +9,11 @@ import re
 import threading
 import unicodedata
 from binascii import unhexlify
-
 from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
 
 from bitcoinlib import encoding
+from ecdsa import SECP256k1, VerifyingKey
 
 import config
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
@@ -194,6 +194,19 @@ def is_valid_pubkey_hex(pubkey_hex):
         return True
     except Exception as e:
         return False
+
+def is_valid_pubkey_hex(pubkey_hex):
+    try:
+        if len(pubkey_hex) != 66:
+            return False
+        if not (pubkey_hex.startswith("02") or pubkey_hex.startswith("03")):
+            return False
+        pubkey_bytes = unhexlify(pubkey_hex)
+        VerifyingKey.from_string(pubkey_bytes, curve=SECP256k1)
+        return True
+    except Exception as e:
+        return False
+
 
 def check_valid_eth_address(address: str):
     if not address.startswith("0x"):
