@@ -127,7 +127,7 @@ CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {
     config.BLOCK_FIRST_TESTNET: {
         "ledger_hash": "",
-        "txlist_hash": "2fb30e9c8858c4bc588dc701ac0676a1c8dba1cd1a0a561d01b6d6f658051bf8",
+        "txlist_hash": "c1204672e02e822df548ddac05624f80770c1540227b3c888ed54abcb94741ab",
     },
 }
 

@@ -281,15 +281,6 @@ def initialize_tables(db):
             unicode = VALUES(unicode),
             p = VALUES(p)""",
         )
-        import_csv_data(
-            cursor,
-            "bootstrap/src101price.csv",
-            """
-            INSERT INTO src101price (len, price)
-            VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE len = VALUES(len)
-            """,
-        )
         db.commit()
         cursor.close()
     except Exception as e:

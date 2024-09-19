@@ -66,6 +66,7 @@ class StampData:
 
     tx_hash: str
     source: str
+    prev_tx_hash: str
     destination: str
     destination_nvalue: int
     btc_amount: float

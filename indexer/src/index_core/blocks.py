@@ -66,6 +66,7 @@ TxResult = namedtuple(
     [
         "tx_index",
         "source",
+        "prev_tx_hash",
         "destination",
         "destination_nvalue",
         "btc_amount",
@@ -96,6 +97,7 @@ class BlockProcessor:
             stamp_data = StampData(
                 tx_hash=result.tx_hash,
                 source=result.source,
+                prev_tx_hash=result.prev_tx_hash,
                 destination=result.destination,
                 destination_nvalue=result.destination_nvalue,
                 btc_amount=result.btc_amount,
@@ -256,6 +258,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         "TransactionInfo",
         [
             "source",
+            "prev_tx_hash",
             "destinations",
             "destination_nvalue",
             "btc_amount",
@@ -291,6 +294,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             else:
                 p2wsh_data = None
             return TransactionInfo(
+                None,
                 None,
                 None,
                 None,
@@ -340,6 +344,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
         return TransactionInfo(
             str(source),
+            prev_tx_hash,
             destinations,
             src_destination_nvalue,
             btc_amount,
@@ -352,7 +357,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         )
 
     except (DecodeError, BTCOnlyError):
-        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None)
+        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None)
 
 
 def decode_address(script_pubkey):
@@ -536,6 +541,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
 
     transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, "source", None)
+    prev_tx_hash = getattr(transaction_info, "prev_tx_hash", None)
     destination = getattr(transaction_info, "destinations", None)
     destination_nvalue = getattr(transaction_info, "destination_nvalue", None)
     btc_amount = getattr(transaction_info, "btc_amount", None)
@@ -563,6 +569,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
 
         return (
             source,
+            prev_tx_hash,
             destination,
             destination_nvalue,
             btc_amount,
@@ -576,7 +583,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
 
     else:
         skip_logger.debug("Skipping transaction: {}".format(tx_hash))
-        return (None for _ in range(10))
+        return (None for _ in range(11))
 
 
 def create_check_hashes(
@@ -699,6 +706,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     tx_hex = raw_transactions[tx_hash]
     (
         source,
+        prev_tx_hash,
         destination,
         destination_nvalue,
         btc_amount,
@@ -712,6 +720,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     return TxResult(
         None,
         source,
+        prev_tx_hash,
         destination,
         destination_nvalue,
         btc_amount,
