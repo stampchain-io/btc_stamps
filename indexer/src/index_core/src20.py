@@ -557,33 +557,63 @@ def convert_to_utf8_string(tick_value):
     return tick_value
 
 
+def convert_scientific_to_decimal(value):
+    """
+    Converts a Decimal value that may be in scientific notation
+    to a Decimal value with the full decimal representation.
+
+    Args:
+        value (Decimal): The Decimal value to convert.
+
+    Returns:
+        Decimal: The Decimal value with full decimal digits (no scientific notation).
+    """
+    # Ensure the value is a Decimal
+    if not isinstance(value, Decimal):
+        value = Decimal(str(value))
+
+    # Convert to string in 'f' format to get full decimal representation
+    value_str = format(value, "f")
+
+    # Create a new Decimal from this string
+    value_without_sci = Decimal(value_str)
+
+    return value_without_sci
+
+
 def check_format(input_string, tx_hash):
     """
-    Check the format of the SRC-20 json string and return a dictionary if it meets the validation reqs.
-    This is the original function to determine inclusion/exclusion as a valid stamp.
-    It is not used to validate user balances or full validitiy of the actual values in the string.
-    If this does not evaluate to True the transaction is not saved to the stamp table.
-    Edit with caution as this can impact stamp numbering.
+    Check the format of the SRC-20 JSON string and return a dictionary if it meets the validation requirements.
+    This function determines inclusion/exclusion as a valid stamp without affecting stamp numbering.
 
+    It uses a custom parse_float function to detect and reject numbers in scientific notation before converting them to Decimal.
+    Super ugly, but a consensus item for stamp numbering.
 
     Args:
         input_string (str or bytes or dict): The input string to be checked.
         tx_hash (str): The transaction hash associated with the input string.
 
     Returns:
-        dict or None: If the input string meets the requirements for src-20, a dictionary representing the input string is returned.
-                     Otherwise, None is returned.
+        dict or None: If the input string meets the requirements for SRC-20, a dictionary representing the input string is returned.
+                      Otherwise, None is returned.
 
     Raises:
         json.JSONDecodeError: If the input string cannot be decoded as JSON.
-
     """
+
+    def parse_no_sci_float(s):
+        if "e" in s.lower():
+            # Reject numbers in scientific notation
+            logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
+            raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
+        return Decimal(s)
+
     try:
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
             elif isinstance(input_string, str):
-                input_dict = json.loads(input_string, parse_float=D)
+                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
         except (json.JSONDecodeError, TypeError):
@@ -593,6 +623,8 @@ def check_format(input_string, tx_hash):
         elif input_dict.get("p").lower() == "src-20":
             tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
             input_dict["tick"] = tick_value
+            if tick_value == "0":
+                print("here")
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
                 return None
@@ -637,12 +669,12 @@ def check_format(input_string, tx_hash):
                         elif isinstance(value, float):
                             value = D(str(value))
                         elif isinstance(value, D):
-                            value = value
+                            value = convert_scientific_to_decimal(value)
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
 
-                        if not (0 <= value <= uint64_max):
+                        if not (D("0") <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
             return input_dict
