@@ -203,12 +203,16 @@ CREATE TABLE IF NOT EXISTS `SRC101` (
   -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `description` varchar(255),
   `tick` varchar(32),
-  `wll` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `imglp` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `imgf` varchar(32) DEFAULT NULL COLLATE utf8mb4_bin,
+  `wla` VARCHAR(66) DEFAULT NULL,
   `tick_hash` varchar(64),
   `deploy_hash` VARCHAR(64) DEFAULT NULL,
   `creator` varchar(64) COLLATE utf8mb4_bin,
   `pri` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `dua` BIGINT UNSIGNED DEFAULT NULL,
+  `idua` BIGINT UNSIGNED DEFAULT NULL,
+  `coef` int DEFAULT NULL,
   `lim` BIGINT UNSIGNED DEFAULT NULL,
   `mintstart` BIGINT UNSIGNED DEFAULT NULL,
   `mintend` BIGINT UNSIGNED DEFAULT NULL,
@@ -237,12 +241,16 @@ CREATE TABLE IF NOT EXISTS `SRC101Valid` (
   -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `description` varchar(255),
   `tick` varchar(32),
-  `wll` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `imglp` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `imgf` varchar(32) DEFAULT NULL COLLATE utf8mb4_bin,
+  `wla` VARCHAR(66) DEFAULT NULL,
   `tick_hash` varchar(64),
   `deploy_hash` VARCHAR(64) DEFAULT NULL,
   `creator` varchar(64) COLLATE utf8mb4_bin,
   `pri` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `dua` BIGINT UNSIGNED DEFAULT NULL,
+  `idua` BIGINT UNSIGNED DEFAULT NULL,
+  `coef` int DEFAULT NULL,
   `lim` BIGINT UNSIGNED DEFAULT NULL,
   `mintstart` BIGINT UNSIGNED DEFAULT NULL,
   `mintend` BIGINT UNSIGNED DEFAULT NULL,
@@ -267,7 +275,6 @@ CREATE TABLE IF NOT EXISTS `owners` (
   `preowner` varchar(64) COLLATE utf8mb4_bin,
   `owner` varchar(64) COLLATE utf8mb4_bin NOT NULL,
   `prim` BOOLEAN DEFAULT NULL,
-  `address_data` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `address_btc` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `address_eth` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `txt_data` TEXT DEFAULT NULL COLLATE utf8mb4_bin,
@@ -293,9 +300,11 @@ CREATE TABLE IF NOT EXISTS `recipients` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `src101price` (
+  `id` VARCHAR(255) NOT NULL,
   `len` INT NOT NULL,
-  `price`BIGINT UNSIGNED NOT NULL,
-  PRIMARY KEY (`len`)
+  `price`BIGINT NOT NULL,
+  `deploy_hash` VARCHAR(64) NOT NULL,
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 -- example for insert into collections

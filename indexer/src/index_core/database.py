@@ -1,4 +1,5 @@
 import decimal
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, TypeVar, cast
@@ -163,6 +164,8 @@ def insert_into_src101_tables(db, processed_src101_in_block):
                 insert_into_src101_table(src101_cursor, SRC101_VALID_TABLE, id, src101_dict)
             if src101_dict.get("rec"):
                 insert_into_recipients(src101_cursor, SRC101_RECIPIENTS_TABLE, id, src101_dict)
+            if src101_dict.get("pri"):
+                insert_into_src101price(src101_cursor, SRC101_PRICE_TABLE, src101_dict)
 
 
 def insert_into_src20_table(cursor, table_name, id, src20_dict):
@@ -256,6 +259,36 @@ def insert_into_recipients(cursor, table_name, id, src101_dict):
     return
 
 
+def insert_into_src101price(cursor, table_name, src101_dict):
+    block_time = src101_dict.get("block_time")
+    if isinstance(block_time, int):
+        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+    if isinstance(src101_dict["pri"], dict):
+        for key, value in src101_dict["pri"].items():
+            deploy_hash = src101_dict["tx_hash"]
+            _id = deploy_hash + "_" + key
+            column_names = [
+                "id",
+                "len",
+                "price",
+                "deploy_hash",
+            ]
+            column_values = [
+                _id,
+                int(key),
+                value,
+                deploy_hash,
+            ]
+            placeholders = ", ".join(["%s"] * len(column_names))
+
+            query = f"""
+                INSERT INTO {table_name} ({", ".join(column_names)})
+                VALUES ({placeholders})
+            """  # nosec
+            cursor.execute(query, tuple(column_values))
+        return
+
+
 def insert_into_src101_table(cursor, table_name, id, src101_dict):
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
@@ -275,12 +308,16 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         "root",
         "description",
         "tick",
-        "wll",
+        "wla",
+        "imglp",
+        "imgf",
         "tick_hash",
         "deploy_hash",
         "creator",
         "pri",
         "dua",
+        "idua",
+        "coef",
         "lim",
         "mintstart",
         "mintend",
@@ -314,12 +351,16 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("root"),
         src101_dict.get("desc"),
         src101_dict.get("tick"),
-        src101_dict.get("wll"),
+        src101_dict.get("wla"),
+        src101_dict.get("imglp"),
+        src101_dict.get("imgf"),
         src101_dict.get("tick_hash"),
         src101_dict.get("deploy_hash"),
         src101_dict.get("creator"),
-        src101_dict.get("pri"),
+        json.dumps(src101_dict.get("pri")),
         src101_dict.get("dua"),
+        src101_dict.get("idua"),
+        src101_dict.get("coef"),
         src101_dict.get("lim"),
         src101_dict.get("mintstart"),
         src101_dict.get("mintend"),
@@ -721,18 +762,18 @@ def get_total_src20_minted_from_db(db, tick):
 
 def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
     """
-    Retrieves the 'lim', 'pri', 'mintstart', 'mintend' and 'rec' values for a given DEPLOY HASH. The function first attempts to find these values
+    Retrieves the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for a given DEPLOY HASH. The function first attempts to find these values
     from an internal cache. If not found in the cache, it then searches within a provided dictionary of processed blocks.
     As a last resort, it performs a database lookup. The result from any of these sources is cached for future queries.
 
     Args:
         db: A database connection object used for querying the database if necessary.
-        tick (str): The tick value for which 'lim', 'pri', 'mintstart', 'mintend' and 'rec' values are being retrieved.
+        tick (str): The tick value for which 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values are being retrieved.
         src101_processed_in_block (dict): A dictionary containing processed blocks, used for in-memory lookup before querying the database.
 
     Returns:
-        tuple: A tuple containing the 'lim', 'pri', 'mintstart', 'mintend' and 'rec' values for the given tick. If the tick is not found in any source,
-               returns (None, None, None).
+        tuple: A tuple containing the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for the given tick. If the tick is not found in any source,
+               returns (None, None, None, None, None, None, None, None).
 
     """
     # Initialize the cache if it doesn't exist
@@ -743,26 +784,38 @@ def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
         return get_src101_deploy.deploy_cache[deploy_hash]
 
     # Check in the processed_blocks dictionary
-    lim, pri, mintstart, mintend, rec = get_src101_deploy_in_block(src101_processed_in_block, deploy_hash)
+    lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua = get_src101_deploy_in_block(
+        src101_processed_in_block, deploy_hash
+    )
     if lim is not None:
         # Cache and return the result
-        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec)
-        return lim, pri, mintstart, mintend, rec
+        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
+        return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
 
     # Database lookup if not found in cache or processed_blocks
-    lim, pri, mintstart, mintend = get_src101_deploy_in_db(db, deploy_hash)
+    lim, pri, mintstart, mintend, wla, imglp, imgf, idua = get_src101_deploy_in_db(db, deploy_hash)
     rec = get_src101_recs_in_db(db, deploy_hash)
     if lim is not None:
         # Cache and return the result
-        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec)
-    return lim, pri, mintstart, mintend, rec
+        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
+    return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
 
 
 def get_src101_deploy_in_block(processed_blocks, deploy_hash):
     for item in processed_blocks:
         if item.get("deploy_hash") == deploy_hash and item.get("op") == "DEPLOY" and item.get("valid") == 1:
-            return item.get("lim"), item.get("pri"), item.get("mintstart"), item.get("mintend"), item.get("rec")
-    return None, None, None, None, None
+            return (
+                item.get("lim"),
+                item.get("pri"),
+                item.get("mintstart"),
+                item.get("mintend"),
+                item.get("rec"),
+                item.get("wla"),
+                item.get("imglp"),
+                item.get("imgf"),
+                item.get("idua"),
+            )
+    return None, None, None, None, None, None, None, None, None
 
 
 def get_src101_deploy_in_db(db, deploy_hash):
@@ -770,7 +823,7 @@ def get_src101_deploy_in_db(db, deploy_hash):
         src101_cursor.execute(
             f"""
             SELECT
-                lim, pri, mintstart, mintend
+                lim, pri, mintstart, mintend, wla, imglp, imgf, idua
             FROM
                 {SRC101_VALID_TABLE}
             WHERE
@@ -786,7 +839,7 @@ def get_src101_deploy_in_db(db, deploy_hash):
         result = src101_cursor.fetchone()
         if result:
             return result
-    return None, None, None, None
+    return None, None, None, None, None, None, None, None
 
 
 def get_src101_recs_in_db(db, deploy_hash):
@@ -849,7 +902,7 @@ def get_src101_price(db, deploy_hash, src101_processed_in_block):
         return price
 
     # Database lookup if not found in cache or processed_blocks
-    price = get_src101_price_in_db(db)
+    price = get_src101_price_in_db(db, deploy_hash)
     if price is not None:
         # Cache and return the result
         get_src101_price.price_cache[deploy_hash] = price
@@ -863,7 +916,7 @@ def get_src101_price_in_block(processed_blocks, deploy_hash):
     return None
 
 
-def get_src101_price_in_db(db):
+def get_src101_price_in_db(db, deploy_hash):
     with db.cursor() as cursor:
         query = f"""
             SELECT
@@ -871,11 +924,17 @@ def get_src101_price_in_db(db):
                 price
             FROM
                 {SRC101_PRICE_TABLE}
+            WHERE
+                deploy_hash = %s
             ORDER BY len ASC
             
         """
-        cursor.execute(query)
-        return [item[1] for item in cursor.fetchall()]
+        cursor.execute(
+            query,
+            (deploy_hash),
+        )
+        result = cursor.fetchall()
+        return {r[0]: r[1] for r in result}
 
 
 def get_next_stamp_number(db, identifier):
