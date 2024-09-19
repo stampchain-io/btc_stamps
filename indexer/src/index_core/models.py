@@ -5,7 +5,7 @@ import logging
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import ClassVar, Dict, List, Optional, TypedDict, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, TypedDict, Union
 
 import magic
 import msgpack
@@ -149,9 +149,9 @@ class StampData:
         if not self.__class__.precomputed_collections:
             self.__class__.precompute_collections(collections)
 
-        collection_inserts = []
-        stamp_inserts = []
-        creator_inserts = []
+        collection_inserts: List[Tuple[str, str, Optional[str], Optional[str]]] = []
+        stamp_inserts: List[Tuple[str, int]] = []
+        creator_inserts: List[Tuple[str, str]] = []
 
         collection_found = False
         for collection in self.__class__.precomputed_collections:
@@ -162,7 +162,8 @@ class StampData:
             ):
                 collection_found = True
                 collection_inserts.append((collection["collection_id"], collection["name"], None, None))
-                stamp_inserts.append((collection["collection_id"], self.stamp))
+                if self.stamp is not None:
+                    stamp_inserts.append((collection["collection_id"], self.stamp))
                 for creator in collection["creators"]:
                     creator_inserts.append((collection["collection_id"], creator))
 
@@ -171,13 +172,13 @@ class StampData:
                 existing_collection_id = self.get_collection_by_name(db, self.collection_name)
                 if existing_collection_id:
                     collection_found = True
-                    stamp_inserts.append((existing_collection_id, self.stamp))
+                    if self.stamp is not None:
+                        stamp_inserts.append((existing_collection_id, self.stamp))
                 else:
                     new_collection_id = self.generate_collection_id(self.collection_name).hex()
                     collection_inserts.append(
                         (new_collection_id, self.collection_name, self.collection_description, self.collection_website)
                     )
-                    # stamp_inserts.append((new_collection_id, self.stamp))  # NOTE: no need to save the deploy in the collection
                     if self.creator:
                         creator_inserts.append((new_collection_id, self.creator))
 
@@ -208,7 +209,7 @@ class StampData:
         db.commit()
 
     @staticmethod
-    def insert_into_collections(db, collection_inserts: List[tuple]):
+    def insert_into_collections(db, collection_inserts: List[Tuple[str, str, Optional[str], Optional[str]]]):
         query = """
         INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website)
         VALUES (UNHEX(%s), %s, %s, %s)
@@ -218,7 +219,7 @@ class StampData:
         db.commit()
 
     @staticmethod
-    def insert_into_collection_stamps(db, stamp_inserts: List[tuple]):
+    def insert_into_collection_stamps(db, stamp_inserts: List[Tuple[str, int]]):
         query = """
         INSERT INTO collection_stamps (collection_id, stamp)
         VALUES (UNHEX(%s), %s)
@@ -229,7 +230,7 @@ class StampData:
         db.commit()
 
     @staticmethod
-    def insert_into_collection_creators(db, creator_inserts: List[tuple]):
+    def insert_into_collection_creators(db, creator_inserts: List[Tuple[str, str]]):
         query = """
         INSERT INTO collection_creators (collection_id, creator_address)
         VALUES (UNHEX(%s), %s)
