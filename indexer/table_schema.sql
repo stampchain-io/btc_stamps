@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS collections (
   `collection_website` VARCHAR(255),
   `collection_tg` VARCHAR(32),
   `collection_x` VARCHAR(32),
-  `collection_email` VARCHAR(255)
+  `collection_email` VARCHAR(255),
   INDEX (collection_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
