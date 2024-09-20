@@ -24,7 +24,7 @@ def parse_valid_src721_in_block(valid_stamps_in_block):
 
 
 def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
-    collection_name, collection_description, collection_website = None, None, None
+    collection_name, collection_description, collection_website, collection_onchain = None, None, None, None
     if valid_stamps_in_block:
         valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
     else:
@@ -47,7 +47,17 @@ def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
         svg_output = get_src721_svg_string("SRC721", config.DOMAINNAME, db)
         file_suffix = "svg"
 
-    return svg_output.encode("utf-8"), file_suffix, collection_name, collection_description, collection_website
+    # Set collection_onchain to 1 if collection_name is found
+    collection_onchain = 1 if collection_name is not None else None
+
+    return (
+        svg_output.encode("utf-8"),
+        file_suffix,
+        collection_name,
+        collection_description,
+        collection_website,
+        collection_onchain,
+    )
 
 
 def convert_to_dict(json_string_or_dict):
