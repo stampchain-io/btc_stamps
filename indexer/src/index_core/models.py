@@ -103,6 +103,7 @@ class StampData:
     collection_name: Optional[str] = None
     collection_description: Optional[str] = None
     collection_website: Optional[str] = None
+    collection_onchain: Optional[bool] = 0
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -177,7 +178,13 @@ class StampData:
                 else:
                     new_collection_id = self.generate_collection_id(self.collection_name).hex()
                     collection_inserts.append(
-                        (new_collection_id, self.collection_name, self.collection_description, self.collection_website)
+                        (
+                            new_collection_id,
+                            self.collection_name,
+                            self.collection_description,
+                            self.collection_website,
+                            self.collection_onchain,
+                        )
                     )
                     if self.creator:
                         creator_inserts.append((new_collection_id, self.creator))
@@ -209,10 +216,10 @@ class StampData:
         db.commit()
 
     @staticmethod
-    def insert_into_collections(db, collection_inserts: List[Tuple[str, str, Optional[str], Optional[str]]]):
+    def insert_into_collections(db, collection_inserts: List[Tuple[str, str, Optional[str], Optional[str], Optional[bool]]]):
         query = """
-        INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website)
-        VALUES (UNHEX(%s), %s, %s, %s)
+        INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website, collection_onchain)
+        VALUES (UNHEX(%s), %s, %s, %s, %s)
         """
         cursor = db.cursor()
         cursor.executemany(query, collection_inserts)
@@ -537,7 +544,7 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
-        svg_output, self.file_suffix, collection_name, collection_description, collection_website = (
+        svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
             validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
         )
         self.src_data = json.dumps(self.src_data)
@@ -551,6 +558,8 @@ class StampData:
             self.collection_description = collection_description
         if collection_website:
             self.collection_website = collection_website
+        if collection_onchain:
+            self.collection_onchain = collection_onchain
 
     def process_all_stamps(self, ident_known, cpid_starts_with_A):
         if (
