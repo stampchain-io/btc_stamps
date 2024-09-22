@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import time
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
@@ -1148,25 +1148,29 @@ def process_balance_updates(balance_updates):
         str: A string representation of valid src20 entries.
     """
 
-    valid_src20_list = []
-    if balance_updates is not None:
-        for src20 in balance_updates:
-            creator = src20.get("address")
-            if "\\" in src20["tick"]:
-                tick = decode_unicode_escapes(src20["tick"])
-            else:
-                tick = src20.get("tick")
-            amt = format(D(src20.get("net_change")) + D(src20.get("original_amt")), ".18f")
-            amt = D(amt).normalize()
-            if amt == int(amt):
-                amt = int(amt)
-            valid_src20_list.append(f"{tick},{creator},{amt}")
-    valid_src20_list = sorted(
-        valid_src20_list,
-        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
-    )
+    data = defaultdict(lambda: defaultdict(D))
+
+    for src20 in balance_updates:
+        tick = decode_unicode_escapes(src20["tick"]) if "\\" in src20["tick"] else src20.get("tick")
+        address = src20.get("address")
+        amt = D(src20.get("net_change")) + D(src20.get("original_amt"))
+        data[tick][address] += amt
+
+    valid_src20_list = [
+        f"{tick},{address},{format_number(balance)}"
+        for tick in sorted(data.keys())
+        for address in sorted(data[tick].keys())
+        for balance in [data[tick][address]]
+    ]
+
     valid_src20_str = ";".join(valid_src20_list)
     return valid_src20_str
+
+
+def format_number(num):
+    if num == int(num):
+        return f"{int(num)}"
+    return f"{num:.18f}".rstrip("0").rstrip(".")
 
 
 def clear_zero_balances(db):
