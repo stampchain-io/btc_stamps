@@ -103,7 +103,7 @@ class StampData:
     collection_name: Optional[str] = None
     collection_description: Optional[str] = None
     collection_website: Optional[str] = None
-    collection_onchain: Optional[bool] = 0
+    collection_onchain: Optional[bool] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -150,7 +150,7 @@ class StampData:
         if not self.__class__.precomputed_collections:
             self.__class__.precompute_collections(collections)
 
-        collection_inserts: List[Tuple[str, str, Optional[str], Optional[str]]] = []
+        collection_inserts: List[Tuple[str, str, Optional[str], Optional[str], Optional[bool]]] = []
         stamp_inserts: List[Tuple[str, int]] = []
         creator_inserts: List[Tuple[str, str]] = []
 
@@ -162,7 +162,7 @@ class StampData:
                 or (self.is_posh and collection["is_posh"])
             ):
                 collection_found = True
-                collection_inserts.append((collection["collection_id"], collection["name"], None, None))
+                collection_inserts.append((collection["collection_id"], collection["name"], None, None, None))
                 if self.stamp is not None:
                     stamp_inserts.append((collection["collection_id"], self.stamp))
                 for creator in collection["creators"]:
