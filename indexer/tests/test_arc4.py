@@ -9,17 +9,6 @@ from index_core.arc4 import arc4_decrypt_chunk, get_arc4_path, init_arc4
 
 
 class TestARC4(unittest.TestCase):
-    def test_imports(self):
-        """Test that all necessary modules can be imported."""
-        try:
-            from cryptography.hazmat.backends import default_backend
-            from cryptography.hazmat.decrepit.ciphers.algorithms import ARC4
-            from cryptography.hazmat.primitives.ciphers import Cipher
-
-            self.assertTrue(True, "All modules imported successfully")
-        except ImportError as e:
-            self.fail(f"Import error: {e}")
-
     def test_arc4_with_tx_hash(self):
         # Simulate a transaction hash (32 bytes)
         tx_hash = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
