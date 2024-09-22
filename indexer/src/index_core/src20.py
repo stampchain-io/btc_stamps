@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import time
-from collections import namedtuple, defaultdict
+from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
