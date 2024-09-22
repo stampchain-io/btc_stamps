@@ -5,7 +5,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.decrepit.ciphers.algorithms import ARC4
 from cryptography.hazmat.primitives.ciphers import Cipher
 
-from src.index_core.arc4 import arc4_decrypt_chunk, get_arc4_path, init_arc4
+from index_core.arc4 import arc4_decrypt_chunk, get_arc4_path, init_arc4
 
 
 class TestARC4(unittest.TestCase):
