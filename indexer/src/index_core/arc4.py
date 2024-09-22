@@ -1,8 +1,8 @@
 import binascii
 
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.ciphers import Cipher
 from cryptography.hazmat.decrepit.ciphers.algorithms import ARC4  # Updated import path
+from cryptography.hazmat.primitives.ciphers import Cipher
 
 
 def init_arc4(seed):

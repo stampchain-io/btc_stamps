@@ -1,5 +1,5 @@
-import unittest
 import hashlib
+import unittest
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.decrepit.ciphers.algorithms import ARC4
