@@ -512,7 +512,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
     #     return tx_index
 
     if tx_hex is None:
-        tx_hex = backend.getrawtransaction(tx_hash)  # TODO: This is the call that is stalling the process the most
+        tx_hex = backend.getrawtransaction(tx_hash)
 
     transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, "source", None)
