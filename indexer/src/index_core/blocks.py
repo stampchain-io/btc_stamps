@@ -433,7 +433,7 @@ def reinitialize(db, block_index=None):
                     logger.info("First hash changed. Cleaning {}.".format(field))
                     cursor.execute("""UPDATE blocks SET {} = NULL""".format(field))  # nosec
 
-    # For rollbacks, just delete new blocks and then reparse what’s left.
+    # For rollbacks, just delete new blocks and then reparse what's left.
     if block_index:
         cursor.execute("""DELETE FROM transactions WHERE block_index > ?""", (block_index,))
         cursor.execute("""DELETE FROM blocks WHERE block_index > ?""", (block_index,))
