@@ -343,101 +343,117 @@ def get_srcbackground_data(db, tick):
             return None, None, None
 
 
-def rebuild_balances(db):
-    cursor = db.cursor()
+def get_existing_balances(cursor):
+    query = """
+    SELECT id, tick, tick_hash, address, amt, last_update
+    FROM balances where p = 'SRC-20'
+    """
+    cursor.execute(query)
+    return [tuple(row) for row in cursor.fetchall()]
 
-    try:
-        logger.info("Validating Balances Table..")
 
-        db.begin()
-        query = """
-        SELECT id, tick, tick_hash, address, amt, last_update
-        FROM balances where p = 'SRC-20'
-        """
+def get_src20_valid_list(cursor, block_index=None):
+    query = f"""
+    SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
+    FROM {SRC20_VALID_TABLE}
+    WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
+    """
+    if block_index is not None:
+        query += " AND block_index <= %s"
+    query += " ORDER by block_index"
+
+    if block_index is not None:
+        cursor.execute(query, (block_index,))
+    else:
         cursor.execute(query)
-        existing_balances = [tuple(row) for row in cursor.fetchall()]
 
-        query = f"""
-        SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
-        FROM {SRC20_VALID_TABLE}
-        WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
-        ORDER by block_index
-        """  # nosec
-        cursor.execute(query)
-        src20_valid_list = cursor.fetchall()
+    return cursor.fetchall()
 
-        all_balances: dict[str, dict[str, Any]] = {}
-        for [
-            op,
-            creator,
-            destination,
-            tick,
-            tick_hash,
-            amt,
-            block_time,
-            block_index,
-        ] in src20_valid_list:
-            destination_id = tick + "_" + destination
-            destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
-            destination_amt += amt
 
-            all_balances[destination_id] = {
+def calculate_balances(src20_valid_list):
+    all_balances: dict[str, dict[str, Any]] = {}
+    for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
+        destination_id = tick + "_" + destination
+        destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
+        destination_amt += amt
+
+        all_balances[destination_id] = {
+            "tick": tick,
+            "tick_hash": tick_hash,
+            "address": destination,
+            "amt": destination_amt,
+            "last_update": block_index,
+            "block_time": block_time,
+        }
+
+        if op == "TRANSFER":
+            creator_id = tick + "_" + creator
+            creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
+            creator_amt -= amt
+            all_balances[creator_id] = {
                 "tick": tick,
                 "tick_hash": tick_hash,
-                "address": destination,
-                "amt": destination_amt,
+                "address": creator,
+                "amt": creator_amt,
                 "last_update": block_index,
                 "block_time": block_time,
             }
 
-            if op == "TRANSFER":
-                creator_id = tick + "_" + creator
-                creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
-                creator_amt -= amt
-                all_balances[creator_id] = {
-                    "tick": tick,
-                    "tick_hash": tick_hash,
-                    "address": creator,
-                    "amt": creator_amt,
-                    "last_update": block_index,
-                    "block_time": block_time,
-                }
+    return all_balances
 
-        if set(existing_balances) == set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items()):
-            logger.info("No changes in balances. Skipping deletion and insertion." "")
-            cursor.close()
+
+def balances_need_update(existing_balances, all_balances):
+    return set(existing_balances) != set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items())
+
+
+def purge_balances(cursor):
+    logger.warning("Purging balances table")
+    query = "DELETE FROM balances"
+    cursor.execute(query)
+
+
+def insert_balances(cursor, all_balances):
+    logger.warning(f"Inserting {len(all_balances)} balances")
+    values = [
+        (
+            key,
+            value["tick"],
+            value["tick_hash"],
+            value["address"],
+            value["amt"],
+            value["last_update"],
+            value["block_time"],
+            "SRC-20",
+        )
+        for key, value in all_balances.items()
+    ]
+
+    cursor.executemany(
+        """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+        values,
+    )
+
+
+def rebuild_balances(db, block_index=None):
+    cursor = db.cursor()
+
+    try:
+        logger.info("Validating Balances Table..")
+        db.begin()
+
+        existing_balances = get_existing_balances(cursor)
+        src20_valid_list = get_src20_valid_list(cursor, block_index)
+        all_balances = calculate_balances(src20_valid_list)
+
+        if not balances_need_update(existing_balances, all_balances):
+            logger.info("No changes in balances. Skipping deletion and insertion.")
             return
-        else:
-            logger.warning("Purging and rebuilding {} table".format("balances"))
 
-            query = """
-            DELETE FROM balances
-            """
-            cursor.execute(query)
+        purge_balances(cursor)
+        insert_balances(cursor, all_balances)
 
-            logger.warning("Inserting {} balances".format(len(all_balances)))
-
-            values = [
-                (
-                    key,
-                    value["tick"],
-                    value["tick_hash"],
-                    value["address"],
-                    value["amt"],
-                    value["last_update"],
-                    value["block_time"],
-                    "SRC-20",
-                )
-                for key, value in all_balances.items()
-            ]
-
-            cursor.executemany(
-                """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
-                values,
-            )
-
-            db.commit()
+        db.commit()
 
     except Exception as e:
         db.rollback()
@@ -808,3 +824,9 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
         raise BlockUpdateError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}")
     finally:
         cursor.close()
+
+
+def get_balances_at_block(db, block_index):
+    with db.cursor() as cursor:
+        src20_valid_list = get_src20_valid_list(cursor, block_index)
+    return calculate_balances(src20_valid_list)
