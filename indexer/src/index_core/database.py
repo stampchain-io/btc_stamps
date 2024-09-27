@@ -1,8 +1,7 @@
 import decimal
 import logging
-import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
+from typing import Any, Callable, Dict, List, TypeVar, cast
 
 import pymysql as mysql
 
@@ -344,7 +343,7 @@ def get_srcbackground_data(db, tick):
             return None, None, None
 
 
-def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
+def get_existing_balances(cursor):
     query = """
     SELECT id, tick, tick_hash, address, amt, last_update
     FROM balances where p = 'SRC-20'
@@ -759,12 +758,22 @@ def next_tx_index(db):
 
 
 def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
-    if difficulty is None:
-        difficulty = 0.0
-    else:
-        difficulty = float(difficulty)
-    args = (block_index, block_hash, block_time, previous_block_hash, difficulty)
+    """
+    Insert a new block into the database, does not commit
+
+    Args:
+        db (object): The database connection object.
+        block_index (int): The index of the block.
+        block_hash (str): The hash of the block.
+        block_time (int): The timestamp of the block.
+        previous_block_hash (str): The hash of the previous block.
+        difficulty (float): The difficulty of the block.
+
+    Returns:
+        None
+    """
     cursor = db.cursor()
+    # logger.info('Inserting MySQL Block: {}'.format(block_index))
     block_query = """INSERT INTO blocks(
                         block_index,
                         block_hash,
@@ -772,11 +781,13 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
                         previous_block_hash,
                         difficulty
                         ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)"""
+    args = (block_index, block_hash, block_time, previous_block_hash, float(difficulty))
+
     try:
         cursor.execute(block_query, args)
     except mysql.IntegrityError as e:
         cursor.close()
-        raise BlockAlreadyExistsError(f"Block {block_index} already exists in the database.") from e
+        raise BlockAlreadyExistsError(f"block {block_index} already exists in mysql") from e
     except Exception as e:
         cursor.close()
         raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
@@ -819,67 +830,3 @@ def get_balances_at_block(db, block_index):
     with db.cursor() as cursor:
         src20_valid_list = get_src20_valid_list(cursor, block_index)
     return calculate_balances(src20_valid_list)
-
-
-def get_unlocked_cpids(db) -> List[Tuple[str, ...]]:
-    with db.cursor() as cursor:
-        cursor.execute(f"SELECT DISTINCT cpid FROM {STAMP_TABLE} WHERE locked != 1 AND (ident = 'SRC-721' or ident = 'STAMP')")
-        return list(cursor.fetchall())
-
-
-def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2):
-    total_assets = len(assets_details)
-    num_chunks = (total_assets + chunk_size - 1) // chunk_size
-
-    for i in range(num_chunks):
-        start = i * chunk_size
-        end = min(start + chunk_size, total_assets)
-        assets_chunk = assets_details[start:end]
-        logger.info(f"Updating assets in database for chunk {i+1}/{num_chunks}")
-
-        try:
-            updates = []
-            with db.cursor() as cursor:
-                for asset in assets_chunk:
-                    cpid = asset.get("asset")
-                    if cpid is None:
-                        continue
-                    set_clauses = []
-                    params: List[Any] = []
-
-                    if "locked" in asset:
-                        locked = 1 if asset.get("locked") else 0
-                        set_clauses.append("locked = %s")
-                        params.append(locked)
-
-                    if "divisible" in asset:
-                        divisible = 1 if asset.get("divisible") else 0
-                        set_clauses.append("divisible = %s")
-                        params.append(divisible)
-
-                    if "supply" in asset:
-                        supply = asset.get("supply", 0)
-                        set_clauses.append("supply = %s")
-                        params.append(supply)
-
-                    if not set_clauses:
-                        continue
-
-                    params.append(cpid)
-                    set_clause = ", ".join(set_clauses)
-                    sql = f"""
-                        UPDATE {STAMP_TABLE} SET
-                            {set_clause}
-                        WHERE cpid = %s
-                        """
-                    updates.append((sql, params))
-
-                for sql, params in updates:
-                    cursor.execute(sql, params)
-            db.commit()
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error updating assets in chunk {i+1}: {e}")
-
-        if i < num_chunks - 1:
-            time.sleep(delay_between_chunks)

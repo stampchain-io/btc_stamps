@@ -53,7 +53,7 @@ class StampData:
         btc_amount (float): The amount of BTC in the transaction.
         fee (float): The transaction fee.
         data (str): The data associated with the transaction.
-        decoded_tx (str): The decoded transaction.
+        decoded_tx (dict): The decoded transaction.
         keyburn (int): The keyburn value.
         tx_index (int): The index of the transaction.
         block_index (int): The index of the block containing the transaction.
@@ -69,7 +69,7 @@ class StampData:
     btc_amount: float
     fee: float
     data: str
-    decoded_tx: str
+    decoded_tx: dict
     keyburn: int
     tx_index: int
     block_index: int
@@ -104,6 +104,7 @@ class StampData:
     collection_description: Optional[str] = None
     collection_website: Optional[str] = None
     collection_onchain: Optional[bool] = None
+    db: Optional[object] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -306,9 +307,42 @@ class StampData:
             self.ident = self.decoded_base64["p"].upper()
             self.file_suffix = "json"
         else:
-            self.file_suffix = "json"  # a valid json file, but not SRC-20, will be cursed
+            self.file_suffix = "json"  # A valid JSON file, but not SRC-20, will be considered cursed
             self.stamp_mimetype = "application/json"
             self.ident = "UNKNOWN"
+            self.parse_and_insert_collection()
+
+    def parse_and_insert_collection(self):
+        """
+        Parse the JSON string for collection data and insert into collection tables if found.
+        """
+        collection_data = self.decoded_base64.get("collection")
+        if not collection_data or not isinstance(collection_data, dict):
+            return
+
+        name = collection_data.get("name")
+        if not name:
+            return
+
+        collection_id = self.generate_collection_id(name).hex()
+
+        # Check if the collection already exists
+        existing_collection = self.get_collection_by_name(self.db, name)
+        if existing_collection:
+            return  # Collection already exists, ignore
+
+        # Prepare collection data
+        stamps = collection_data.get("stamps", [])
+        web = collection_data.get("web")
+        description = collection_data.get("description")
+
+        # Insert collection
+        self.insert_into_collections(self.db, [(collection_id, name, description, web, 1)])  # '1' indicates 'onchain'
+
+        # Insert stamps
+        if stamps:
+            stamp_inserts = [(collection_id, stamp) for stamp in stamps]
+            self.insert_into_collection_stamps(self.db, stamp_inserts)
 
     def zlib_decompress(self, compressed_data):
         """
@@ -602,6 +636,7 @@ class StampData:
         db,
         valid_stamps_in_block,
     ):
+        self.db = db
         self.validate_data_exists()
         stamp = convert_to_dict_or_string(self.data, output_format="dict")
 
@@ -614,8 +649,8 @@ class StampData:
         self.validate_and_process_stamp_data(decode_base64, db, valid_stamps_in_block)
 
         self.normalize_mime_and_suffix()
-        # if isinstance(self.decoded_base64, bytes):
-        self.file_hash, filename = encode_and_store_file(  # can be any type (bytestring, string or dict)
+        # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
+        self.file_hash, filename = encode_and_store_file(
             db,
             self.tx_hash,
             self.file_suffix,
