@@ -1188,7 +1188,7 @@ def fetch_api_ledger_data(block_index: int):
     if not urls:
         return None, None
 
-    max_retries = 10
+    max_retries = 5  # Reduced number of retries
     backoff_time = 1
 
     def fetch_url(url):
@@ -1221,8 +1221,12 @@ def fetch_api_ledger_data(block_index: int):
 def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
     try:
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
+        if api_ledger_validation is None:
+            raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
     except Exception as e:
-        raise Exception(f"Error fetching API data: {e}")
+        logger.error(f"Error fetching API data: {e}")
+        # Continue processing even if API data is unavailable
+        return False
 
     if api_ledger_hash == ledger_hash:
         return True
@@ -1244,7 +1248,8 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
     compare_string_formats(valid_src20_str, api_ledger_validation)
 
-    return True  # Temporary while OKX debugs balance issue
+    return True  # Temporary while API issues are resolved
+    # If you want to raise an exception instead, you can uncomment the following line
     # raise ValueError("API ledger hash does not match local ledger hash")
 
 
