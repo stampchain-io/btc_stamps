@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
+from requests.exceptions import JSONDecodeError
 
 import index_core.log as log
 from config import (  # SRC_VALIDATION_API1,
