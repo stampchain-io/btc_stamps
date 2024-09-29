@@ -148,72 +148,61 @@ class BlockProcessor:
         insert_transactions(self.db, tx_results)
 
 
-def process_vout(ctx, stamp_issuance=None):
+def process_vout(ctx, block_index, stamp_issuance=None):
     """
     Process all the out values of a transaction.
 
     Args:
         ctx (TransactionContext): The transaction context.
+        block_index (int): The index of the block.
+        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance.
 
     Returns:
-        tuple: A tuple containing the following values:
-            - pubkeys_compiled (list): A list of public keys.
-            - keyburn (int or None): The keyburn value of the transaction.
-            - is_op_return (bool or None): Indicates if the transaction is an OP_RETURN transaction.
-            - fee (int): The updated fee after processing the vout values.
+        vOutInfo: A named tuple containing information about the outputs.
     """
     pubkeys_compiled = []
     keyburn = None
     is_op_return, is_olga = None, None
-
-    # Ignore coinbase transactions.
-    if ctx.is_coinbase():
-        raise DecodeError("coinbase transaction")
-
-    # Fee is the input values minus output values.
+    p2wsh_data_chunks = []
     fee = 0
 
-    for vout in ctx.vout:
-        # asm is the bytestring of the vout values
-        # Fee is the input values minus output values.
+    for idx, vout in enumerate(ctx.vout):
         fee -= vout.nValue
-        # Ignore transactions with invalid script.
         try:
             asm = script.get_asm(vout.scriptPubKey)
         except CScriptInvalidError as e:
             raise DecodeError(e)
-        if asm[-1] == "OP_CHECKMULTISIG":  # the last element in the asm list is OP_CHECKMULTISIG
+        if asm[-1] == "OP_CHECKMULTISIG":
             try:
-                # NOTE: need to investigate signatures_required, signatures_possible
-                pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(
-                    asm
-                )  # this is all the pubkeys from the loop
-                if (
-                    keyburn_vout is not None
-                ):  # if one of the vouts have keyburn we set keyburn for the whole trx. the last vout is not keyburn
+                pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm)
+                if keyburn_vout is not None:
                     keyburn = keyburn_vout
                 pubkeys_compiled += pubkeys
-                # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
             except Exception as e:
                 raise DecodeError(f"unrecognised output type {e}")
         elif asm[-1] == "OP_CHECKSIG":
-            pass  # FIXME: not certain if we need to check keyburn on OP_CHECKSIG
-            # see 'A14845889080100805000'
-            #   0: OP_DUP
-            #   1: OP_HASH160
-            #   3: OP_EQUALVERIFY
-            #   4: OP_CHECKSIG
+            pass  # Existing handling
         elif asm[0] == "OP_RETURN":
             is_op_return = True
-        elif stamp_issuance and asm[0] == 0 and len(asm[1]) == 32:
-            # Pay-to-Witness-Script-Hash (P2WSH)
+        elif stamp_issuance is not None and asm[0] == 0 and len(asm[1]) == 32:
+            # Original handling for stamp_issuance transactions
             pubkeys = script.get_p2wsh(asm)
             pubkeys_compiled += pubkeys
             is_olga = True
+        elif asm[0] == 0 and len(asm[1]) == 32:
+            # Check if block is at or after activation block
+            if block_index >= config.BTC_SRC20_OLGA_BLOCK:
+                # Collect P2WSH data outputs for new SRC-20 transactions
+                if idx > 0:
+                    p2wsh_data_chunks.append(asm[1])
+                    is_olga = True
 
-    vOutInfo = namedtuple("vOutInfo", ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga"])
+    vOutInfo = namedtuple(
+        "vOutInfo",
+        ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
+    )
 
-    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga)
+    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga, p2wsh_data_chunks)
 
 
 def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
@@ -222,22 +211,12 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
     Args:
         tx_hex (str): The hexadecimal representation of the transaction.
-        block_index (int, optional): The index of the block. Defaults to None.
-        db (object, optional): The database object. Defaults to None.
-        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance. Defaults to None.
+        block_index (int, optional): The index of the block.
+        db (object, optional): The database object.
+        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance.
 
     Returns:
         TransactionInfo: A named tuple containing the transaction information.
-
-    Raises:
-        DecodeError: If the output type is unrecognized.
-        BTCOnlyError: If the transaction is not a stamp.
-
-    Note:
-        The destinations, if they exist, always come before the data output, and the change, if it exists, always comes after.
-        Include keyburn check on all transactions, not just src-20.
-        This function parses every transaction, not just stamps/src-20.
-        Returns normalized None data for DecodeError and BTCOnlyError.
     """
     TransactionInfo = namedtuple(
         "TransactionInfo",
@@ -258,20 +237,25 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         if not block_index:
             block_index = util.CURRENT_BLOCK_INDEX
 
-        destinations, btc_amount, data, p2wsh_data = [], 0, b"", b""
+        destinations, btc_amount, data = [], 0, b""
 
         ctx = backend.deserialize(tx_hex)
-        vout_info = process_vout(ctx, stamp_issuance=stamp_issuance)
+        vout_info = process_vout(ctx, block_index, stamp_issuance=stamp_issuance)
         pubkeys_compiled = vout_info.pubkeys_compiled
         keyburn = getattr(vout_info, "keyburn", None)
         is_op_return = getattr(vout_info, "is_op_return", None)
         fee = getattr(vout_info, "fee", None)
+        p2wsh_data_chunks = getattr(vout_info, "p2wsh_data_chunks", [])
+
+        # Handle P2WSH data chunks
+        p2wsh_data = None
+        if p2wsh_data_chunks:
+            p2wsh_data = b"".join(p2wsh_data_chunks)
+            p2wsh_data = p2wsh_data.rstrip(b"\x00")  # Remove padding zeros
 
         if stamp_issuance is not None:
             if pubkeys_compiled and vout_info.is_olga:
-                chunk = b""
-                for pubkey in pubkeys_compiled:
-                    chunk += pubkey
+                chunk = b"".join(pubkeys_compiled)
                 pubkey_len = int.from_bytes(chunk[0:2], byteorder="big")
                 p2wsh_data = chunk[2 : 2 + pubkey_len]
             else:
@@ -288,25 +272,26 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 p2wsh_data,
             )
 
-        if pubkeys_compiled:  # this is the combination of the two pubkeys which hold the SRC-20 data
+        # Existing logic for SRC-20 via CHECKMULTISIG
+        if pubkeys_compiled:
             chunk = b""
             for pubkey in pubkeys_compiled:
-                chunk += pubkey[1:-1]  # Skip sign byte and nonce byte. ( this does the concatenation as well)
-        try:
-            src20_destination, src20_data = decode_checkmultisig(ctx, chunk)  # this only decodes src-20 type trx
-        except Exception as e:
-            raise DecodeError(f"unrecognized output type {e}")
-        if src20_destination is None or src20_data is None:
-            raise ValueError("src20_destination and src20_data must not be None")
-        if src20_data is not None:
-            data += src20_data
-            destinations = str(src20_destination)
+                chunk += pubkey[1:-1]  # Skip sign byte and nonce byte.
+            try:
+                src20_destination, src20_data = decode_checkmultisig(ctx, chunk)
+            except Exception as e:
+                raise DecodeError(f"unrecognized output type: {e}")
+            if src20_destination is None or src20_data is None:
+                raise ValueError("src20_destination and src20_data must not be None")
+            if src20_data:
+                data += src20_data
+                destinations = str(src20_destination)
 
-        if not data:
+        if not data and not p2wsh_data:
             raise BTCOnlyError("no data, not a stamp", ctx)
 
+        # Get source address
         vin = ctx.vin[0]
-
         prev_tx_hash = vin.prevout.hash
         prev_tx_index = vin.prevout.n
 
@@ -321,6 +306,11 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         # Decode the address associated with the output.
         source = decode_address(prev_vout_script_pubkey)
 
+        if not destinations:
+            script_pubkey = ctx.vout[0].scriptPubKey
+            destination = decode_address(script_pubkey)
+            destinations = str(destination)
+
         return TransactionInfo(
             str(source),
             destinations,
@@ -330,7 +320,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             ctx,
             keyburn,
             is_op_return,
-            None,
+            p2wsh_data,
         )
 
     except (DecodeError, BTCOnlyError):

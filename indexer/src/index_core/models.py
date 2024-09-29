@@ -75,7 +75,7 @@ class StampData:
     block_index: int
     block_time: Union[int, datetime]
     is_op_return: bool
-    p2wsh_data: bytes
+    p2wsh_data: Optional[bytes]
     stamp: Optional[int] = None
     creator: Optional[str] = None
     cpid: Optional[str] = None
@@ -423,29 +423,33 @@ class StampData:
 
     def check_decoded_data_fetch_ident_mime(self):
         """
-        Check the decoded data and fetch the identifier, mime-type, and file suffix.
-
-        Raises:
-            Exception: If an error occurs during the process.
+        Check the decoded data and fetch the identifier, MIME type, and file suffix.
         """
-        # FIXME: this needs some love upstream to simplify. SVG stamps (and CP SRC?) come in as strings, SRC-20 as bytes.
         try:
-            if type(self.decoded_base64) is bytes:
-                self.handle_bytes()
-            if type(self.decoded_base64) is dict:
-                self.handle_dict()  # SRC-20 coming in as bytes are converted to dict here
-            elif type(self.decoded_base64) is str:
-                self.handle_json_string()  # outputs dict for CP src-20, or a bytestring for svg stamps
+            if isinstance(self.decoded_base64, bytes):
+                # Attempt to decompress if data is compressed
+                try:
+                    uncompressed_data = zlib.decompress(self.decoded_base64)
+                    # Try to decode with msgpack
+                    try:
+                        self.decoded_base64 = msgpack.unpackb(uncompressed_data)
+                        self.file_suffix = "json"
+                        self.stamp_mimetype = "application/json"
+                        self.ident = self.decoded_base64.get("p", "STAMP").upper()
+                    except msgpack.exceptions.ExtraData:
+                        self.decoded_base64 = uncompressed_data.decode("utf-8")
+                        self.check_decoded_data_fetch_ident_mime()
+                except zlib.error:
+                    # If not compressed, proceed to handle as bytes
+                    self.handle_bytes()
+            elif isinstance(self.decoded_base64, dict):
+                self.decode_and_reformat_src_string()
+            elif isinstance(self.decoded_base64, str):
+                self.handle_json_string()
             else:
-                type_func_map = {
-                    str: self.handle_string,
-                    bytes: self.handle_bytes_again,
-                }
-                handler = type_func_map.get(type(self.decoded_base64), self.handle_unknown_type)
-                handler()
-
+                self.handle_unknown_type()
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Error in check_decoded_data_fetch_ident_mime: {e}")
             raise
 
     def validate_data_exists(self):
@@ -533,8 +537,18 @@ class StampData:
         )
 
     def determine_stamp_data_type(self, decode_base64_func):
-        if self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START:
-            self.process_p2wsh_data(decode_base64_func)
+        """
+        Determine the type of stamp data and prepare it for processing.
+
+        Args:
+            decode_base64_func: Function to decode base64 data.
+        """
+        if self.p2wsh_data is not None:
+            # For P2WSH data, base64 encode it first
+            self.stamp_base64 = base64.b64encode(self.p2wsh_data).decode()
+            self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
+            self.is_op_return = None  # reset because P2WSH data is not OP_RETURN
+            self.check_decoded_data_fetch_ident_mime()
         elif self.decoded_base64 is not None:
             self.process_decoded_base64()
         else:

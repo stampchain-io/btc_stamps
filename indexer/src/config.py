@@ -61,7 +61,8 @@ INVALID_BTC_STAMP_SUFFIX = ["plain", "octet-stream", "js", "css", "x-empty", "js
 
 CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transaction on counterparty
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty
-BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first stamp (src-20)
+BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP encoding
+BTC_SRC20_OLGA_BLOCK: int = 865000  # block height of first SRC-20 with P2WSH OLGA encoding
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 
 CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
