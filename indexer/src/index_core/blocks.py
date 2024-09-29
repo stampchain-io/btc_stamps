@@ -13,7 +13,6 @@ import time
 from collections import namedtuple
 from typing import List
 
-import bitcoin as bitcoinlib
 from bitcoin.core.script import CScriptInvalidError
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib.keys import pubkeyhash_to_addr
@@ -791,8 +790,8 @@ def follow(db):
                         break
                     logger.info(f"Checking that block {block_index} is not orphan.")
                     current_hash = backend.getblockhash(block_index)
-                    current_cblock = backend.getcblock(current_hash)
-                    backend_parent = bitcoinlib.core.b2lx(current_cblock.hashPrevBlock)
+                    block_header = backend.getblockheader(current_hash)
+                    backend_parent = block_header["previousblockhash"]
                     cursor = db.cursor()
                     block_query = """
                     SELECT * FROM blocks WHERE block_index = %s
@@ -827,10 +826,8 @@ def follow(db):
                     continue
 
             block_hash = backend.getblockhash(block_index)
-            cblock = backend.getcblock(block_hash)
-            previous_block_hash = bitcoinlib.core.b2lx(cblock.hashPrevBlock)
-            block_time = cblock.nTime
-            txhash_list, raw_transactions = backend.get_tx_list(cblock)
+
+            txhash_list, raw_transactions, block_time, previous_block_hash, difficulty = backend.get_tx_list(block_hash)
             util.CURRENT_BLOCK_INDEX = block_index
 
             try:
@@ -840,7 +837,7 @@ def follow(db):
                     block_hash,
                     block_time,
                     previous_block_hash,
-                    cblock.difficulty,
+                    difficulty,
                 )
             except BlockAlreadyExistsError as e:
                 logger.warning(e)
@@ -898,7 +895,6 @@ def follow(db):
                             block_time=block_time,
                         )
                         tx_results.append(result)
-                        # tx_index += 1
 
             tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
             # Assign tx_index after sorting

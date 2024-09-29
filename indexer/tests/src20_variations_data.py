@@ -571,7 +571,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": True,
-            "message": "token not previously deployed  current success/success - TBD ",
+            "message": "token not previously deployed",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -600,7 +600,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": False,
-            "message": "token not previously deployed, current success/fail - TBD",
+            "message": "token not previously deployed, extra whitespace",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -629,7 +629,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": False,
-            "message": "token not previously deployed",
+            "message": "token not previously deployed, extra whitespace",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -658,7 +658,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": False,
-            "message": "token not previously deployed",
+            "message": "token not previously deployed, extra whitespace",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -687,7 +687,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": False,
-            "message": "token not previously deployed",
+            "message": "token not previously deployed, extra whitespace",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1051,7 +1051,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": True,
-            "message": "token  previously deployed",
+            "message": "token  previously deployed, 4 decimals, trailing 0 in amt dec value",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1391,7 +1391,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": True,
-            "message": "token  previously deployed",
+            "message": "token  previously deployed, valid amt with 0 value decimal",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",

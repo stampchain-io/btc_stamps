@@ -758,22 +758,12 @@ def next_tx_index(db):
 
 
 def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
-    """
-    Insert a new block into the database, does not commit
-
-    Args:
-        db (object): The database connection object.
-        block_index (int): The index of the block.
-        block_hash (str): The hash of the block.
-        block_time (int): The timestamp of the block.
-        previous_block_hash (str): The hash of the previous block.
-        difficulty (float): The difficulty of the block.
-
-    Returns:
-        None
-    """
+    if difficulty is None:
+        difficulty = 0.0
+    else:
+        difficulty = float(difficulty)
+    args = (block_index, block_hash, block_time, previous_block_hash, difficulty)
     cursor = db.cursor()
-    # logger.info('Inserting MySQL Block: {}'.format(block_index))
     block_query = """INSERT INTO blocks(
                         block_index,
                         block_hash,
@@ -781,13 +771,11 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
                         previous_block_hash,
                         difficulty
                         ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)"""
-    args = (block_index, block_hash, block_time, previous_block_hash, float(difficulty))
-
     try:
         cursor.execute(block_query, args)
     except mysql.IntegrityError as e:
         cursor.close()
-        raise BlockAlreadyExistsError(f"block {block_index} already exists in mysql") from e
+        raise BlockAlreadyExistsError(f"Block {block_index} already exists in the database.") from e
     except Exception as e:
         cursor.close()
         raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
