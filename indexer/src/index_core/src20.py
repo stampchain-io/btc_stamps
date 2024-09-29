@@ -141,7 +141,7 @@ class Src20Processor:
         self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
 
     def normalize_and_validate_amt(self):
-        amt = D(self.src20_dict["amt"])
+        amt = D(self.src20_dict["amt"]).normalize()
         self.dec = int(self.dec) if self.dec is not None else 18
         decimal_length = -int(amt.as_tuple().exponent)
 
@@ -689,9 +689,7 @@ def check_format(input_string, tx_hash):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
 
-                        input_dict[key] = value
-
-            return input_dict
+            return input_dict  # unmodified values to be processed in src20 validation
 
     except json.JSONDecodeError:
         return None
