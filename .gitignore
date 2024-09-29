@@ -14,3 +14,4 @@ indexer/backups/*
 indexer/tools_priv
 indexer/tools_priv.diff
 app
+indexer/bitcoin_parser/target

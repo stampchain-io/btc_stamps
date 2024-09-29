@@ -131,13 +131,18 @@ def getblockhash(blockcount):
     return rpc("getblockhash", [blockcount])
 
 
-def getblock(block_hash):  # returns a hex string
-    return rpc("getblock", [block_hash, False])
+def getblock(block_hash, verbosity=False):
+    return rpc("getblock", [block_hash, verbosity])
 
 
 def getcblock(block_hash):
-    block_hex = getblock(block_hash)
+    block_hex = getblock(block_hash)  # Defaults to verbosity=False (raw hex)
     return CBlock.deserialize(bytes.fromhex(block_hex))
+
+
+def getblockheader(block_hash):
+    """Fetches the block header for a given block hash."""
+    return rpc("getblockheader", [block_hash])
 
 
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
@@ -152,22 +157,21 @@ def serialize(ctx):
     return bitcoinlib.core.CTransaction.serialize(ctx)
 
 
-def get_tx_list(block):
-    raw_transactions = {}
+def get_tx_list(block_hash):
+    block_data = getblock(block_hash, 2)  # Fetch block with full transaction data using block hash
+
     tx_hash_list = []
-
-    for ctx in block.vtx:
-        if util.enabled("correct_segwit_txids"):  # always enabled
-            # This differs from the transactions hash as given by GetHash. GetTxid excludes witness data, while GetHash includes it
-            hsh = ctx.GetTxid()
-        else:
-            hsh = ctx.GetHash()
-        tx_hash = bitcoinlib.core.b2lx(hsh)
-        raw = ctx.serialize()
-
+    raw_transactions = {}
+    for tx in block_data["tx"]:
+        tx_hash = tx["txid"]
         tx_hash_list.append(tx_hash)
-        raw_transactions[tx_hash] = bitcoinlib.core.b2x(raw)
-    return (tx_hash_list, raw_transactions)
+        raw_transactions[tx_hash] = tx["hex"]
+
+    block_time = block_data["time"]
+    previous_block_hash = block_data.get("previousblockhash", None)
+    difficulty = block_data.get("difficulty", None)
+
+    return tx_hash_list, raw_transactions, block_time, previous_block_hash, difficulty
 
 
 GETRAWTRANSACTION_MAX_RETRIES = 2

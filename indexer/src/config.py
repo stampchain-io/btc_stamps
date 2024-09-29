@@ -45,7 +45,7 @@ elif RPC_TLS:
 else:
     RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 
-RPC_BATCH_SIZE = 20  # A 1 MB block can hold about 4200 transactions.
+RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
