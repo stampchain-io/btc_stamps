@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
+from requests.exceptions import JSONDecodeError
 
 import index_core.log as log
 from config import (  # SRC_VALIDATION_API1,
@@ -140,7 +141,7 @@ class Src20Processor:
         self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
 
     def normalize_and_validate_amt(self):
-        amt = D(self.src20_dict["amt"])
+        amt = D(self.src20_dict["amt"]).normalize()
         self.dec = int(self.dec) if self.dec is not None else 18
         decimal_length = -int(amt.as_tuple().exponent)
 
@@ -688,9 +689,7 @@ def check_format(input_string, tx_hash):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
 
-                        input_dict[key] = value
-
-            return input_dict
+            return input_dict  # unmodified values to be processed in src20 validation
 
     except json.JSONDecodeError:
         return None
@@ -1167,18 +1166,6 @@ def clear_zero_balances(db):
 
 
 def fetch_api_ledger_data(block_index: int):
-    """
-    Fetches the ledger hash and balance data for a given block index from the API.
-
-    Args:
-        block_index (int): The block index to fetch data for.
-
-    Returns:
-        tuple: A tuple containing the ledger hash and balance data from the API, or (None, None) if neither URL is provided.
-
-    Raises:
-        Exception: If failed to retrieve from the API after retries.
-    """
     urls = []
     # if SRC_VALIDATION_API1:
     #     urls.append(SRC_VALIDATION_API1 + str(block_index))  # OKX diverges on hashes at 856444 due to their sci notation in strings
@@ -1188,20 +1175,52 @@ def fetch_api_ledger_data(block_index: int):
     if not urls:
         return None, None
 
-    max_retries = 10
+    max_retries = 5
     backoff_time = 1
 
     def fetch_url(url):
         try:
             response = requests.get(url, timeout=5)
+            logger.debug(f"Fetching URL: {url}")
+            logger.debug(f"Response status code: {response.status_code}")
+            logger.debug(f"Response headers: {response.headers}")
+            logger.debug(f"Raw response text: {response.text}")
+
             if response.status_code == 200:
-                data = response.json().get("data", {})
-                api_ledger_hash = data.get("hash")
-                api_ledger_validation = data.get("balance_data")
-                return api_ledger_hash, api_ledger_validation
+                try:
+                    data = response.json()
+                    logger.debug(f"Parsed JSON data: {data}")
+
+                    if "data" in data:
+                        data = data["data"]
+                        logger.debug(f"Data field: {data}")
+
+                        api_ledger_hash = data.get("hash")
+                        api_ledger_validation = data.get("balance_data")
+
+                        logger.debug(f"api_ledger_hash: {api_ledger_hash}")
+                        logger.debug(f"api_ledger_validation: {api_ledger_validation}")
+
+                        if not api_ledger_validation:
+                            logger.error("api_ledger_validation is empty")
+                            return None, None
+
+                        return api_ledger_hash, api_ledger_validation
+                    else:
+                        logger.error("No 'data' key in response JSON")
+                        return None, None
+                except JSONDecodeError as e:
+                    logger.error(f"JSONDecodeError: {e}")
+                    logger.debug(f"Response content: {response.content}")
+                    return None, None
+                except Exception as e:
+                    logger.error(f"Unexpected error parsing JSON: {e}")
+                    return None, None
             else:
+                logger.error(f"Non-200 response code: {response.status_code} from URL: {url}")
                 return None, None
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed for URL {url}: {e}")
             return None, None
 
     for _ in range(max_retries):
@@ -1221,8 +1240,12 @@ def fetch_api_ledger_data(block_index: int):
 def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
     try:
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
+        if api_ledger_validation is None:
+            raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
     except Exception as e:
-        raise Exception(f"Error fetching API data: {e}")
+        logger.error(f"Error fetching API data: {e}")
+        # Continue processing even if API data is unavailable
+        return False
 
     if api_ledger_hash == ledger_hash:
         return True
@@ -1244,7 +1267,8 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
     compare_string_formats(valid_src20_str, api_ledger_validation)
 
-    return True  # Temporary while OKX debugs balance issue
+    return True  # Temporary while API issues are resolved
+    # If you want to raise an exception instead, you can uncomment the following line
     # raise ValueError("API ledger hash does not match local ledger hash")
 
 
