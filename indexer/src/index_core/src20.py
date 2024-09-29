@@ -1169,6 +1169,8 @@ def clear_zero_balances(db):
 
 def fetch_api_ledger_data(block_index: int):
     urls = []
+    # if SRC_VALIDATION_API1:
+    #     urls.append(SRC_VALIDATION_API1 + str(block_index))  # OKX diverges on hashes at 856444 due to their sci notation in strings
     if SRC_VALIDATION_SECRET_API2 and SRC_VALIDATION_API2:
         urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
 
