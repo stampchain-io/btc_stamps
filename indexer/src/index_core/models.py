@@ -544,7 +544,7 @@ class StampData:
             decode_base64_func: Function to decode base64 data.
         """
         if self.p2wsh_data is not None:
-            # For P2WSH data, base64 encode it first
+            # For P2WSH Stamp Image data, base64 encode it first
             self.stamp_base64 = base64.b64encode(self.p2wsh_data).decode()
             self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
             self.is_op_return = None  # reset because P2WSH data is not OP_RETURN

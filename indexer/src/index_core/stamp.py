@@ -234,6 +234,9 @@ def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
     return src20_dict
 
 
-def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidStamp]):
+def parse_stamp(stamp_data: StampData, db, valid_stamps_in_block):
+    if not stamp_data.data and not stamp_data.p2wsh_data:
+        return None, None, None, None
+
     processor = StampProcessor(db, valid_stamps_in_block)
     return processor.process_stamp(stamp_data)

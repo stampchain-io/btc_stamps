@@ -165,9 +165,7 @@ def get_tx_list(block_hash):
     previous_block_hash = block_data.get("previousblockhash", None)
     difficulty = block_data.get("difficulty", None)
 
-    # Now get tx_hex for all transactions in the block using batch call
     raw_transactions = getrawtransaction_batch(tx_hash_list, verbose=False, skip_missing=False)
-    # raw_transactions is a dict {tx_hash: tx_hex}
 
     return tx_hash_list, raw_transactions, block_time, previous_block_hash, difficulty
 

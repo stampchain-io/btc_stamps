@@ -88,6 +88,8 @@ class BlockProcessor:
 
     def process_transaction_results(self, tx_results):
         for result in tx_results:
+            if not result.data and not result.p2wsh_data:
+                continue
             stamp_data = StampData(
                 tx_hash=result.tx_hash,
                 source=result.source,
@@ -166,6 +168,9 @@ def process_vout(ctx, block_index, stamp_issuance=None):
     p2wsh_data_chunks = []
     fee = 0
 
+    if ctx.is_coinbase():
+        raise DecodeError("coinbase transaction")
+
     for idx, vout in enumerate(ctx.vout):
         fee -= vout.nValue
         try:
@@ -194,9 +199,9 @@ def process_vout(ctx, block_index, stamp_issuance=None):
             if block_index >= config.BTC_SRC20_OLGA_BLOCK:
                 # Collect P2WSH data outputs for new SRC-20 transactions
                 if idx > 0:
-                    p2wsh_data_chunks.append(asm[1])
+                    data_bytes = asm[1]
+                    p2wsh_data_chunks.append(data_bytes)
                     is_olga = True
-
     vOutInfo = namedtuple(
         "vOutInfo",
         ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
@@ -242,24 +247,22 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         ctx = backend.deserialize(tx_hex)
         vout_info = process_vout(ctx, block_index, stamp_issuance=stamp_issuance)
         pubkeys_compiled = vout_info.pubkeys_compiled
-        keyburn = getattr(vout_info, "keyburn", None)
-        is_op_return = getattr(vout_info, "is_op_return", None)
-        fee = getattr(vout_info, "fee", None)
-        p2wsh_data_chunks = getattr(vout_info, "p2wsh_data_chunks", [])
+        keyburn = vout_info.keyburn
+        is_op_return = vout_info.is_op_return
+        fee = vout_info.fee
+        p2wsh_data_chunks = vout_info.p2wsh_data_chunks
 
-        # Handle P2WSH data chunks
         p2wsh_data = None
-        if p2wsh_data_chunks:
-            p2wsh_data = b"".join(p2wsh_data_chunks)
-            p2wsh_data = p2wsh_data.rstrip(b"\x00")  # Remove padding zeros
 
         if stamp_issuance is not None:
+            # Process CP encoded stamp issuance P2WSH transactions
             if pubkeys_compiled and vout_info.is_olga:
                 chunk = b"".join(pubkeys_compiled)
-                pubkey_len = int.from_bytes(chunk[0:2], byteorder="big")
+                pubkey_len = int.from_bytes(chunk[:2], byteorder="big")
                 p2wsh_data = chunk[2 : 2 + pubkey_len]
             else:
                 p2wsh_data = None
+
             return TransactionInfo(
                 None,
                 None,
@@ -272,11 +275,34 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 p2wsh_data,
             )
 
+        # Handle P2WSH data chunks for SRC-20 transactions
+        if p2wsh_data_chunks:
+            p2wsh_data = b"".join(p2wsh_data_chunks).rstrip(b"\x00")  # Remove padding zeros
+
+            if p2wsh_data and len(p2wsh_data) >= 2 + len(config.PREFIX):
+                # Extract the length prefix (first 2 bytes)
+                chunk_length = int.from_bytes(p2wsh_data[:2], byteorder="big")
+                # Ensure that p2wsh_data has enough bytes
+                if len(p2wsh_data) >= 2 + chunk_length:
+                    # Extract the data chunk
+                    data_chunk = p2wsh_data[2 : 2 + chunk_length]
+                    # Check for config.PREFIX at the start of data_chunk
+                    if data_chunk.startswith(config.PREFIX):
+                        data_chunk_without_prefix = data_chunk[len(config.PREFIX) :]
+                        data = data_chunk_without_prefix
+                        keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
+                        p2wsh_data = None
+                    else:
+                        p2wsh_data = None
+                else:
+                    # Data length is not sufficient
+                    p2wsh_data = None
+            else:
+                p2wsh_data = None
+
         # Existing logic for SRC-20 via CHECKMULTISIG
         if pubkeys_compiled:
-            chunk = b""
-            for pubkey in pubkeys_compiled:
-                chunk += pubkey[1:-1]  # Skip sign byte and nonce byte.
+            chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
             try:
                 src20_destination, src20_data = decode_checkmultisig(ctx, chunk)
             except Exception as e:
@@ -522,7 +548,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
         destination = str(stamp_issuance["issuer"])
         data = str(stamp_issuance)
 
-    if source and (data or destination):
+    if source and (data or destination or p2wsh_data):
         logger.info(
             "Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}".format(
                 tx_hash, data, keyburn, is_op_return
@@ -540,7 +566,6 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
             is_op_return,
             p2wsh_data,
         )
-
     else:
         skip_logger.debug("Skipping transaction: {}".format(tx_hash))
         return (None for _ in range(9))
