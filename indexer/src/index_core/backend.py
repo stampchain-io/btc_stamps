@@ -158,18 +158,16 @@ def serialize(ctx):
 
 
 def get_tx_list(block_hash):
-    block_data = getblock(block_hash, 2)  # Fetch block with full transaction data using block hash
+    block_data = getblock(block_hash, 1)  # Use verbosity=1 to get block header and txids
 
-    tx_hash_list = []
-    raw_transactions = {}
-    for tx in block_data["tx"]:
-        tx_hash = tx["txid"]
-        tx_hash_list.append(tx_hash)
-        raw_transactions[tx_hash] = tx["hex"]
-
+    tx_hash_list = block_data["tx"]
     block_time = block_data["time"]
     previous_block_hash = block_data.get("previousblockhash", None)
     difficulty = block_data.get("difficulty", None)
+
+    # Now get tx_hex for all transactions in the block using batch call
+    raw_transactions = getrawtransaction_batch(tx_hash_list, verbose=False, skip_missing=False)
+    # raw_transactions is a dict {tx_hash: tx_hex}
 
     return tx_hash_list, raw_transactions, block_time, previous_block_hash, difficulty
 
