@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
 from requests.exceptions import JSONDecodeError
+from sqlalchemy import values
 
 import index_core.log as log
 from config import (  # SRC_VALIDATION_API1,
@@ -628,7 +629,8 @@ def check_format(input_string, tx_hash, block_index):
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
             elif isinstance(input_string, str):
-                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
+                input_dict = json.loads(input_string, parse_float=D)
+                # input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
         except (json.JSONDecodeError, TypeError):
@@ -671,8 +673,7 @@ def check_format(input_string, tx_hash, block_index):
 
                         if isinstance(value, str):
                             try:
-                                if CP_P2WSH_FEAT_BLOCK_START >= block_index:
-                                    # this will exclude more invalid SRC-20 values from even becoming a stamp
+                                if block_index >= CP_P2WSH_FEAT_BLOCK_START:
                                     value = D(value) if value else D(0)
                                 else:
                                     value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
@@ -686,12 +687,13 @@ def check_format(input_string, tx_hash, block_index):
                         elif isinstance(value, float):
                             value_str = format(value, "f")
                             value = D(value_str)
+                            # value = D(str(value))
                         elif isinstance(value, D):
                             pass
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
-
+                        # if not (0 <= value <= uint64_max):
                         if not (D("0") <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None

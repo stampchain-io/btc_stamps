@@ -186,11 +186,7 @@ def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimety
         if isinstance(decoded_base64, dict):
             decoded_base64 = json.dumps(decoded_base64)
         if isinstance(decoded_base64, str):
-            if file_suffix == "png":
-                # For PNG, decode the base64 string to bytes
-                decoded_base64 = base64.b64decode(decoded_base64)
-            else:
-                decoded_base64 = decoded_base64.encode("utf-8")
+            decoded_base64 = decoded_base64.encode("utf-8")
         filename = f"{tx_hash}.{file_suffix}"
         logger.info(decoded_base64)
         return store_files(db, filename, decoded_base64, stamp_mimetype)
@@ -212,10 +208,10 @@ def create_valid_stamp_dict(
         tx_hash=tx_hash,
         cpid=cpid,
         is_btc_stamp=is_btc_stamp,
-        is_valid_base64=is_valid_base64,
-        stamp_base64=stamp_base64,
-        is_cursed=is_cursed,
-        src_data=src_data,
+        is_valid_base64=is_valid_base64 if is_valid_base64 is not None else False,
+        stamp_base64=stamp_base64 if stamp_base64 is not None else "",
+        is_cursed=is_cursed if is_cursed is not None else False,
+        src_data=src_data if src_data is not None else "",
     )
 
 
