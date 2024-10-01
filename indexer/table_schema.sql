@@ -302,11 +302,11 @@ CREATE TABLE IF NOT EXISTS `owners` (
   `txt_data` TEXT DEFAULT NULL COLLATE utf8mb4_bin,
   `expire_timestamp` BIGINT UNSIGNED DEFAULT NULL,
   `last_update` int,
-  PRIMARY KEY (`index`),
+  PRIMARY KEY (`id`),
   UNIQUE KEY `p_deploy_hash_tokenid_unique` (`p`, `deploy_hash`, `tokenid`),
-  INDEX `id` (`id`),
+  INDEX `index_deploy_hash` (`index`, `deploy_hash`),
   INDEX `owner` (`owner`),
-  INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
+  INDEX `deploy_hash` (`deploy_hash`),
   INDEX `p_deploy_hash_tokenid_utf8` (`p`,`deploy_hash`,`tokenid_utf8`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 

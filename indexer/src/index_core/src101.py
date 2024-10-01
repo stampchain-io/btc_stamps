@@ -65,34 +65,38 @@ class Src101Validator:
         # dec_pattern = re.compile(r"^[0-9]+$")
 
         for key, value in list(self.src101_dict.items()):
-            if value == "":
+            try:
+                if value == "":
+                    self.src101_dict[key] = None
+                elif key in ["imglp", "imgf", "img"]:
+                    self.src101_dict[key] = value
+                elif key in ["tick"]:
+                    self._process_tick_value(key, value)
+                elif key in ["tokenid"]:
+                    self._process_tokenid_value(key, value)
+                elif key in ["hash"]:
+                    self._process_hash_value(key, value)
+                elif key in ["pri"]:
+                    self._process_pri_value(key, value)
+                elif key in ["wla"]:
+                    self._process_wla_value(key, value)
+                elif key in ["prim"]:
+                    self._process_bool_value(key, value)
+                elif key in ["type", "data"]:
+                    self._process_type_data_value(key, value)
+                elif key in ["owner", "toaddress"]:
+                    self._prceess_address_value(key, value)
+                elif key in ["rec"]:
+                    self._process_addresslist_value(key, value)
+                elif key in ["p", "op"]:
+                    self._process_uppercase_value(key, value)
+                elif key in ["root"]:
+                    self._process_lowercase_value(key, value)
+                elif key in ["lim", "dua", "idua", "mintstart", "mintend", "coef"]:
+                    self._apply_regex_validation(key, value, num_pattern)
+            except Exception as e:
+                logger.warning(e)
                 self.src101_dict[key] = None
-            elif key in ["imglp", "imgf", "img"]:
-                self.src101_dict[key] = value
-            elif key in ["tick"]:
-                self._process_tick_value(key, value)
-            elif key in ["tokenid"]:
-                self._process_tokenid_value(key, value)
-            elif key in ["hash"]:
-                self._process_hash_value(key, value)
-            elif key in ["pri"]:
-                self._process_pri_value(key, value)
-            elif key in ["wla"]:
-                self._process_wla_value(key, value)
-            elif key in ["prim"]:
-                self._process_bool_value(key, value)
-            elif key in ["type", "data"]:
-                self._process_type_data_value(key, value)
-            elif key in ["owner", "toaddress"]:
-                self._prceess_address_value(key, value)
-            elif key in ["rec"]:
-                self._process_addresslist_value(key, value)
-            elif key in ["p", "op"]:
-                self._process_uppercase_value(key, value)
-            elif key in ["root"]:
-                self._process_lowercase_value(key, value)
-            elif key in ["lim", "dua", "idua", "mintstart", "mintend", "coef"]:
-                self._apply_regex_validation(key, value, num_pattern)
 
         if "type" in self.src101_dict.keys() and "data" in self.src101_dict.keys():
             self.src101_dict[self.src101_dict["type"] + "_data"] = self.src101_dict["data"]
@@ -703,8 +707,10 @@ class Src101Processor:
                     if "eth" in self.src101_dict["address_data"].keys()
                     else address_eth
                 )
-            if self.src101_dict["prim"] == True and self.src101_dict.get("address_data").get("btc") != self.src101_dict.get(
-                "creator"
+            if (
+                self.src101_dict["prim"] == True
+                and self.src101_dict.get("address_data")
+                and self.src101_dict.get("address_data").get("btc") != self.src101_dict.get("creator")
             ):
                 self.set_status_and_log(
                     "IDB", deploy_hash=self.src101_dict["deploy_hash"], tokenid=self.src101_dict["tokenid"]
@@ -997,9 +1003,12 @@ def update_owner_table(db, owner_updates, block_index):
                     f"""
                     UPDATE {SRC101_OWNERS_TABLE}
                     SET prim = FALSE
-                    WHERE address_btc = %s AND prim = TRUE;
+                    WHERE address_btc = %s AND deploy_hash = %s AND prim = TRUE;
                     """,
-                    (owner_dict["address_btc"],),
+                    (
+                        owner_dict["address_btc"],
+                        owner_dict["deploy_hash"],
+                    ),
                 )
             cursor.execute(
                 f"""

@@ -288,6 +288,7 @@ def insert_into_src101price(cursor, table_name, src101_dict):
             cursor.execute(query, tuple(column_values))
         return
 
+
 def insert_into_src101_table(cursor, table_name, id, src101_dict):
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
@@ -912,6 +913,7 @@ def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
     TOTAL_MINTED_CACHE[deploy_hash] = total_minted
     return total_minted
 
+
 def get_src101_price(db, deploy_hash, src101_processed_in_block):
     if not hasattr(get_src101_price, "price_cache"):
         get_src101_price.price_cache = {}
@@ -960,6 +962,7 @@ def get_src101_price_in_db(db, deploy_hash):
         )
         result = cursor.fetchall()
         return {r[0]: r[1] for r in result}
+
 
 def get_next_stamp_number(db, identifier):
     """

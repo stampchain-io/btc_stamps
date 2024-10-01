@@ -359,6 +359,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
     except (DecodeError, BTCOnlyError):
         return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None)
 
+
 def decode_address(script_pubkey):
     """
     Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
