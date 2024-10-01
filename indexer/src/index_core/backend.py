@@ -136,7 +136,7 @@ def getblock(block_hash, verbosity=False):
 
 
 def getcblock(block_hash):
-    block_hex = getblock(block_hash)  # Defaults to verbosity=False (raw hex)
+    block_hex = getblock(block_hash)
     return CBlock.deserialize(bytes.fromhex(block_hex))
 
 
@@ -158,14 +158,13 @@ def serialize(ctx):
 
 
 def get_tx_list(block_hash):
-    block_data = getblock(block_hash, 2)  # Fetch block with full transaction data using verbosity=2
+    block_data = getblock(block_hash, 2)
 
     tx_hash_list = []
     raw_transactions = {}
     for tx in block_data["tx"]:
         tx_hash = tx["txid"]
         tx_hash_list.append(tx_hash)
-        # Extract the raw transaction hex
         raw_transactions[tx_hash] = tx["hex"]
 
     block_time = block_data["time"]

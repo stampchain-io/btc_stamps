@@ -839,13 +839,9 @@ def follow(db):
         else:
             logger.info(f"Block {block_index} is beyond the current block tip {block_tip}. Waiting for new blocks.")
 
-            if block_index == block_tip and last_cpids_update_block_index != block_index:
-                cpids = get_unlocked_cpids(db)
-                if cpids:
-                    cpids_list = [cpid[0] for cpid in cpids]
-                    assets_details = get_xcp_assets_by_cpids(cpids_list)
-                    if assets_details:
-                        update_assets_in_db(db, assets_details)
+            if block_index == block_tip and last_cpids_update_block_index != block_index and block_index % 20 == 0:
+                # Run CPID updates asynchronously to avoid blocking the main loop
+                future = executor.submit(update_cpids_async, executor, db)
                 last_cpids_update_block_index = block_index
 
             time.sleep(config.BACKEND_POLL_INTERVAL)
@@ -857,3 +853,17 @@ def follow(db):
         #     stats = pstats.Stats(profiler).sort_stats('cumulative')
         #     stats.print_stats()
         #     should_profile = False
+
+
+def update_cpids_async(executor, db):
+    try:
+        cpids = get_unlocked_cpids(db)
+        if cpids:
+            cpids_list = [cpid[0] for cpid in cpids]
+            assets_details = get_xcp_assets_by_cpids(
+                cpids_list, chunk_size=200, delay_between_chunks=6, max_workers=5, executor=executor
+            )
+            if assets_details:
+                update_assets_in_db(db, assets_details, chunk_size=200, delay_between_chunks=6)
+    finally:
+        pass  # Do not close the db connection if it's managed elsewhere

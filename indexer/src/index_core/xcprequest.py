@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 url = config.CP_RPC_URL
 auth = config.CP_AUTH
+from threading import Lock
+
+healthy_nodes_lock = Lock()
+healthy_nodes = []
 
 
 def _create_payload(method, params):
@@ -250,11 +254,14 @@ def filter_issuances_by_tx_hash(issuances, tx_hash):
     return filtered_issuances[0] if filtered_issuances else None
 
 
-def fetch_xcp_v2(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Fetch data from the V2 Counterparty API, trying multiple nodes in order.
-    """
-    for node in config.XCP_V2_NODES:
+def fetch_xcp_v2(
+    endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    global healthy_nodes
+
+    nodes_to_try = [node] if node else healthy_nodes.copy()
+
+    for node in nodes_to_try:
         url = f"{node['url']}{endpoint}"
         try:
             logger.info(f"Attempting to fetch from URL: {url}")
@@ -270,10 +277,17 @@ def fetch_xcp_v2(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict
                 logger.warning(f"Error response body from {node['name']}: {error_body}")
         except Exception as e:
             logger.error(f"Fetch error for {url}: {e}")
-            # Continue to the next node
+            # Remove the failed node from healthy_nodes
+            with healthy_nodes_lock:
+                if node in healthy_nodes:
+                    healthy_nodes.remove(node)
+                    logger.warning(f"Node {node['name']} removed from healthy nodes.")
+                    if not healthy_nodes:
+                        update_healthy_nodes()
+        # Continue to the next node if the current one fails
+        continue
 
-    # If all nodes fail, return a minimal data structure
-    logger.error("All nodes failed. Returning minimal data structure.")
+    logger.error("Failed to fetch data from available nodes.")
     return {
         "result": [],
         "next_cursor": None,
@@ -281,14 +295,14 @@ def fetch_xcp_v2(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict
     }
 
 
-def get_xcp_asset(cpid: str) -> Optional[Dict[str, Any]]:
+def get_xcp_asset(cpid: str, node: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Get details of a single CP asset by its CPID.
     """
     endpoint = f"/assets/{cpid}"
-    logger.info(f"Fetching XCP asset for CPID: {cpid}")
+    logger.info(f"Fetching XCP asset for CPID: {cpid} using node {node['name'] if node else 'default nodes'}")
     try:
-        response = fetch_xcp_v2(endpoint)
+        response = fetch_xcp_v2(endpoint, node=node)
         if not response or not isinstance(response, dict):
             raise ValueError(f"Invalid response for asset {cpid}")
 
@@ -299,16 +313,96 @@ def get_xcp_asset(cpid: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_xcp_assets_by_cpids(cpids: List[str]) -> List[Dict[str, Any]]:
-    """
-    Get details of multiple CP assets given a list of CPIDs.
-    """
-    logger.info(f"Fetching XCP assets for CPIDs: {', '.join(cpids)}")
-    assets = []
-    for cpid in cpids:
-        asset = get_xcp_asset(cpid)
-        if asset and asset.get("result"):
-            assets.append(asset["result"])
+def get_xcp_assets_by_cpids(
+    cpids: List[str], chunk_size: int = 200, delay_between_chunks: int = 6, max_workers: int = 5, executor=None
+) -> List[Dict[str, Any]]:
+    global healthy_nodes
 
-    logger.info(f"Fetched {len(assets)} XCP assets")
+    if not healthy_nodes:
+        update_healthy_nodes()
+        if not healthy_nodes:
+            raise Exception("No healthy nodes available to fetch data.")
+
+    assets = []
+    total_cpids = len(cpids)
+    num_chunks = (total_cpids + chunk_size - 1) // chunk_size
+    nodes = healthy_nodes
+    node_count = len(nodes)
+
+    for i in range(num_chunks):
+        start = i * chunk_size
+        end = min(start + chunk_size, total_cpids)
+        cpids_chunk = cpids[start:end]
+        current_node = nodes[i % node_count]  # Round-robin selection
+        logger.info(
+            f"Fetching XCP assets for CPIDs [{start}:{end}] [Chunk {i+1}/{num_chunks}] using node {current_node['name']}"
+        )
+
+        if executor is None:
+            # If no executor is provided, create a new one
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as local_executor:
+                # Use the local executor within the context manager
+                future_to_cpid = {local_executor.submit(get_xcp_asset, cpid, node=current_node): cpid for cpid in cpids_chunk}
+                # Process futures
+                chunk_assets = []
+                for future in concurrent.futures.as_completed(future_to_cpid):
+                    cpid = future_to_cpid[future]
+                    try:
+                        asset = future.result()
+                        if asset and asset.get("result"):
+                            chunk_assets.append(asset["result"])
+                    except Exception as exc:
+                        logger.error(f"Error fetching asset info for cpid {cpid}: {exc}")
+        else:
+            # Use the provided executor without closing it
+            future_to_cpid = {executor.submit(get_xcp_asset, cpid, node=current_node): cpid for cpid in cpids_chunk}
+            # Process futures
+            chunk_assets = []
+            for future in concurrent.futures.as_completed(future_to_cpid):
+                cpid = future_to_cpid[future]
+                try:
+                    asset = future.result()
+                    if asset and asset.get("result"):
+                        chunk_assets.append(asset["result"])
+                except Exception as exc:
+                    logger.error(f"Error fetching asset info for cpid {cpid}: {exc}")
+
+        assets.extend(chunk_assets)
+        logger.info(f"Fetched {len(chunk_assets)} XCP assets in chunk {i+1}")
+
+        if i < num_chunks - 1:
+            time.sleep(delay_between_chunks)  # Delay between chunks to throttle API requests
+
+    logger.info(f"Fetched total {len(assets)} XCP assets")
     return assets
+
+
+def check_node_health(node: Dict[str, Any]) -> bool:
+    """
+    Check the health of a node by querying its /healthz endpoint.
+
+    Args:
+        node (Dict[str, Any]): The node to check.
+
+    Returns:
+        bool: True if the node is healthy, False otherwise.
+    """
+    health_url = f"{node['url']}/healthz"
+    try:
+        response = requests.get(health_url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("result", {}).get("status") == "Healthy"
+    except Exception as e:
+        logger.warning(f"Health check failed for node {node['name']}: {e}")
+    return False
+
+
+def update_healthy_nodes():
+    global healthy_nodes
+    with healthy_nodes_lock:
+        healthy_nodes = [node for node in config.XCP_V2_NODES if check_node_health(node)]
+    if not healthy_nodes:
+        logger.error("No healthy nodes available.")
+    else:
+        logger.info(f"Healthy nodes: {[node['name'] for node in healthy_nodes]}")
