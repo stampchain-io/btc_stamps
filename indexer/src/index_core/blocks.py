@@ -28,6 +28,7 @@ import index_core.log as log
 import index_core.script as script
 import index_core.util as util
 from index_core.database import (
+    get_unlocked_cpids,
     initialize,
     insert_block,
     insert_into_src20_tables,
@@ -37,10 +38,9 @@ from index_core.database import (
     next_tx_index,
     purge_block_db,
     rebuild_balances,
+    update_assets_in_db,
     update_block_hashes,
     update_parsed_block,
-    get_unlocked_cpids,
-    update_assets_in_db,
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp

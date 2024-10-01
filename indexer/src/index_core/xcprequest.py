@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 import time
+from typing import Any, Dict, List, Optional
 
 import requests
 from tqdm import tqdm
@@ -249,7 +250,7 @@ def filter_issuances_by_tx_hash(issuances, tx_hash):
     return filtered_issuances[0] if filtered_issuances else None
 
 
-def fetch_xcp_v2(endpoint: str, params: dict = None) -> dict:
+def fetch_xcp_v2(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Fetch data from the V2 Counterparty API, trying multiple nodes in order.
     """
@@ -280,7 +281,7 @@ def fetch_xcp_v2(endpoint: str, params: dict = None) -> dict:
     }
 
 
-def get_xcp_asset(cpid: str) -> dict:
+def get_xcp_asset(cpid: str) -> Optional[Dict[str, Any]]:
     """
     Get details of a single CP asset by its CPID.
     """
@@ -298,7 +299,7 @@ def get_xcp_asset(cpid: str) -> dict:
         return None
 
 
-def get_xcp_assets_by_cpids(cpids: list) -> list:
+def get_xcp_assets_by_cpids(cpids: List[str]) -> List[Dict[str, Any]]:
     """
     Get details of multiple CP assets given a list of CPIDs.
     """
