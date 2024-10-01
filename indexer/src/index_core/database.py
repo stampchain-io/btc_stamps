@@ -2,7 +2,7 @@ import decimal
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, TypeVar, cast
+from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
 
 import pymysql as mysql
 
@@ -344,7 +344,7 @@ def get_srcbackground_data(db, tick):
             return None, None, None
 
 
-def get_existing_balances(cursor):
+def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
     query = """
     SELECT id, tick, tick_hash, address, amt, last_update
     FROM balances where p = 'SRC-20'
@@ -821,13 +821,13 @@ def get_balances_at_block(db, block_index):
     return calculate_balances(src20_valid_list)
 
 
-def get_unlocked_cpids(db):
+def get_unlocked_cpids(db) -> List[Tuple[str, ...]]:
     with db.cursor() as cursor:
         cursor.execute(f"SELECT DISTINCT cpid FROM {STAMP_TABLE} WHERE locked != 1 AND (ident = 'SRC-721' or ident = 'STAMP')")
-        return cursor.fetchall()
+        return list(cursor.fetchall())
 
 
-def update_assets_in_db(db, assets_details, chunk_size: int = 200, delay_between_chunks: int = 6):
+def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 6):
     total_assets = len(assets_details)
     num_chunks = (total_assets + chunk_size - 1) // chunk_size
 
@@ -845,7 +845,7 @@ def update_assets_in_db(db, assets_details, chunk_size: int = 200, delay_between
                     if cpid is None:
                         continue
                     set_clauses = []
-                    params = []
+                    params: List[Any] = []
 
                     if "locked" in asset:
                         locked = 1 if asset.get("locked") else 0
@@ -872,7 +872,7 @@ def update_assets_in_db(db, assets_details, chunk_size: int = 200, delay_between
                             {set_clause}
                         WHERE cpid = %s
                         """
-                    updates.append((sql, tuple(params)))
+                    updates.append((sql, params))
 
                 # Execute updates in batch
                 for sql, params in updates:

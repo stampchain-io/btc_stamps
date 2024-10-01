@@ -18,7 +18,7 @@ auth = config.CP_AUTH
 from threading import Lock
 
 healthy_nodes_lock = Lock()
-healthy_nodes = []
+healthy_nodes: List[Dict[str, Any]] = []
 
 
 def _create_payload(method, params):
@@ -303,11 +303,11 @@ def get_xcp_asset(cpid: str, node: Optional[Dict[str, Any]] = None) -> Optional[
     logger.info(f"Fetching XCP asset for CPID: {cpid} using node {node['name'] if node else 'default nodes'}")
     try:
         response = fetch_xcp_v2(endpoint, node=node)
-        if not response or not isinstance(response, dict):
+        if not response or not isinstance(response, dict) or "result" not in response:
             raise ValueError(f"Invalid response for asset {cpid}")
 
         logger.info(f"Fetched XCP asset for CPID: {cpid}, Response: {response}")
-        return response
+        return response["result"]
     except Exception as e:
         logger.error(f"Error fetching asset info for cpid {cpid}: {e}")
         return None
@@ -339,31 +339,26 @@ def get_xcp_assets_by_cpids(
         )
 
         if executor is None:
-            # If no executor is provided, create a new one
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as local_executor:
-                # Use the local executor within the context manager
                 future_to_cpid = {local_executor.submit(get_xcp_asset, cpid, node=current_node): cpid for cpid in cpids_chunk}
-                # Process futures
                 chunk_assets = []
                 for future in concurrent.futures.as_completed(future_to_cpid):
                     cpid = future_to_cpid[future]
                     try:
                         asset = future.result()
-                        if asset and asset.get("result"):
-                            chunk_assets.append(asset["result"])
+                        if asset is not None:
+                            chunk_assets.append(asset)
                     except Exception as exc:
                         logger.error(f"Error fetching asset info for cpid {cpid}: {exc}")
         else:
-            # Use the provided executor without closing it
             future_to_cpid = {executor.submit(get_xcp_asset, cpid, node=current_node): cpid for cpid in cpids_chunk}
-            # Process futures
             chunk_assets = []
             for future in concurrent.futures.as_completed(future_to_cpid):
                 cpid = future_to_cpid[future]
                 try:
                     asset = future.result()
-                    if asset and asset.get("result"):
-                        chunk_assets.append(asset["result"])
+                    if asset is not None:
+                        chunk_assets.append(asset)
                 except Exception as exc:
                     logger.error(f"Error fetching asset info for cpid {cpid}: {exc}")
 
