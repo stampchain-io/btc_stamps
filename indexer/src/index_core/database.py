@@ -818,3 +818,60 @@ def get_balances_at_block(db, block_index):
     with db.cursor() as cursor:
         src20_valid_list = get_src20_valid_list(cursor, block_index)
     return calculate_balances(src20_valid_list)
+
+
+def get_unlocked_cpids(db):
+    with db.cursor() as cursor:
+        cursor.execute(f"SELECT DISTINCT cpid FROM {STAMP_TABLE} WHERE locked != 1 AND (ident = 'SRC-721' or ident = 'STAMP')")
+        return cursor.fetchall()
+
+
+def update_assets_in_db(db, assets_details):
+    """
+    Update the asset details in the database based on the fetched asset information.
+
+    Args:
+        db: Database connection
+        assets_details: List of asset details fetched from the Counterparty API
+    """
+    with db.cursor() as cursor:
+        for asset in assets_details:
+            cpid = asset.get("asset")
+
+            if cpid is None:
+                continue
+
+            # Build the SET clause dynamically based on available fields
+            set_clauses = []
+            params = []
+
+            if "locked" in asset:
+                locked = 1 if asset.get("locked") else 0
+                set_clauses.append("locked = %s")
+                params.append(locked)
+
+            if "divisible" in asset:
+                divisible = 1 if asset.get("divisible") else 0
+                set_clauses.append("divisible = %s")
+                params.append(divisible)
+
+            if "supply" in asset:
+                supply = asset.get("supply", 0)
+                set_clauses.append("supply = %s")
+                params.append(supply)
+
+            if not set_clauses:
+                # If no fields to update, skip this asset
+                continue
+
+            params.append(cpid)
+
+            set_clause = ", ".join(set_clauses)
+            sql = f"""
+                UPDATE {STAMP_TABLE} SET
+                    {set_clause}
+                WHERE cpid = %s
+                """
+
+            cursor.execute(sql, params)
+    db.commit()

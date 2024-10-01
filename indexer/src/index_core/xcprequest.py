@@ -247,3 +247,67 @@ def _check_for_stamp_issuance(issuance):
 def filter_issuances_by_tx_hash(issuances, tx_hash):
     filtered_issuances = [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
     return filtered_issuances[0] if filtered_issuances else None
+
+
+def fetch_xcp_v2(endpoint: str, params: dict = None) -> dict:
+    """
+    Fetch data from the V2 Counterparty API, trying multiple nodes in order.
+    """
+    for node in config.XCP_V2_NODES:
+        url = f"{node['url']}{endpoint}"
+        try:
+            logger.info(f"Attempting to fetch from URL: {url}")
+            response = requests.get(url, params=params, timeout=10)
+            logger.info(f"Response status from {node['name']}: {response.status_code}")
+
+            if response.ok:
+                data = response.json()
+                logger.info(f"Successful response from {node['name']}")
+                return data
+            else:
+                error_body = response.text
+                logger.warning(f"Error response body from {node['name']}: {error_body}")
+        except Exception as e:
+            logger.error(f"Fetch error for {url}: {e}")
+            # Continue to the next node
+
+    # If all nodes fail, return a minimal data structure
+    logger.error("All nodes failed. Returning minimal data structure.")
+    return {
+        "result": [],
+        "next_cursor": None,
+        "result_count": 0,
+    }
+
+
+def get_xcp_asset(cpid: str) -> dict:
+    """
+    Get details of a single CP asset by its CPID.
+    """
+    endpoint = f"/assets/{cpid}"
+    logger.info(f"Fetching XCP asset for CPID: {cpid}")
+    try:
+        response = fetch_xcp_v2(endpoint)
+        if not response or not isinstance(response, dict):
+            raise ValueError(f"Invalid response for asset {cpid}")
+
+        logger.info(f"Fetched XCP asset for CPID: {cpid}, Response: {response}")
+        return response
+    except Exception as e:
+        logger.error(f"Error fetching asset info for cpid {cpid}: {e}")
+        return None
+
+
+def get_xcp_assets_by_cpids(cpids: list) -> list:
+    """
+    Get details of multiple CP assets given a list of CPIDs.
+    """
+    logger.info(f"Fetching XCP assets for CPIDs: {', '.join(cpids)}")
+    assets = []
+    for cpid in cpids:
+        asset = get_xcp_asset(cpid)
+        if asset and asset.get("result"):
+            assets.append(asset["result"])
+
+    logger.info(f"Fetched {len(assets)} XCP assets")
+    return assets

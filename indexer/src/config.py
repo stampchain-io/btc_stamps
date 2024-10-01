@@ -47,6 +47,18 @@ else:
 
 RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 
+# Add new constants for the V2 CP API endpoints
+XCP_V2_NODES = [
+    {
+        "name": "stampchain.io",
+        "url": "https://k6e0ufzq8h.execute-api.us-east-1.amazonaws.com/beta/counterpartyproxy/v2",
+    },
+    {
+        "name": "counterparty.io",
+        "url": "https://api.counterparty.io:4000/v2",
+    },
+]
+
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
 STAMP_TABLE = "StampTableV4"
@@ -83,7 +95,7 @@ BACKEND_CONNECT: str = "localhost"
 BACKEND_PORT: int = 8332
 BACKEND_SSL: bool = False
 BACKEND_SSL_NO_VERIFY: bool = False
-BACKEND_POLL_INTERVAL: float = 1.0
+BACKEND_POLL_INTERVAL: float = 2.0
 FORCE: bool = False
 PREFIX: bytes = b"stamp:"
 CP_PREFIX: bytes = b"CNTRPRTY"

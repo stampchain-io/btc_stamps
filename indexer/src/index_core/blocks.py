@@ -39,6 +39,8 @@ from index_core.database import (
     rebuild_balances,
     update_block_hashes,
     update_parsed_block,
+    get_unlocked_cpids,
+    update_assets_in_db,
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp
@@ -51,7 +53,7 @@ from index_core.src20 import (
     validate_src20_ledger_hash,
 )
 from index_core.stamp import parse_stamp
-from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash
+from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -88,8 +90,6 @@ class BlockProcessor:
 
     def process_transaction_results(self, tx_results):
         for result in tx_results:
-            if not result.data and not result.p2wsh_data:
-                continue
             stamp_data = StampData(
                 tx_hash=result.tx_hash,
                 source=result.source,
@@ -183,21 +183,26 @@ def process_vout(ctx, block_index, stamp_issuance=None):
                 if keyburn_vout is not None:
                     keyburn = keyburn_vout
                 pubkeys_compiled += pubkeys
+                # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
             except Exception as e:
                 raise DecodeError(f"unrecognised output type {e}")
         elif asm[-1] == "OP_CHECKSIG":
-            pass  # Existing handling
+            pass  # FIXME: not certain if we need to check keyburn on OP_CHECKSIG
+            # see 'A14845889080100805000'
+            #   0: OP_DUP
+            #   1: OP_HASH160
+            #   3: OP_EQUALVERIFY
+            #   4: OP_CHECKSIG
         elif asm[0] == "OP_RETURN":
             is_op_return = True
         elif stamp_issuance is not None and asm[0] == 0 and len(asm[1]) == 32:
-            # Original handling for stamp_issuance transactions
+            # Pay-to-Witness-Script-Hash (P2WSH) on CPID transactions
             pubkeys = script.get_p2wsh(asm)
             pubkeys_compiled += pubkeys
             is_olga = True
         elif asm[0] == 0 and len(asm[1]) == 32:
-            # Check if block is at or after activation block
+            # Pay-to-Witness-Script-Hash (P2WSH) on SRC-20 transactions
             if block_index >= config.BTC_SRC20_OLGA_BLOCK:
-                # Collect P2WSH data outputs for new SRC-20 transactions
                 if idx > 0:
                     data_bytes = asm[1]
                     p2wsh_data_chunks.append(data_bytes)
@@ -251,7 +256,6 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         is_op_return = vout_info.is_op_return
         fee = vout_info.fee
         p2wsh_data_chunks = vout_info.p2wsh_data_chunks
-
         p2wsh_data = None
 
         if stamp_issuance is not None:
@@ -262,7 +266,6 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 p2wsh_data = chunk[2 : 2 + pubkey_len]
             else:
                 p2wsh_data = None
-
             return TransactionInfo(
                 None,
                 None,
@@ -313,11 +316,11 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 data += src20_data
                 destinations = str(src20_destination)
 
-        if not data and not p2wsh_data:
+        if not data:
             raise BTCOnlyError("no data, not a stamp", ctx)
 
-        # Get source address
         vin = ctx.vin[0]
+
         prev_tx_hash = vin.prevout.hash
         prev_tx_index = vin.prevout.n
 
@@ -331,11 +334,6 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
         # Decode the address associated with the output.
         source = decode_address(prev_vout_script_pubkey)
-
-        if not destinations:
-            script_pubkey = ctx.vout[0].scriptPubKey
-            destination = decode_address(script_pubkey)
-            destinations = str(destination)
 
         return TransactionInfo(
             str(source),
@@ -447,7 +445,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
         destination = str(stamp_issuance["issuer"])
         data = str(stamp_issuance)
 
-    if source and (data or destination or p2wsh_data):
+    if source and (data or destination):
         logger.info(
             "Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}".format(
                 tx_hash, data, keyburn, is_op_return
@@ -465,6 +463,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
             is_op_return,
             p2wsh_data,
         )
+
     else:
         skip_logger.debug("Skipping transaction: {}".format(tx_hash))
         return (None for _ in range(9))
@@ -662,6 +661,7 @@ def follow(db):
             raise e
 
     stamp_issuances_list = None
+    last_cpids_update_block_index = None  # Initialize the tracker
     # profiler = cProfile.Profile()
     # should_profile = True
 
@@ -836,9 +836,24 @@ def follow(db):
             )
             block_index = commit_and_update_block(db, block_index)
 
-            # if should_profile:
-            #     profiler.disable()
-            #     profiler.dump_stats("profile_results.prof")
-            #     stats = pstats.Stats(profiler).sort_stats('cumulative')
-            #     stats.print_stats()
-            #     should_profile = False
+        else:
+            logger.info(f"Block {block_index} is beyond the current block tip {block_tip}. Waiting for new blocks.")
+
+            if block_index == block_tip and last_cpids_update_block_index != block_index:
+                cpids = get_unlocked_cpids(db)
+                if cpids:
+                    cpids_list = [cpid[0] for cpid in cpids]
+                    assets_details = get_xcp_assets_by_cpids(cpids_list)
+                    if assets_details:
+                        update_assets_in_db(db, assets_details)
+                last_cpids_update_block_index = block_index
+
+            time.sleep(config.BACKEND_POLL_INTERVAL)
+            # TODO: use zmq to trigger here
+
+        # if should_profile:
+        #     profiler.disable()
+        #     profiler.dump_stats("profile_results.prof")
+        #     stats = pstats.Stats(profiler).sort_stats('cumulative')
+        #     stats.print_stats()
+        #     should_profile = False
