@@ -562,7 +562,7 @@ class StampData:
             self.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
 
     def src20_pre_validation(self, db):
-        self.src20_dict = check_format(self.decoded_base64, self.tx_hash)
+        self.src20_dict = check_format(self.decoded_base64, self.tx_hash, self.block_index)
         if self.src20_dict is not None:
             self.is_btc_stamp = True
             self.decoded_base64 = build_src20_svg_string(

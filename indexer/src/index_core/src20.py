@@ -1,4 +1,5 @@
 import hashlib
+from inspect import BlockFinder
 import json
 import logging
 import re
@@ -7,6 +8,7 @@ import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
+from turtle import right
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
@@ -19,6 +21,7 @@ from config import (  # SRC_VALIDATION_API1,
     SRC_VALIDATION_API2,
     SRC_VALIDATION_SECRET_API2,
     TICK_PATTERN_SET,
+    CP_P2WSH_FEAT_BLOCK_START,
 )
 from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
@@ -594,7 +597,7 @@ def convert_to_utf8_string(tick_value):
     return tick_value
 
 
-def check_format(input_string, tx_hash):
+def check_format(input_string, tx_hash, block_index):
     """
     Check the format of the SRC-20 JSON string and return a dictionary if it meets the validation requirements.
     This function determines inclusion/exclusion as a valid stamp without affecting stamp numbering.
@@ -633,7 +636,7 @@ def check_format(input_string, tx_hash):
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
-            tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
+            tick_value = convert_to_utf8_string(input_dict.get("tick"))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
@@ -668,7 +671,11 @@ def check_format(input_string, tx_hash):
 
                         if isinstance(value, str):
                             try:
-                                value = D(value) if value else D(0)
+                                if CP_P2WSH_FEAT_BLOCK_START >= block_index:
+                                    # this will exclude more invalid SRC-20 values from even becoming a stamp
+                                    value = D(value) if value else D(0)
+                                else:
+                                    value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
                             except InvalidOperation as e:
                                 logger.warning(
                                     f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
@@ -688,8 +695,7 @@ def check_format(input_string, tx_hash):
                         if not (D("0") <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
-
-            return input_dict  # unmodified values to be processed in src20 validation
+            return input_dict
 
     except json.JSONDecodeError:
         return None
