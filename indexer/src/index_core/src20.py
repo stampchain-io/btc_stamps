@@ -1,5 +1,4 @@
 import hashlib
-from inspect import BlockFinder
 import json
 import logging
 import re
@@ -8,21 +7,19 @@ import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
-from turtle import right
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
 from requests.exceptions import JSONDecodeError
-from sqlalchemy import values
 
 import index_core.log as log
 from config import (  # SRC_VALIDATION_API1,
+    CP_P2WSH_FEAT_BLOCK_START,
     SRC20_BALANCES_TABLE,
     SRC20_VALID_TABLE,
     SRC_VALIDATION_API2,
     SRC_VALIDATION_SECRET_API2,
     TICK_PATTERN_SET,
-    CP_P2WSH_FEAT_BLOCK_START,
 )
 from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
@@ -75,7 +72,7 @@ class Src20Validator:
 
     def _apply_regex_validation(self, key, value, num_pattern, dec_pattern):
         if key in ["max", "lim", "amt"]:
-            if isinstance(value, Decimal):
+            if isinstance(value, D):
                 self.src20_dict[key] = value
             elif num_pattern.match(str(value)):
                 self.src20_dict[key] = D(str(value))
@@ -622,15 +619,15 @@ def check_format(input_string, tx_hash, block_index):
         if "e" in s.lower():
             logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
             raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
-        return Decimal(s)
+        return D(s)
 
     try:
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
             elif isinstance(input_string, str):
-                input_dict = json.loads(input_string, parse_float=D)
-                # input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
+                # input_dict = json.loads(input_string, parse_float=D)
+                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
         except (json.JSONDecodeError, TypeError):
@@ -638,7 +635,7 @@ def check_format(input_string, tx_hash, block_index):
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
-            tick_value = convert_to_utf8_string(input_dict.get("tick"))
+            tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
                 logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
@@ -1262,7 +1259,6 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
     logger.warning("API Hash: %s", api_ledger_hash)
     logger.warning("Local Hash: %s", ledger_hash)
 
-    # Parse local and API balances
     local_balances = parse_balances(valid_src20_str)
     api_balances = parse_balances(api_ledger_validation)
 
@@ -1275,16 +1271,16 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
     compare_string_formats(valid_src20_str, api_ledger_validation)
 
-    return True  # Temporary while API issues are resolved
+    return True
     # If you want to raise an exception instead, you can uncomment the following line
     # raise ValueError("API ledger hash does not match local ledger hash")
 
 
 def parse_balances(balance_str):
-    balances = defaultdict(lambda: defaultdict(Decimal))
+    balances = defaultdict(lambda: defaultdict(D))
     for entry in balance_str.split(";"):
         tick, address, balance = entry.split(",")
-        balances[tick][address] = Decimal(balance)
+        balances[tick][address] = D(balance)
     return balances
 
 
@@ -1299,8 +1295,8 @@ def compare_balances(local_balances, api_balances):
     for address in sorted(all_addresses):
         address_differences = []
         for tick in sorted(set(local_balances.keys()) | set(api_balances.keys())):
-            local_balance = local_balances.get(tick, {}).get(address, Decimal("0"))
-            api_balance = api_balances.get(tick, {}).get(address, Decimal("0"))
+            local_balance = local_balances.get(tick, {}).get(address, D("0"))
+            api_balance = api_balances.get(tick, {}).get(address, D("0"))
             if local_balance != api_balance:
                 address_differences.append((tick, local_balance, api_balance))
         if address_differences:
