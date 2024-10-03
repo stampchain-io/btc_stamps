@@ -1,7 +1,7 @@
 import binascii
 
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.decrepit.ciphers.algorithms import ARC4  # Updated import path
+from cryptography.hazmat.decrepit.ciphers.algorithms import ARC4
 from cryptography.hazmat.primitives.ciphers import Cipher
 
 

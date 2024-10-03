@@ -87,6 +87,16 @@ jobs:
           poetry run python3 -m unittest discover -s . -p "test_src20.py"
         working-directory: ./indexer
 
+      - name: Run check_format Validations
+        run: |
+          poetry run python3 -m unittest discover -s . -p "test_check_format.py"
+        working-directory: ./indexer
+
+      - name: Run Arc4  Validations
+        run: |
+          poetry run python3 -m unittest discover -s . -p "test_arc4.py"
+        working-directory: ./indexer
+
       - name: Run ARC4 Tests
         run: |
           poetry run pytest tests/test_arc4.py -v

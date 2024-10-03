@@ -14,6 +14,7 @@ from requests.exceptions import JSONDecodeError
 
 import index_core.log as log
 from config import (  # SRC_VALIDATION_API1,
+    CP_P2WSH_FEAT_BLOCK_START,
     SRC20_BALANCES_TABLE,
     SRC20_VALID_TABLE,
     SRC_VALIDATION_API2,
@@ -71,7 +72,7 @@ class Src20Validator:
 
     def _apply_regex_validation(self, key, value, num_pattern, dec_pattern):
         if key in ["max", "lim", "amt"]:
-            if isinstance(value, Decimal):
+            if isinstance(value, D):
                 self.src20_dict[key] = value
             elif num_pattern.match(str(value)):
                 self.src20_dict[key] = D(str(value))
@@ -594,7 +595,7 @@ def convert_to_utf8_string(tick_value):
     return tick_value
 
 
-def check_format(input_string, tx_hash):
+def check_format(input_string, tx_hash, block_index):
     """
     Check the format of the SRC-20 JSON string and return a dictionary if it meets the validation requirements.
     This function determines inclusion/exclusion as a valid stamp without affecting stamp numbering.
@@ -618,18 +619,23 @@ def check_format(input_string, tx_hash):
         if "e" in s.lower():
             logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
             raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
-        return Decimal(s)
+        return D(s)
 
     try:
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
+                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, str):
                 input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
-        except (json.JSONDecodeError, TypeError):
-            raise
+            else:
+                logger.warning("EXCLUSION: Input string is neither bytes, str, nor dict")
+                return None
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(f"EXCLUSION: JSON decode error: {e}")
+            return None
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
@@ -668,7 +674,10 @@ def check_format(input_string, tx_hash):
 
                         if isinstance(value, str):
                             try:
-                                value = D(value) if value else D(0)
+                                if block_index >= CP_P2WSH_FEAT_BLOCK_START:
+                                    value = D(value) if value else D(0)
+                                else:
+                                    value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
                             except InvalidOperation as e:
                                 logger.warning(
                                     f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
@@ -684,12 +693,10 @@ def check_format(input_string, tx_hash):
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
-
-                        if not (D("0") <= value <= uint64_max):
+                        if value.is_nan() or not (D("0") <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
-
-            return input_dict  # unmodified values to be processed in src20 validation
+            return input_dict
 
     except json.JSONDecodeError:
         return None
@@ -1254,7 +1261,6 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
     logger.warning("API Hash: %s", api_ledger_hash)
     logger.warning("Local Hash: %s", ledger_hash)
 
-    # Parse local and API balances
     local_balances = parse_balances(valid_src20_str)
     api_balances = parse_balances(api_ledger_validation)
 
@@ -1267,16 +1273,16 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
     compare_string_formats(valid_src20_str, api_ledger_validation)
 
-    return True  # Temporary while API issues are resolved
+    return True
     # If you want to raise an exception instead, you can uncomment the following line
     # raise ValueError("API ledger hash does not match local ledger hash")
 
 
 def parse_balances(balance_str):
-    balances = defaultdict(lambda: defaultdict(Decimal))
+    balances = defaultdict(lambda: defaultdict(D))
     for entry in balance_str.split(";"):
         tick, address, balance = entry.split(",")
-        balances[tick][address] = Decimal(balance)
+        balances[tick][address] = D(balance)
     return balances
 
 
@@ -1291,8 +1297,8 @@ def compare_balances(local_balances, api_balances):
     for address in sorted(all_addresses):
         address_differences = []
         for tick in sorted(set(local_balances.keys()) | set(api_balances.keys())):
-            local_balance = local_balances.get(tick, {}).get(address, Decimal("0"))
-            api_balance = api_balances.get(tick, {}).get(address, Decimal("0"))
+            local_balance = local_balances.get(tick, {}).get(address, D("0"))
+            api_balance = api_balances.get(tick, {}).get(address, D("0"))
             if local_balance != api_balance:
                 address_differences.append((tick, local_balance, api_balance))
         if address_differences:
