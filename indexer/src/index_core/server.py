@@ -239,6 +239,7 @@ def initialize_config(
     # Encoding
     config.PREFIX = b"stamp:"
     config.CP_PREFIX = b"CNTRPRTY"
+
     # Misc
     config.REQUESTS_TIMEOUT = requests_timeout
 

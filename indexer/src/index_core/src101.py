@@ -13,7 +13,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 import index_core.log as log
-from config import SRC101_OWNERS_TABLE, SRC101_TABLE, SRC101_VALID_TABLE
+from config import SRC101_OWNERS_TABLE
 from index_core.database import get_src101_deploy, get_src101_price
 from index_core.util import (
     check_contains_special,
