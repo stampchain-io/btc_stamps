@@ -625,13 +625,17 @@ def check_format(input_string, tx_hash, block_index):
         try:
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
+                input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, str):
-                # input_dict = json.loads(input_string, parse_float=D)
                 input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
-        except (json.JSONDecodeError, TypeError):
-            raise
+            else:
+                logger.warning("EXCLUSION: Input string is neither bytes, str, nor dict")
+                return None
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(f"EXCLUSION: JSON decode error: {e}")
+            return None
         if input_dict.get("p").lower() == "src-721":
             return input_dict
         elif input_dict.get("p").lower() == "src-20":
@@ -684,14 +688,12 @@ def check_format(input_string, tx_hash, block_index):
                         elif isinstance(value, float):
                             value_str = format(value, "f")
                             value = D(value_str)
-                            # value = D(str(value))
                         elif isinstance(value, D):
                             pass
                         else:
                             logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
-                        # if not (0 <= value <= uint64_max):
-                        if not (D("0") <= value <= uint64_max):
+                        if value.is_nan() or not (D("0") <= value <= uint64_max):
                             logger.warning(f"EXCLUSION: {key} not in range", input_dict)
                             return None
             return input_dict
