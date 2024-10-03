@@ -3,7 +3,8 @@ import json
 import logging
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from threading import Lock
+from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 from tqdm import tqdm
@@ -15,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 url = config.CP_RPC_URL
 auth = config.CP_AUTH
-from threading import Lock
 
 healthy_nodes_lock = Lock()
 healthy_nodes: List[Dict[str, Any]] = []
@@ -259,6 +259,9 @@ def fetch_xcp_v2(
 ) -> Dict[str, Any]:
     global healthy_nodes
 
+    if not healthy_nodes:
+        update_healthy_nodes()
+
     nodes_to_try = [node] if node else healthy_nodes.copy()
 
     for node in nodes_to_try:
@@ -304,72 +307,51 @@ def get_xcp_asset(cpid: str, node: Optional[Dict[str, Any]] = None) -> Optional[
     try:
         response = fetch_xcp_v2(endpoint, node=node)
         if not response or not isinstance(response, dict) or "result" not in response:
-            raise ValueError(f"Invalid response for asset {cpid}")
+            logger.error(f"Invalid response for asset {cpid}: {response}")
+            return None
 
-        logger.info(f"Fetched XCP asset for CPID: {cpid}, Response: {response}")
+        logger.info(f"Fetched XCP asset for CPID: {cpid}")
         return response["result"]
     except Exception as e:
         logger.error(f"Error fetching asset info for cpid {cpid}: {e}")
         return None
 
 
+def chunks(lst: List[Any], n: int) -> Iterator[List[Any]]:
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
 def get_xcp_assets_by_cpids(
-    cpids: List[str], chunk_size: int = 200, delay_between_chunks: int = 6, max_workers: int = 5, executor=None
+    cpids: List[str], chunk_size: int = 200, delay_between_chunks: int = 6, max_workers: int = 5
 ) -> List[Dict[str, Any]]:
-    global healthy_nodes
+    assets_details = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        for cpid_chunk in chunks(cpids, chunk_size):
+            future = executor.submit(fetch_assets_details, cpid_chunk)
+            futures.append(future)
+            time.sleep(delay_between_chunks)
 
-    if not healthy_nodes:
-        update_healthy_nodes()
-        if not healthy_nodes:
-            raise Exception("No healthy nodes available to fetch data.")
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                assets_details.extend(result)
 
-    assets = []
-    total_cpids = len(cpids)
-    num_chunks = (total_cpids + chunk_size - 1) // chunk_size
-    nodes = healthy_nodes
-    node_count = len(nodes)
+    return assets_details
 
-    for i in range(num_chunks):
-        start = i * chunk_size
-        end = min(start + chunk_size, total_cpids)
-        cpids_chunk = cpids[start:end]
-        current_node = nodes[i % node_count]  # Round-robin selection
-        logger.info(
-            f"Fetching XCP assets for CPIDs [{start}:{end}] [Chunk {i+1}/{num_chunks}] using node {current_node['name']}"
-        )
 
-        if executor is None:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as local_executor:
-                future_to_cpid = {local_executor.submit(get_xcp_asset, cpid, node=current_node): cpid for cpid in cpids_chunk}
-                chunk_assets = []
-                for future in concurrent.futures.as_completed(future_to_cpid):
-                    cpid = future_to_cpid[future]
-                    try:
-                        asset = future.result()
-                        if asset is not None:
-                            chunk_assets.append(asset)
-                    except Exception as exc:
-                        logger.error(f"Error fetching asset info for cpid {cpid}: {exc}")
+def fetch_assets_details(cpid_chunk: List[str]) -> List[Dict[str, Any]]:
+    assets_details = []
+    for cpid in cpid_chunk:
+        logger.info(f"Fetching asset detail for CPID: {cpid}")
+        asset_detail = get_xcp_asset(cpid)
+        if asset_detail:
+            assets_details.append(asset_detail)
         else:
-            future_to_cpid = {executor.submit(get_xcp_asset, cpid, node=current_node): cpid for cpid in cpids_chunk}
-            chunk_assets = []
-            for future in concurrent.futures.as_completed(future_to_cpid):
-                cpid = future_to_cpid[future]
-                try:
-                    asset = future.result()
-                    if asset is not None:
-                        chunk_assets.append(asset)
-                except Exception as exc:
-                    logger.error(f"Error fetching asset info for cpid {cpid}: {exc}")
-
-        assets.extend(chunk_assets)
-        logger.info(f"Fetched {len(chunk_assets)} XCP assets in chunk {i+1}")
-
-        if i < num_chunks - 1:
-            time.sleep(delay_between_chunks)  # Delay between chunks to throttle API requests
-
-    logger.info(f"Fetched total {len(assets)} XCP assets")
-    return assets
+            logger.warning(f"No asset detail found for CPID: {cpid}")
+    return assets_details
 
 
 def check_node_health(node: Dict[str, Any]) -> bool:

@@ -827,7 +827,7 @@ def get_unlocked_cpids(db) -> List[Tuple[str, ...]]:
         return list(cursor.fetchall())
 
 
-def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 6):
+def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2):
     total_assets = len(assets_details)
     num_chunks = (total_assets + chunk_size - 1) // chunk_size
 
@@ -874,7 +874,6 @@ def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: in
                         """
                     updates.append((sql, params))
 
-                # Execute updates in batch
                 for sql, params in updates:
                     cursor.execute(sql, params)
             db.commit()
