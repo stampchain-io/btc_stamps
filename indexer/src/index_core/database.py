@@ -1,7 +1,8 @@
 import decimal
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, TypeVar, cast
+from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
 
 import pymysql as mysql
 
@@ -343,101 +344,117 @@ def get_srcbackground_data(db, tick):
             return None, None, None
 
 
-def rebuild_balances(db):
-    cursor = db.cursor()
+def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
+    query = """
+    SELECT id, tick, tick_hash, address, amt, last_update
+    FROM balances where p = 'SRC-20'
+    """
+    cursor.execute(query)
+    return [tuple(row) for row in cursor.fetchall()]
 
-    try:
-        logger.info("Validating Balances Table..")
 
-        db.begin()
-        query = """
-        SELECT id, tick, tick_hash, address, amt, last_update
-        FROM balances where p = 'SRC-20'
-        """
+def get_src20_valid_list(cursor, block_index=None):
+    query = f"""
+    SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
+    FROM {SRC20_VALID_TABLE}
+    WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
+    """
+    if block_index is not None:
+        query += " AND block_index <= %s"
+    query += " ORDER by block_index"
+
+    if block_index is not None:
+        cursor.execute(query, (block_index,))
+    else:
         cursor.execute(query)
-        existing_balances = [tuple(row) for row in cursor.fetchall()]
 
-        query = f"""
-        SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
-        FROM {SRC20_VALID_TABLE}
-        WHERE (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
-        ORDER by block_index
-        """  # nosec
-        cursor.execute(query)
-        src20_valid_list = cursor.fetchall()
+    return cursor.fetchall()
 
-        all_balances: dict[str, dict[str, Any]] = {}
-        for [
-            op,
-            creator,
-            destination,
-            tick,
-            tick_hash,
-            amt,
-            block_time,
-            block_index,
-        ] in src20_valid_list:
-            destination_id = tick + "_" + destination
-            destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
-            destination_amt += amt
 
-            all_balances[destination_id] = {
+def calculate_balances(src20_valid_list):
+    all_balances: dict[str, dict[str, Any]] = {}
+    for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
+        destination_id = tick + "_" + destination
+        destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
+        destination_amt += amt
+
+        all_balances[destination_id] = {
+            "tick": tick,
+            "tick_hash": tick_hash,
+            "address": destination,
+            "amt": destination_amt,
+            "last_update": block_index,
+            "block_time": block_time,
+        }
+
+        if op == "TRANSFER":
+            creator_id = tick + "_" + creator
+            creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
+            creator_amt -= amt
+            all_balances[creator_id] = {
                 "tick": tick,
                 "tick_hash": tick_hash,
-                "address": destination,
-                "amt": destination_amt,
+                "address": creator,
+                "amt": creator_amt,
                 "last_update": block_index,
                 "block_time": block_time,
             }
 
-            if op == "TRANSFER":
-                creator_id = tick + "_" + creator
-                creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
-                creator_amt -= amt
-                all_balances[creator_id] = {
-                    "tick": tick,
-                    "tick_hash": tick_hash,
-                    "address": creator,
-                    "amt": creator_amt,
-                    "last_update": block_index,
-                    "block_time": block_time,
-                }
+    return all_balances
 
-        if set(existing_balances) == set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items()):
-            logger.info("No changes in balances. Skipping deletion and insertion." "")
-            cursor.close()
+
+def balances_need_update(existing_balances, all_balances):
+    return set(existing_balances) != set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items())
+
+
+def purge_balances(cursor):
+    logger.warning("Purging balances table")
+    query = "DELETE FROM balances"
+    cursor.execute(query)
+
+
+def insert_balances(cursor, all_balances):
+    logger.warning(f"Inserting {len(all_balances)} balances")
+    values = [
+        (
+            key,
+            value["tick"],
+            value["tick_hash"],
+            value["address"],
+            value["amt"],
+            value["last_update"],
+            value["block_time"],
+            "SRC-20",
+        )
+        for key, value in all_balances.items()
+    ]
+
+    cursor.executemany(
+        """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+        values,
+    )
+
+
+def rebuild_balances(db, block_index=None):
+    cursor = db.cursor()
+
+    try:
+        logger.info("Validating Balances Table..")
+        db.begin()
+
+        existing_balances = get_existing_balances(cursor)
+        src20_valid_list = get_src20_valid_list(cursor, block_index)
+        all_balances = calculate_balances(src20_valid_list)
+
+        if not balances_need_update(existing_balances, all_balances):
+            logger.info("No changes in balances. Skipping deletion and insertion.")
             return
-        else:
-            logger.warning("Purging and rebuilding {} table".format("balances"))
 
-            query = """
-            DELETE FROM balances
-            """
-            cursor.execute(query)
+        purge_balances(cursor)
+        insert_balances(cursor, all_balances)
 
-            logger.warning("Inserting {} balances".format(len(all_balances)))
-
-            values = [
-                (
-                    key,
-                    value["tick"],
-                    value["tick_hash"],
-                    value["address"],
-                    value["amt"],
-                    value["last_update"],
-                    value["block_time"],
-                    "SRC-20",
-                )
-                for key, value in all_balances.items()
-            ]
-
-            cursor.executemany(
-                """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
-                values,
-            )
-
-            db.commit()
+        db.commit()
 
     except Exception as e:
         db.rollback()
@@ -461,6 +478,17 @@ def purge_block_db(db, block_index):
     reset_all_caches()
     cursor = db.cursor()
 
+    # First, delete from collection_stamps
+    logger.warning("Purging collection_stamps from database after block: {}".format(block_index))
+    cursor.execute(
+        """
+        DELETE cs FROM collection_stamps cs
+        JOIN StampTableV4 s ON cs.stamp = s.stamp
+        WHERE s.block_index >= %s
+        """,
+        (block_index,),
+    )
+
     tables = [
         SRC20_VALID_TABLE,
         SRC20_TABLE,
@@ -473,9 +501,9 @@ def purge_block_db(db, block_index):
         logger.warning("Purging {} from database after block: {}".format(table, block_index))
         cursor.execute(
             """
-                        DELETE FROM {}
-                        WHERE block_index >= %s
-                        """.format(
+            DELETE FROM {}
+            WHERE block_index >= %s
+            """.format(
                 table
             ),
             (block_index,),
@@ -667,7 +695,7 @@ def check_reissue_in_db(db, cpid):
     with db.cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT is_btc_stamp FROM {STAMP_TABLE}
+            SELECT stamp FROM {STAMP_TABLE}
             WHERE cpid = %s
             ORDER BY block_index DESC
             LIMIT 1
@@ -731,22 +759,12 @@ def next_tx_index(db):
 
 
 def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
-    """
-    Insert a new block into the database, does not commit
-
-    Args:
-        db (object): The database connection object.
-        block_index (int): The index of the block.
-        block_hash (str): The hash of the block.
-        block_time (int): The timestamp of the block.
-        previous_block_hash (str): The hash of the previous block.
-        difficulty (float): The difficulty of the block.
-
-    Returns:
-        None
-    """
+    if difficulty is None:
+        difficulty = 0.0
+    else:
+        difficulty = float(difficulty)
+    args = (block_index, block_hash, block_time, previous_block_hash, difficulty)
     cursor = db.cursor()
-    # logger.info('Inserting MySQL Block: {}'.format(block_index))
     block_query = """INSERT INTO blocks(
                         block_index,
                         block_hash,
@@ -754,13 +772,11 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
                         previous_block_hash,
                         difficulty
                         ) VALUES(%s,%s,FROM_UNIXTIME(%s),%s,%s)"""
-    args = (block_index, block_hash, block_time, previous_block_hash, float(difficulty))
-
     try:
         cursor.execute(block_query, args)
     except mysql.IntegrityError as e:
         cursor.close()
-        raise BlockAlreadyExistsError(f"block {block_index} already exists in mysql") from e
+        raise BlockAlreadyExistsError(f"Block {block_index} already exists in the database.") from e
     except Exception as e:
         cursor.close()
         raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
@@ -797,3 +813,73 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
         raise BlockUpdateError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}")
     finally:
         cursor.close()
+
+
+def get_balances_at_block(db, block_index):
+    with db.cursor() as cursor:
+        src20_valid_list = get_src20_valid_list(cursor, block_index)
+    return calculate_balances(src20_valid_list)
+
+
+def get_unlocked_cpids(db) -> List[Tuple[str, ...]]:
+    with db.cursor() as cursor:
+        cursor.execute(f"SELECT DISTINCT cpid FROM {STAMP_TABLE} WHERE locked != 1 AND (ident = 'SRC-721' or ident = 'STAMP')")
+        return list(cursor.fetchall())
+
+
+def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2):
+    total_assets = len(assets_details)
+    num_chunks = (total_assets + chunk_size - 1) // chunk_size
+
+    for i in range(num_chunks):
+        start = i * chunk_size
+        end = min(start + chunk_size, total_assets)
+        assets_chunk = assets_details[start:end]
+        logger.info(f"Updating assets in database for chunk {i+1}/{num_chunks}")
+
+        try:
+            updates = []
+            with db.cursor() as cursor:
+                for asset in assets_chunk:
+                    cpid = asset.get("asset")
+                    if cpid is None:
+                        continue
+                    set_clauses = []
+                    params: List[Any] = []
+
+                    if "locked" in asset:
+                        locked = 1 if asset.get("locked") else 0
+                        set_clauses.append("locked = %s")
+                        params.append(locked)
+
+                    if "divisible" in asset:
+                        divisible = 1 if asset.get("divisible") else 0
+                        set_clauses.append("divisible = %s")
+                        params.append(divisible)
+
+                    if "supply" in asset:
+                        supply = asset.get("supply", 0)
+                        set_clauses.append("supply = %s")
+                        params.append(supply)
+
+                    if not set_clauses:
+                        continue
+
+                    params.append(cpid)
+                    set_clause = ", ".join(set_clauses)
+                    sql = f"""
+                        UPDATE {STAMP_TABLE} SET
+                            {set_clause}
+                        WHERE cpid = %s
+                        """
+                    updates.append((sql, params))
+
+                for sql, params in updates:
+                    cursor.execute(sql, params)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error updating assets in chunk {i+1}: {e}")
+
+        if i < num_chunks - 1:
+            time.sleep(delay_between_chunks)

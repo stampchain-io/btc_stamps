@@ -5,7 +5,7 @@ import logging
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import ClassVar, Dict, List, Optional, TypedDict, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, TypedDict, Union
 
 import magic
 import msgpack
@@ -53,7 +53,7 @@ class StampData:
         btc_amount (float): The amount of BTC in the transaction.
         fee (float): The transaction fee.
         data (str): The data associated with the transaction.
-        decoded_tx (str): The decoded transaction.
+        decoded_tx (dict): The decoded transaction.
         keyburn (int): The keyburn value.
         tx_index (int): The index of the transaction.
         block_index (int): The index of the block containing the transaction.
@@ -69,7 +69,7 @@ class StampData:
     btc_amount: float
     fee: float
     data: str
-    decoded_tx: str
+    decoded_tx: dict
     keyburn: int
     tx_index: int
     block_index: int
@@ -100,6 +100,11 @@ class StampData:
     pval_src20: Optional[bool] = None
     is_posh: Optional[bool] = False
     precomputed_collections: ClassVar[List[Dict]] = []
+    collection_name: Optional[str] = None
+    collection_description: Optional[str] = None
+    collection_website: Optional[str] = None
+    collection_onchain: Optional[bool] = None
+    db: Optional[object] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -146,20 +151,44 @@ class StampData:
         if not self.__class__.precomputed_collections:
             self.__class__.precompute_collections(collections)
 
-        collection_inserts = []
-        stamp_inserts = []
-        creator_inserts = []
+        collection_inserts: List[Tuple[str, str, Optional[str], Optional[str], Optional[bool]]] = []
+        stamp_inserts: List[Tuple[str, int]] = []
+        creator_inserts: List[Tuple[str, str]] = []
 
+        collection_found = False
         for collection in self.__class__.precomputed_collections:
             if (
                 self.file_hash in collection["file_hashes"]
                 or self.stamp in collection["stamps"]
                 or (self.is_posh and collection["is_posh"])
             ):
-                collection_inserts.append((collection["collection_id"], collection["name"]))
-                stamp_inserts.append((collection["collection_id"], self.stamp))
+                collection_found = True
+                collection_inserts.append((collection["collection_id"], collection["name"], None, None, None))
+                if self.stamp is not None:
+                    stamp_inserts.append((collection["collection_id"], self.stamp))
                 for creator in collection["creators"]:
                     creator_inserts.append((collection["collection_id"], creator))
+
+        if not collection_found:  # FIXME: dynamic collections names based on SRC-721 data will not rollback in a block reorg.
+            if self.collection_name:
+                existing_collection_id = self.get_collection_by_name(db, self.collection_name)
+                if existing_collection_id:
+                    collection_found = True
+                    if self.stamp is not None:
+                        stamp_inserts.append((existing_collection_id, self.stamp))
+                else:
+                    new_collection_id = self.generate_collection_id(self.collection_name).hex()
+                    collection_inserts.append(
+                        (
+                            new_collection_id,
+                            self.collection_name,
+                            self.collection_description,
+                            self.collection_website,
+                            self.collection_onchain,
+                        )
+                    )
+                    if self.creator:
+                        creator_inserts.append((new_collection_id, self.creator))
 
         if collection_inserts:
             self.insert_into_collections(db, collection_inserts)
@@ -168,6 +197,15 @@ class StampData:
         if creator_inserts:
             self.ensure_creators_exist(db, creator_inserts)
             self.insert_into_collection_creators(db, creator_inserts)
+
+    def get_collection_by_name(self, db, collection_name):
+        with db.cursor() as cursor:
+            cursor.execute("SELECT collection_id FROM collections WHERE collection_name = %s", (collection_name,))
+            result = cursor.fetchone()
+            if result:
+                collection_id_hex = result[0].hex()
+                return collection_id_hex
+        return None
 
     @staticmethod
     def ensure_creators_exist(db, creator_inserts: List[tuple]):
@@ -179,18 +217,17 @@ class StampData:
         db.commit()
 
     @staticmethod
-    def insert_into_collections(db, collection_inserts: List[tuple]):
+    def insert_into_collections(db, collection_inserts: List[Tuple[str, str, Optional[str], Optional[str], Optional[bool]]]):
         query = """
-        INSERT INTO collections (collection_id, collection_name)
-        VALUES (UNHEX(%s), %s)
-        ON DUPLICATE KEY UPDATE collection_name=VALUES(collection_name)
+        INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website, collection_onchain)
+        VALUES (UNHEX(%s), %s, %s, %s, %s)
         """
         cursor = db.cursor()
         cursor.executemany(query, collection_inserts)
         db.commit()
 
     @staticmethod
-    def insert_into_collection_stamps(db, stamp_inserts: List[tuple]):
+    def insert_into_collection_stamps(db, stamp_inserts: List[Tuple[str, int]]):
         query = """
         INSERT INTO collection_stamps (collection_id, stamp)
         VALUES (UNHEX(%s), %s)
@@ -201,7 +238,7 @@ class StampData:
         db.commit()
 
     @staticmethod
-    def insert_into_collection_creators(db, creator_inserts: List[tuple]):
+    def insert_into_collection_creators(db, creator_inserts: List[Tuple[str, str]]):
         query = """
         INSERT INTO collection_creators (collection_id, creator_address)
         VALUES (UNHEX(%s), %s)
@@ -270,9 +307,42 @@ class StampData:
             self.ident = self.decoded_base64["p"].upper()
             self.file_suffix = "json"
         else:
-            self.file_suffix = "json"  # a valid json file, but not SRC-20, will be cursed
+            self.file_suffix = "json"  # A valid JSON file, but not SRC-20, will be considered cursed
             self.stamp_mimetype = "application/json"
             self.ident = "UNKNOWN"
+            self.parse_and_insert_collection()
+
+    def parse_and_insert_collection(self):
+        """
+        Parse the JSON string for collection data and insert into collection tables if found.
+        """
+        collection_data = self.decoded_base64.get("collection")
+        if not collection_data or not isinstance(collection_data, dict):
+            return
+
+        name = collection_data.get("name")
+        if not name:
+            return
+
+        collection_id = self.generate_collection_id(name).hex()
+
+        # Check if the collection already exists
+        existing_collection = self.get_collection_by_name(self.db, name)
+        if existing_collection:
+            return  # Collection already exists, ignore
+
+        # Prepare collection data
+        stamps = collection_data.get("stamps", [])
+        web = collection_data.get("web")
+        description = collection_data.get("description")
+
+        # Insert collection
+        self.insert_into_collections(self.db, [(collection_id, name, description, web, 1)])  # '1' indicates 'onchain'
+
+        # Insert stamps
+        if stamps:
+            stamp_inserts = [(collection_id, stamp) for stamp in stamps]
+            self.insert_into_collection_stamps(self.db, stamp_inserts)
 
     def zlib_decompress(self, compressed_data):
         """
@@ -492,7 +562,7 @@ class StampData:
             self.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
 
     def src20_pre_validation(self, db):
-        self.src20_dict = check_format(self.decoded_base64, self.tx_hash)
+        self.src20_dict = check_format(self.decoded_base64, self.tx_hash, self.block_index)
         if self.src20_dict is not None:
             self.is_btc_stamp = True
             self.decoded_base64 = build_src20_svg_string(
@@ -508,11 +578,22 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
-        svg_output, self.file_suffix = validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
+        svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
+            validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
+        )
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"
         self.stamp_mimetype = "image/svg+xml"
+
+        if collection_name:
+            self.collection_name = collection_name
+        if collection_description:
+            self.collection_description = collection_description
+        if collection_website:
+            self.collection_website = collection_website
+        if collection_onchain:
+            self.collection_onchain = collection_onchain
 
     def process_all_stamps(self, ident_known, cpid_starts_with_A):
         if (
@@ -555,6 +636,7 @@ class StampData:
         db,
         valid_stamps_in_block,
     ):
+        self.db = db
         self.validate_data_exists()
         stamp = convert_to_dict_or_string(self.data, output_format="dict")
 
@@ -567,8 +649,8 @@ class StampData:
         self.validate_and_process_stamp_data(decode_base64, db, valid_stamps_in_block)
 
         self.normalize_mime_and_suffix()
-        # if isinstance(self.decoded_base64, bytes):
-        self.file_hash, filename = encode_and_store_file(  # can be any type (bytestring, string or dict)
+        # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
+        self.file_hash, filename = encode_and_store_file(
             db,
             self.tx_hash,
             self.file_suffix,

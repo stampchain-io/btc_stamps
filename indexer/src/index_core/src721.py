@@ -1,7 +1,6 @@
 import copy
 import json
 import logging
-import textwrap
 from typing import Any
 
 from cachetools import LRUCache, cached
@@ -12,37 +11,52 @@ from index_core.database import get_srcbackground_data
 
 logger = logging.getLogger(__name__)
 
+MAX_LAYERS = 10  # Define a maximum number of layers
+
 
 def parse_valid_src721_in_block(valid_stamps_in_block):
     valid_src721_in_block = []
     for stamp in valid_stamps_in_block:
-        if stamp.get("op", "").upper() == "DEPLOY":
+        if stamp.get("op", "").upper() == "DEPLOY" and stamp.get("is_btc_stamp", False):
             valid_src721_in_block.append(stamp)
     return valid_src721_in_block
 
 
 def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
+    collection_name, collection_description, collection_website, collection_onchain = None, None, None, None
     if valid_stamps_in_block:
         valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
     else:
         valid_src721_in_block = []
     src721_json = convert_to_dict(src721_json)
     op_val = src721_json.get("op", "").upper()
-    file_suffix = None
+    file_suffix, collection_name, collection_description = None, None, None
     if "symbol" in src721_json:
         src721_json["tick"] = src721_json.pop("symbol")
     if op_val == "MINT":
-        svg_output = create_src721_mint_svg(src721_json, valid_src721_in_block, db)
+        svg_output, collection_name = create_src721_mint_svg(src721_json, valid_src721_in_block, db)
         file_suffix = "svg"
     elif op_val == "DEPLOY":
-        deploy_description = src721_json.get("description", None)
-        deploy_name = src721_json.get("name", None)
-        svg_output = get_src721_svg_string(deploy_name, deploy_description, db)
+        collection_name = src721_json.get("name", None)
+        collection_description = src721_json.get("description", None)
+        collection_website = src721_json.get("website", None)
+        svg_output = get_src721_svg_string(collection_name, collection_description, db)
         file_suffix = "svg"
     else:
         svg_output = get_src721_svg_string("SRC721", config.DOMAINNAME, db)
         file_suffix = "svg"
-    return svg_output.encode("utf-8"), file_suffix
+
+    # Set collection_onchain to 1 if collection_name is found
+    collection_onchain = 1 if collection_name is not None else None
+
+    return (
+        svg_output.encode("utf-8"),
+        file_suffix,
+        collection_name,
+        collection_description,
+        collection_website,
+        collection_onchain,
+    )
 
 
 def convert_to_dict(json_string_or_dict):
@@ -120,7 +134,7 @@ def fetch_src721_collection(tmp_collection_object, valid_src721_in_block, db):
 
 def get_src721_svg_string(src721_title, src721_desc, db):
     """
-    Generate an SVG string for SRC721 with the provided title and description.
+    Generate a simplified SVG string for SRC721 with the provided title and description.
 
     Parameters:
     src721_title (str): The title of the SRC721.
@@ -130,19 +144,16 @@ def get_src721_svg_string(src721_title, src721_desc, db):
     Returns:
     str: The SVG string representing the SRC721.
     """
-    custom_background_result, text_color, font_size = get_srcbackground_data(db, "SRC721")
+    custom_background_result, _, _ = get_srcbackground_data(db, "SRC721")
+    image_data = custom_background_result
+
     svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
-        <foreignObject font-size="{font_size}" width="100%" height="100%">
-            <p xmlns="http://www.w3.org/1999/xhtml"
-                style="background-image: url(data:{custom_background_result});color:{text_color};padding:20px;margin:0px;width:1000px;height:1000px;">
-                <pre></pre>
-            </p>
-        </foreignObject>
-        <title>{src721_title}</title>
-        <desc>{src721_desc} - provided by stampchain.io</desc>
-    </svg>
-    """
-    svg_output = svg_output.replace("\n", "")
+    <image x="0" y="0" width="420" height="420" href="data:image/png;base64,{image_data}"/>
+    <title>{src721_title}</title>
+    <desc>{src721_desc} - provided by stampchain.io</desc>
+</svg>"""
+
+    svg_output = svg_output.replace("\n", "").replace("    ", "")
     return svg_output
 
 
@@ -155,36 +166,28 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
         tmp_collection_object (dict): Temporary collection object containing information about the collection.
 
     Returns:
-        str: Stacked SVG string.
-
+        tuple: A tuple containing the stacked SVG string and the collection name.
     """
-    tmp_coll_description = tmp_collection_object.get("description", None)
+    tmp_coll_description = tmp_collection_object.get("description", "")
     tmp_coll_name = tmp_collection_object.get("name", "SRC-721")
     tmp_coll_img_render = tmp_collection_object.get("image-rendering", "pixelated")
 
-    # Initialize the SVG string
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" style="image-rendering:{tmp_coll_img_render}; width: 420px; height: 420px;">
-            <foreignObject width="100%" height="100%">
-            <style>img {{position:absolute;width:100%;height:100%;}}</style>
-            <title>{tmp_coll_name}</title>
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 420 420" style="image-rendering:{tmp_coll_img_render}; width: 420px; height: 420px;">
+    <title>{tmp_coll_name}</title>
+    <desc>{tmp_coll_description} - provided by stampchain.io</desc>
+    """
 
-            <desc>{tmp_coll_description} - provided by stampchain.io</desc>
-            <div xmlns="http://www.w3.org/1999/xhtml" style="width:420px;height:420px;position:relative;">"""
+    for i, t in enumerate(tmp_nft_object.get("ts", [])):
+        if i >= MAX_LAYERS:
+            logger.warning(f"Exceeded maximum number of layers ({MAX_LAYERS}). Truncating.")
+            break
+        img_key = f"t{i}-img"
+        if img_key in tmp_collection_object and t < len(tmp_collection_object[img_key]):
+            image_src_base64 = tmp_collection_object[img_key][t]
+            svg += f'<image x="0" y="0" width="420" height="420" xlink:href="data:image/png;base64,{image_src_base64}"/>'
 
-    for i in range(len(tmp_nft_object["ts"])):
-        if tmp_collection_object["t" + str(i) + "-img"] and tmp_nft_object["ts"][i] < len(
-            tmp_collection_object["t" + str(i) + "-img"]
-        ):
-            image_src_base64 = (
-                f"{tmp_collection_object['type']},{tmp_collection_object['t' + str(i) + '-img'][tmp_nft_object['ts'][i]]}"
-            )
-            svg += f'<img src="{image_src_base64}"/>'
-        else:
-            continue
-
-    svg += "</div></foreignObject></svg>"
-
-    return textwrap.dedent(svg)
+    svg += "</svg>"
+    return svg, tmp_coll_name
 
 
 def create_src721_mint_svg(src_data, valid_src721_in_block, db):
@@ -200,36 +203,34 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
     """
     ts = src_data.get("ts", None)
     collection_asset = src_data.get("c")  # this is the CPID of the collection / parent asset
-    collection_asset_item = None
+    collection_asset_item, collection_name, svg_output = None, None, None
 
     if collection_asset:
         collection_asset_dict = next(
-            (item for item in dict(valid_src721_in_block) if item.get("cpid") == collection_asset),
+            (item for item in valid_src721_in_block if item.get("cpid") == collection_asset),
             None,
         )
         if collection_asset_dict:
             collection_asset_item = collection_asset_dict.get("src_data", None)
         if collection_asset_item is None:
             collection_asset_item = fetch_collection_details(collection_asset, db)
-        logger.info("collection_asset_item", collection_asset_item)
         if collection_asset_item is None or collection_asset_item == "null":
-            logger.debug("this is a mint without a v2 collection asset reference")  # DEBUG
             svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
         elif collection_asset_item and ts:
             try:
                 src_collection_data = convert_to_dict(collection_asset_item)
                 src_collection_data = fetch_src721_collection(src_collection_data, valid_src721_in_block, db)
-                svg_output = build_src721_stacked_svg(src_data, src_collection_data)
+                svg_output, collection_name = build_src721_stacked_svg(src_data, src_collection_data)
             except Exception as e:
-                logger.warning(f"ERROR: processing SRC-721 data: {e}")
+                logger.warning("ERROR: processing SRC-721 data: %s", e)
                 raise
         else:
-            logger.debug("this is a mint without a v2 collection asset reference, or missing ts")  # DEBUG
+            logger.debug("this is a mint without a v2 collection asset reference, or missing ts")
             svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
     else:
-        logger.debug("this is a mint without a collection asset reference")  # DEBUG
+        logger.debug("this is a mint without a collection asset reference")
         svg_output = get_src721_svg_string("SRC-721", config.DOMAINNAME, db)
-    return svg_output
+    return svg_output, collection_name
 
 
 collection_cache: LRUCache[str, str] = LRUCache(maxsize=256)

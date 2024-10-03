@@ -45,7 +45,19 @@ elif RPC_TLS:
 else:
     RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 
-RPC_BATCH_SIZE = 20  # A 1 MB block can hold about 4200 transactions.
+RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
+
+# Add new constants for the V2 CP API endpoints
+XCP_V2_NODES = [
+    {
+        "name": "stampchain.io",
+        "url": "https://k6e0ufzq8h.execute-api.us-east-1.amazonaws.com/beta/counterpartyproxy/v2",
+    },
+    {
+        "name": "counterparty.io",
+        "url": "https://api.counterparty.io:4000/v2",
+    },
+]
 
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
@@ -61,7 +73,8 @@ INVALID_BTC_STAMP_SUFFIX = ["plain", "octet-stream", "js", "css", "x-empty", "js
 
 CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transaction on counterparty
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty
-BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first stamp (src-20)
+BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP encoding
+BTC_SRC20_OLGA_BLOCK: int = 865000  # block height of first SRC-20 with P2WSH OLGA encoding
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 
 CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
@@ -82,7 +95,7 @@ BACKEND_CONNECT: str = "localhost"
 BACKEND_PORT: int = 8332
 BACKEND_SSL: bool = False
 BACKEND_SSL_NO_VERIFY: bool = False
-BACKEND_POLL_INTERVAL: float = 1.0
+BACKEND_POLL_INTERVAL: float = 2.0
 FORCE: bool = False
 PREFIX: bytes = b"stamp:"
 CP_PREFIX: bytes = b"CNTRPRTY"

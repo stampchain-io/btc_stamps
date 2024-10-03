@@ -171,15 +171,6 @@ def ib2h(b):
 
 
 def check_valid_base64_string(base64_string):
-    """
-    Check if a given string is a valid base64 string.
-
-    Args:
-        base64_string (str): The string to be checked.
-
-    Returns:
-        bool: True if the string is a valid base64 string, False otherwise.
-    """
     if base64_string is not None and re.fullmatch(r"^[A-Za-z0-9+/]+={0,2}$", base64_string) and len(base64_string) % 4 == 0:
         return True
     else:
@@ -187,15 +178,6 @@ def check_valid_base64_string(base64_string):
 
 
 def base62_encode(num):
-    """
-    Encodes a given number into a base62 string.
-
-    Args:
-        num (int): The number to be encoded.
-
-    Returns:
-        str: The base62 encoded string.
-    """
     chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     base = len(chars)
     if num == 0:
@@ -208,20 +190,6 @@ def base62_encode(num):
 
 
 def create_base62_hash(str1, str2, length=20):
-    """
-    Creates a base62 hash from two input strings.
-
-    Args:
-        str1 (str): The first input string.
-        str2 (str): The second input string.
-        length (int, optional): The desired length of the base62 hash. Must be between 12 and 20 characters. Defaults to 20.
-
-    Returns:
-        str: The base62 hash of the combined input strings, truncated to the specified length.
-
-    Raises:
-        ValueError: If the length is not between 12 and 20 characters.
-    """
     if not 12 <= length <= 20:
         raise ValueError("Length must be between 12 and 20 characters")
     combined_str = str1 + "|" + str2
@@ -313,7 +281,7 @@ def convert_to_dict_or_string(input_data, output_format="dict"):
         except json.JSONDecodeError:
             try:
                 input_data = ast.literal_eval(input_data)
-            except ValueError:
+            except (ValueError, SyntaxError):
                 raise DataConversionError("Invalid string representation of a dictionary")
 
     if not isinstance(input_data, dict):

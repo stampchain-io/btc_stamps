@@ -50,12 +50,14 @@ class StampProcessor:
 
         stamp_data.stamp = cast(int, stamp_data.stamp)
 
-        if stamp_data.cpid and stamp_data.is_btc_stamp:
+        if (stamp_data.cpid and stamp_data.is_btc_stamp) or (
+            stamp_data.is_cursed and stamp_data.cpid and not stamp_data.cpid.startswith("A")
+        ):
             valid_stamp = create_valid_stamp_dict(
                 stamp_data.stamp,
                 stamp_data.tx_hash,
-                stamp_data.cpid,
-                stamp_data.is_btc_stamp,
+                stamp_data.cpid or "",
+                bool(stamp_data.is_btc_stamp),
                 (bool(stamp_data.is_valid_base64) if stamp_data.is_valid_base64 is not None else False),
                 stamp_data.stamp_base64 if stamp_data.stamp_base64 is not None else "",
                 bool(stamp_data.is_cursed) if stamp_data.is_cursed is not None else False,
@@ -150,10 +152,12 @@ def get_src_or_img_from_data(stamp, block_index):
     """
     stamp_mimetype, decoded_base64, is_valid_base64 = None, None, None
     if "description" not in stamp:
-        if "p" in stamp or "P" in stamp and stamp.get("p").upper() == "SRC-20":
+        if ("p" in stamp or "P" in stamp) and stamp.get("p").upper() == "SRC-20":
             return stamp, None, None, 1
-        elif "p" in stamp or "P" in stamp and stamp.get("p").upper() == "SRC-721":
+        elif ("p" in stamp or "P" in stamp) and stamp.get("p").upper() == "SRC-721":
             return stamp, None, None, 1
+        else:
+            raise ValueError("invalid p")
     else:
         stamp_description = stamp.get("description")
         if stamp_description is None:
@@ -227,5 +231,8 @@ def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
 
 
 def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidStamp]):
+    if not stamp_data.data and not stamp_data.p2wsh_data:
+        return None, None, None, None
+
     processor = StampProcessor(db, valid_stamps_in_block)
     return processor.process_stamp(stamp_data)

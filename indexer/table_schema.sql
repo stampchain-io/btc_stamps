@@ -135,7 +135,8 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   INDEX `tick` (`tick`),
   INDEX `op` (`op`),
   INDEX `creator` (`creator`), 
-  INDEX `block_index` (`block_index`)
+  INDEX `block_index` (`block_index`),
+  INDEX `idx_src20valid_tick_op_max_deci_lim` (`tick`, `op`, `max`, `deci`, `lim`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `balances` (
@@ -163,11 +164,15 @@ CREATE TABLE IF NOT EXISTS s3objects (
   index `path_key` (`path_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
-
 CREATE TABLE IF NOT EXISTS collections (
   `collection_id` BINARY(16) PRIMARY KEY,
   `collection_name` VARCHAR(255) NOT NULL UNIQUE,
-  INDEX (collection_name)
+  `collection_description` VARCHAR(255),
+  `collection_website` VARCHAR(255),
+  `collection_tg` VARCHAR(32),
+  `collection_x` VARCHAR(32),
+  `collection_email` VARCHAR(255),
+  `collection_onchain` TINYINT(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS collection_creators (
@@ -187,6 +192,24 @@ CREATE TABLE IF NOT EXISTS collection_stamps (
   PRIMARY KEY (collection_id, stamp),
   INDEX (stamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS `src20_metadata` (
+  `tick` varchar(32) NOT NULL,
+  `tick_hash` varchar(64) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `x` varchar(32) DEFAULT NULL,
+  `tg` varchar(32) DEFAULT NULL,
+  `web` varchar(255) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `deploy_block_index` int NOT NULL,
+  `deploy_tx_hash` varchar(64) NOT NULL,
+  PRIMARY KEY (`tick`, `tick_hash`),
+  UNIQUE KEY `tick_unique` (`tick`),
+  UNIQUE KEY `tick_hash_unique` (`tick_hash`),
+  INDEX `deploy_block_index` (`deploy_block_index`),
+  INDEX `deploy_tx_hash` (`deploy_tx_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
 
 -- example for insert into collections
 -- START TRANSACTION;
