@@ -8,7 +8,6 @@ import logging
 import re
 import threading
 import unicodedata
-from binascii import unhexlify
 
 from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
@@ -188,7 +187,7 @@ def is_valid_pubkey_hex(pubkey_hex):
             return False
         if not (pubkey_hex.startswith("02") or pubkey_hex.startswith("03")):
             return False
-        pubkey_bytes = unhexlify(pubkey_hex)
+        pubkey_bytes = binascii.unhexlify(pubkey_hex)
         VerifyingKey.from_string(pubkey_bytes, curve=SECP256k1)
         return True
     except Exception as e:
