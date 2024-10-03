@@ -1,5 +1,6 @@
 import unittest
 from decimal import Decimal as D
+
 from index_core.src20 import check_format
 
 
