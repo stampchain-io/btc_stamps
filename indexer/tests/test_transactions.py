@@ -1,7 +1,8 @@
 import unittest
-from index_core.blocks import process_vout, get_tx_info, list_tx
+
 import index_core.backend as backend
 import index_core.util as util
+from index_core.blocks import get_tx_info
 
 
 class TestTransactionProcessing(unittest.TestCase):
@@ -38,9 +39,6 @@ class TestTransactionProcessing(unittest.TestCase):
 
                 # Fetch the raw transaction hex
                 tx_hex = backend.getrawtransaction(tx_hash)
-
-                # Deserialize the transaction
-                ctx = backend.deserialize(tx_hex)
 
                 # Call get_tx_info
                 transaction_info = get_tx_info(tx_hex, block_index=block_index)
