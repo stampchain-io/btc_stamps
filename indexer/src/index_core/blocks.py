@@ -295,6 +295,8 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                         data = data_chunk_without_prefix
                         keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
                         p2wsh_data = None
+                        destination_pubkey = ctx.vout[0].scriptPubKey
+                        destinations = decode_address(destination_pubkey)
                     else:
                         p2wsh_data = None
                 else:
@@ -303,8 +305,10 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             else:
                 p2wsh_data = None
 
-        # Existing logic for SRC-20 via CHECKMULTISIG
-        if pubkeys_compiled:
+        # SRC-20 via MULTISIG
+        # This prioritizes P2WSH over CHECKMULTISIG in a mixed transaction
+        # To be deprecated in a future block height over P2WSH for all SRC-20 transactions
+        if pubkeys_compiled and p2wsh_data is None:
             chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
             try:
                 src20_destination, src20_data = decode_checkmultisig(ctx, chunk)
