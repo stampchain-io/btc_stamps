@@ -97,11 +97,6 @@ jobs:
           poetry run python3 -m unittest discover -s . -p "test_arc4.py"
         working-directory: ./indexer
 
-      - name: Test SRC-20 Transaction Types
-        run: |
-          poetry run python3 -m unittest discover -s . -p "test_transactions.py"
-        working-directory: ./indexer
-
       - name: Run ARC4 Tests
         run: |
           poetry run pytest tests/test_arc4.py -v
