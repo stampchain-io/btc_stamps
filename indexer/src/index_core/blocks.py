@@ -308,7 +308,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         # SRC-20 via MULTISIG
         # This prioritizes P2WSH over CHECKMULTISIG in a mixed transaction
         # To be deprecated in a future block height over P2WSH for all SRC-20 transactions
-        if pubkeys_compiled and p2wsh_data is None:
+        elif pubkeys_compiled:
             chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
             try:
                 src20_destination, src20_data = decode_checkmultisig(ctx, chunk)
