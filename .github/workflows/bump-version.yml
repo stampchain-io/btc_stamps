@@ -54,7 +54,7 @@ jobs:
       - name: Check for skip keyword in commit message or PR title
         id: check-skip
         run: |
-          SKIP=false
+          SKIP="${{ env.SKIP }}"
           if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
             PR_TITLE="${{ github.event.pull_request.title }}"
             if [[ "$PR_TITLE" == *"[skip version]"* ]]; then
