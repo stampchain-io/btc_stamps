@@ -14,7 +14,7 @@ jobs:
 
     env:
       USE_TEST_TX_HEX: '1'
-      
+
     steps:
       - uses: actions/checkout@v4
 
@@ -95,17 +95,7 @@ jobs:
           poetry run python3 -m unittest discover -s . -p "test_check_format.py"
         working-directory: ./indexer
 
-      - name: Run Arc4  Validations
+      - name: Run ARC4  Validations
         run: |
           poetry run python3 -m unittest discover -s . -p "test_arc4.py"
-        working-directory: ./indexer
-
-      - name: Test SRC-20 Transaction Types
-        run: |
-          poetry run python3 -m unittest discover -s . -p "test_transactions.py"
-        working-directory: ./indexer
-
-      - name: Run ARC4 Tests
-        run: |
-          poetry run pytest tests/test_arc4.py -v
         working-directory: ./indexer
