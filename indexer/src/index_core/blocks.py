@@ -745,6 +745,7 @@ def follow(db):
                         rebuild_balances(db)
                         requires_rollback = False
                         stamp_issuances_list = None
+                        time.sleep(60)  # delay waiting for CP to catch up
                         continue
 
                 block_hash = backend.getblockhash(block_index)
@@ -855,8 +856,7 @@ def follow(db):
                         logger.info("update_cpids_async is already running. Skipping submission.")
                 else:
                     logger.info(f"Not time yet for update_cpids_async. Current block: {block_index}")
-
-                time.sleep(config.BACKEND_POLL_INTERVAL)  # TODO: Setup ZMQ triggers
+                time.sleep(30)  # TODO: Setup ZMQ triggers
 
         # if should_profile:
         #     profiler.disable()
