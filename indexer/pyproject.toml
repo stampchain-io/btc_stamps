@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "indexer"
-version = "1.8.11"
+version = "1.8.12"
 description = "Bitcoin Stamps Indexer"
 # readme = "README.md"
 authors = ["reinamora <reinamora@stampchain.io>"]
