@@ -51,14 +51,22 @@ jobs:
             echo "SKIP=false" >> $GITHUB_ENV
           fi
 
-      - name: Check for skip keyword in commit message
+      - name: Check for skip keyword in commit message or PR title
         id: check-skip
         run: |
-          COMMIT_MESSAGE=$(git log -1 --pretty=%B | tr -d '\n')
-          printf 'COMMIT_MESSAGE=%s\n' "$COMMIT_MESSAGE" >> $GITHUB_ENV
-          if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
-            printf 'SKIP=true\n' >> $GITHUB_ENV
+          SKIP=false
+          if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            PR_TITLE="${{ github.event.pull_request.title }}"
+            if [[ "$PR_TITLE" == *"[skip version]"* ]]; then
+              SKIP=true
+            fi
+          else
+            COMMIT_MESSAGE=$(git log -1 --pretty=%B | tr -d '\n')
+            if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
+              SKIP=true
+            fi
           fi
+          echo "SKIP=$SKIP" >> $GITHUB_ENV
 
       - name: Set up Python
         if: env.SKIP == 'false'
@@ -140,7 +148,7 @@ jobs:
         uses: tj-actions/branch-names@v8
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       

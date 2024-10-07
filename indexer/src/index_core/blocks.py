@@ -295,6 +295,8 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                         data = data_chunk_without_prefix
                         keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
                         p2wsh_data = None
+                        destination_pubkey = ctx.vout[0].scriptPubKey
+                        destinations = decode_address(destination_pubkey)
                     else:
                         p2wsh_data = None
                 else:
@@ -303,8 +305,10 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             else:
                 p2wsh_data = None
 
-        # Existing logic for SRC-20 via CHECKMULTISIG
-        if pubkeys_compiled:
+        # SRC-20 via MULTISIG
+        # This prioritizes P2WSH over CHECKMULTISIG in a mixed transaction
+        # To be deprecated in a future block height over P2WSH for all SRC-20 transactions
+        elif pubkeys_compiled:
             chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
             try:
                 src20_destination, src20_data = decode_checkmultisig(ctx, chunk)
@@ -741,6 +745,7 @@ def follow(db):
                         rebuild_balances(db)
                         requires_rollback = False
                         stamp_issuances_list = None
+                        time.sleep(60)  # delay waiting for CP to catch up
                         continue
 
                 block_hash = backend.getblockhash(block_index)
@@ -851,8 +856,7 @@ def follow(db):
                         logger.info("update_cpids_async is already running. Skipping submission.")
                 else:
                     logger.info(f"Not time yet for update_cpids_async. Current block: {block_index}")
-
-                time.sleep(config.BACKEND_POLL_INTERVAL)  # TODO: Setup ZMQ triggers
+                time.sleep(30)  # TODO: Setup ZMQ triggers
 
         # if should_profile:
         #     profiler.disable()
