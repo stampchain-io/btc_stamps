@@ -25,7 +25,7 @@ class StampProcessor:
         self.valid_stamps_in_block = valid_stamps_in_block
 
     def process_stamp(self, stamp_data: StampData):
-        stamp_results = src20_dict = prevalidated_src20 = None
+        stamp_results = src_dict = prevalidated_src = None
         valid_stamp: Optional[ValidStamp] = None
         try:
             stamp_data.process_and_store_stamp_data(
@@ -65,11 +65,15 @@ class StampProcessor:
             )
 
         if stamp_data.pval_src20:
-            src20_dict = stamp_data.src20_dict
-            prevalidated_src20 = append_stamp_data_to_src20_dict(stamp_data, src20_dict)
+            src_dict = stamp_data.src20_dict
+            prevalidated_src = append_stamp_data_to_src20_dict(stamp_data, src_dict)
+
+        if stamp_data.pval_src101:
+            src_dict = stamp_data.src101_dict
+            prevalidated_src = append_stamp_data_to_src101_dict(stamp_data, src_dict)
 
         stamp_results = True
-        return stamp_results, stamp_data, valid_stamp, prevalidated_src20
+        return stamp_results, stamp_data, valid_stamp, prevalidated_src
 
 
 def decode_base64(base64_string, block_index):
@@ -156,6 +160,8 @@ def get_src_or_img_from_data(stamp, block_index):
             return stamp, None, None, 1
         elif ("p" in stamp or "P" in stamp) and stamp.get("p").upper() == "SRC-721":
             return stamp, None, None, 1
+        elif "p" in stamp or "P" in stamp and stamp.get("p").upper() == "SRC-101":
+            return stamp, None, None, 1
         else:
             raise ValueError("invalid p")
     else:
@@ -228,6 +234,24 @@ def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
         }
     )
     return src20_dict
+
+
+def append_stamp_data_to_src101_dict(stamp_data: StampData, src101_dict):
+    src101_dict.update(
+        {
+            "stamp:": stamp_data.stamp,
+            "creator": stamp_data.creator,
+            "tx_hash": stamp_data.tx_hash,
+            "tx_index": stamp_data.tx_index,
+            "block_index": stamp_data.block_index,
+            "block_time": stamp_data.block_time,
+            "block_timestamp": stamp_data.block_timestamp,
+            "destination": stamp_data.destination,
+            "destination_nvalue": stamp_data.destination_nvalue,
+            "prev_tx_hash": stamp_data.prev_tx_hash,
+        }
+    )
+    return src101_dict
 
 
 def parse_stamp(*, stamp_data: StampData, db, valid_stamps_in_block: list[ValidStamp]):

@@ -125,7 +125,7 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {
-    config.BLOCK_FIRST_TESTNET: {"ledger_hash": "", "txlist_hash": ""},
+    config.BLOCK_FIRST_TESTNET: {"ledger_hash": "", "txlist_hash": "1ef99f774eb89230b780eff7fa48b514de5e23353d7cd5810478636d961c5c86"},
 }
 
 CONSENSUS_HASH_VERSION_REGTEST = 1

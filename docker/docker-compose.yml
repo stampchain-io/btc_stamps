@@ -54,17 +54,17 @@ services:
       retries: 3
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  app:
-    build:
-      context: ../app
-    volumes:
-      - ../files:/app/static/stamps
-    ports:
-      - "8080:8000"
-    depends_on:
-      - db
-    env_file:
-      - ../app/.env
+  # app:
+  #   build:
+  #     context: ../app
+  #   volumes:
+  #     - ../files:/app/static/stamps
+  #   ports:
+  #     - "8080:8000"
+  #   depends_on:
+  #     - db
+  #   env_file:
+  #     - ../app/.env
       
 
 volumes:
