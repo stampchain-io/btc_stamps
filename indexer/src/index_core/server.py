@@ -73,7 +73,7 @@ def initialize_config(
     checkdb=False,
 ):
 
-    if config.TESTNET == True or testnet:
+    if config.TESTNET or testnet:
         config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
     elif regtest:
         config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST

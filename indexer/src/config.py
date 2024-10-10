@@ -113,7 +113,7 @@ LOG: Optional[str] = None
 REGTEST: bool = False
 CUSTOMNET: bool = False
 CHECKDB: bool = False
-TESTNET = os.environ.get("TESTNET", False)
+TESTNET = os.environ.get("TESTNET", None)
 
 # Define additional constants used in server.py
 DEFAULT_BACKEND_PORT: int = 8332
