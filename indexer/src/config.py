@@ -80,6 +80,7 @@ CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
 CP_BMN_FEAT_BLOCK_START: int = 815130  # BMN audio file support
 CP_P2WSH_FEAT_BLOCK_START: int = 833000  # OLGA / P2WSH transactions
+CP_SUBASSET_FEAT_BLOCK_START: int = 866000  # Subasset no longer require XCP fees
 
 # Consensus changes
 STRIP_WHITESPACE: int = 797200
