@@ -7,6 +7,11 @@ import json
 import logging
 import re
 import threading
+import unicodedata
+from binascii import unhexlify
+
+from bitcoinlib import encoding
+from ecdsa import SECP256k1, VerifyingKey
 
 import config
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
@@ -170,7 +175,76 @@ def ib2h(b):
     return inverse_hash(b2h(b))
 
 
+def hex_decode(hexstring):
+    try:
+        return bytes.fromhex(hexstring).decode("utf-8")
+    except Exception:
+        return None
+
+
+def is_valid_pubkey_hex(pubkey_hex):
+    try:
+        if len(pubkey_hex) != 66:
+            return False
+        if not (pubkey_hex.startswith("02") or pubkey_hex.startswith("03")):
+            return False
+        pubkey_bytes = unhexlify(pubkey_hex)
+        VerifyingKey.from_string(pubkey_bytes, curve=SECP256k1)
+        return True
+    except Exception as e:
+        return False
+
+
+def check_valid_eth_address(address: str):
+    if not address.startswith("0x"):
+        return False
+
+    if len(address) != 42:
+        return False
+
+    if not re.match(r"^0x[0-9a-fA-F]{40}$", address):
+        return False
+
+    return True
+
+
+def check_valid_bitcoin_address(address: str):
+    try:
+        if address.startswith("bc1") or address.startswith("tb1"):
+            encoding.addr_bech32_to_pubkeyhash(address)
+        else:
+            encoding.addr_base58_to_pubkeyhash(address)
+        return True
+    except Exception as e:
+        return False
+
+
+def check_valid_tx_hash(tx_hash: str) -> bool:
+    match = re.fullmatch(r"[0-9a-fA-F]{64}", tx_hash)
+    return match is not None
+
+
+special_characters_pattern = (
+    r"[`~!@#$%\^\-\+&\*\(\)_\=＝\=|{}\":;',\\\[\]\.·<>\/\?~！@#￥……&*（）——|{}【】《》'；：“”‘。，、？\s]"
+)
+
+
+def check_contains_special(text):
+    special_categories = {"Zs", "Cf"}
+    match = re.search(special_characters_pattern, text)
+    return any(unicodedata.category(char) in special_categories for char in text) or text.isspace() or match is not None
+
+
 def check_valid_base64_string(base64_string):
+    """
+    Check if a given string is a valid base64 string.
+
+    Args:
+        base64_string (str): The string to be checked.
+
+    Returns:
+        bool: True if the string is a valid base64 string, False otherwise.
+    """
     if base64_string is not None and re.fullmatch(r"^[A-Za-z0-9+/]+={0,2}$", base64_string) and len(base64_string) % 4 == 0:
         return True
     else:
@@ -178,6 +252,15 @@ def check_valid_base64_string(base64_string):
 
 
 def base62_encode(num):
+    """
+    Encodes a given number into a base62 string.
+
+    Args:
+        num (int): The number to be encoded.
+
+    Returns:
+        str: The base62 encoded string.
+    """
     chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     base = len(chars)
     if num == 0:
@@ -190,6 +273,20 @@ def base62_encode(num):
 
 
 def create_base62_hash(str1, str2, length=20):
+    """
+    Creates a base62 hash from two input strings.
+
+    Args:
+        str1 (str): The first input string.
+        str2 (str): The second input string.
+        length (int, optional): The desired length of the base62 hash. Must be between 12 and 20 characters. Defaults to 20.
+
+    Returns:
+        str: The base62 hash of the combined input strings, truncated to the specified length.
+
+    Raises:
+        ValueError: If the length is not between 12 and 20 characters.
+    """
     if not 12 <= length <= 20:
         raise ValueError("Length must be between 12 and 20 characters")
     combined_str = str1 + "|" + str2

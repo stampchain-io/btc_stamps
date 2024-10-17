@@ -125,7 +125,10 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {
-    config.BLOCK_FIRST_TESTNET: {"ledger_hash": "", "txlist_hash": ""},
+    config.BLOCK_FIRST_TESTNET: {
+        "ledger_hash": "",
+        "txlist_hash": "1ef99f774eb89230b780eff7fa48b514de5e23353d7cd5810478636d961c5c86",
+    },
 }
 
 CONSENSUS_HASH_VERSION_REGTEST = 1
@@ -192,7 +195,6 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         calculated_hash = ""
     else:
         calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
-
     # Verify hash (if already in database) or save hash (if not).
     cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
     results = cursor.fetchall()
@@ -222,7 +224,6 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         checkpoints = CHECKPOINTS_REGTEST
     else:
         checkpoints = CHECKPOINTS_MAINNET
-
     if field != "messages_hash" and block_index in checkpoints and checkpoints[block_index][field] != calculated_hash:
         raise ConsensusError(
             "Incorrect {} consensus hash for block {}.  Calculated {} but expected {}".format(

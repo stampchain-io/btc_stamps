@@ -1,4 +1,5 @@
 import decimal
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -14,6 +15,11 @@ from config import (
     BLOCKS_TABLE,
     SRC20_TABLE,
     SRC20_VALID_TABLE,
+    SRC101_OWNERS_TABLE,
+    SRC101_PRICE_TABLE,
+    SRC101_RECIPIENTS_TABLE,
+    SRC101_TABLE,
+    SRC101_VALID_TABLE,
     SRC_BACKGROUND_TABLE,
     STAMP_TABLE,
     TRANSACTIONS_TABLE,
@@ -149,6 +155,20 @@ def insert_into_src20_tables(db, processed_src20_in_block):
                 insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
 
 
+def insert_into_src101_tables(db, processed_src101_in_block):
+    with db.cursor() as src101_cursor:
+        for i, src101_dict in enumerate(processed_src101_in_block):
+            id = f"{i}_{src101_dict.get('tx_index')}_"
+            id += f"{src101_dict.get('tx_hash')}"
+            insert_into_src101_table(src101_cursor, SRC101_TABLE, id, src101_dict)
+            if src101_dict.get("valid") == 1:
+                insert_into_src101_table(src101_cursor, SRC101_VALID_TABLE, id, src101_dict)
+            if src101_dict.get("rec"):
+                insert_into_recipients(src101_cursor, SRC101_RECIPIENTS_TABLE, id, src101_dict)
+            if src101_dict.get("pri"):
+                insert_into_src101price(src101_cursor, SRC101_PRICE_TABLE, src101_dict)
+
+
 def insert_into_src20_table(cursor, table_name, id, src20_dict):
     block_time = src20_dict.get("block_time")
     if isinstance(block_time, int):
@@ -206,6 +226,160 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
         VALUES ({placeholders})
     """  # nosec
 
+    cursor.execute(query, tuple(column_values))
+
+    return
+
+
+def insert_into_recipients(cursor, table_name, id, src101_dict):
+    block_time = src101_dict.get("block_time")
+    if isinstance(block_time, int):
+        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+
+    for rec in src101_dict["rec"]:
+        _id = id + "_" + rec
+        column_names = [
+            "id",
+            "p",
+            "deploy_hash",
+            "address",
+        ]
+        column_values = [
+            _id,
+            src101_dict.get("p"),
+            src101_dict.get("tx_hash"),
+            rec,
+        ]
+        placeholders = ", ".join(["%s"] * len(column_names))
+
+        query = f"""
+            INSERT INTO {table_name} ({", ".join(column_names)})
+            VALUES ({placeholders})
+        """  # nosec
+        cursor.execute(query, tuple(column_values))
+    return
+
+
+def insert_into_src101price(cursor, table_name, src101_dict):
+    block_time = src101_dict.get("block_time")
+    if isinstance(block_time, int):
+        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+    if isinstance(src101_dict["pri"], dict):
+        for key, value in src101_dict["pri"].items():
+            deploy_hash = src101_dict["tx_hash"]
+            _id = deploy_hash + "_" + key
+            column_names = [
+                "id",
+                "len",
+                "price",
+                "deploy_hash",
+            ]
+            column_values = [
+                _id,
+                int(key),
+                value,
+                deploy_hash,
+            ]
+            placeholders = ", ".join(["%s"] * len(column_names))
+
+            query = f"""
+                INSERT INTO {table_name} ({", ".join(column_names)})
+                VALUES ({placeholders})
+            """  # nosec
+            cursor.execute(query, tuple(column_values))
+        return
+
+
+def insert_into_src101_table(cursor, table_name, id, src101_dict):
+    block_time = src101_dict.get("block_time")
+    if isinstance(block_time, int):
+        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+
+    column_names = [
+        "id",
+        "tx_hash",
+        "tx_index",
+        "block_index",
+        "p",
+        "op",
+        "name",
+        "tokenid_origin",
+        "tokenid",
+        "tokenid_utf8",
+        "root",
+        "description",
+        "tick",
+        "wla",
+        "imglp",
+        "imgf",
+        "tick_hash",
+        "deploy_hash",
+        "creator",
+        "pri",
+        "dua",
+        "idua",
+        "coef",
+        "lim",
+        "mintstart",
+        "mintend",
+        "prim",
+        "owner",
+        "toaddress",
+        "destination",
+        "destination_nvalue",
+        "block_time",
+        "status",
+    ]
+    column_values = [
+        id,
+        src101_dict.get("tx_hash"),
+        src101_dict.get("tx_index"),
+        src101_dict.get("block_index"),
+        src101_dict.get("p"),
+        src101_dict.get("op"),
+        src101_dict.get("name"),
+        (
+            ";".join(src101_dict.get("tokenid_origin"))
+            if type(src101_dict.get("tokenid_origin")) == list
+            else src101_dict.get("tokenid_origin")
+        ),
+        ";".join(src101_dict.get("tokenid")) if type(src101_dict.get("tokenid")) == list else src101_dict.get("tokenid"),
+        (
+            ";".join(src101_dict.get("tokenid_utf8"))
+            if type(src101_dict.get("tokenid_utf8")) == list
+            else src101_dict.get("tokenid_utf8")
+        ),
+        src101_dict.get("root"),
+        src101_dict.get("desc"),
+        src101_dict.get("tick"),
+        src101_dict.get("wla"),
+        src101_dict.get("imglp"),
+        src101_dict.get("imgf"),
+        src101_dict.get("tick_hash"),
+        src101_dict.get("deploy_hash"),
+        src101_dict.get("creator"),
+        json.dumps(src101_dict.get("pri")),
+        src101_dict.get("dua"),
+        src101_dict.get("idua"),
+        src101_dict.get("coef"),
+        src101_dict.get("lim"),
+        src101_dict.get("mintstart"),
+        src101_dict.get("mintend"),
+        src101_dict.get("prim"),
+        src101_dict.get("owner"),
+        src101_dict.get("toaddress"),
+        src101_dict.get("destination"),
+        src101_dict.get("destination_nvalue"),
+        block_time,
+        src101_dict.get("status"),
+    ]
+
+    placeholders = ", ".join(["%s"] * len(column_names))
+
+    query = f"""
+        INSERT INTO {table_name} ({", ".join(column_names)})
+        VALUES ({placeholders})
+    """  # nosec
     cursor.execute(query, tuple(column_values))
 
     return
@@ -612,6 +786,183 @@ def get_total_src20_minted_from_db(db, tick):
             total_minted += row[0]
     TOTAL_MINTED_CACHE[tick] = total_minted
     return total_minted
+
+
+def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
+    """
+    Retrieves the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for a given DEPLOY HASH. The function first attempts to find these values
+    from an internal cache. If not found in the cache, it then searches within a provided dictionary of processed blocks.
+    As a last resort, it performs a database lookup. The result from any of these sources is cached for future queries.
+
+    Args:
+        db: A database connection object used for querying the database if necessary.
+        tick (str): The tick value for which 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values are being retrieved.
+        src101_processed_in_block (dict): A dictionary containing processed blocks, used for in-memory lookup before querying the database.
+
+    Returns:
+        tuple: A tuple containing the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for the given tick. If the tick is not found in any source,
+               returns (None, None, None, None, None, None, None, None).
+
+    """
+    # Initialize the cache if it doesn't exist
+    if not hasattr(get_src101_deploy, "deploy_cache"):
+        get_src101_deploy.deploy_cache = {}
+    # Check if the result is already cached
+    if deploy_hash in get_src101_deploy.deploy_cache:
+        return get_src101_deploy.deploy_cache[deploy_hash]
+
+    # Check in the processed_blocks dictionary
+    lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua = get_src101_deploy_in_block(
+        src101_processed_in_block, deploy_hash
+    )
+    if lim is not None:
+        # Cache and return the result
+        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
+        return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
+
+    # Database lookup if not found in cache or processed_blocks
+    lim, pri, mintstart, mintend, wla, imglp, imgf, idua = get_src101_deploy_in_db(db, deploy_hash)
+    rec = get_src101_recs_in_db(db, deploy_hash)
+    if lim is not None:
+        # Cache and return the result
+        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
+    return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
+
+
+def get_src101_deploy_in_block(processed_blocks, deploy_hash):
+    for item in processed_blocks:
+        if item.get("deploy_hash") == deploy_hash and item.get("op") == "DEPLOY" and item.get("valid") == 1:
+            return (
+                item.get("lim"),
+                item.get("pri"),
+                item.get("mintstart"),
+                item.get("mintend"),
+                item.get("rec"),
+                item.get("wla"),
+                item.get("imglp"),
+                item.get("imgf"),
+                item.get("idua"),
+            )
+    return 0, None, 0, 0, None, None, None, None, 0
+
+
+def get_src101_deploy_in_db(db, deploy_hash):
+    with db.cursor() as src101_cursor:
+        src101_cursor.execute(
+            f"""
+            SELECT
+                lim, pri, mintstart, mintend, wla, imglp, imgf, idua
+            FROM
+                {SRC101_VALID_TABLE}
+            WHERE
+                tx_hash = %s
+                AND op = 'DEPLOY'
+                AND p = 'SRC-101'
+            ORDER BY
+                block_index ASC
+            LIMIT 1
+        """,
+            (deploy_hash,),
+        )  # nosec
+        result = src101_cursor.fetchone()
+        if result:
+            return result
+    return 0, None, 0, 0, None, None, None, 0
+
+
+def get_src101_recs_in_db(db, deploy_hash):
+    with db.cursor() as src101_rec_cursor:
+        src101_rec_cursor.execute(
+            f"""
+            SELECT
+                address
+            FROM
+                {SRC101_RECIPIENTS_TABLE}
+            WHERE
+                deploy_hash = %s
+                AND p = 'SRC-101'
+        """,
+            (deploy_hash,),
+        )  # nosec
+        results = src101_rec_cursor.fetchall()
+        recipients = []
+        for r in results:
+            recipients.append(r[0])
+        return recipients
+
+
+def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
+    if deploy_hash in TOTAL_MINTED_CACHE:
+        return TOTAL_MINTED_CACHE[deploy_hash]
+    total_minted = 0
+    with db.cursor() as src101_cursor:
+        src101_cursor.execute(
+            f"""
+            SELECT
+            COUNT(*)
+            FROM
+                {SRC101_OWNERS_TABLE}
+            WHERE
+                deploy_hash = %s
+                AND expire_timestamp <= {blocktimestamp}
+        """,
+            (deploy_hash),
+        )  # nosec
+        result = src101_cursor.fetchone()
+        if result[0]:
+            total_minted = result[0]
+    TOTAL_MINTED_CACHE[deploy_hash] = total_minted
+    return total_minted
+
+
+def get_src101_price(db, deploy_hash, src101_processed_in_block):
+    if not hasattr(get_src101_price, "price_cache"):
+        get_src101_price.price_cache = {}
+    # Check if the result is already cached
+    if deploy_hash in get_src101_price.price_cache:
+        return get_src101_price.price_cache[deploy_hash]
+
+    # Check in the processed_blocks dictionary
+    price = get_src101_price_in_block(src101_processed_in_block, deploy_hash)
+    if price is not None:
+        # Cache and return the result
+        get_src101_price.price_cache[deploy_hash] = price
+        return price
+
+    # Database lookup if not found in cache or processed_blocks
+    price = get_src101_price_in_db(db, deploy_hash)
+    if price is not None:
+        # Cache and return the result
+        get_src101_price.price_cache[deploy_hash] = price
+    return price
+
+
+def get_src101_price_in_block(processed_blocks, deploy_hash):
+    for item in processed_blocks:
+        if item.get("deploy_hash") == deploy_hash:
+            return item.get("price")
+    return None
+
+
+def get_src101_price_in_db(db, deploy_hash):
+    with db.cursor() as cursor:
+        query = f"""
+            SELECT
+                len,
+                price
+            FROM
+                {SRC101_PRICE_TABLE}
+            WHERE
+                deploy_hash = %s
+            ORDER BY len ASC
+            
+        """
+        cursor.execute(
+            query,
+            (deploy_hash),
+        )
+        result = cursor.fetchall()
+        return {r[0]: r[1] for r in result}
 
 
 def get_next_stamp_number(db, identifier):
