@@ -17,6 +17,7 @@ from config import (
     CP_P2WSH_FEAT_BLOCK_START,
     CP_SRC20_END_BLOCK,
     CP_SRC721_GENESIS_BLOCK,
+    CP_SUBASSET_FEAT_BLOCK_START,
     DOMAINNAME,
     INVALID_BTC_STAMP_SUFFIX,
     STRIP_WHITESPACE,
@@ -605,21 +606,29 @@ class StampData:
         ):
             self.is_btc_stamp = True
         else:
-            if not self.process_cursed_with_asset_longname():
+            if not self.process_stamps_with_asset_longname(ident_known):
                 self.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
 
-    def process_cursed_with_asset_longname(self):
-        if self.asset_longname is not None:
-            self.cpid = self.asset_longname
+    def process_stamps_with_asset_longname(self, ident_known):
+        if self.asset_longname is not None and self.block_index < CP_SUBASSET_FEAT_BLOCK_START:
+            self.cpid = self.asset_longname  # NOTE: previously subassets required XCP so were POSH
             self.is_cursed = True
             self.is_posh = True
             self.is_btc_stamp = False
+            return True
+        elif (
+            ident_known
+            and self.asset_longname is not None
+            and not self.is_op_return
+            and self.file_suffix not in INVALID_BTC_STAMP_SUFFIX
+        ):
+            self.is_btc_stamp = True
             return True
         return False
 
     def process_cursed_with_other_conditions(self, cpid_starts_with_A, ident_known):
         if self.cpid and (
-            self.file_suffix in INVALID_BTC_STAMP_SUFFIX or not cpid_starts_with_A or self.is_op_return or not ident_known
+            not ident_known or not cpid_starts_with_A or self.is_op_return or self.file_suffix in INVALID_BTC_STAMP_SUFFIX
         ):
             self.is_btc_stamp = False
             self.is_cursed = True
