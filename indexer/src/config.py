@@ -227,7 +227,7 @@ TICK_PATTERN_SET = UNICODE_SET.union(CHAR_SET)
 
 
 # Versions
-VERSION_STRING = "1.8.24"
+VERSION_STRING = "1.8.25"
 
 
 def update_version_globals(version_string: str):
