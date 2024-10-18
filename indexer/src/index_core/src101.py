@@ -201,7 +201,7 @@ class Src101Validator:
             for a in value:
                 valid = valid and check_valid_bitcoin_address(a)
             if valid and type(value) == list:
-                self.src101_dict[key] = value
+                self.src101_dict[key] = list(set(value))
             else:
                 self._update_status(key, f"IAL: INVALID ADDRESSLIST VAL {value}")
                 self.src101_dict[key] = None
