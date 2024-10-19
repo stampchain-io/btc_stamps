@@ -69,8 +69,10 @@ class Src101Validator:
                 try:
                     if value == "":
                         self.src101_dict[key] = None
-                    elif key in ["imglp", "imgf", "img", "sig"]:
+                    elif key in ["imglp", "imgf", "sig"]:
                         self._process_str_value(key, value)
+                    elif key in ["img"]:
+                        self._process_strArray_value(key, value)
                     elif key in ["tick"]:
                         self._process_tick_value(key, value)
                     elif key in ["root", "name"]:
@@ -134,6 +136,15 @@ class Src101Validator:
         else:
             self.src101_dict[key] = None
             self._update_status(key, f"IIM: INVALID {key} VAL {value}")
+    
+    def _process_strArray_value(self, key, value):
+        if type(value) == list:
+            are_all_strings = all(isinstance(item, str) for item in value)
+            if are_all_strings:
+                self.src101_dict[key] = value
+                return
+        self.src101_dict[key] = None
+        self._update_status(key, f"IIM: INVALID {key} VAL {value}")
 
     def _process_tick_value(self, key, value):
         self.src101_dict[key] = value.lower()
