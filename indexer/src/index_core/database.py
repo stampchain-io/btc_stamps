@@ -815,7 +815,7 @@ def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
     lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua = get_src101_deploy_in_block(
         src101_processed_in_block, deploy_hash
     )
-    if lim is not None:
+    if lim is not None and lim != 0:
         # Cache and return the result
         get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
         return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
@@ -823,7 +823,7 @@ def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
     # Database lookup if not found in cache or processed_blocks
     lim, pri, mintstart, mintend, wla, imglp, imgf, idua = get_src101_deploy_in_db(db, deploy_hash)
     rec = get_src101_recs_in_db(db, deploy_hash)
-    if lim is not None:
+    if lim is not None and lim != 0:
         # Cache and return the result
         get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
     return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
