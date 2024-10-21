@@ -116,8 +116,8 @@ class Src101Validator:
                 if num_pattern.match(str(value)) and int(value) >= 0:
                     self.src101_dict[key] = int(value)
                 else:
-                    raise ValueError
-            except ValueError:
+                    raise
+            except:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
                 self.src101_dict[key] = None
 

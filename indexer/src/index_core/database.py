@@ -330,6 +330,15 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         "block_time",
         "status",
     ]
+
+    tokenid_origin = src101_dict.get("tokenid_origin")
+    if isinstance(tokenid_origin, str):
+        result = tokenid_origin
+    elif isinstance(tokenid_origin, list) and all(isinstance(item, str) for item in tokenid_origin):
+        result = ";".join(tokenid_origin)
+    else:
+        result = str(tokenid_origin)
+
     column_values = [
         id,
         src101_dict.get("tx_hash"),
@@ -338,11 +347,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("p"),
         src101_dict.get("op"),
         src101_dict.get("name"),
-        (
-            ";".join(src101_dict.get("tokenid_origin"))
-            if type(src101_dict.get("tokenid_origin")) == list
-            else src101_dict.get("tokenid_origin")
-        ),
+        result,
         ";".join(src101_dict.get("tokenid")) if type(src101_dict.get("tokenid")) == list else src101_dict.get("tokenid"),
         (
             ";".join(src101_dict.get("tokenid_utf8"))
