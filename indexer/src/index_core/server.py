@@ -73,13 +73,12 @@ def initialize_config(
     checkdb=False,
 ):
 
-    if testnet:
+    if config.TESTNET or testnet:
         config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
     elif regtest:
         config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
     else:
         config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
-
     # Set other config attributes based on parameters
     config.BACKEND_NAME = "bitcoincore"
     config.BACKEND_CONNECT = backend_connect or "localhost"
@@ -239,7 +238,6 @@ def initialize_config(
     config.PREFIX = b"stamp:"
     config.CP_PREFIX = b"CNTRPRTY"
 
-    config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
     # Misc
     config.REQUESTS_TIMEOUT = requests_timeout
 
