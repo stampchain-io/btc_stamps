@@ -427,7 +427,7 @@ class Src101Processor:
         try:
             if not self.src101_dict.get("destination") in self.rec:
                 self.set_status_and_log(
-                    "IR", deploy_hash=self.src101_dict.get("deploy_hash"), recipient=self.src101_dict("destination")
+                    "IR", deploy_hash=self.src101_dict.get("deploy_hash"), recipient=self.src101_dict.get("destination")
                 )
                 return
 
