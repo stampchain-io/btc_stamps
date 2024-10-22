@@ -400,7 +400,7 @@ def decode_address(script_pubkey):
             # Extract the witness program for Taproot
             witness_program = script_pubkey[2:]
             # Decode as Bech32m address
-            if config.TESTNET == True:
+            if config.TESTNET:
                 return pubkeyhash_to_addr(witness_program, prefix="tb", encoding="bech32", witver=1)
             else:
                 return pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
