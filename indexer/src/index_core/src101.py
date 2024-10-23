@@ -186,6 +186,7 @@ class Src101Validator:
             self.src101_dict[key] = False
         else:
             self._update_status(key, f"IP: INVALID PRIM VAL {value}")
+            self.src101_dict[key] = None
 
     def _process_wla_value(self, key, value):
         valid = is_valid_pubkey_hex(value)
@@ -887,7 +888,6 @@ class Src101Processor:
         self.deploy_hash = self.src101_dict.get("hash")
 
         if not validator.is_valid:
-            # self.processed_src101_in_block.append(self.src101_dict)
             logger.warning(f"Invalid {self.deploy_hash} SRC101: {self.src101_dict['status']}")
             self.is_valid = False
             return
