@@ -245,7 +245,6 @@ def append_stamp_data_to_src101_dict(stamp_data: StampData, src101_dict):
             "tx_index": stamp_data.tx_index,
             "block_index": stamp_data.block_index,
             "block_time": stamp_data.block_time,
-            "block_timestamp": stamp_data.block_timestamp,
             "destination": stamp_data.destination,
             "destination_nvalue": stamp_data.destination_nvalue,
             "prev_tx_hash": stamp_data.prev_tx_hash,

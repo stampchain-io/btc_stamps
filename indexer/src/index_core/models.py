@@ -62,7 +62,6 @@ class StampData:
         tx_index (int): The index of the transaction.
         block_index (int): The index of the block containing the transaction.
         block_time (int): The timestamp of the block containing the transaction.
-        block_timestamp (int): The timestamp of the block containing the transaction.
         is_op_return (bool): Indicates if the transaction is an OP_RETURN transaction.
         valid_stamps_in_block (List[ValidStamp]): A list to store valid stamps in the block.
         p2wsh_data (bytes): The P2WSH data associated with the transaction.
@@ -81,7 +80,6 @@ class StampData:
     tx_index: int
     block_index: int
     block_time: Union[int, datetime]
-    block_timestamp: int
     is_op_return: bool
     p2wsh_data: bytes
     stamp: Optional[int] = None
@@ -474,7 +472,6 @@ class StampData:
         self.creator = self.source
         self.stamp_hash = create_base62_hash(self.tx_hash, str(self.block_index), 20)
         if isinstance(self.block_time, int):
-            self.block_timestamp = self.block_time
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
