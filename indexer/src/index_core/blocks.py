@@ -110,7 +110,6 @@ class BlockProcessor:
                 tx_index=result.tx_index,
                 block_index=result.block_index,
                 block_time=result.block_time,
-                block_timestamp=result.block_time,
                 is_op_return=result.is_op_return,
                 p2wsh_data=result.p2wsh_data,
             )

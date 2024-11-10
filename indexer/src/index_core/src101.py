@@ -6,7 +6,7 @@ import logging
 import math
 import re
 from typing import Optional, TypedDict, Union
-
+from datetime import datetime
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from eth_account import Account
@@ -69,6 +69,8 @@ class Src101Validator:
                 try:
                     if value == "":
                         self.src101_dict[key] = None
+                    elif key in ["block_time"]:
+                        self._process_block_time_value(key, value)
                     elif key in ["imglp", "imgf", "sig"]:
                         self._process_str_value(key, value)
                     elif key in ["img"]:
@@ -136,7 +138,14 @@ class Src101Validator:
         else:
             self.src101_dict[key] = None
             self._update_status(key, f"IIM: INVALID {key} VAL {value}")
-    
+
+    def _process_block_time_value(self, key, value):
+        if key == "block_time" and type(value) == datetime:
+            self.src101_dict["block_timestamp"] = int(value.timestamp())
+        else:
+            self.src101_dict[key] = 0
+            self._update_status(key, f"IBT: INVALID {key} BLOCK TIMESTAMP {value}")
+
     def _process_strArray_value(self, key, value):
         if type(value) == list:
             are_all_strings = all(isinstance(item, str) for item in value)
