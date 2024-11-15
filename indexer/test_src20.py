@@ -96,7 +96,17 @@ class TestSrc20Variations(unittest.TestCase):
 
                 src20_result = False if src20_result is None else src20_result
 
-                if src20_result != test_case["expectedOutcome"]["src20_success"]:
+                if (
+                    src20_result != test_case["expectedOutcome"]["src20_success"]
+                    or (
+                        test_case["expectedOutcome"].get("max_val") is not None
+                        and test_case["expectedOutcome"]["max_val"] != src20_dict["max"]
+                    )
+                    or (
+                        test_case["expectedOutcome"].get("lim_val") is not None
+                        and test_case["expectedOutcome"]["lim_val"] != src20_dict["lim"]
+                    )
+                ):
                     logger.error(f"FAIL: {test_case['description']}")
                     logger.error(f"FAIL: {test_case['src20JsonString']}")
                     logger.error(

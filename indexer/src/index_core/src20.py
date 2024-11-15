@@ -6,13 +6,11 @@ import sys
 import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Dict, List, Optional, TypedDict, Union
 
-import requests
-from requests.exceptions import JSONDecodeError
-
 import index_core.log as log
+import requests
 from config import (  # SRC_VALIDATION_API1,
     CP_P2WSH_FEAT_BLOCK_START,
     SRC20_BALANCES_TABLE,
@@ -23,6 +21,7 @@ from config import (  # SRC_VALIDATION_API1,
 )
 from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
+from requests.exceptions import JSONDecodeError
 
 D = Decimal
 logger = logging.getLogger(__name__)
@@ -79,6 +78,8 @@ class Src20Validator:
             else:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
                 self.src20_dict[key] = None
+            if key in ["max", "lim"] and self.src20_dict[key] is not None:
+                self.src20_dict[key] = self.src20_dict[key].quantize(Decimal('1'), rounding=ROUND_DOWN)
         elif key == "dec":
             if dec_pattern.match(str(value)) and 0 <= int(value) <= 18:
                 self.src20_dict[key] = int(value)
