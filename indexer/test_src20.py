@@ -63,6 +63,8 @@ class TestSrc20Variations(unittest.TestCase):
                     block_time=test_case["block_time"],
                     is_op_return=test_case["is_op_return"],
                     p2wsh_data=test_case["p2wsh_data"],
+                    prev_tx_hash=test_case.get("prev_tx_hash", ""),
+                    destination_nvalue=test_case.get("destination_nvalue", 0),
                 )
 
                 stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(
