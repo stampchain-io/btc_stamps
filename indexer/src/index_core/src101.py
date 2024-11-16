@@ -5,8 +5,9 @@ import json
 import logging
 import math
 import re
-from typing import Optional, TypedDict, Union
 from datetime import datetime
+from typing import Optional, TypedDict, Union
+
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from eth_account import Account
