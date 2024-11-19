@@ -547,8 +547,7 @@ class Src101Processor:
                 return
             # set img
             if self.imglp and self.imgf:
-                if len(self.src101_dict.get("tokenid")) > len(self.src101_dict.get("img")):
-                    self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
+                self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
                 for index in range(len(self.src101_dict.get("tokenid_utf8"))):
                     self.src101_dict["img"][index] = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
             # check time
