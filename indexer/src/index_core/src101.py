@@ -463,7 +463,9 @@ class Src101Processor:
                 )
                 return
 
-            if not self.src101_dict.get("img") or not type(self.src101_dict.get("img")) == list:
+            if self.src101_dict.get("img") is None:
+                self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
+            elif not type(self.src101_dict.get("img")) == list:
                 self.set_status_and_log(
                     "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
                 )
@@ -543,15 +545,12 @@ class Src101Processor:
                     recipient_nvalue=self.src101_dict.get("destination_nvalue"),
                 )
                 return
-            # check img
+            # set img
             if self.imglp and self.imgf:
+                if len(self.src101_dict.get("tokenid")) > len(self.src101_dict.get("img")):
+                    self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
                 for index in range(len(self.src101_dict.get("tokenid_utf8"))):
-                    _img = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
-                    if index >= len(self.src101_dict.get("img")) or _img != self.src101_dict.get("img")[index]:
-                        self.set_status_and_log(
-                            "IRM", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
-                        )
-                        return
+                    self.src101_dict["img"][index] = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
             # check time
             if self.src101_dict.get("block_timestamp", self.mintstart - 1) < self.mintstart:
                 self.set_status_and_log("UT", deploy_hash=self.src101_dict.get("deploy_hash"))
@@ -966,7 +965,7 @@ def check_src101_inputs(input_string, tx_hash):
                 "idua",
             }
             transfer_keys = {"p", "op", "hash", "toaddress", "tokenid"}
-            mint_keys = {"p", "op", "hash", "toaddress", "tokenid", "dua", "prim", "sig", "img", "coef"}
+            mint_keys = {"p", "op", "hash", "toaddress", "tokenid", "dua", "prim", "sig", "coef"}
             setrecord_keys = {"p", "op", "hash", "tokenid", "type", "data", "prim"}
             renew_keys = {"p", "op", "hash", "tokenid", "dua"}
             input_keys = set(input_dict.keys())
@@ -979,7 +978,8 @@ def check_src101_inputs(input_string, tx_hash):
                     logger.warning("transfer inputs mismatching")
                     return None
             elif input_dict.get("op").lower() == "mint":
-                if len(mint_keys ^ input_keys) != 0:
+                has_all_fields = all(field in input_dict for field in mint_keys)
+                if not has_all_fields:
                     logger.warning("mint inputs mismatching")
                     return None
             elif input_dict.get("op").lower() == "setrecord":
