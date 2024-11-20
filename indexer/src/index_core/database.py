@@ -142,6 +142,7 @@ def is_prev_block_parsed(db, block_index):
     else:
         purge_block_db(db, block_index - 1)
         rebuild_balances(db)
+        rebuild_owners(db)
         return False
 
 
@@ -243,12 +244,14 @@ def insert_into_recipients(cursor, table_name, id, src101_dict):
             "p",
             "deploy_hash",
             "address",
+            "block_index",
         ]
         column_values = [
             _id,
             src101_dict.get("p"),
             src101_dict.get("tx_hash"),
             rec,
+            src101_dict.get("block_index"),
         ]
         placeholders = ", ".join(["%s"] * len(column_names))
 
@@ -261,9 +264,6 @@ def insert_into_recipients(cursor, table_name, id, src101_dict):
 
 
 def insert_into_src101price(cursor, table_name, src101_dict):
-    block_time = src101_dict.get("block_time")
-    if isinstance(block_time, int):
-        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
     if isinstance(src101_dict["pri"], dict):
         for key, value in src101_dict["pri"].items():
             deploy_hash = src101_dict["tx_hash"]
@@ -273,12 +273,14 @@ def insert_into_src101price(cursor, table_name, src101_dict):
                 "len",
                 "price",
                 "deploy_hash",
+                "block_index",
             ]
             column_values = [
                 _id,
                 int(key),
                 value,
                 deploy_hash,
+                src101_dict.get("block_index"),
             ]
             placeholders = ", ".join(["%s"] * len(column_names))
 
@@ -306,6 +308,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         "tokenid_origin",
         "tokenid",
         "tokenid_utf8",
+        "img",
         "root",
         "description",
         "tick",
@@ -323,6 +326,9 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         "mintstart",
         "mintend",
         "prim",
+        "address_btc",
+        "address_eth",
+        "txt_data",
         "owner",
         "toaddress",
         "destination",
@@ -339,6 +345,14 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
     else:
         result = str(tokenid_origin)
 
+    img = src101_dict.get("img")
+    if isinstance(img, str):
+        img_str = img
+    elif isinstance(img, list) and all(isinstance(item, str) for item in img):
+        img_str = ";".join(img)
+    else:
+        img_str = str(img)
+
     column_values = [
         id,
         src101_dict.get("tx_hash"),
@@ -354,6 +368,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
             if type(src101_dict.get("tokenid_utf8")) == list
             else src101_dict.get("tokenid_utf8")
         ),
+        img_str,
         src101_dict.get("root"),
         src101_dict.get("desc"),
         src101_dict.get("tick"),
@@ -371,6 +386,9 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("mintstart"),
         src101_dict.get("mintend"),
         src101_dict.get("prim"),
+        src101_dict.get("address_btc"),
+        src101_dict.get("address_eth"),
+        src101_dict.get("txt_data"),
         src101_dict.get("owner"),
         src101_dict.get("toaddress"),
         src101_dict.get("destination"),
@@ -550,6 +568,111 @@ def get_src20_valid_list(cursor, block_index=None):
     return cursor.fetchall()
 
 
+def get_existing_owners(cursor) -> List[Tuple[Any, ...]]:
+    query = """
+    SELECT owners.index, id, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, prim, address_btc, address_eth, txt_data, expire_timestamp, last_update
+    FROM owners where p = 'SRC-101'
+    """
+    cursor.execute(query)
+    return [tuple(row) for row in cursor.fetchall()]
+
+
+def get_src101_valid_list(cursor, block_index=None):
+    query = f"""
+    SELECT op, tokenid, tokenid_utf8, img, deploy_hash, creator, dua, toaddress, prim, address_btc, address_eth, txt_data, block_time, block_index, tx_index
+    FROM {SRC101_VALID_TABLE}
+    WHERE (op = 'TRANSFER' OR op = 'MINT' OR op = 'SETRECORD' OR op = 'RENEW')
+    """
+    if block_index is not None:
+        query += " AND block_index <= %s"
+    query += " ORDER by block_index ASC, tx_index ASC"
+
+    if block_index is not None:
+        cursor.execute(query, (block_index,))
+    else:
+        cursor.execute(query)
+
+    return cursor.fetchall()
+
+
+def calculate_owners(src101_valid_list):
+    all_owners: dict[str, dict[str, Any]] = {}
+    all_index: dict[str, int] = {}
+    for [
+        op,
+        tokenid,
+        tokenid_utf8,
+        img,
+        deploy_hash,
+        creator,
+        dua,
+        toaddress,
+        prim,
+        address_btc,
+        address_eth,
+        txt_data,
+        block_time,
+        block_index,
+        tx_index,
+    ] in src101_valid_list:
+        id = "SRC-101" + "_" + deploy_hash + tokenid
+
+        if op == "MINT":
+            tokenid_split = tokenid.split(";")
+            tokenid_utf8_split = tokenid_utf8.split(";")
+            img_split = img.split(";")
+            for i in range(len(tokenid_split)):
+                _index = all_index.get(deploy_hash, 0)
+                id = "SRC-101" + "_" + deploy_hash + tokenid_split[i]
+                all_owners[id] = {
+                    "index": _index + 1,
+                    "id": id,
+                    "p": "SRC-101",
+                    "deploy_hash": deploy_hash,
+                    "tokenid": tokenid_split[i],
+                    "tokenid_uft8": tokenid_utf8_split[i],
+                    "img": img_split[i],
+                    "preowner": None,
+                    "owner": toaddress,
+                    "prim": prim,
+                    "address_btc": toaddress,
+                    "address_eth": None,
+                    "txt_data": None,
+                    "expire_timestamp": 31536000 * dua + int(block_time.timestamp()),
+                    "last_update": block_index,
+                }
+                all_index[deploy_hash] = _index + 1
+        elif op == "TRANSFER":
+            id = "SRC-101" + "_" + deploy_hash + tokenid
+            if id in all_owners:
+                all_owners[id]["preowner"] = all_owners[id]["owner"]
+                all_owners[id]["owner"] = toaddress
+                all_owners[id]["address_btc"] = None
+                all_owners[id]["address_eth"] = None
+                all_owners[id]["txt_data"] = None
+                all_owners[id]["last_update"] = block_index
+            else:
+                logger.warning("Unexpected situations, there is no mint but can be transferred transactions")
+        elif op == "SETRECORD":
+            id = "SRC-101" + "_" + deploy_hash + tokenid
+            if id in all_owners:
+                all_owners[id]["prim"] = prim
+                all_owners[id]["address_btc"] = address_btc if address_btc is not None else all_owners[id]["address_btc"]
+                all_owners[id]["address_eth"] = address_eth if address_eth is not None else all_owners[id]["address_eth"]
+                all_owners[id]["txt_data"] = txt_data if txt_data is not None else all_owners[id]["txt_data"]
+                all_owners[id]["last_update"] = block_index
+            else:
+                logger.warning("Unexpected situations, there is no mint but can be transferred transactions")
+        elif op == "RENEW":
+            id = "SRC-101" + "_" + deploy_hash + tokenid
+            if id in all_owners:
+                all_owners[id]["expire_timestamp"] = all_owners[id]["expire_timestamp"] + 31536000 * dua
+                all_owners[id]["last_update"] = block_index
+            else:
+                logger.warning("Unexpected situations, there is no mint but can be transferred transactions")
+    return all_owners
+
+
 def calculate_balances(src20_valid_list):
     all_balances: dict[str, dict[str, Any]] = {}
     for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
@@ -615,6 +738,72 @@ def insert_balances(cursor, all_balances):
     )
 
 
+def purge_owners(cursor):
+    logger.warning("Purging owners table")
+    query = "DELETE FROM owners"
+    cursor.execute(query)
+
+
+def insert_owners(cursor, all_owners):
+    logger.warning(f"Inserting {len(all_owners)} owners")
+    values = [
+        (
+            value.get("index"),
+            value.get("id"),
+            value.get("p"),
+            value.get("deploy_hash"),
+            value.get("tokenid"),
+            value.get("tokenid_uft8"),
+            value.get("img"),
+            value.get("preowner"),
+            value.get("owner"),
+            value.get("prim"),
+            value.get("address_btc"),
+            value.get("address_eth"),
+            value.get("txt_data"),
+            value.get("expire_timestamp"),
+            value.get("last_update"),
+        )
+        for key, value in all_owners.items()
+    ]
+
+    cursor.executemany(
+        """INSERT INTO owners(owners.index, id, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, prim, address_btc, address_eth, txt_data, expire_timestamp, last_update)
+                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        values,
+    )
+
+
+def rebuild_owners(db, block_index=None):
+    cursor = db.cursor()
+
+    try:
+        logger.info("Validating Owners Table..")
+        db.begin()
+
+        existing_owners = get_existing_owners(cursor)
+        logger.warning(existing_owners)
+        src101_valid_list = get_src101_valid_list(cursor, block_index)
+        logger.warning(src101_valid_list)
+        all_owners = calculate_owners(src101_valid_list)
+        logger.warning(all_owners)
+        if not balances_need_update(existing_owners, all_owners):
+            logger.info("No changes in owners. Skipping deletion and insertion.")
+            return
+
+        purge_owners(cursor)
+        insert_owners(cursor, all_owners)
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise e
+
+    finally:
+        cursor.close()
+
+
 def rebuild_balances(db, block_index=None):
     cursor = db.cursor()
 
@@ -671,6 +860,10 @@ def purge_block_db(db, block_index):
     tables = [
         SRC20_VALID_TABLE,
         SRC20_TABLE,
+        SRC101_VALID_TABLE,
+        SRC101_TABLE,
+        SRC101_PRICE_TABLE,
+        SRC101_RECIPIENTS_TABLE,
         STAMP_TABLE,
         TRANSACTIONS_TABLE,
         BLOCKS_TABLE,
