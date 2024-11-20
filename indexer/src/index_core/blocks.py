@@ -39,6 +39,7 @@ from index_core.database import (
     next_tx_index,
     purge_block_db,
     rebuild_balances,
+    rebuild_owners,
     update_assets_in_db,
     update_block_hashes,
     update_parsed_block,
@@ -775,6 +776,7 @@ def follow(db):
                         logger.warning(f"Rolling back to block {block_index} to avoid problems.")
                         purge_block_db(db, block_index)
                         rebuild_balances(db)
+                        rebuild_owners(db)
                         requires_rollback = False
                         stamp_issuances_list = None
                         time.sleep(60)  # delay waiting for CP to catch up
