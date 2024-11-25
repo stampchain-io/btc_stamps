@@ -127,7 +127,7 @@ class BlockProcessor:
                 _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
                 self.processed_src20_in_block.append(src20_dict)
             if prevalidated_src and stamp_data.pval_src101:
-                _, src101_dict = parse_src101(self.db, prevalidated_src, self.processed_src101_in_block)
+                _, src101_dict = parse_src101(self.db, prevalidated_src, self.processed_src101_in_block, result.block_index)
                 self.processed_src101_in_block.append(src101_dict)
 
         if self.parsed_stamps:
