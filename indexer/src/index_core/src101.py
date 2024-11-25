@@ -14,7 +14,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 import index_core.log as log
-from config import SRC101_OWNERS_TABLE
+from config import BTC_SRC101_IMG_OPTIONAL_BLOCK, SRC101_OWNERS_TABLE
 from index_core.database import get_src101_deploy, get_src101_price
 from index_core.util import (
     check_contains_special,
@@ -348,10 +348,11 @@ class Src101Processor:
         "UE": ("UNEXPECTED ERROR : {error}", False),
     }
 
-    def __init__(self, db, src101_dict, processed_src101_in_block):
+    def __init__(self, db, src101_dict, processed_src101_in_block, block_index):
         self.db = db
         self.src101_dict = src101_dict
         self.processed_src101_in_block = processed_src101_in_block
+        self.block_index = block_index
         self.is_valid = True
 
     def update_valid_src101_list(
@@ -463,13 +464,20 @@ class Src101Processor:
                 )
                 return
 
-            if self.src101_dict.get("img") is None:
-                self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
-            elif not type(self.src101_dict.get("img")) == list:
-                self.set_status_and_log(
-                    "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
-                )
-                return
+            if self.block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
+                if not self.src101_dict.get("img") or not type(self.src101_dict.get("img")) == list:
+                    self.set_status_and_log(
+                        "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
+                    )
+                    return
+            else:
+                if self.src101_dict.get("img") is None:
+                    self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
+                elif not type(self.src101_dict.get("img")) == list:
+                    self.set_status_and_log(
+                        "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
+                    )
+                    return
             if not self.src101_dict.get("dua") or type(self.src101_dict.get("dua")) != int or self.src101_dict.get("dua") <= 0:
                 self.set_status_and_log(
                     "ITD", deploy_hash=self.src101_dict.get("deploy_hash"), dua=self.src101_dict.get("dua")
@@ -545,11 +553,21 @@ class Src101Processor:
                     recipient_nvalue=self.src101_dict.get("destination_nvalue"),
                 )
                 return
-            # set img
             if self.imglp and self.imgf:
-                self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
-                for index in range(len(self.src101_dict.get("tokenid_utf8"))):
-                    self.src101_dict["img"][index] = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
+                if self.block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
+                    # check img
+                    for index in range(len(self.src101_dict.get("tokenid_utf8"))):
+                        _img = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
+                        if index >= len(self.src101_dict.get("img")) or _img != self.src101_dict.get("img")[index]:
+                            self.set_status_and_log(
+                                "IRM", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
+                            )
+                            return
+                else:
+                    # set img
+                    self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
+                    for index in range(len(self.src101_dict.get("tokenid_utf8"))):
+                        self.src101_dict["img"][index] = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
             # check time
             if self.src101_dict.get("block_timestamp", self.mintstart - 1) < self.mintstart:
                 self.set_status_and_log("UT", deploy_hash=self.src101_dict.get("deploy_hash"))
@@ -907,8 +925,8 @@ class Src101Processor:
             logger.warning(f"exception: {e}")
 
 
-def parse_src101(db, src101_dict, processed_src101_in_block):
-    processor = Src101Processor(db, src101_dict, processed_src101_in_block)
+def parse_src101(db, src101_dict, processed_src101_in_block, block_index):
+    processor = Src101Processor(db, src101_dict, processed_src101_in_block, block_index)
     processor.process()
 
     return processor.is_valid, src101_dict
