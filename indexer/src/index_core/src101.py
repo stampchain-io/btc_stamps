@@ -567,7 +567,9 @@ class Src101Processor:
                     # set img
                     self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
                     for index in range(len(self.src101_dict.get("tokenid_utf8"))):
-                        self.src101_dict["img"][index] = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
+                        self.src101_dict["img"][index] = (
+                            self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
+                        )
             # check time
             if self.src101_dict.get("block_timestamp", self.mintstart - 1) < self.mintstart:
                 self.set_status_and_log("UT", deploy_hash=self.src101_dict.get("deploy_hash"))
