@@ -39,6 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Check if last commit was made by GitHub Actions
         id: check_user
@@ -57,12 +58,12 @@ jobs:
           SKIP="${{ env.SKIP }}"
           if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
             PR_TITLE="${{ github.event.pull_request.title }}"
-            if [[ "$PR_TITLE" == *"[skip version]"* ]]; then
+            if [[ "$PR_TITLE" == *"[skip-version]"* ]]; then
               SKIP=true
             fi
           else
             COMMIT_MESSAGE=$(git log -1 --pretty=%B | tr -d '\n')
-            if [[ "$COMMIT_MESSAGE" == *"[skip version]"* ]]; then
+            if [[ "$COMMIT_MESSAGE" == *"[skip-version]"* ]]; then
               SKIP=true
             fi
           fi
@@ -92,17 +93,52 @@ jobs:
         id: get_commit
         run: printf 'hash=%s\n' "$(git rev-parse HEAD)" >> $GITHUB_ENV
 
-      - name: Bump version for dev branch
-        if: env.SKIP == 'false' && github.ref == 'refs/heads/dev'
+      - name: Handle PR merge to main
+        if: env.SKIP == 'false' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'main'
         run: |
-          bump2version build --config-file .bumpversion.dev.cfg --verbose --allow-dirty
+          # Get the PR title
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          
+          # Get the version from the PR branch
+          PR_VERSION=$(cat VERSION)
+          
+          # If version is in canary format, convert to prod
+          if [[ "$PR_VERSION" == *"+canary"* ]]; then
+            bump2version release --new-version prod --verbose --allow-dirty
+          fi
+          
+          # Handle version bumping based on PR title
+          if [[ "$PR_TITLE" == *"[major]"* ]]; then
+            bump2version major --verbose --allow-dirty
+          elif [[ "$PR_TITLE" == *"[minor]"* ]]; then
+            bump2version minor --verbose --allow-dirty
+          elif [[ "$PR_TITLE" == *"[skip-version]"* ]]; then
+            echo "Skipping version bump due to [skip-version] in PR title"
+          else
+            # Default behavior: bump patch version
+            bump2version patch --verbose --allow-dirty
+          fi
+          
+          # Store the new version
           printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
 
-      - name: Bump version for main branch
-        if: env.SKIP == 'false' && github.ref == 'refs/heads/main'
+      - name: Handle PR merge to dev
+        if: env.SKIP == 'false' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'dev'
         run: |
-          bump2version patch --config-file .bumpversion.main.cfg --verbose --allow-dirty
-          printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
+          # If merging from main to dev, convert to canary
+          if [[ "${{ github.head_ref }}" == "main" ]]; then
+            bump2version release --new-version canary --verbose --allow-dirty
+            printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
+          fi
+
+      - name: Bump version for dev push
+        if: env.SKIP == 'false' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
+        run: |
+          # Only bump build number if already in canary format
+          if [[ "$(cat VERSION)" == *"+canary"* ]]; then
+            bump2version build --verbose --allow-dirty
+            printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
+          fi
 
       - name: Commit and push changes if new version
         if: env.SKIP == 'false' && env.NEW_VERSION
@@ -143,10 +179,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Get branch names
-        id: branch-names
-        uses: tj-actions/branch-names@v8
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -169,7 +201,7 @@ jobs:
       
       - name: Bump version manually
         run: |
-          bump2version ${{ github.event.inputs.versionType }} --config-file .bumpversion.${{ steps.branch-names.outputs.current_branch }}.cfg --verbose --allow-dirty
+          bump2version ${{ github.event.inputs.versionType }} --verbose --allow-dirty
           printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
   
       - name: Commit and push changes if new version
