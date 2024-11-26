@@ -52,21 +52,27 @@ jobs:
             echo "SKIP=false" >> $GITHUB_ENV
           fi
 
-      - name: Check for skip keyword in commit message or PR title
+      - name: Check for skip keyword
         id: check-skip
         run: |
           SKIP="${{ env.SKIP }}"
+          
+          # For PR merges, only check the PR title
           if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            # Don't check commit messages for PRs, only the PR title
             PR_TITLE="${{ github.event.pull_request.title }}"
             if [[ "$PR_TITLE" == *"[skip-version]"* ]]; then
               SKIP=true
             fi
-          else
+          
+          # For direct pushes to branches, check the commit message
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
             COMMIT_MESSAGE=$(git log -1 --pretty=%B | tr -d '\n')
             if [[ "$COMMIT_MESSAGE" == *"[skip-version]"* ]]; then
               SKIP=true
             fi
           fi
+          
           echo "SKIP=$SKIP" >> $GITHUB_ENV
 
       - name: Set up Python
@@ -112,8 +118,6 @@ jobs:
             bump2version major --verbose --allow-dirty
           elif [[ "$PR_TITLE" == *"[minor]"* ]]; then
             bump2version minor --verbose --allow-dirty
-          elif [[ "$PR_TITLE" == *"[skip-version]"* ]]; then
-            echo "Skipping version bump due to [skip-version] in PR title"
           else
             # Default behavior: bump patch version
             bump2version patch --verbose --allow-dirty
