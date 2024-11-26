@@ -114,14 +114,20 @@ Note: When using manual version control, add `[skip-version]` to your PR title t
 
 ### 5. Syncing Dev After Main Update
 
-After main has been updated:
+After main has been updated with version bumps (typically after merging a PR from dev to main):
 
 ```bash
-# 1. Update dev with new main version
-git checkout dev
-git pull origin main
+# 1. Switch to dev and fetch latest from both branches
+git switch dev
+git fetch origin main dev
 
-# 2. The GitHub Action will automatically:
+# 2. Rebase dev onto the latest main to include version updates
+git rebase origin/main
+
+# 3. Force push the updated dev branch
+git push -f origin dev
+
+# The GitHub Action will automatically:
 # - Convert to canary format
 # - Create appropriate tags
 ```
@@ -129,6 +135,11 @@ git pull origin main
 Example:
 - Starting version: `1.9.0`
 - After sync: `1.9.0+canary.1`
+
+This workflow is necessary after every PR merge from dev to main because:
+1. The automated workflow creates version-bump commits on main
+2. These version updates need to be properly synchronized back to dev
+3. Using rebase keeps the git history clean and prevents branch divergence
 
 ## GitHub Actions Workflow Behavior
 
@@ -184,94 +195,78 @@ The workflow automatically updates these files:
 
 ## Version Control Keywords
 
-Keywords in PR titles must be exact and case-sensitive:
+### PR Title Keywords
+When creating a Pull Request, use these keywords in the PR title to control version bumping:
 - `[minor]` - Bumps minor version
 - `[major]` - Bumps major version
-- `[skip-version]` - Skips version update
-- No keyword - Default patch bump
+- `[skip-version]` - Skips version update for this PR
 
-❌ These won't work:
-- `[MINOR]` or `[Minor]`
-- `[skip-version]` or `[skipversion]`
-- `[patch]` (use no keyword for patch bump)
+Note: For PRs, only the PR title is checked for keywords. Commit messages within the PR are ignored.
 
-## Files Updated
+### Commit Message Keywords
+For direct commits to branches (not through PRs):
+- `[skip-version]` - Skips version update for this specific commit
 
-The following files are automatically updated in ALL version changes:
-1. `VERSION` - Contains only the version string
-2. `indexer/pyproject.toml` - Updates `version = "x.y.z"`
-3. `indexer/src/config.py` - Updates `VERSION_STRING = "x.y.z"`
+Example:
+```bash
+# Direct commit to dev - will skip version bump
+git commit -m "chore: update deps [skip-version]"
+
+# PR to main - will bump minor version regardless of commit messages
+git commit -m "feat: new feature [skip-version]"  # [skip-version] is ignored
+git push origin dev
+# Create PR with title: "feat: new feature [minor]"
+```
 
 ## Process Flows
 
-### 1. Normal Dev Work
+### 1. Normal PR to Main
 ```bash
-# 1. Make changes
-git add .
-git commit -m "feat: your changes"
-git push origin dev
-
-# Result:
-# - Workflow detects canary format
-# - Bumps build number (e.g., canary.1 → canary.2)
-# - Updates all three files
-# - Creates git tag
-```
-
-### 2. Dev to Main PR
-```bash
-# 1. Create PR with appropriate title
+# Create PR with title based on change type:
 "feat: new feature"              # Will bump patch
 "feat: new feature [minor]"      # Will bump minor
 "feat: new feature [major]"      # Will bump major
 "chore: update [skip-version]"   # Won't bump version
 
 # Result:
-# - Workflow converts canary to prod
-# - Applies version bump based on title
-# - Updates all three files
-# - Creates git tag
+# - Workflow checks PR title only
+# - Ignores commit messages within PR
+# - Applies version bump based on PR title
 ```
 
-### 3. Main to Dev Sync
+### 2. Direct Commits to Dev
 ```bash
-# 1. Create PR from main to dev
+# Regular commit - will bump canary build
+git commit -m "feat: your changes"
+git push origin dev
+
+# Skip version bump
+git commit -m "chore: quick fix [skip-version]"
+git push origin dev
+
 # Result:
-# - Workflow detects main→dev PR
-# - Converts to canary format
-# - Updates all three files
-# - Creates git tag
-```
-
-### 4. Manual Version Control
-```bash
-# Only use if absolutely necessary!
-bump2version [type] --allow-dirty
-git add VERSION indexer/pyproject.toml indexer/src/config.py
-git commit -m "chore: manual version bump [skip-version]"
-git push origin HEAD --tags
+# - Workflow checks commit message
+# - Skips version bump if [skip-version] is present
 ```
 
 ## Important Notes
 
-1. **File Updates**
-   - All version changes update all three files
-   - Never manually edit version numbers
-   - Let the workflow handle all updates
+1. **PR Version Control**
+   - Only PR titles control version bumping
+   - Commit messages within PRs are ignored
+   - PR title keywords: `[major]`, `[minor]`, `[skip-version]`
 
-2. **Manual Commands**
-   - Always use `--allow-dirty` with bump2version
-   - Always commit ALL version files together
-   - Add `[skip-version]` to prevent double bumping
+2. **Direct Commit Version Control**
+   - Only affects direct pushes to branches
+   - Only `[skip-version]` is checked
+   - Applies to that specific commit only
 
 3. **Process Safety**
-   - Workflow checks prevent version conflicts
-   - Canary format is enforced on dev
-   - Clean format is enforced on main
-   - All files are updated atomically
+   - PR merges always use PR title for version control
+   - Direct commits can be skipped individually
+   - No mixing of PR and commit message controls
 
-4. **Error Prevention**
-   - Use exact keywords in PR titles
-   - Don't mix manual and automatic version control
-   - Let workflow handle branch format conversions
-   - Always create PRs for main↔dev syncs
+4. **Best Practices**
+   - Use PR titles to control major/minor version bumps
+   - Use commit `[skip-version]` for maintenance commits
+   - Keep version control intent clear in PR titles
