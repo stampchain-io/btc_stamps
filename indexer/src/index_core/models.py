@@ -599,7 +599,7 @@ class StampData:
 
     def src101_pre_validation(self):
         # TODO need  more check
-        self.src101_dict = check_src101_inputs(self.decoded_base64, self.tx_hash)
+        self.src101_dict = check_src101_inputs(self.decoded_base64, self.tx_hash, self.block_index)
         if self.src101_dict is not None:
             self.is_btc_stamp = True
         else:
