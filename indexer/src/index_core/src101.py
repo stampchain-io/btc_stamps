@@ -953,7 +953,7 @@ def check_and_convert_addres_type_data(data, hex_prev_tx_hash):
         return False, data
 
 
-def check_src101_inputs(input_string, tx_hash):
+def check_src101_inputs(input_string, tx_hash, block_index):
     try:
         try:
             if isinstance(input_string, bytes):
@@ -984,7 +984,10 @@ def check_src101_inputs(input_string, tx_hash):
                 "idua",
             }
             transfer_keys = {"p", "op", "hash", "toaddress", "tokenid"}
-            mint_keys = {"p", "op", "hash", "toaddress", "tokenid", "dua", "prim", "sig", "coef"}
+            if block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
+                mint_keys = {"p", "op", "hash", "toaddress", "tokenid", "dua", "prim", "sig", "img", "coef"}
+            else:
+                mint_keys = {"p", "op", "hash", "toaddress", "tokenid", "dua", "prim", "sig", "coef"}
             setrecord_keys = {"p", "op", "hash", "tokenid", "type", "data", "prim"}
             renew_keys = {"p", "op", "hash", "tokenid", "dua"}
             input_keys = set(input_dict.keys())
@@ -997,8 +1000,11 @@ def check_src101_inputs(input_string, tx_hash):
                     logger.warning("transfer inputs mismatching")
                     return None
             elif input_dict.get("op").lower() == "mint":
-                has_all_fields = all(field in input_dict for field in mint_keys)
-                if not has_all_fields:
+                if block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
+                    match = (len(mint_keys ^ input_keys) != 0)
+                else:
+                    match = not all(field in input_dict for field in mint_keys)
+                if match:
                     logger.warning("mint inputs mismatching")
                     return None
             elif input_dict.get("op").lower() == "setrecord":
