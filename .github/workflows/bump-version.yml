@@ -110,7 +110,11 @@ jobs:
           
           # If version is in canary format, convert to prod
           if [[ "$PR_VERSION" == *"+canary"* ]]; then
-            bump2version release --new-version prod --verbose --allow-dirty
+            # First remove the build number
+            TEMP_VERSION=${PR_VERSION%.*}
+            # Then convert to prod format
+            NEW_VERSION=${TEMP_VERSION%+*}
+            bump2version --new-version $NEW_VERSION --allow-dirty release
           fi
           
           # Handle version bumping based on PR title
