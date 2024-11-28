@@ -1001,7 +1001,7 @@ def check_src101_inputs(input_string, tx_hash, block_index):
                     return None
             elif input_dict.get("op").lower() == "mint":
                 if block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
-                    match = (len(mint_keys ^ input_keys) != 0)
+                    match = len(mint_keys ^ input_keys) != 0
                 else:
                     match = not all(field in input_dict for field in mint_keys)
                 if match:
