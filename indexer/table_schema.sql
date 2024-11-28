@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS `SRC101` (
   `tokenid_origin` varchar(255) DEFAULT NULL,
   `tokenid` varchar(255) DEFAULT NULL,
   `tokenid_utf8` varchar(255)  DEFAULT NULL COLLATE utf8mb4_bin,
-  -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `description` varchar(255),
   `tick` varchar(32),
   `imglp` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
@@ -239,13 +239,17 @@ CREATE TABLE IF NOT EXISTS `SRC101` (
   `mintstart` BIGINT UNSIGNED DEFAULT NULL,
   `mintend` BIGINT UNSIGNED DEFAULT NULL,
   `prim` BOOLEAN DEFAULT NULL,
+  `address_btc` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `address_eth` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `txt_data` TEXT DEFAULT NULL COLLATE utf8mb4_bin,
   `owner` varchar(255) COLLATE utf8mb4_bin,
   `toaddress` varchar(255) COLLATE utf8mb4_bin,
   `destination` varchar(255) COLLATE utf8mb4_bin,
   `destination_nvalue` BIGINT UNSIGNED DEFAULT NULL,
   `block_time` datetime DEFAULT NULL,
   `status` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `block_index` (`block_index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `SRC101Valid` (
@@ -260,7 +264,7 @@ CREATE TABLE IF NOT EXISTS `SRC101Valid` (
   `tokenid_origin` varchar(255) DEFAULT NULL,
   `tokenid` varchar(255) DEFAULT NULL,
   `tokenid_utf8` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
-  -- `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `img` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
   `description` varchar(255),
   `tick` varchar(32),
   `imglp` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
@@ -277,13 +281,17 @@ CREATE TABLE IF NOT EXISTS `SRC101Valid` (
   `mintstart` BIGINT UNSIGNED DEFAULT NULL,
   `mintend` BIGINT UNSIGNED DEFAULT NULL,
   `prim` BOOLEAN DEFAULT NULL,
+  `address_btc` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `address_eth` varchar(255) DEFAULT NULL COLLATE utf8mb4_bin,
+  `txt_data` TEXT DEFAULT NULL COLLATE utf8mb4_bin,
   `owner` varchar(255) COLLATE utf8mb4_bin,
   `toaddress` varchar(255) COLLATE utf8mb4_bin,
   `destination` varchar(255) COLLATE utf8mb4_bin,
   `destination_nvalue` BIGINT UNSIGNED DEFAULT NULL,
   `block_time` datetime DEFAULT NULL,
   `status` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `block_index` (`block_index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `owners` (
@@ -315,9 +323,11 @@ CREATE TABLE IF NOT EXISTS `recipients` (
   `p` varchar(32),
   `deploy_hash` VARCHAR(64) NOT NULL,
   `address` varchar(64) COLLATE utf8mb4_bin NOT NULL,
+  `block_index` int,
   PRIMARY KEY (`id`),
   UNIQUE KEY `p_deploy_hash_address_unique` (`p`, `deploy_hash`, `address`),
   INDEX `address` (`address`),
+  INDEX `block_index` (`block_index`),
   INDEX `p_deploy_hash_address` (`p`,`deploy_hash`,`address`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
@@ -326,7 +336,9 @@ CREATE TABLE IF NOT EXISTS `src101price` (
   `len` INT NOT NULL,
   `price`BIGINT NOT NULL,
   `deploy_hash` VARCHAR(64) NOT NULL,
-  PRIMARY KEY (`id`)
+  `block_index` int,
+  PRIMARY KEY (`id`),
+  INDEX `block_index` (`block_index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 -- example for insert into collections
