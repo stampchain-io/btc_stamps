@@ -1,0 +1,84 @@
+services:
+  indexer:
+    image: btc_stamps/indexer:latest
+    env_file:
+      - ${ENV_FILE:-../indexer/.env}  # Can be overridden
+    environment:
+      - DOCKER_CONTAINER=1
+      - DEBUG=${DEBUG:-0}
+
+      # Database Connections
+      - RDS_HOSTNAME=${RDS_HOSTNAME:-db}
+      - RDS_USER=${RDS_USER:-}
+      - RDS_PASSWORD=${RDS_PASSWORD:-}
+      - RDS_DATABASE=${RDS_DATABASE:-btc_stamps}
+      
+      # Bitcoin Node
+      - QUICKNODE_URL=${QUICKNODE_URL:-}
+      - RPC_TOKEN=${RPC_TOKEN:-}
+      ## ---- OR ----
+      - RPC_IP=${RPC_IP:-}
+      - RPC_USER=${RPC_USER:-rpc}
+      - RPC_PASSWORD=${RPC_PASSWORD:-rpc}
+      
+      # Other Configuration
+      - BACKEND_POLL_INTERVAL=${BACKEND_POLL_INTERVAL:-0.5}
+      - DOMAINNAME=${DOMAINNAME:-}
+      
+      # AWS Configuration
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_CLOUDFRONT_DISTRIBUTION_ID=${AWS_CLOUDFRONT_DISTRIBUTION_ID:-}
+      - AWS_S3_BUCKE_TNAME=${AWS_S3_BUCKE_TNAME:-}
+      - AWS_S3_IMAGE_DIR=${AWS_S3_IMAGE_DIR:-}
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'poetry run indexer' || exit 1"]
+      # test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health') if requests.get('http://localhost:8000/health').status_code == 200 else exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker    # Restrict to worker nodes only
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    #   update_config:
+    #     parallelism: 1
+    #     delay: 10s
+    #     order: start-first
+    #   rollback_config:
+    #     parallelism: 1
+    #     delay: 10s
+    #     failure_action: rollback
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 1G
+    # secrets:
+    #   - rds_password
+    #   - rpc_password
+    #   - aws_credentials
+
+    networks:
+      - db_mysql_cluster_network   # Connect to existing MySQL network
+
+networks:
+  db_mysql_cluster_network:
+    external: true                 # Use existing network
+
+# secrets:
+#   rds_password:
+#     external: true
+#   rpc_password:
+#     external: true
+#   aws_credentials:
+#     external: true

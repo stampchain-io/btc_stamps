@@ -1,0 +1,11 @@
+# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+indexer/.env.local
+indexer/.env
+indexer/pycache/
+indexer/__pycache__/
+indexer/.mypy_cache/
+indexer/.pytest_cache/
+indexer/.DS_Store
+indexer/bootstrap/
+indexer/files/
+indexer/indexer.log

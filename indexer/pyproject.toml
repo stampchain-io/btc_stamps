@@ -76,6 +76,7 @@ run_checks = "tools.run_checks:main"
 install-hooks = "tools.install_hooks:main"
 postinstall = "tools.install_hooks:main"
 compare_tables = "tools.compare_tables:main"
+test-setup = "start:test_setup"
 
 [[tool.poetry.packages]]
 from = "src"

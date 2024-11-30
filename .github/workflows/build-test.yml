@@ -1,0 +1,41 @@
+name: Build Tests
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: false
+        type: string
+        default: 'development'
+    outputs:
+      test_status:
+        description: "Test execution status"
+        value: ${{ jobs.test-build.outputs.status }}
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.12']  # Test multiple versions
+    outputs:
+      status: ${{ steps.test.outputs.test_status }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+      - name: Run Build Test
+        id: test
+        working-directory: ./indexer
+        run: |
+          ./test-local.sh
+          echo "test_status=success" >> $GITHUB_OUTPUT

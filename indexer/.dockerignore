@@ -1,0 +1,51 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.py[cod]
+*$py.class
+.pytest_cache
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.local
+.venv
+env/
+venv/
+ENV/
+tools_priv/
+
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Logs and databases
+*.log
+logs/
+db_data/
+
+# Build and dist
+dist/
+build/
+*.egg-info/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Project specific
+.cache/
+.poetry/
+poetry.toml 
