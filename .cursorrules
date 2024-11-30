@@ -1,0 +1,78 @@
+# .cursorrules
+
+project:
+  name: "Bitcoin Stamps Indexer"
+  description: |
+    A Python project that parses the Bitcoin blockchain to index SRC-20 tokens and Bitcoin Stamps.
+
+codebase:
+  language: python
+  python_version: ">=3.9"
+  source_directory: "indexer/src"
+  testing_directory: "tests/"
+  exclude_directories:
+    - ".tox"
+    - "build/"
+    - "tools/"
+
+style_guide:
+  formatter: black
+  line_length: 127
+  linting_tool: flake8
+  type_checker: mypy
+  formatting:
+    isort:
+      profile: black
+      line_length: 127
+  linting_rules:
+    max_line_length: 127
+    ignore_errors:
+      - E203
+      - W503
+      - E402
+      - E501
+
+dependencies:
+  managed_by: pyproject.toml
+  note: "All dependencies are specified in pyproject.toml."
+
+project_specifics:
+  - The project parses Bitcoin blockchain data to extract information on SRC-20 tokens and Bitcoin Stamps.
+  - Implements custom protocols like "SRC-20" "SRC-1010" and "SRC-721".
+  - Uses the "OLGA" P2WSH transaction format for Stamps.
+  - "Bitcoin Stamps" is a protocol for embedding immutable data in Bitcoin transactions.
+
+design_requirements:
+  - Follow best practices for a Python project.
+  - Optimize for efficient parsing and indexing of large blockchain datasets.
+  - Use modular design to separate concerns and enhance maintainability.
+  - Implement robust error handling and logging mechanisms.
+  - Ensure code is well-documented with clear docstrings and comments.
+
+development_practices:
+  - Write unit tests using Pytest located in the `tests/` directory.
+  - Aim for high test coverage for all critical components.
+  - Use type hints throughout the codebase and validate with Mypy.
+  - Regularly format code with Black and sort imports with isort.
+
+cursor_ide_guidance:
+  - When generating code, adhere to the project's style guide and formatting rules.
+  - Reference existing modules and functions within `indexer/src`.
+  - Ensure that code suggestions are compatible with Python 3.9 and above.
+  - Utilize the project's existing infrastructure and patterns where appropriate.
+
+custom_terms:
+  - SRC-20: Custom token protocol on Bitcoin.
+  - SRC-721: Standard for NFTs on Bitcoin Stamps.
+  - OLGA: P2WSH transaction format used for Stamps.
+  - Bitcoin Stamps: Protocol for embedding data in Bitcoin transactions.
+  - Stampchain: The creator of Bitcoin Stamps.
+  - QuickNode: A blockchain infrastructure platform utilzied in the project as an optional replacement for a full node.
+
+environment_variables:
+  - PYTHONPATH: "${workspaceFolder}/indexer/src"
+
+additional_notes:
+  - Be mindful of performance when parsing and processing blockchain data.
+  - Consider caching mechanisms and optimization techniques where applicable.
+  - Ensure external API calls are handled efficiently and asynchronously if possible.
