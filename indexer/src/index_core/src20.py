@@ -1349,12 +1349,13 @@ def compare_string_formats(local_str: str, api_str: str):
     api_sorted = sorted(api_entries)
 
     if local_sorted != api_sorted:
-        print("\nSorting difference detected:")
-        print("  Local sorted:", ";".join(local_sorted))
-        print("  API sorted:  ", ";".join(api_sorted))
-        sys.exit()
+        sys.exit(
+            "Sorting difference detected:\n  Local sorted: {}\n  API sorted:   {}".format(
+                ";".join(local_sorted), ";".join(api_sorted)
+            )
+        )
     else:
-        print("\nBoth strings have the same sorting order.")
+        logger.debug("Local and remote API validation strings have the same sorting order.")
 
     local_formatted = set(normalize_entry(entry) for entry in local_entries)
     api_formatted = set(normalize_entry(entry) for entry in api_entries)
@@ -1365,11 +1366,11 @@ def compare_string_formats(local_str: str, api_str: str):
         for entry in sorted(format_diff):
             local_entry = next((e for e in local_entries if normalize_entry(e) == entry), None)
             api_entry = next((e for e in api_entries if normalize_entry(e) == entry), None)
-            print(f"  Local: {local_entry}")
-            print(f"  API:   {api_entry}")
+            logger.error(f"  Local: {local_entry}")
+            logger.error(f"  API:   {api_entry}")
             print()
     else:
-        print("\nNo formatting differences detected.")
+        logger.debug("No formatting differences detected in local and remote API validation strings.")
 
 
 def normalize_entry(entry):

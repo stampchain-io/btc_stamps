@@ -42,7 +42,7 @@ def sigterm_handler(_signo, _stack_frame):
     # backend.stop() this would typically stop addrindexrs
     logger.info("Shutting down.")
     logging.shutdown()
-    sys.exit(0)
+    sys.exit(1)
 
 
 signal.signal(signal.SIGTERM, sigterm_handler)

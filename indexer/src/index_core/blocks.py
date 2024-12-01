@@ -546,8 +546,7 @@ def create_check_hashes(
     try:
         update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
     except BlockUpdateError as e:
-        logger.error(e)
-        sys.exit("Exiting due to a critical update error.")
+        sys.exit(f"Exiting due to a critical update error: {e}")
 
     return new_ledger_hash, new_txlist_hash, new_messages_hash
 
@@ -575,7 +574,7 @@ def commit_and_update_block(db, block_index):
         print("Error message:", e)
         db.rollback()
         db.close()
-        sys.exit()
+        sys.exit(f"Critical database error encountered: {e}")
 
 
 def log_block_info(
@@ -795,11 +794,9 @@ def follow(db):
                         difficulty,
                     )
                 except BlockAlreadyExistsError as e:
-                    logger.warning(e)
                     sys.exit(f"Exiting due to block already existing. {e}")
                 except DatabaseInsertError as e:
-                    logger.error(e)
-                    sys.exit("Critical database error encountered. Exiting.")
+                    sys.exit(f"Critical database error encountered. Exiting. {e}")
 
                 valid_stamps_in_block: List[ValidStamp] = []
 

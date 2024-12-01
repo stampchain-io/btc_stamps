@@ -102,11 +102,9 @@ def test_setup():
         sys.exit(0)
 
     except ImportError as e:
-        print(f"\n❌ Import error: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(f"\n❌ Import error: {str(e)}")
     except Exception as e:
-        print(f"\n❌ Test setup failed: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(f"\n❌ Test setup failed: {str(e)}", file=sys.stderr)
 
 
 def main():
