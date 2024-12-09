@@ -2421,7 +2421,7 @@ src20_variations_data = [
         "tx_hash": "utest44",
     },
     {
-        "description": "SRC-20 invalid src20_data json string",
+        "description": "SRC-20 invalid src20_data json string, scenario No.45",
         "src20JsonString": """{
           "p": "SRC-20",
           "op": "DEPLOY",
@@ -2451,7 +2451,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "Invalid p with src20JsonString",
+        "description": "Invalid p with src20JsonString, scenario No.46",
         "src20JsonString": """{
           "p": "BRC-20",
           "op": "DEPLOY",
@@ -2481,7 +2481,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "No tick attribute cause AttributeError",
+        "description": "No tick attribute cause AttributeError, scenario No.47",
         "src20JsonString": """{
           "p": "SRC-20",
           "op": "DEPLOY",
@@ -2510,7 +2510,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "Sci Notation Incoming",
+        "description": "Sci Notation Incoming, scenario No.48",
         "src20JsonString": """{
           "p": "SRC-20",
           "tick": "TCT3",
@@ -2538,7 +2538,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "Deploy with missing lim",
+        "description": "Deploy with missing lim, scenario No.49",
         "src20JsonString": """{
           "p": "SRC-20",
           "op": "DEPLOY",
@@ -2568,7 +2568,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "Deploy with missing max",
+        "description": "Deploy with missing max, scenario No.50",
         "src20JsonString": """{
           "p": "SRC-20",
           "op": "DEPLOY",
@@ -2580,7 +2580,7 @@ src20_variations_data = [
         "expectedOutcome": {
             "stamp_success": True,
             "src20_success": False,
-            "message": "SRC-20 token deploy, missing lim",
+            "message": "SRC-20 token deploy, missing max",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2598,7 +2598,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "SRC-20 token deployment",
+        "description": "SRC-20 token deployment decimal in lim string, scenario No.51",
         "src20JsonString": """{
           "p": "src-20",
           "op": "deploy",
@@ -2629,7 +2629,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "SRC-20 token deployment",
+        "description": "SRC-20 token deployment decimal in max string, scenario No.52",
         "src20JsonString": """{
           "p": "src-20",
           "op": "deploy",
@@ -2660,7 +2660,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "SRC-20 token deployment,",
+        "description": "SRC-20 token deployment decimal in lim number, scenario No.53",
         "src20JsonString": """{
           "p": "src-20",
           "op": "deploy",
@@ -2691,7 +2691,7 @@ src20_variations_data = [
         "tx_hash": "dummy_tx_hash",
     },
     {
-        "description": "SRC-20 token deployment",
+        "description": "SRC-20 token deployment decimal in max number, scenario No.54",
         "src20JsonString": """{
           "p": "src-20",
           "op": "deploy",
