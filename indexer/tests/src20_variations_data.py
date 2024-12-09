@@ -2309,7 +2309,8 @@ src20_variations_data = [
           "p": "src-20",
           "op": "deploy",
           "tick": "uin64",
-          "amt": "18446744073709551615"
+          "max": "18446744073709551615",
+          "lim": "18446744073709551615"
         }""",
         "expectedOutcome": {
             "stamp_success": True,
@@ -2337,7 +2338,8 @@ src20_variations_data = [
           "p": "src-20",
           "op": "deploy",
           "tick": "uin64",
-          "amt": 18446744073709551615
+          "max": 18446744073709551615,
+          "lim": 18446744073709551615
         }""",
         "expectedOutcome": {
             "stamp_success": True,
@@ -2365,7 +2367,8 @@ src20_variations_data = [
           "p": "src-20",
           "op": "deploy",
           "tick": "uin64",
-          "amt": "18446744073709551614.999999999999999999",
+          "max": "18446744073709551614.999999999999999999",
+          "lim": "18446744073709551614.999999999999999999",
           "dec": 18
         }""",
         "expectedOutcome": {
@@ -2518,6 +2521,66 @@ src20_variations_data = [
             "stamp_success": True,
             "src20_success": False,
             "message": "Sci Notation rejected in check_format",
+        },
+        "source": "1SourceAddr",
+        "destination": "1DestAddr",
+        "btc_amount": 0.0,
+        "fee": 0.0,
+        "decoded_tx": "{}",
+        "keyburn": 1,
+        "tx_index": 0,
+        "block_index": 0,
+        "block_time": 0,
+        "is_op_return": False,
+        "valid_stamps_in_block": [],
+        "processed_src20_in_block": [],
+        "p2wsh_data": None,
+        "tx_hash": "dummy_tx_hash",
+    },
+    {
+        "description": "Deploy with missing lim",
+        "src20JsonString": """{
+          "p": "SRC-20",
+          "op": "DEPLOY",
+          "tick": "TEST",
+          "deci": 8,
+          "lim": "",
+          "max": 1000000000
+        }""",
+        "expectedOutcome": {
+            "stamp_success": True,
+            "src20_success": False,
+            "message": "SRC-20 token deploy, missing lim",
+        },
+        "source": "1SourceAddr",
+        "destination": "1DestAddr",
+        "btc_amount": 0.0,
+        "fee": 0.0,
+        "decoded_tx": "{}",
+        "keyburn": 1,
+        "tx_index": 0,
+        "block_index": 0,
+        "block_time": 0,
+        "is_op_return": False,
+        "valid_stamps_in_block": [],
+        "processed_src20_in_block": [],
+        "p2wsh_data": None,
+        "tx_hash": "dummy_tx_hash",
+    },
+    {
+        "description": "Deploy with missing max",
+        "src20JsonString": """{
+          "p": "SRC-20",
+          "op": "DEPLOY",
+          "tick": "TEST",
+          "deci": 8,
+          "lim": "1000000000",
+          "max": ""
+        }""",
+        "expectedOutcome": {
+            "stamp_success": True,
+            "src20_success": False,
+            "message": "SRC-20 token deploy, missing lim",
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",

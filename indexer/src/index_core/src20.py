@@ -226,7 +226,8 @@ class Src20Processor:
             logger.warning(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
             return
 
-        if not self.deploy_lim and not self.deploy_max:
+        # Add validation check for required fields using class variables
+        if not self.deploy_lim and not self.deploy_max and self.src20_dict.get("lim") and self.src20_dict.get("max"):
             self.update_valid_src20_list(operation=self.operation)
 
             # Extract metadata from the SRC20 DEPLOY json string
