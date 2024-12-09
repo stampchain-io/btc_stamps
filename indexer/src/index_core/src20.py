@@ -6,7 +6,7 @@ import sys
 import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Dict, List, Optional, TypedDict, Union
 
 import requests
@@ -79,6 +79,8 @@ class Src20Validator:
             else:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
                 self.src20_dict[key] = None
+            if key in ["max", "lim"] and self.src20_dict[key] is not None:
+                self.src20_dict[key] = self.src20_dict[key].quantize(Decimal("1"), rounding=ROUND_DOWN)
         elif key == "dec":
             if dec_pattern.match(str(value)) and 0 <= int(value) <= 18:
                 self.src20_dict[key] = int(value)
