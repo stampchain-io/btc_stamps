@@ -46,6 +46,13 @@ AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
+
+def _has_valid_standard_rpc() -> bool:
+    """Check if all standard RPC credentials are properly set with non-default values."""
+    return all([RPC_USER != "rpc", RPC_PASSWORD != "rpc", RPC_IP != "127.0.0.1", RPC_PORT != "8332"])
+
+
+# First check if Quicknode credentials are provided or attempted
 if QUICKNODE_URL or RPC_TOKEN:
     if not (QUICKNODE_URL and RPC_TOKEN):
         raise ConfigurationError(
@@ -54,8 +61,8 @@ if QUICKNODE_URL or RPC_TOKEN:
             f"RPC_TOKEN={'set' if RPC_TOKEN else 'not set'}"
         )
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_URL}")
-    # Format: http://sample-endpoint-name.network.quiknode.pro/token-goes-here/
-    RPC_URL = f"http://{QUICKNODE_URL}/{RPC_TOKEN}"
+    # Format: https://sample-endpoint-name.network.quiknode.pro/token-goes-here/
+    RPC_URL = f"https://{QUICKNODE_URL}/{RPC_TOKEN}"
     RPC_IP = None  # Don't use RPC_IP with Quicknode
     RPC_PORT = None  # Don't use port with Quicknode
     RPC_USER = None  # Don't use RPC_USER with Quicknode
@@ -66,12 +73,23 @@ if QUICKNODE_URL or RPC_TOKEN:
     logger.debug(f"- RPC_PORT: {RPC_PORT}")
     logger.debug(f"- RPC_USER: {RPC_USER}")
     logger.debug("Quicknode configuration validated")
-elif RPC_TLS:
-    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
-    logger.debug(f"Using TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
 else:
-    RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
-    logger.debug(f"Using non-TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
+    # If not using Quicknode, validate standard RPC credentials
+    if not _has_valid_standard_rpc():
+        raise ConfigurationError(
+            "Must provide either valid Quicknode credentials (QUICKNODE_URL and RPC_TOKEN) "
+            "or valid standard RPC credentials (non-default values for RPC_USER, RPC_PASSWORD, "
+            "RPC_IP, and RPC_PORT). Using default values is not allowed."
+        )
+
+    # Construct RPC URL based on TLS setting
+    if RPC_TLS:
+        RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+        logger.debug(f"Using TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
+    else:
+        RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+        logger.debug(f"Using non-TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
+    logger.info("Standard RPC configuration validated")
 
 logger.info(
     f"Final RPC URL format: {RPC_URL.replace(RPC_TOKEN or '', '****') if RPC_TOKEN else RPC_URL.replace(RPC_PASSWORD or '', '****')}"
