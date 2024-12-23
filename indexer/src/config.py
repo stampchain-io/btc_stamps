@@ -40,16 +40,16 @@ AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID"
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)
 S3_OBJECTS: Dict[str, Dict[str, str]] = {}
-AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
+AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
 
 # Define for Quicknode or similar remote nodes which use a token
-QUICKNODE_ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT", None)
-QUICKNODE_API_KEY = os.environ.get("QUICKNODE_API_KEY", None)  # Used for Bearer token auth
+QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_ENDPOINT", None)
+QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)  # Used for Bearer token auth
 
 # Strip any surrounding quotes from the URL if present
 if QUICKNODE_ENDPOINT:
     QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
-RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
+RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)
 
 
 def _has_valid_standard_rpc() -> bool:
@@ -185,7 +185,7 @@ LOG: Optional[str] = None
 REGTEST: bool = False
 CUSTOMNET: bool = False
 CHECKDB: bool = False
-TESTNET = os.environ.get("TESTNET", None)
+TESTNET: Optional[str] = os.environ.get("TESTNET", None)
 
 # Define additional constants used in server.py
 DEFAULT_BACKEND_PORT: int = 8332
@@ -203,7 +203,7 @@ SRC_VALIDATION_API1 = "https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconci
 SRC_VALIDATION_API2 = (
     "https://pkizh327c7.execute-api.us-west-2.amazonaws.com/prod/external/balanceHash?blockIndex={block_index}&secret={secret}"
 )
-SRC_VALIDATION_SECRET_API2 = os.environ.get("SRC_VALIDATION_SECRET_API2", None)
+SRC_VALIDATION_SECRET_API2: Optional[str] = os.environ.get("SRC_VALIDATION_SECRET_API2", None)
 
 BURNKEYS = [
     "022222222222222222222222222222222222222222222222222222222222222222",
