@@ -41,6 +41,13 @@ AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
+
+def _has_valid_standard_rpc() -> bool:
+    """Check if all standard RPC credentials are properly set with non-default values."""
+    return all([RPC_USER != "rpc", RPC_PASSWORD != "rpc", RPC_IP != "127.0.0.1", RPC_PORT != "8332"])
+
+
+# First check if Quicknode credentials are provided or attempted
 if QUICKNODE_URL or RPC_TOKEN:
     if not (QUICKNODE_URL and RPC_TOKEN):
         raise ConfigurationError(
@@ -55,10 +62,21 @@ if QUICKNODE_URL or RPC_TOKEN:
     RPC_USER = None
     RPC_PASSWORD = None
     logger.info("Quicknode configuration validated")
-elif RPC_TLS:
-    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 else:
-    RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+    # If not using Quicknode, validate standard RPC credentials
+    if not _has_valid_standard_rpc():
+        raise ConfigurationError(
+            "Must provide either valid Quicknode credentials (QUICKNODE_URL and RPC_TOKEN) "
+            "or valid standard RPC credentials (non-default values for RPC_USER, RPC_PASSWORD, "
+            "RPC_IP, and RPC_PORT). Using default values is not allowed."
+        )
+
+    # Construct RPC URL based on TLS setting
+    if RPC_TLS:
+        RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+    else:
+        RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+    logger.info("Standard RPC configuration validated")
 
 logger.info(f"Final RPC URL format: {RPC_URL.replace(RPC_TOKEN or '', '****') if RPC_TOKEN else RPC_URL}")
 
