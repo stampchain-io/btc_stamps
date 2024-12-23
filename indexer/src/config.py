@@ -73,10 +73,13 @@ if QUICKNODE_ENDPOINT:
     # Ensure URL has proper scheme
     if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
         QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
-    # Ensure RPC_TOKEN is properly included in the URL path
-    if not QUICKNODE_ENDPOINT.endswith('/'):
-        QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
-    RPC_URL = f"{QUICKNODE_ENDPOINT}{RPC_TOKEN}"
+    # Construct RPC URL with token in path
+    RPC_URL = QUICKNODE_ENDPOINT
+    if RPC_TOKEN:
+        # Remove any trailing slashes from endpoint and leading slashes from token
+        RPC_URL = RPC_URL.rstrip('/')
+        clean_token = RPC_TOKEN.lstrip('/')
+        RPC_URL = f"{RPC_URL}/{clean_token}"
     RPC_IP = None
     RPC_PORT = None
     RPC_USER = None
