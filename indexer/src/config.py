@@ -50,6 +50,11 @@ RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
 def _has_valid_standard_rpc() -> bool:
     """Check if all standard RPC credentials are properly set with non-default values."""
+    # Allow test credentials in test environment
+    if os.environ.get("USE_TEST_TX_HEX") == "1":
+        return all(x is not None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT])
+    
+    # In production, require non-default values
     if any(x is None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT]):
         return False
     return all(
