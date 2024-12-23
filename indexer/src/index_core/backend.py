@@ -39,7 +39,6 @@ def rpc_call(payload):
 
     for i in range(TRIES):
         try:
-            logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
             headers = {
                 "content-type": "application/json",
             }
@@ -48,7 +47,6 @@ def rpc_call(payload):
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)} with Bearer auth")
             else:
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
-
             response = requests.post(
                 url,
                 data=json.dumps(payload),
