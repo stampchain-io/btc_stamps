@@ -44,6 +44,7 @@ AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
+QUICKNODE_API_KEY = os.environ.get("QUICKNODE_API_KEY", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
 
@@ -62,12 +63,12 @@ def _has_valid_standard_rpc() -> bool:
 
 
 # First check if Quicknode credentials are provided or attempted
-if QUICKNODE_URL or RPC_TOKEN:
-    if not (QUICKNODE_URL and RPC_TOKEN):
+if QUICKNODE_URL or QUICKNODE_API_KEY:
+    if not (QUICKNODE_URL and QUICKNODE_API_KEY):
         raise ConfigurationError(
-            "Both QUICKNODE_URL and RPC_TOKEN must be set to use Quicknode. "
+            "Both QUICKNODE_URL and QUICKNODE_API_KEY must be set to use Quicknode. "
             f"Got QUICKNODE_URL={'set' if QUICKNODE_URL else 'not set'}, "
-            f"RPC_TOKEN={'set' if RPC_TOKEN else 'not set'}"
+            f"QUICKNODE_API_KEY={'set' if QUICKNODE_API_KEY else 'not set'}"
         )
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_URL}")
     # Format: https://sample-endpoint-name.network.quiknode.pro/
