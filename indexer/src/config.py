@@ -80,6 +80,10 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
             f"QUICKNODE_API_KEY={'set' if QUICKNODE_API_KEY else 'not set'}"
         )
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_ENDPOINT}")
+    # Ensure URL has proper scheme
+    if not QUICKNODE_ENDPOINT.startswith(('http://', 'https://')):
+        QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
+    
     # Format: https://sample-endpoint-name.network.quiknode.pro/
     RPC_URL = QUICKNODE_ENDPOINT  # API key used in Authorization header
     RPC_IP = None  # Don't use RPC_IP with Quicknode
