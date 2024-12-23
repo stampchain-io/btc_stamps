@@ -83,6 +83,9 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
     # Ensure URL has proper scheme
     if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
         QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
+    # Ensure URL ends with forward slash for consistent path handling
+    if not QUICKNODE_ENDPOINT.endswith('/'):
+        QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
     
     # Format: https://sample-endpoint-name.network.quiknode.pro/
     RPC_URL = QUICKNODE_ENDPOINT  # API key used in Authorization header
