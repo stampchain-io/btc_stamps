@@ -71,7 +71,7 @@ if QUICKNODE_ENDPOINT:
     if not RPC_TOKEN:
         raise ConfigurationError("RPC_TOKEN is required when using QUICKNODE_ENDPOINT")
     # Ensure URL has proper scheme
-    if not QUICKNODE_ENDPOINT.startswith(('http://', 'https://')):
+    if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
         QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
     RPC_URL = f"{QUICKNODE_ENDPOINT}/{RPC_TOKEN}"
     RPC_IP = None
