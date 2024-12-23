@@ -39,6 +39,9 @@ AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT", None)
+if QUICKNODE_ENDPOINT:
+    # Strip any surrounding quotes from the URL
+    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
 
