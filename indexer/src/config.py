@@ -71,7 +71,7 @@ if QUICKNODE_URL or QUICKNODE_API_KEY:
             f"QUICKNODE_API_KEY={'set' if QUICKNODE_API_KEY else 'not set'}"
         )
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_URL}")
-    RPC_URL = f"https://{QUICKNODE_URL}"
+    RPC_URL = f"https://{QUICKNODE_URL}/{QUICKNODE_API_KEY}"
     RPC_IP = None
     RPC_PORT = None
     RPC_USER = None
