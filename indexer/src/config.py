@@ -16,10 +16,10 @@ DEBUG_SKIP_REBUILD_BALANCES = os.environ.get("DEBUG_SKIP_REBUILD_BALANCES", "Fal
 STORE_FILES = os.environ.get("STORE_FILES", "true").lower() == "true"
 
 # env vars to be set in docker, or locally if connecting to local nodes
-RPC_USER: str = os.environ.get("RPC_USER", "rpc")  # type: ignore
-RPC_PASSWORD: str = os.environ.get("RPC_PASSWORD", "rpc")  # type: ignore
-RPC_IP: str = os.environ.get("RPC_IP", "127.0.0.1")  # type: ignore
-RPC_PORT: str = os.environ.get("RPC_PORT", "8332")  # type: ignore
+RPC_USER: Optional[str] = os.environ.get("RPC_USER", "rpc")
+RPC_PASSWORD: Optional[str] = os.environ.get("RPC_PASSWORD", "rpc")
+RPC_IP: Optional[str] = os.environ.get("RPC_IP", "127.0.0.1")
+RPC_PORT: Optional[str] = os.environ.get("RPC_PORT", "8332")
 RPC_TLS = os.environ.get("RPC_TLS", False)
 
 CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://api.counterparty.io:4000")  # 'http://127.0.0.1:4000/api/'
@@ -49,12 +49,16 @@ RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
 def _has_valid_standard_rpc() -> bool:
     """Check if all standard RPC credentials are properly set with non-default values."""
-    return all([
-        RPC_USER is not None and RPC_USER != "rpc",
-        RPC_PASSWORD is not None and RPC_PASSWORD != "rpc",
-        RPC_IP is not None and RPC_IP != "127.0.0.1",
-        RPC_PORT is not None and RPC_PORT != "8332"
-    ])
+    if any(x is None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT]):
+        return False
+    return all(
+        [
+            RPC_USER != "rpc",
+            RPC_PASSWORD != "rpc",
+            RPC_IP != "127.0.0.1",
+            RPC_PORT != "8332",
+        ]
+    )
 
 
 # First check if Quicknode credentials are provided or attempted
