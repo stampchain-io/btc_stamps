@@ -38,8 +38,7 @@ S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 
 # Define for Quicknode or similar remote nodes which use a token
-QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
-QUICKNODE_API_KEY = os.environ.get("QUICKNODE_API_KEY", None)
+QUICKNODE_ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
 
@@ -62,16 +61,10 @@ def _has_valid_standard_rpc() -> bool:
     )
 
 
-# First check if Quicknode credentials are provided or attempted
-if QUICKNODE_URL or QUICKNODE_API_KEY:
-    if not (QUICKNODE_URL and QUICKNODE_API_KEY):
-        raise ConfigurationError(
-            "Both QUICKNODE_URL and QUICKNODE_API_KEY must be set to use Quicknode. "
-            f"Got QUICKNODE_URL={'set' if QUICKNODE_URL else 'not set'}, "
-            f"QUICKNODE_API_KEY={'set' if QUICKNODE_API_KEY else 'not set'}"
-        )
-    logger.info(f"Using Quicknode endpoint: {QUICKNODE_URL}")
-    RPC_URL = f"https://{QUICKNODE_URL}/{QUICKNODE_API_KEY}"
+# First check if Quicknode endpoint is provided
+if QUICKNODE_ENDPOINT:
+    logger.info(f"Using Quicknode endpoint: {QUICKNODE_ENDPOINT}")
+    RPC_URL = QUICKNODE_ENDPOINT
     RPC_IP = None
     RPC_PORT = None
     RPC_USER = None
