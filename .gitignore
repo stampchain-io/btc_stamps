@@ -4,6 +4,7 @@ db
 */.DS_Store
 .DS_Store
 .env
+.env.local
 db_data/
 files/
 indexer/.env
