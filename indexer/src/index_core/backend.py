@@ -37,7 +37,7 @@ def rpc_call(payload):
             headers = {"content-type": "application/json"}
             if config.RPC_TOKEN:
                 headers["Authorization"] = f"Bearer {config.RPC_TOKEN}"
-            
+
             response = requests.post(
                 url,
                 data=json.dumps(payload),
