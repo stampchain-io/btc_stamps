@@ -81,7 +81,7 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
         )
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_ENDPOINT}")
     # Ensure URL has proper scheme
-    if not QUICKNODE_ENDPOINT.startswith(('http://', 'https://')):
+    if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
         QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
     
     # Format: https://sample-endpoint-name.network.quiknode.pro/
