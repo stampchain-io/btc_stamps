@@ -26,6 +26,11 @@ class BackendRPCError(Exception):
 def rpc_call(payload):
     """Calls to bitcoin core and returns the response"""
     url = config.RPC_URL
+    # For Quicknode, use the URL as is without modifying it
+    if not config.QUICKNODE_URL:
+        # Only append port for non-Quicknode connections
+        url = f"{config.RPC_URL}:{config.BACKEND_PORT}"
+
     response = None
     TRIES = 12
 
