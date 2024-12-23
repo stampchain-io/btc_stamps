@@ -70,14 +70,14 @@ if QUICKNODE_URL or RPC_TOKEN:
             f"RPC_TOKEN={'set' if RPC_TOKEN else 'not set'}"
         )
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_URL}")
-    # Format: https://sample-endpoint-name.network.quiknode.pro/token-goes-here/
-    RPC_URL = f"https://{QUICKNODE_URL}/{RPC_TOKEN}"
+    # Format: https://sample-endpoint-name.network.quiknode.pro/
+    RPC_URL = f"https://{QUICKNODE_URL}"  # Token moved to Authorization header
     RPC_IP = None  # Don't use RPC_IP with Quicknode
     RPC_PORT = None  # Don't use port with Quicknode
     RPC_USER = None  # Don't use RPC_USER with Quicknode
     RPC_PASSWORD = None  # Don't use RPC_PASSWORD with Quicknode
     logger.debug("Configuration values:")
-    logger.debug(f"- RPC_URL: {RPC_URL.replace(RPC_TOKEN or '', '****')}")
+    logger.debug(f"- RPC_URL: {RPC_URL}")  # No need to mask URL since token is in header
     logger.debug(f"- RPC_IP: {RPC_IP}")
     logger.debug(f"- RPC_PORT: {RPC_PORT}")
     logger.debug(f"- RPC_USER: {RPC_USER}")
