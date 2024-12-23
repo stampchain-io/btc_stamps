@@ -49,7 +49,6 @@ QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)  # 
 # Strip any surrounding quotes from the URL if present
 if QUICKNODE_ENDPOINT:
     QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
-QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)
 RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)
 
 
