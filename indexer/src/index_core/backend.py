@@ -44,7 +44,9 @@ def rpc_call(payload):
             }
             if config.QUICKNODE_URL and config.QUICKNODE_API_KEY:
                 headers["Authorization"] = f"Bearer {config.QUICKNODE_API_KEY}"
-                logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)} with Bearer auth")
+                logger.debug(
+                    f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)} with Bearer auth"
+                )
             else:
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
             response = requests.post(
