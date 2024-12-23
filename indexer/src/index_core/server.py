@@ -173,7 +173,8 @@ def initialize_config(
     sys.excepthook = handle_exception
 
     ##############
-    # THINGS WE CONNECT TO
+    # Backend Connection Configuration
+    # Handles setup of Bitcoin Core RPC connection parameters
 
     # Backend name
     config.BACKEND_NAME = "bitcoincore"
