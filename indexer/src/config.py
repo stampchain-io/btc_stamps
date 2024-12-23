@@ -77,8 +77,8 @@ if QUICKNODE_ENDPOINT:
     RPC_URL = QUICKNODE_ENDPOINT
     if RPC_TOKEN:
         # Remove any trailing slashes from endpoint and leading slashes from token
-        RPC_URL = RPC_URL.rstrip('/')
-        clean_token = RPC_TOKEN.lstrip('/')
+        RPC_URL = RPC_URL.rstrip("/")
+        clean_token = RPC_TOKEN.lstrip("/")
         RPC_URL = f"{RPC_URL}/{clean_token}"
     RPC_IP = None
     RPC_PORT = None
