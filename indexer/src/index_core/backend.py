@@ -37,8 +37,8 @@ def rpc_call(payload):
             headers = {
                 "content-type": "application/json",
             }
-            if config.QUICKNODE_URL and config.RPC_TOKEN:
-                headers["Authorization"] = f"Bearer {config.RPC_TOKEN}"
+            if config.QUICKNODE_URL and config.QUICKNODE_API_KEY:
+                headers["Authorization"] = f"Bearer {config.QUICKNODE_API_KEY}"
             
             response = requests.post(
                 url,
