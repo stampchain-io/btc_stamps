@@ -68,7 +68,9 @@ def _has_valid_standard_rpc() -> bool:
 # First check if Quicknode endpoint is provided
 if QUICKNODE_ENDPOINT:
     logger.info(f"Using Quicknode endpoint: {QUICKNODE_ENDPOINT}")
-    RPC_URL = QUICKNODE_ENDPOINT
+    if not RPC_TOKEN:
+        raise ConfigurationError("RPC_TOKEN is required when using QUICKNODE_ENDPOINT")
+    RPC_URL = f"{QUICKNODE_ENDPOINT}/{RPC_TOKEN}"
     RPC_IP = None
     RPC_PORT = None
     RPC_USER = None
