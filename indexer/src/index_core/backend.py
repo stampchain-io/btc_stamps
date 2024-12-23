@@ -39,6 +39,7 @@ def rpc_call(payload):
 
     for i in range(TRIES):
         try:
+<<<<<<< HEAD
             headers = {"content-type": "application/json"}
             if config.QUICKNODE_ENDPOINT and config.QUICKNODE_API_KEY:
                 headers["Authorization"] = f"Bearer {config.QUICKNODE_API_KEY}"
