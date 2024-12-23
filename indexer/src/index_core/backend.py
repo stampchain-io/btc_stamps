@@ -26,8 +26,8 @@ def rpc_call(payload):
     TRIES = 12
 
     # Add validation and debug logging for Quicknode
-    if config.QUICKNODE_URL and config.RPC_TOKEN:
-        logger.debug(f"Making Quicknode RPC call to: {url.replace(config.RPC_TOKEN, '****')}")
+    if config.QUICKNODE_URL and config.QUICKNODE_API_KEY:
+        logger.debug(f"Making Quicknode RPC call to: {url}")
     else:
         logger.debug(f"Making RPC call to: {util.clean_url_for_log(url)}")
 
@@ -42,8 +42,8 @@ def rpc_call(payload):
             headers = {
                 "content-type": "application/json",
             }
-            if config.QUICKNODE_URL and config.RPC_TOKEN:
-                headers["Authorization"] = f"Bearer {config.RPC_TOKEN}"
+            if config.QUICKNODE_URL and config.QUICKNODE_API_KEY:
+                headers["Authorization"] = f"Bearer {config.QUICKNODE_API_KEY}"
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)} with Bearer auth")
             else:
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
