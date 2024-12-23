@@ -13,14 +13,11 @@ from requests.exceptions import ConnectionError, Timeout
 
 import config
 import index_core.util as util
+from exceptions import BackendRPCError
 
 logger = logging.getLogger(__name__)
 
 raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
-
-
-class BackendRPCError(Exception):
-    pass
 
 
 def rpc_call(payload):
@@ -34,6 +31,12 @@ def rpc_call(payload):
     response = None
     TRIES = 12
 
+    # Add validation and debug logging for Quicknode
+    if config.QUICKNODE_URL and config.RPC_TOKEN:
+        logger.debug(f"Making Quicknode RPC call to: {url.replace(config.RPC_TOKEN, '****')}")
+    else:
+        logger.debug(f"Making RPC call to: {util.clean_url_for_log(url)}")
+
     for i in range(TRIES):
         try:
             response = requests.post(
@@ -46,9 +49,14 @@ def rpc_call(payload):
             if i > 0:
                 logger.debug("Successfully connected.")
             break
-        except (Timeout, ConnectionError):
-            logger.debug("Could not connect to backend at `{}`. (Try {}/{})".format(util.clean_url_for_log(url), i + 1, TRIES))
+        except (Timeout, ConnectionError) as e:
+            logger.debug(
+                f"Could not connect to backend at `{util.clean_url_for_log(url)}`. Error: {str(e)} (Try {i + 1}/{TRIES})"
+            )
             time.sleep(5)
+        except requests.exceptions.InvalidURL as e:
+            logger.error(f"Invalid URL format: {str(e)}")
+            raise BackendRPCError(f"Invalid URL format for RPC connection: {str(e)}")
     if response is None:
         if config.TESTNET:
             network = "testnet"
