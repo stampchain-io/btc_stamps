@@ -53,7 +53,7 @@ def _has_valid_standard_rpc() -> bool:
     # Allow test credentials in test environment
     if os.environ.get("USE_TEST_TX_HEX") == "1":
         return all(x is not None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT])
-    
+
     # In production, require non-default values
     if any(x is None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT]):
         return False
