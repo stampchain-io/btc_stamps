@@ -34,10 +34,14 @@ def rpc_call(payload):
 
     for i in range(TRIES):
         try:
+            headers = {"content-type": "application/json"}
+            if config.RPC_TOKEN:
+                headers["Authorization"] = f"Bearer {config.RPC_TOKEN}"
+            
             response = requests.post(
                 url,
                 data=json.dumps(payload),
-                headers={"content-type": "application/json"},
+                headers=headers,
                 verify=(not config.BACKEND_SSL_NO_VERIFY),
                 timeout=config.REQUESTS_TIMEOUT,
             )
