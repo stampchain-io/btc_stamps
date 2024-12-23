@@ -11,10 +11,10 @@ from exceptions import ConfigurationError
 logger = logging.getLogger(__name__)
 
 # env vars to be set in docker, or locally if connecting to local nodes
-RPC_USER = os.environ.get("RPC_USER", "rpc")
-RPC_PASSWORD = os.environ.get("RPC_PASSWORD", "rpc")
-RPC_IP = os.environ.get("RPC_IP", "127.0.0.1")
-RPC_PORT = os.environ.get("RPC_PORT", "8332")
+RPC_USER: Optional[str] = os.environ.get("RPC_USER", "rpc")
+RPC_PASSWORD: Optional[str] = os.environ.get("RPC_PASSWORD", "rpc")
+RPC_IP: Optional[str] = os.environ.get("RPC_IP", "127.0.0.1")
+RPC_PORT: Optional[str] = os.environ.get("RPC_PORT", "8332")
 RPC_TLS = os.environ.get("RPC_TLS", False)
 
 CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://api.counterparty.io:4000")  # 'http://127.0.0.1:4000/api/'
