@@ -99,6 +99,12 @@ jobs:
         run: |
           poetry run python3 -m unittest discover -s . -p "test_src20.py"
         working-directory: ./indexer
+        env:
+          USE_TEST_TX_HEX: 1
+          RPC_USER: test_user
+          RPC_PASSWORD: test_password
+          RPC_IP: test.rpc.local
+          RPC_PORT: 8332
 
       - name: Run check_format Validations
         run: |
