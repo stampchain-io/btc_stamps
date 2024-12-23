@@ -45,6 +45,10 @@ AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT", None)
 QUICKNODE_API_KEY = os.environ.get("QUICKNODE_API_KEY", None)  # Used for Bearer token auth
+
+# Strip any surrounding quotes from the URL if present
+if QUICKNODE_ENDPOINT:
+    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
 
 
