@@ -19,15 +19,12 @@ import index_core.util as util
 from index_core.aws import get_s3_objects
 from index_core.check import software_version
 from index_core.database import last_db_index
+from exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
 D = decimal.Decimal
-
-
-class ConfigurationError(Exception):
-    pass
 
 
 def sigterm_handler(_signo, _stack_frame):

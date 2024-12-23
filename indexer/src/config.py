@@ -6,6 +6,8 @@ from typing import Dict, Optional
 import boto3
 from requests.auth import HTTPBasicAuth
 
+from exceptions import ConfigurationError
+
 logger = logging.getLogger(__name__)
 
 # env vars to be set in docker, or locally if connecting to local nodes
@@ -38,15 +40,28 @@ AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
-if QUICKNODE_URL and RPC_TOKEN:
-    RPC_URL = f"https://{QUICKNODE_URL}/{RPC_TOKEN}"  # Simplified Quicknode URL format
-    RPC_IP = QUICKNODE_URL  # Set RPC_IP to QUICKNODE_URL to prevent local fallback
-    RPC_PORT = None  # Don't use port for Quicknode
-    BACKEND_SSL = True  # Force SSL for Quicknode
+
+if QUICKNODE_URL or RPC_TOKEN:
+    if not (QUICKNODE_URL and RPC_TOKEN):
+        raise ConfigurationError(
+            "Both QUICKNODE_URL and RPC_TOKEN must be set to use Quicknode. "
+            f"Got QUICKNODE_URL={'set' if QUICKNODE_URL else 'not set'}, "
+            f"RPC_TOKEN={'set' if RPC_TOKEN else 'not set'}"
+        )
+    logger.info(f"Using Quicknode endpoint: {QUICKNODE_URL}")
+    # Format: http://sample-endpoint-name.network.quiknode.pro/token-goes-here/
+    RPC_URL = f"http://{QUICKNODE_URL}/{RPC_TOKEN}"
+    RPC_IP = None
+    RPC_PORT = None
+    RPC_USER = None
+    RPC_PASSWORD = None
+    logger.info("Quicknode configuration validated")
 elif RPC_TLS:
     RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
 else:
     RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+
+logger.info(f"Final RPC URL format: {RPC_URL.replace(RPC_TOKEN or '', '****') if RPC_TOKEN else RPC_URL}")
 
 RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 

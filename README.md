@@ -118,15 +118,16 @@ Stampchain API.
 
 ## Installation & Execution with Docker
 
+If you do not have Docker installed, please follow the official Docker instructions:
+[Install Docker Engine](https://docs.docker.com/engine/install/) (choose your OS or distro).
+
 ### Clone the repo and switch to the main production branch
 
-`git clone https://github.com/stampchain-io/btc_stamps.git`
+```shell
+git clone https://github.com/stampchain-io/btc_stamps.git
+git switch main
+```
 
-`git switch main`
-
-If you wish to use the Stamps Explorer and API integrated into the docker config, you may use:
-
-`git submodule update --init app`
 
 ### Step 1. Create & configure the env files
 
@@ -141,16 +142,9 @@ are:
 
 Copy the sample files to the actual env files:
 
-
 ```shell
 cp app/.env.sample app/.env
-```
-
-```shell
 cp docker/.env.mysql.sample docker/.env.mysql
-```
-
-```shell
 cp indexer/.env.sample indexer/.env
 ```
 
@@ -166,36 +160,28 @@ interface for running the stack.
   ```shell
   # Start all the services
   cd docker && docker-compose up -d
-  ```
 
-  ```shell
   # View the logs for the indexer application
-  cd docker && docker-compose logs -f indexer
-  ```
+  docker-compose logs -f indexer
+```
 
-  ```shell
-  # Shutdown all the services
-  cd docker && docker-compose down
-  ```
+```shell
+  # Shutdown all the     services
+  docker-compose down
+```
 
 - Option 2. Starting the services with the make commands:
 
   ```shell
   # Start the stack
   make dup
-  ```
 
-  ```shell
   # View the logs for the indexer application
   make logs
-  ```
 
-  ```shell
   # Shutdown all the services
   make down
-  ```
 
-  ```shell
   # Shutdown all the services and clean volumes
   make fdown
   ```
@@ -204,6 +190,13 @@ interface for running the stack.
 
 Configure all environment variables for MySQL, Bitcoin Node, and Counterparty as
 indicated in `.env`
+
+Before installing Python dependencies, install the following libraries or their equivalent for your distribution:
+
+```shell
+sudo apt-get update
+sudo apt-get install libgmp-dev
+```
 
 Install Poetry:
 
