@@ -1,0 +1,35 @@
+name: Version Format Check
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate version format
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          VERSION=$(cat VERSION)
+          
+          if [[ "$BRANCH" == "dev" && "$VERSION" != *"+canary"* ]]; then
+            echo "::error::Dev branch must use canary version format (e.g., 1.0.0+canary.1)"
+            exit 1
+          fi
+
+          if [[ "$BRANCH" == "main" && "$VERSION" == *"+canary"* ]]; then
+            echo "::error::Main branch cannot use canary version format (e.g., 1.0.0)"
+            exit 1
+          fi
+
+          echo "Version format is correct for branch $BRANCH" 
