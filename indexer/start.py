@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import os
 import sys
 
+from dotenv import load_dotenv
+
 
 def setup_logging():
     is_docker = os.environ.get("DOCKER_CONTAINER") == "1"
@@ -108,6 +110,7 @@ def test_setup():
         sys.exit(f"\n❌ Import error: {str(e)}")
     except Exception as e:
         sys.exit(f"\n❌ Test setup failed: {str(e)}", file=sys.stderr)
+
 
 import index_core.log as log
 
