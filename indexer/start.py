@@ -68,7 +68,7 @@ def test_setup():
         # Test critical package imports with versions
         import index_core
 
-        print("  ✓ index_core")
+        print("  ✓ index_core", getattr(index_core, "__version__", "version not found"))
 
         import bitcoinlib
 
