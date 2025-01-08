@@ -114,5 +114,8 @@ ignore = [
     "64396",  # Ecdsa does not protect against side-channel attacks
     "64459",  # The python-ecdsa library is vulnerable to the Minerva attack
     "67599",   # An issue in pip regarding the --extra-index-url option
-    "70612"   # Jinja2, the from_string function is prone to Server Side Template Injection
+    "70612",   # Jinja2, the from_string function is prone to Server Side Template Injection
+    "71891",   # js2py vulnerability CVE-2024-28397 - not using js2py directly
+    "70716",   # python-jose DoS vulnerability CVE-2024-33664
+    "70715"    # python-jose algorithm confusion vulnerability CVE-2024-33663
 ]
