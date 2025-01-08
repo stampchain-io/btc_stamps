@@ -1,7 +1,8 @@
 import subprocess
 import sys
-import toml
 from pathlib import Path
+
+import toml
 
 
 def get_safety_ignores(pyproject_path="pyproject.toml"):
