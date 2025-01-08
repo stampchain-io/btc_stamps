@@ -13,11 +13,11 @@ def get_safety_ignores(pyproject_path="pyproject.toml"):
 def run_safety_check():
     ignores = get_safety_ignores()
     ignore_args = [f"--ignore={vuln}" for vuln in ignores]
-    command = ["safety", "check"] + ignore_args
+    command = ["safety", "check", "--output", "text"] + ignore_args
     try:
         result = subprocess.run(command, check=False, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(result.stdout)
+        print(result.stdout)
+        if result.stderr:
             print(result.stderr, file=sys.stderr)
         return result.returncode
     except Exception as e:
