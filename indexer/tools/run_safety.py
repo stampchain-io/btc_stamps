@@ -12,9 +12,10 @@ def get_safety_ignores(pyproject_path="pyproject.toml"):
 def run_safety_check():
     ignores = get_safety_ignores()
     ignore_args = [f"--ignore={vuln}" for vuln in ignores]
-    command = ["safety", "check"] + ignore_args
-    subprocess.run(command)
+    command = ["safety", "check", "--format", "text"] + ignore_args
+    result = subprocess.run(command, check=False)
+    return result.returncode
 
 
 if __name__ == "__main__":
-    run_safety_check()
+    exit(run_safety_check())
