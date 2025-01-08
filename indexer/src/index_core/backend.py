@@ -27,7 +27,7 @@ def rpc_call(payload):
     TRIES = 12
 
     # Add validation and debug logging for Quicknode
-    if config.QUICKNODE_ENDPOINT:
+    if config.QUICKNODE_URL:
         logger.debug(f"Making Quicknode RPC call to: {util.clean_url_for_log(url)}")
     else:
         logger.debug(f"Making RPC call to: {util.clean_url_for_log(url)}")

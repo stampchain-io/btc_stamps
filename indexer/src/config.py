@@ -38,12 +38,9 @@ S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
 
 # Define for Quicknode or similar remote nodes which use a token
-QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_ENDPOINT", None)
-if QUICKNODE_ENDPOINT:
-    # Strip any surrounding quotes from the URL
-    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
-QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)
+QUICKNODE_URL: Optional[str] = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)
+QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)
 
 
 def _has_valid_standard_rpc() -> bool:
@@ -65,21 +62,19 @@ def _has_valid_standard_rpc() -> bool:
     )
 
 
-# First check if Quicknode endpoint is provided
-if QUICKNODE_ENDPOINT:
-    logger.info(f"Using Quicknode endpoint: {QUICKNODE_ENDPOINT}")
+# First check if Quicknode credentials are provided
+if QUICKNODE_URL:
     if not RPC_TOKEN:
-        raise ConfigurationError("RPC_TOKEN is required when using QUICKNODE_ENDPOINT")
+        raise ConfigurationError("RPC_TOKEN is required when using QUICKNODE_URL")
     # Ensure URL has proper scheme
-    if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
-        QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
+    if not QUICKNODE_URL.startswith(("http://", "https://")):
+        QUICKNODE_URL = f"https://{QUICKNODE_URL}"
+    # Remove any trailing slashes from URL and leading slashes from token
+    clean_url = QUICKNODE_URL.rstrip("/")
+    clean_token = RPC_TOKEN.lstrip("/")
     # Construct RPC URL with token in path
-    RPC_URL = QUICKNODE_ENDPOINT
-    if RPC_TOKEN:
-        # Remove any trailing slashes from endpoint and leading slashes from token
-        RPC_URL = RPC_URL.rstrip("/")
-        clean_token = RPC_TOKEN.lstrip("/")
-        RPC_URL = f"{RPC_URL}/{clean_token}"
+    RPC_URL = f"{clean_url}/{clean_token}"
+    logger.info(f"Using Quicknode endpoint: {clean_url}")
     RPC_IP = None
     RPC_PORT = None
     RPC_USER = None
