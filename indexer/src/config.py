@@ -40,7 +40,6 @@ AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", Non
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_URL: Optional[str] = os.environ.get("QUICKNODE_URL", None)
 RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)
-QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)
 
 
 def _has_valid_standard_rpc() -> bool:
@@ -62,10 +61,8 @@ def _has_valid_standard_rpc() -> bool:
     )
 
 
-# First check if Quicknode credentials are provided
-if QUICKNODE_URL:
-    if not RPC_TOKEN:
-        raise ConfigurationError("RPC_TOKEN is required when using QUICKNODE_URL")
+# Check if both Quicknode credentials are provided
+if QUICKNODE_URL and RPC_TOKEN:
     # Ensure URL has proper scheme
     if not QUICKNODE_URL.startswith(("http://", "https://")):
         QUICKNODE_URL = f"https://{QUICKNODE_URL}"
@@ -81,10 +78,10 @@ if QUICKNODE_URL:
     RPC_PASSWORD = None
     logger.info("Quicknode configuration validated")
 else:
-    # If not using Quicknode, validate standard RPC credentials
+    # If not using Quicknode (missing either URL or token), validate standard RPC credentials
     if not _has_valid_standard_rpc():
         raise ConfigurationError(
-            "Must provide either valid Quicknode credentials (QUICKNODE_URL and RPC_TOKEN) "
+            "Must provide either both Quicknode credentials (QUICKNODE_URL and RPC_TOKEN) "
             "or valid standard RPC credentials (non-default values for RPC_USER, RPC_PASSWORD, "
             "RPC_IP, and RPC_PORT). Using default values is not allowed."
         )
