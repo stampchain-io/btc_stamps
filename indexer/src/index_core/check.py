@@ -121,6 +121,18 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
         "ledger_hash": "dc257e7b5e06460bab3485ad1a845ac7ab6e2937ff04df11f3aaa55e653e5e17",
         "txlist_hash": "45aead95538e500966450718323728331b41ab8af5d6b80174a148ad8e780b60",
     },
+    865000: {
+        "ledger_hash": "0cfab60c2426ec4007cc607099ada5808b6ef46374093bb93d2ed922e20c9b3c",
+        "txlist_hash": "523cce050c961beeba3b8100d0fdcb05506c7b701ef5ed8fce18cd9b42f0d0fd",
+    },
+    870000: {
+        "ledger_hash": "d3316ac4ecbf022eb7656f58ca5fa6073d5f3a3fb899ee17084b0b4ede83d072",
+        "txlist_hash": "13237e16b04ebe3a65e8f0846aaa758c8073bc19392cbdea9e9db4d942545e65",
+    },
+    875000: {
+        "ledger_hash": "0994fdf27c5ee1c0ca42988a9aea2041b60ab0a6c0aa33409ae47abb0cde31a0",
+        "txlist_hash": "1975a045b01811b423bf2ecde730e01f550e500f597109dbfcb33a73a9c1f104",
+    },
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7

@@ -25,6 +25,12 @@ class StampProcessor:
         self.valid_stamps_in_block = valid_stamps_in_block
 
     def process_stamp(self, stamp_data: StampData):
+        if stamp_data.pval_src101:
+            # Ensure SRC-101 gets a valid stamp number
+            if not stamp_data.stamp:
+                stamp_data.stamp = get_next_stamp_number(self.db, "stamp")
+            return True, stamp_data, None, stamp_data.src101_dict
+
         stamp_results = src_dict = prevalidated_src = None
         valid_stamp: Optional[ValidStamp] = None
         try:

@@ -112,11 +112,9 @@ class BlockProcessor:
                 data=result.data,
                 decoded_tx=result.decoded_tx,
                 keyburn=result.keyburn,
-                tx_index=result.tx_index,
-                block_index=result.block_index,
-                block_time=result.block_time,
                 is_op_return=result.is_op_return,
-                p2wsh_data=result.p2wsh_data,
+                pval_src101=True if src101_data else False,
+                src101_dict=src101_dict if src101_data else None,
             )
             logger.debug(f"Created StampData for tx: {result.tx_hash}")
 
@@ -148,6 +146,7 @@ class BlockProcessor:
                 )
                 logger.debug(f"SRC101 dict created: {src101_dict}")
                 self.processed_src101_in_block.append(src101_dict)
+                self.parsed_stamps.append(stamp_data)  # Add to stamps list
 
         if self.parsed_stamps:
             logger.debug(f"Inserting {len(self.parsed_stamps)} stamps into table")
