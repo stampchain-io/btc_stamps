@@ -113,6 +113,7 @@ class BlockProcessor:
                 decoded_tx=result.decoded_tx,
                 keyburn=result.keyburn,
                 is_op_return=result.is_op_return,
+                p2wsh_data=result.p2wsh_data,
                 pval_src101=True if src101_data else False,
                 src101_dict=src101_dict if src101_data else None,
             )
