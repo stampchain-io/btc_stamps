@@ -18,6 +18,7 @@ import index_core.blocks as blocks
 import index_core.log as log
 import index_core.util as util
 from exceptions import ConfigurationError
+from exceptions import ConfigurationError
 from index_core.aws import get_s3_objects
 from index_core.check import cp_version, software_version
 from index_core.database import last_db_index
