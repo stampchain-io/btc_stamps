@@ -1164,7 +1164,7 @@ def get_src101_price_in_db(db, deploy_hash):
             WHERE
                 deploy_hash = %s
             ORDER BY len ASC
-            
+
         """
         cursor.execute(
             query,
