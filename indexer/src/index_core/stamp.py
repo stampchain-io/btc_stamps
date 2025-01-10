@@ -38,7 +38,7 @@ class StampProcessor:
                 self.valid_stamps_in_block,
             )
         except (DataConversionError, InvalidInputDataError, ValueError) as e:
-            logger.warning(f"Invalid Stamp Data: {e}")
+            logger.info(f"INVALID STAMP DATA: {e}")
             return (None,) * 4
 
         if stamp_data.is_btc_stamp:
@@ -194,7 +194,6 @@ def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimety
         if isinstance(decoded_base64, str):
             decoded_base64 = decoded_base64.encode("utf-8")
         filename = f"{tx_hash}.{file_suffix}"
-        logger.info(decoded_base64)
         return store_files(db, filename, decoded_base64, stamp_mimetype)
     return None, None
 
@@ -224,7 +223,7 @@ def create_valid_stamp_dict(
 def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
     src20_dict.update(
         {
-            "stamp:": stamp_data.stamp,
+            "stamp": stamp_data.stamp,
             "creator": stamp_data.creator,
             "tx_hash": stamp_data.tx_hash,
             "tx_index": stamp_data.tx_index,
@@ -239,7 +238,7 @@ def append_stamp_data_to_src20_dict(stamp_data: StampData, src20_dict):
 def append_stamp_data_to_src101_dict(stamp_data: StampData, src101_dict):
     src101_dict.update(
         {
-            "stamp:": stamp_data.stamp,
+            "stamp": stamp_data.stamp,
             "creator": stamp_data.creator,
             "tx_hash": stamp_data.tx_hash,
             "tx_index": stamp_data.tx_index,

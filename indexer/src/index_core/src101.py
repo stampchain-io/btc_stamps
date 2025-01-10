@@ -1137,6 +1137,15 @@ def update_owner_table(db, owner_updates, block_index):
             max_index = cursor.fetchone()[0]
             id_field = owner_dict["p"] + "_" + owner_dict["deploy_hash"] + "_" + owner_dict["tokenid"]
             imgurl = owner_dict["img"]
+
+            # Ensure txt_data is properly serialized
+            txt_data = owner_dict["txt_data"]
+            if txt_data is not None:
+                if isinstance(txt_data, (dict, list)):
+                    txt_data = json.dumps(txt_data)
+                elif not isinstance(txt_data, str):
+                    txt_data = str(txt_data)
+
             if owner_dict["prim"] and owner_dict["prim"] == True:
                 cursor.execute(
                     f"""
@@ -1175,7 +1184,7 @@ def update_owner_table(db, owner_updates, block_index):
                     imgurl,
                     owner_dict["preowner"],
                     owner_dict["owner"],
-                    json.dumps(owner_dict["txt_data"]) if owner_dict["txt_data"] else None,
+                    txt_data,
                     owner_dict["expire_timestamp"],
                     owner_dict["address_btc"],
                     owner_dict["address_eth"],

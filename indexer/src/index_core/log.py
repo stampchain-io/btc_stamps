@@ -1,11 +1,25 @@
 import decimal
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 
 from colorlog import ColoredFormatter
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal
+
+# Create custom log level
+BLOCK_STATUS = 25  # Between INFO (20) and WARNING (30)
+logging.addLevelName(BLOCK_STATUS, "BLOCK")
+
+
+# Add method to logger
+def block_status(self, message, *args, **kwargs):
+    if self.isEnabledFor(BLOCK_STATUS):
+        self._log(BLOCK_STATUS, message, args, **kwargs)
+
+
+logging.Logger.block_status = block_status
 
 
 class ModuleLoggingFilter(logging.Filter):
@@ -81,17 +95,18 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     global LOGGING_SETUP
     global LOGGING_TOFILE_SETUP
 
+    # Set up file logging if needed
     def set_up_file_logging():
         if not logfile:
             raise ValueError("logfile must be defined")
         max_log_size = 20 * 1024 * 1024  # 20 MB
-        fileh = RotatingFileHandler(logfile, maxBytes=max_log_size, backupCount=5)
-        fileh.setLevel(logging.DEBUG)
-        LOGFORMAT = "%(asctime)s [%(levelname)s] %(message)s"
-        formatter = logging.Formatter(LOGFORMAT, "%Y-%m-%d-T%H:%M:%S%z")
-        fileh.setFormatter(formatter)
-        logger.addHandler(fileh)
+        file_handler = RotatingFileHandler(logfile, maxBytes=max_log_size, backupCount=5)
+        file_handler.setLevel(logging.DEBUG)
+        file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", "%Y-%m-%d-T%H:%M:%S%z")
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
 
+    # Check if logging is already set up
     if LOGGING_SETUP:
         if logfile and not LOGGING_TOFILE_SETUP:
             set_up_file_logging()
@@ -100,41 +115,55 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
         return
     LOGGING_SETUP = True
 
-    log_level = logging.DEBUG if verbose else logging.INFO
-    logger.setLevel(log_level)
+    # Set base logging level
+    logger.setLevel(logging.DEBUG if verbose or os.environ.get("DEBUG", "").lower() == "true" else logging.INFO)
 
-    # Console Logging
-    console = logging.StreamHandler()
-    console.setLevel(log_level)
+    # Remove any existing handlers
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
 
-    # only add [%(name)s] to LOGFORMAT if we're using console_logfilter
-    LOGFORMAT = (
-        "%(log_color)s[%(asctime)s][%(levelname)s]"
-        + ("" if console_logfilter is None else "[%(name)s]")
-        + " %(message)s%(reset)s"
+    # Console logging with colors
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG if verbose or os.environ.get("DEBUG") == "True" else logging.INFO)
+
+    # Detailed color formatter
+    console_formatter = ColoredFormatter(
+        "%(log_color)s%(asctime)s [%(levelname)s] %(name)s: %(message)s%(reset)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        reset=True,
+        log_colors={
+            "DEBUG": "cyan",
+            "INFO": "green",
+            "BLOCK": "light_blue",
+            "WARNING": "yellow",
+            "ERROR": "red",
+            "CRITICAL": "red,bg_white",
+        },
     )
-    LOGCOLORS = {"WARNING": "yellow", "ERROR": "red", "CRITICAL": "red"}
-    formatter = ColoredFormatter(LOGFORMAT, "%Y-%m-%d %H:%M:%S", log_colors=LOGCOLORS)
-    console.setFormatter(formatter)
-    logger.addHandler(console)
 
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+
+    # Apply console log filter if specified
     if console_logfilter:
-        console.addFilter(ModuleLoggingFilter(console_logfilter))
+        console_handler.addFilter(ModuleLoggingFilter(console_logfilter))
 
-    # File Logging
+    # Set up file logging
     if logfile:
         set_up_file_logging()
         LOGGING_TOFILE_SETUP = True
 
-    # Quieten noisy libraries.
+    # Quieten noisy libraries
     requests_log = logging.getLogger("requests")
-    requests_log.setLevel(log_level)
+    requests_log.setLevel(logging.WARNING)
     requests_log.propagate = False
     urllib3_log = logging.getLogger("urllib3")
-    urllib3_log.setLevel(log_level)
+    urllib3_log.setLevel(logging.WARNING)
     urllib3_log.propagate = False
 
     # Disable InsecureRequestWarning
     import requests
 
     requests.packages.urllib3.disable_warnings()
+
+    return logger

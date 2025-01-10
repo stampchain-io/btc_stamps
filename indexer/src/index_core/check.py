@@ -276,11 +276,16 @@ def check_change(protocol_change, change_name):
             warnings.warn(explanation)
 
 
-def cp_version():
-    # cp_version = get_cp_version()
-    # FIXME: Finish version checking validation.
-    return
+def cp_version(log_connection=False):
+    from index_core.xcprequest import get_cp_version
+
+    version = get_cp_version(log_connection)
+    if version:
+        logger.info(f"Connected to Counterparty node version: {version}")
+    else:
+        logger.warning("Could not determine Counterparty version")
+    return version
 
 
 def software_version():
-    logger.warning("Software version: {}.".format(config.VERSION_STRING or ""))
+    logger.info("Software version: {}.".format(config.VERSION_STRING or ""))

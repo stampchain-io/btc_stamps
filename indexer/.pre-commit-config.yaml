@@ -7,3 +7,13 @@ repos:
         language: system
         types: [python]
         args: ['--no-stash']
+      - id: debug-flags-check
+        name: Check Debug Flags
+        entry: |
+          bash -c '
+          if grep -qi "DEBUG_SKIP_REBUILD_BALANCES = True" ./indexer/.env; then 
+            echo "ERROR: DEBUG_SKIP_REBUILD_BALANCES should be False"
+            exit 1
+          fi'
+        language: system
+        files: indexer/src/index_core/database.py 
