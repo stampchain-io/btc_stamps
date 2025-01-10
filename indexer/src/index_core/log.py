@@ -2,6 +2,7 @@ import decimal
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+from typing import Any
 
 from colorlog import ColoredFormatter
 
@@ -14,12 +15,14 @@ logging.addLevelName(BLOCK_STATUS, "BLOCK")
 
 
 # Add method to logger
-def block_status(self, message, *args, **kwargs):
+def block_status(self: logging.Logger, message: Any, *args: Any, **kwargs: Any) -> None:
     if self.isEnabledFor(BLOCK_STATUS):
         self._log(BLOCK_STATUS, message, args, **kwargs)
 
 
-logging.Logger.block_status = block_status
+if not hasattr(logging.Logger, "block_status"):
+    setattr(logging.Logger, "block_status", block_status)
+    logging.Logger.block_status = block_status  # type: ignore[attr-defined]
 
 
 class ModuleLoggingFilter(logging.Filter):
