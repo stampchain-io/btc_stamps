@@ -1,5 +1,6 @@
 import os
 import sys
+
 import pymysql as mysql
 from termcolor import colored
 
@@ -60,6 +61,168 @@ def print_summary(table_name, prod_count, dev_count, has_differences):
         print(colored("\n✓ Tables match perfectly!", "green", attrs=["bold"]))
     else:
         print(colored("\n✗ Differences found", "red", attrs=["bold"]))
+
+
+def print_stamp_comparison(prod_record, dev_record):
+    """Print detailed comparison of matching tx_hash with different stamps."""
+    print(f"\n  • TX: {colored(prod_record[2], 'cyan')}")
+    print(f"    ├─ Block: {colored(prod_record[3], 'white')}")
+    print(
+        f"    ├─ Production: Stamp={colored(prod_record[0], 'yellow')}, "
+        f"Ident={colored(prod_record[1], 'yellow')}, "
+        f"CPID={colored(prod_record[5], 'yellow')}"
+    )
+    print(
+        f"    └─ Development: Stamp={colored(dev_record[0], 'yellow')}, "
+        f"Ident={colored(dev_record[1], 'yellow')}, "
+        f"CPID={colored(dev_record[5], 'yellow')}"
+    )
+
+
+def compare_stamptable(prod_cursor, dev_cursor, block_index):
+    print_comparison_header("StampTableV4")
+
+    # Fetch all records with tx_hash as key
+    prod_cursor.execute(
+        """
+        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+        FROM StampTableV4 
+        WHERE block_index < %s AND stamp > 0
+        ORDER BY block_index ASC, tx_index ASC
+    """,
+        (block_index,),
+    )
+    prod_records = prod_cursor.fetchall()
+
+    dev_cursor.execute(
+        """
+        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+        FROM StampTableV4 
+        WHERE block_index < %s AND stamp > 0
+        ORDER BY block_index ASC, tx_index ASC
+    """,
+        (block_index,),
+    )
+    dev_records = dev_cursor.fetchall()
+
+    # Create dictionaries for easier comparison
+    prod_dict = {record[2]: record for record in prod_records}  # tx_hash as key
+    dev_dict = {record[2]: record for record in dev_records}
+
+    # Categorize differences
+    only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
+    only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
+    common_tx = set(prod_dict.keys()) & set(dev_dict.keys())
+
+    # Find mismatched stamps in common transactions
+    mismatched = [tx for tx in common_tx if prod_dict[tx][0] != dev_dict[tx][0] or prod_dict[tx][1] != dev_dict[tx][1]]
+
+    print("\nSummary:")
+    print(f"├─ Production records: {colored(len(prod_records), 'cyan')}")
+    print(f"└─ Development records: {colored(len(dev_records), 'cyan')}")
+
+    if only_in_prod or only_in_dev or mismatched:
+        print(colored("\n✗ Differences found", "red", attrs=["bold"]))
+
+        if mismatched:
+            print(colored(f"\n→ Matching TX hash but different stamps ({len(mismatched)} records):", "yellow"))
+            for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
+                print_stamp_comparison(prod_dict[tx], dev_dict[tx])
+
+        if only_in_prod:
+            print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "red"))
+            for tx in sorted(list(only_in_prod), key=lambda x: prod_dict[x][3])[:5]:
+                record = prod_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {record[0]}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    └─ CPID: {record[5]}")
+
+        if only_in_dev:
+            print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "red"))
+            for tx in sorted(list(only_in_dev), key=lambda x: dev_dict[x][3])[:5]:
+                record = dev_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {record[0]}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    └─ CPID: {record[5]}")
+    else:
+        print(colored("\n✓ All stamps match perfectly!", "green", attrs=["bold"]))
+
+
+def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
+    print_comparison_header("Cursed Stamps (Negative Values)")
+
+    # Fetch all cursed stamp records
+    prod_cursor.execute(
+        """
+        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+        FROM StampTableV4 
+        WHERE block_index < %s AND stamp < 0
+        ORDER BY block_index ASC, tx_index ASC
+    """,
+        (block_index,),
+    )
+    prod_records = prod_cursor.fetchall()
+
+    dev_cursor.execute(
+        """
+        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+        FROM StampTableV4 
+        WHERE block_index < %s AND stamp < 0
+        ORDER BY block_index ASC, tx_index ASC
+    """,
+        (block_index,),
+    )
+    dev_records = dev_cursor.fetchall()
+
+    # Create dictionaries for easier comparison
+    prod_dict = {record[2]: record for record in prod_records}  # tx_hash as key
+    dev_dict = {record[2]: record for record in dev_records}
+
+    # Categorize differences
+    only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
+    only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
+    common_tx = set(prod_dict.keys()) & set(dev_dict.keys())
+
+    # Find mismatched stamps in common transactions
+    mismatched = [tx for tx in common_tx if prod_dict[tx][0] != dev_dict[tx][0] or prod_dict[tx][1] != dev_dict[tx][1]]
+
+    print("\nCursed Stamps Summary:")
+    print(f"├─ Production cursed stamps: {colored(len(prod_records), 'cyan')}")
+    print(f"└─ Development cursed stamps: {colored(len(dev_records), 'cyan')}")
+
+    if only_in_prod or only_in_dev or mismatched:
+        print(colored("\n✗ Differences found in cursed stamps", "red", attrs=["bold"]))
+
+        if mismatched:
+            print(colored(f"\n→ Matching TX hash but different cursed values ({len(mismatched)} records):", "yellow"))
+            for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
+                print_stamp_comparison(prod_dict[tx], dev_dict[tx])
+
+        if only_in_prod:
+            print(colored(f"\n→ Cursed only in Production ({len(only_in_prod)} records):", "red"))
+            for tx in sorted(list(only_in_prod), key=lambda x: prod_dict[x][3])[:5]:
+                record = prod_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {colored(record[0], 'red')}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    └─ CPID: {record[5]}")
+
+        if only_in_dev:
+            print(colored(f"\n→ Cursed only in Development ({len(only_in_dev)} records):", "red"))
+            for tx in sorted(list(only_in_dev), key=lambda x: dev_dict[x][3])[:5]:
+                record = dev_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {colored(record[0], 'red')}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    └─ CPID: {record[5]}")
+    else:
+        print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 
 
 def main():
@@ -292,49 +455,8 @@ def main():
     dev_src101 = dev_cursor.fetchall()
 
     # StampTableV4 comparison
-    print_comparison_header("StampTableV4")
-    prod_list = set(prod_list)
-    dev_list = set(dev_list)
-    not_in_prod = dev_list - prod_list
-    not_in_dev = prod_list - dev_list
-    print_summary("StampTableV4", len(prod_list), len(dev_list), bool(not_in_prod or not_in_dev))
-
-    if not_in_prod or not_in_dev:
-        if not_in_prod:
-            dev_cursor.execute(
-                """
-                SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-                FROM StampTableV4
-                WHERE tx_hash IN %s and stamp > 0
-                ORDER BY tx_index ASC
-                """,
-                (tuple(x[0] for x in not_in_prod),),
-            )
-            results = dev_cursor.fetchall()
-            print(colored(f"\n→ Missing from production ({len(results)} records):", "yellow"))
-            for result in results[:5]:
-                print(f"  • Block: {colored(result[3], 'cyan')}")
-                print(f"    └─ TX: {result[2]}")
-                print(f"    └─ Stamp: {result[0]}")
-                print(f"    └─ Ident: {result[1]}")
-
-        if not_in_dev:
-            prod_cursor.execute(
-                """
-                SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-                FROM StampTableV4
-                WHERE tx_hash IN %s and stamp > 0
-                ORDER BY tx_index ASC
-                """,
-                (tuple(x[0] for x in not_in_dev),),
-            )
-            results = prod_cursor.fetchall()
-            print(colored(f"\n→ Missing from development ({len(results)} records):", "yellow"))
-            for result in results[:5]:
-                print(f"  • Block: {colored(result[3], 'cyan')}")
-                print(f"    └─ TX: {result[2]}")
-                print(f"    └─ Stamp: {result[0]}")
-                print(f"    └─ Ident: {result[1]}")
+    compare_stamptable(prod_cursor, dev_cursor, block_index)
+    compare_cursed_stamps(prod_cursor, dev_cursor, block_index)
 
     # SRC20Valid comparison
     print_comparison_header("SRC20Valid")
