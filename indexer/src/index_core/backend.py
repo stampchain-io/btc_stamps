@@ -334,7 +334,7 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
             else:
                 result[tx_hash] = cached_tx["hex"] if not verbose else cached_tx
             _logger.debug(f"Retrieved tx {tx_hash} from cache")
-        except KeyError as e:
+        except KeyError:
             _logger.warning(
                 f"Transaction {tx_hash} missing from cache after fetching. Cache stats: "
                 f"size={len(raw_transactions_cache)}, noncached={len(noncached_txhashes)}"
