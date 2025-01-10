@@ -96,7 +96,9 @@ class BlockProcessor:
         self.processed_src101_in_block: List[Src101Dict] = []
 
     def process_transaction_results(self, tx_results):
+        logger.debug(f"Processing {len(tx_results)} transaction results")
         for result in tx_results:
+            logger.debug(f"Processing transaction: {result.tx_hash}")
             stamp_data = StampData(
                 tx_hash=result.tx_hash,
                 source=result.source,
@@ -114,53 +116,80 @@ class BlockProcessor:
                 is_op_return=result.is_op_return,
                 p2wsh_data=result.p2wsh_data,
             )
+            logger.debug(f"Created StampData for tx: {result.tx_hash}")
+
             _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
                 stamp_data=stamp_data,
                 db=self.db,
                 valid_stamps_in_block=self.valid_stamps_in_block,
             )
+            logger.debug(
+                f"Parsed stamp data for tx: {result.tx_hash}, prevalidated_src exists: {prevalidated_src is not None}"
+            )
 
             if stamp_data:
-                self.parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
+                self.parsed_stamps.append(stamp_data)
+                logger.debug(f"Added stamp data for tx: {result.tx_hash}")
             if valid_stamp:
                 self.valid_stamps_in_block.append(valid_stamp)
+                logger.debug(f"Added valid stamp for tx: {result.tx_hash}")
             if prevalidated_src and stamp_data.pval_src20:
+                logger.debug(f"Processing SRC20 for tx: {result.tx_hash}")
                 _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
+                logger.debug(f"SRC20 dict created: {src20_dict}")
                 self.processed_src20_in_block.append(src20_dict)
             if prevalidated_src and stamp_data.pval_src101:
+                logger.debug(f"Processing SRC101 for tx: {result.tx_hash}")
                 _, src101_dict = parse_src101(self.db, prevalidated_src, self.processed_src101_in_block, result.block_index)
+                logger.debug(f"SRC101 dict created: {src101_dict}")
                 self.processed_src101_in_block.append(src101_dict)
 
         if self.parsed_stamps:
+            logger.debug(f"Inserting {len(self.parsed_stamps)} stamps into table")
             insert_into_stamp_table(self.db, self.parsed_stamps)
             for stamp in self.parsed_stamps:
                 stamp.match_and_insert_collection_data(config.LEGACY_COLLECTIONS, self.db)
 
     def finalize_block(self, block_index, block_time, txhash_list):
-        if self.processed_src20_in_block:
-            balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
-            insert_into_src20_tables(self.db, self.processed_src20_in_block)
-            valid_src20_str = process_balance_updates(balance_updates)
-        else:
-            valid_src20_str = ""
+        try:
+            if self.processed_src20_in_block:
+                logger.debug(f"Finalizing block {block_index} with {len(self.processed_src20_in_block)} SRC20 transactions")
+                logger.debug(f"First SRC20 transaction: {self.processed_src20_in_block[0]}")
 
-        if self.processed_src101_in_block:
-            insert_into_src101_tables(self.db, self.processed_src101_in_block)
-            update_src101_owners(self.db, block_index, self.processed_src101_in_block)
+                # First insert the transactions
+                insert_into_src20_tables(self.db, self.processed_src20_in_block)
+                logger.debug("Successfully inserted SRC20 transactions")
 
-        if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
-            clear_zero_balances(self.db)
+                # Then update balances
+                balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
+                logger.debug(f"Balance updates completed: {balance_updates}")
 
-        new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-            self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
-        )
+                valid_src20_str = process_balance_updates(balance_updates)
+                logger.debug(f"Processed balance updates: {valid_src20_str[:100]}...")
+            else:
+                valid_src20_str = ""
 
-        if valid_src20_str:
-            validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+            if self.processed_src101_in_block:
+                logger.debug(f"Processing {len(self.processed_src101_in_block)} SRC101 transactions")
+                insert_into_src101_tables(self.db, self.processed_src101_in_block)
+                update_src101_owners(self.db, block_index, self.processed_src101_in_block)
 
-        stamps_in_block = len(self.valid_stamps_in_block)
-        src20_in_block = len(self.processed_src20_in_block)
-        return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block
+            if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
+                clear_zero_balances(self.db)
+
+            new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
+            )
+
+            if valid_src20_str:
+                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+
+            stamps_in_block = len(self.valid_stamps_in_block)
+            src20_in_block = len(self.processed_src20_in_block)
+            return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block
+        except Exception as e:
+            logger.error(f"Error in finalize_block: {e}", exc_info=True)
+            raise
 
     def insert_transactions(self, tx_results):
         insert_transactions(self.db, tx_results)
@@ -477,10 +506,8 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
         data = str(stamp_issuance)
 
     if source and (data or destination):
-        logger.info(
-            "Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}".format(
-                tx_hash, data, keyburn, is_op_return
-            )
+        logger.debug(
+            "Saving to MySQL transactions: {} DATA: {} KEYBURN: {} OP_RETURN: {}".format(tx_hash, data, keyburn, is_op_return)
         )
 
         return (
@@ -602,7 +629,7 @@ def log_block_info(
     None
     """
     logger = logging.getLogger(__name__)
-    logger.warning(
+    logger.block_status(
         "Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s / S20:%s)"
         % (
             str(block_index),
@@ -667,10 +694,9 @@ def follow(db):
         None
     """
 
-    # Check software version.
-    check.cp_version()  # FIXME: need to add version checks for the endpoints and hash validations
     initialize(db)
     rebuild_balances(db)
+    rebuild_owners(db)
 
     # Get index of last block.
     if util.CURRENT_BLOCK_INDEX == 0:

@@ -20,6 +20,20 @@ auth = config.CP_AUTH
 healthy_nodes_lock = Lock()
 healthy_nodes: List[Dict[str, Any]] = []
 
+# Shared headers for general operations
+HEADERS = {
+    "content-type": "application/json",
+    "Connection": "keep-alive",
+    "Keep-Alive": "timeout=60, max=1000",
+}
+
+# Headers for quick operations like version checks
+QUICK_HEADERS = {
+    "content-type": "application/json",
+    "Connection": "keep-alive",
+    "Keep-Alive": "timeout=10, max=1000",
+}
+
 
 def _create_payload(method, params):
     base_payload = {"method": "", "params": {}, "jsonrpc": "2.0", "id": 0}
@@ -103,12 +117,12 @@ def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
         return None
 
 
-def get_cp_version():
+def get_cp_version(log_connection=False):
     try:
-        logger.warning(f"""Connecting to CP Node: {config.CP_RPC_URL}""")
+        if log_connection:
+            logger.info(f"""Connecting to Counterparty node: {config.CP_RPC_URL}""")
         payload = _create_payload("get_running_info", {})
-        headers = {"content-type": "application/json"}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
+        response = requests.post(url, data=json.dumps(payload), headers=QUICK_HEADERS, auth=auth, timeout=10)
         result = json.loads(response.text)["result"]
         version_major = result["version_major"]
         version_minor = result["version_minor"]
@@ -121,32 +135,32 @@ def get_cp_version():
 
 
 def _get_cp_block_count():
-    result = None
     try:
         payload = _create_payload("get_running_info", {})
-        headers = {"content-type": "application/json"}
-        response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
-        logger.info("get_block_count response: {}".format(response.text))
+        response = requests.post(url, data=json.dumps(payload), headers=HEADERS, auth=auth, timeout=config.REQUESTS_TIMEOUT)
         result = json.loads(response.text)["result"]
         if result["last_block"] is None:
             return None
         return result["last_block"]["block_index"]
     except Exception as e:
-        print(result)
         logger.warning("Error getting CP block count: {}".format(e))
         return None
 
 
-def _get_block(params={}):
-    payload = _create_payload("get_blocks", params)
-    headers = {"content-type": "application/json"}
-    response = requests.post(url, data=json.dumps(payload), headers=headers, auth=auth, timeout=10)
-    return json.loads(response.text)["result"]
+def _get_blocks(params={}):
+    """Internal function to get multiple blocks at once"""
+    try:
+        payload = _create_payload("get_blocks", params)
+        response = requests.post(url, data=json.dumps(payload), headers=HEADERS, auth=auth, timeout=config.REQUESTS_TIMEOUT)
+        return json.loads(response.text)["result"]
+    except Exception as e:
+        logger.warning(f"Error getting blocks with params {params}: {e}")
+        return None
 
 
 def _get_all_tx_by_block(block_index, indicator=None):
     return _handle_cp_call_with_retry(
-        func=_get_block,
+        func=_get_blocks,
         params={"block_indexes": [block_index]},
         block_index=block_index,
         indicator=indicator,
@@ -159,7 +173,7 @@ def get_xcp_block_data(block_index: int, indicator=None):
 
     for attempt in range(max_retries):
         block_data_from_xcp = _handle_cp_call_with_retry(
-            func=_get_block,
+            func=_get_blocks,
             params={"block_indexes": [block_index]},
             block_index=block_index,
             indicator=indicator,
@@ -185,18 +199,25 @@ def _parse_issuances_from_block(block_data):
     if not block_data or not isinstance(block_data, list) or len(block_data) == 0:
         raise ValueError("Invalid block data format")
     issuances = []
-    block_data = json.loads(json.dumps(block_data[0]))
-    for tx in block_data["_messages"]:
-        tx_data = json.loads(tx.get("bindings"))
-        tx_data["msg_index"] = tx.get("message_index")
-        tx_data["block_index"] = tx.get("block_index")
-        if tx.get("command") == "insert" and tx.get("category") == "issuances":
-            if tx_data.get("status", "invalid") == "valid":
-                stamp_issuance = _check_for_stamp_issuance(issuance=tx_data)
-                if stamp_issuance is not None:
-                    issuances.append(stamp_issuance)
+    block_data_first = block_data[0]  # Get first element without serializing
+    for tx in block_data_first.get("_messages", []):
+        try:
+            tx_data = json.loads(tx.get("bindings", "{}"))
+            tx_data["msg_index"] = tx.get("message_index")
+            tx_data["block_index"] = tx.get("block_index")
+            if tx.get("command") == "insert" and tx.get("category") == "issuances":
+                if tx_data.get("status", "invalid") == "valid":
+                    stamp_issuance = _check_for_stamp_issuance(issuance=tx_data)
+                    if stamp_issuance is not None:
+                        issuances.append(stamp_issuance)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Error decoding bindings JSON: {e}")
+            continue
+        except Exception as e:
+            logger.warning(f"Error processing transaction: {e}")
+            continue
     return {
-        "block_index": block_data["block_index"],
+        "block_index": block_data_first.get("block_index"),
         "issuances": issuances,
     }
 

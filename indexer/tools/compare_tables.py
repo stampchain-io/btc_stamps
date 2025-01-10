@@ -79,6 +79,39 @@ def print_stamp_comparison(prod_record, dev_record):
     )
 
 
+def lookup_cpid_transactions(cursor, cpid):
+    """Look up all transactions associated with a CPID."""
+    cursor.execute(
+        """
+        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+        FROM StampTableV4 
+        WHERE cpid = %s
+        ORDER BY block_index ASC, tx_index ASC
+    """,
+        (cpid,),
+    )
+    return cursor.fetchall()
+
+
+def print_cpid_cross_reference(prod_cursor, dev_cursor, record, source="dev"):
+    """Print cross-reference information for CPID lookups."""
+    cpid = record[5]
+    other_db_name = "Production" if source == "dev" else "Development"
+    cursor = prod_cursor if source == "dev" else dev_cursor
+
+    related_txs = lookup_cpid_transactions(cursor, cpid)
+
+    if related_txs:
+        print(f"    └─ {colored(f'CPID {cpid} found in {other_db_name} with different tx_hash:', 'yellow')}")
+        for tx in related_txs:
+            print(f"       • Block: {colored(tx[3], 'cyan')}")
+            print(f"         ├─ TX: {tx[2]}")
+            print(f"         ├─ Stamp: {tx[0]}")
+            print(f"         └─ Ident: {tx[1]}")
+    else:
+        print(f"    └─ {colored(f'CPID {cpid} not found in {other_db_name}', 'red')}")
+
+
 def compare_stamptable(prod_cursor, dev_cursor, block_index):
     print_comparison_header("StampTableV4")
 
@@ -137,7 +170,8 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
                 print(f"    ├─ TX: {record[2]}")
                 print(f"    ├─ Stamp: {record[0]}")
                 print(f"    ├─ Ident: {record[1]}")
-                print(f"    └─ CPID: {record[5]}")
+                print(f"    ├─ CPID: {record[5]}")
+                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "prod")
 
         if only_in_dev:
             print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "red"))
@@ -147,7 +181,8 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
                 print(f"    ├─ TX: {record[2]}")
                 print(f"    ├─ Stamp: {record[0]}")
                 print(f"    ├─ Ident: {record[1]}")
-                print(f"    └─ CPID: {record[5]}")
+                print(f"    ├─ CPID: {record[5]}")
+                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "dev")
     else:
         print(colored("\n✓ All stamps match perfectly!", "green", attrs=["bold"]))
 
@@ -210,7 +245,8 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
                 print(f"    ├─ TX: {record[2]}")
                 print(f"    ├─ Stamp: {colored(record[0], 'red')}")
                 print(f"    ├─ Ident: {record[1]}")
-                print(f"    └─ CPID: {record[5]}")
+                print(f"    ├─ CPID: {record[5]}")
+                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "prod")
 
         if only_in_dev:
             print(colored(f"\n→ Cursed only in Development ({len(only_in_dev)} records):", "red"))
@@ -220,7 +256,8 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
                 print(f"    ├─ TX: {record[2]}")
                 print(f"    ├─ Stamp: {colored(record[0], 'red')}")
                 print(f"    ├─ Ident: {record[1]}")
-                print(f"    └─ CPID: {record[5]}")
+                print(f"    ├─ CPID: {record[5]}")
+                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "dev")
     else:
         print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 
