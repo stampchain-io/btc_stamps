@@ -629,7 +629,7 @@ def log_block_info(
     None
     """
     logger = logging.getLogger(__name__)
-    logger.block_status(
+    logger.block_status(  # type: ignore[attr-defined]
         "Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s / S20:%s)"
         % (
             str(block_index),
