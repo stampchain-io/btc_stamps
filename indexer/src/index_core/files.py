@@ -38,21 +38,15 @@ def get_fileobj_and_md5(decoded_base64):
 
 
 def store_files(db, filename, decoded_base64, mime_type):
-    """
-    Store files in either AWS S3 or disk storage.
+    """Store files in either AWS S3 or disk storage, unless disabled."""
+    # Check if file storage is disabled
+    if os.environ.get("STORE_FILES", "true").lower() == "false":
+        logger.debug("File storage is disabled, skipping storage operations")
+        file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
+        return file_obj_md5, filename
 
-    Args:
-        db (Database): The database object.
-        filename (str): The name of the file.
-        decoded_base64 (str): The decoded base64 file content.
-        mime_type (str): The MIME type of the file.
-
-    Returns:
-        str: The MD5 hash of the stored file.
-    """
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
     if AWS_SECRET_ACCESS_KEY and AWS_ACCESS_KEY_ID and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR:
-        # FIXME: there may be cases where we want both aws and disk storage
         logger.info(f"uploading {filename} to aws")
         check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_md5)
     else:
