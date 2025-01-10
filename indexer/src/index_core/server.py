@@ -16,13 +16,12 @@ import index_core.backend as backend
 import index_core.blocks as blocks
 import index_core.log as log
 import index_core.util as util
-from index_core.aws import get_s3_objects
-from index_core.check import software_version
-from index_core.database import last_db_index
 from exceptions import ConfigurationError
+from index_core.aws import get_s3_objects
+from index_core.check import cp_version, software_version
+from index_core.database import last_db_index
 
 logger = logging.getLogger(__name__)
-log.set_logger(logger)  # set root logger
 
 D = decimal.Decimal
 
@@ -111,7 +110,6 @@ def initialize_config(
 
     logger.info("data_dir: {}".format(data_dir))
     logger.info("log_file: {}".format(log_file))
-    software_version()
 
     # regtest
     config.REGTEST = regtest
@@ -163,6 +161,10 @@ def initialize_config(
     )
     if config.LOG:
         logger.debug("Writing server log to file: `{}`".format(config.LOG))
+
+    # Log software version and CP version only once during initialization
+    software_version()
+    cp_version(log_connection=True)
 
     # Log unhandled errors.
     def handle_exception(exc_type, exc_value, exc_traceback):
@@ -244,7 +246,7 @@ def initialize_config(
 
 def initialize_tables(db):
     try:
-        logger.warning("initializing tables...")
+        logger.info("initializing tables...")
         cursor = db.cursor()
         with open("table_schema.sql", "r") as file:
             sql_script = file.read()
@@ -299,7 +301,7 @@ def import_csv_data(cursor, csv_file, insert_query):
 
 
 def initialize_db() -> Connection:
-    logger.warning("Initializing database...")
+    logger.info("Initializing database...")
     if config.FORCE:
         logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
 
@@ -314,6 +316,7 @@ def initialize_db() -> Connection:
         raise ValueError("Database password is not set.")
 
     logger.info("Connecting to database (MySQL).")
+
     db: Connection = mysql.connect(
         host=rds_host,
         user=rds_user,

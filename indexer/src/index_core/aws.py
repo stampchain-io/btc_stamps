@@ -33,19 +33,19 @@ def get_s3_objects(db, bucket_name, s3_client):
                 md5 = obj["ETag"].strip('"')
                 results[key] = {"key": key, "md5": md5}
 
-    logger.warning(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
+    logger.info(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
     cursor.execute("SELECT path_key, md5 FROM s3objects")
     results = cursor.fetchall() or {}
     results = {row[0]: {"key": row[0], "md5": row[1]} for row in results}
     cursor.close()
     if results:
-        logger.warning(f"Found {len(results)} existing S3 objects from database")
+        logger.info(f"Found {len(results)} existing S3 objects from database")
     else:
         logger.warning("No existing S3 objects found in database")
         paginator = s3_client.get_paginator("list_objects_v2")
 
-        logger.warning(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
+        logger.info(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
 
         start_time = time.time()
         pages = list(
@@ -58,7 +58,7 @@ def get_s3_objects(db, bucket_name, s3_client):
         total_pages = len(pages)
         end_time = time.time()
         execution_time = end_time - start_time
-        print(f"Execution time: {execution_time} seconds for {total_pages} pages")
+        logger.info(f"Execution time: {execution_time} seconds for {total_pages} pages")
 
         results = {}
 

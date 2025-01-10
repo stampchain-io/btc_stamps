@@ -216,7 +216,7 @@ class Src20Processor:
         self.src20_dict["status"] = status_message
 
         if is_invalid:
-            logger.warning(message)
+            logger.info(message)
             self.is_valid = False
         else:
             logger.info(message)
@@ -624,16 +624,21 @@ def check_format(input_string, tx_hash, block_index):
 
     try:
         try:
+            logger.debug(f"Input type: {type(input_string)}")
             if isinstance(input_string, bytes):
                 input_string = input_string.decode("utf-8")
+                logger.debug("Decoded bytes to string")
                 input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, str):
+                logger.debug("Processing string input")
                 input_dict = json.loads(input_string, parse_float=parse_no_sci_float, parse_int=D)
             elif isinstance(input_string, dict):
+                logger.debug("Processing dictionary input")
                 input_dict = input_string
             else:
-                logger.warning("EXCLUSION: Input string is neither bytes, str, nor dict")
+                logger.warning(f"EXCLUSION: Input string is neither bytes, str, nor dict. Type: {type(input_string)}")
                 return None
+            logger.debug(f"Processed input_dict: {input_dict}")
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             logger.warning(f"EXCLUSION: JSON decode error: {e}")
             return None
@@ -984,83 +989,92 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
     balance_updates: List[Dict[str, Union[str, D]]] = []
 
     for src20_dict in processed_src20_in_block:
-        if src20_dict.get("valid") == 1:
+        if src20_dict.get("valid") != 1:  # Skip invalid transactions
+            continue
 
-            try:
-                if src20_dict["op"] == "MINT":
-                    # Credit to destination (creator can be a mint service)
-                    balance_dict = next(
-                        (
-                            item
-                            for item in balance_updates
-                            if item["tick"] == src20_dict["tick"]
-                            and item["tick_hash"] == src20_dict["tick_hash"]
-                            and item["address"] == src20_dict["destination"]
-                        ),
-                        None,
-                    )
-                    if balance_dict is None:
-                        balance_dict = {
-                            "tick": src20_dict["tick"],
-                            "tick_hash": src20_dict["tick_hash"],
-                            "address": src20_dict["destination"],
-                            "credit": D(src20_dict["amt"]),
-                            "debit": D(0),
-                        }
-                        balance_updates.append(balance_dict)
-                    else:
-                        balance_dict["credit"] += D(src20_dict["amt"])
+        if src20_dict.get("op") not in ["MINT", "TRANSFER"]:  # Skip non-balance affecting operations
+            continue
 
-                elif src20_dict["op"] == "TRANSFER":
-                    # Debit from creator
-                    balance_dict = next(
-                        (
-                            item
-                            for item in balance_updates
-                            if item["tick"] == src20_dict["tick"]
-                            and item["tick_hash"] == src20_dict["tick_hash"]
-                            and item["address"] == src20_dict["creator"]
-                        ),
-                        None,
-                    )
-                    if balance_dict is None:
-                        balance_dict = {
-                            "tick": src20_dict["tick"],
-                            "tick_hash": src20_dict["tick_hash"],
-                            "address": src20_dict["creator"],
-                            "credit": D(0),
-                            "debit": D(src20_dict["amt"]),
-                        }
-                        balance_updates.append(balance_dict)
-                    else:
-                        balance_dict["debit"] += D(src20_dict["amt"])
+        if "amt" not in src20_dict:  # Skip transactions without amt field
+            logger.warning(f"Skipping transaction without amt field: {src20_dict}")
+            continue
 
-                    # Credit to destination
-                    balance_dict = next(
-                        (
-                            item
-                            for item in balance_updates
-                            if item["tick"] == src20_dict["tick"]
-                            and item["tick_hash"] == src20_dict["tick_hash"]
-                            and item["address"] == src20_dict["destination"]
-                        ),
-                        None,
-                    )
-                    if balance_dict is None:
-                        balance_dict = {
-                            "tick": src20_dict["tick"],
-                            "tick_hash": src20_dict["tick_hash"],
-                            "address": src20_dict["destination"],
-                            "credit": D(src20_dict["amt"]),
-                            "debit": D(0),
-                        }
-                        balance_updates.append(balance_dict)
-                    else:
-                        balance_dict["credit"] += D(src20_dict["amt"])
+        try:
+            if src20_dict["op"] == "MINT":
+                # Credit to destination (creator can be a mint service)
+                balance_dict = next(
+                    (
+                        item
+                        for item in balance_updates
+                        if item["tick"] == src20_dict["tick"]
+                        and item["tick_hash"] == src20_dict["tick_hash"]
+                        and item["address"] == src20_dict["destination"]
+                    ),
+                    None,
+                )
+                if balance_dict is None:
+                    balance_dict = {
+                        "tick": src20_dict["tick"],
+                        "tick_hash": src20_dict["tick_hash"],
+                        "address": src20_dict["destination"],
+                        "credit": D(src20_dict["amt"]),
+                        "debit": D(0),
+                    }
+                    balance_updates.append(balance_dict)
+                else:
+                    balance_dict["credit"] += D(src20_dict["amt"])
 
-            except Exception as e:
-                logger.error(f"Error updating SRC20 balances: {e}")
-                raise e
+            elif src20_dict["op"] == "TRANSFER":
+                # Debit from creator
+                balance_dict = next(
+                    (
+                        item
+                        for item in balance_updates
+                        if item["tick"] == src20_dict["tick"]
+                        and item["tick_hash"] == src20_dict["tick_hash"]
+                        and item["address"] == src20_dict["creator"]
+                    ),
+                    None,
+                )
+                if balance_dict is None:
+                    balance_dict = {
+                        "tick": src20_dict["tick"],
+                        "tick_hash": src20_dict["tick_hash"],
+                        "address": src20_dict["creator"],
+                        "credit": D(0),
+                        "debit": D(src20_dict["amt"]),
+                    }
+                    balance_updates.append(balance_dict)
+                else:
+                    balance_dict["debit"] += D(src20_dict["amt"])
+
+                # Credit to destination
+                balance_dict = next(
+                    (
+                        item
+                        for item in balance_updates
+                        if item["tick"] == src20_dict["tick"]
+                        and item["tick_hash"] == src20_dict["tick_hash"]
+                        and item["address"] == src20_dict["destination"]
+                    ),
+                    None,
+                )
+                if balance_dict is None:
+                    balance_dict = {
+                        "tick": src20_dict["tick"],
+                        "tick_hash": src20_dict["tick_hash"],
+                        "address": src20_dict["destination"],
+                        "credit": D(src20_dict["amt"]),
+                        "debit": D(0),
+                    }
+                    balance_updates.append(balance_dict)
+                else:
+                    balance_dict["credit"] += D(src20_dict["amt"])
+
+        except Exception as e:
+            logger.error(f"Error updating SRC20 balances for transaction: {src20_dict}")
+            logger.error(f"Error details: {str(e)}")
+            raise
 
     if balance_updates:
         update_balance_table(db, balance_updates, block_index, block_time)

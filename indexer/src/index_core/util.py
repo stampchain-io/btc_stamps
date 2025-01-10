@@ -191,7 +191,7 @@ def is_valid_pubkey_hex(pubkey_hex):
         pubkey_bytes = unhexlify(pubkey_hex)
         VerifyingKey.from_string(pubkey_bytes, curve=SECP256k1)
         return True
-    except Exception as e:
+    except:  # noqa: E722
         return False
 
 
@@ -215,7 +215,7 @@ def check_valid_bitcoin_address(address: str):
         else:
             encoding.addr_base58_to_pubkeyhash(address)
         return True
-    except Exception as e:
+    except:  # noqa: E722
         return False
 
 

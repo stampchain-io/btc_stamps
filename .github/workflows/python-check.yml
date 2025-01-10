@@ -18,6 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for debug flags
+        run: |
+          # Check for DEBUG_SKIP_REBUILD_BALANCES
+          if grep -qi "DEBUG_SKIP_REBUILD_BALANCES = True" ./indexer/.env; then
+            echo "::error::DEBUG_SKIP_REBUILD_BALANCES is set to True. This should be False in production code."
+            exit 1
+          fi
+          
+          echo "Debug flag check passed"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

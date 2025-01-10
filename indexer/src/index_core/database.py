@@ -13,6 +13,7 @@ import index_core.log as log
 from config import (
     BLOCK_FIELDS_POSITION,
     BLOCKS_TABLE,
+    DEBUG_SKIP_REBUILD_BALANCES,
     SRC20_TABLE,
     SRC20_VALID_TABLE,
     SRC101_OWNERS_TABLE,
@@ -297,6 +298,12 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
 
+    # Helper function to safely serialize values
+    def serialize_value(value):
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return value
+
     column_names = [
         "id",
         "tx_hash",
@@ -378,7 +385,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("tick_hash"),
         src101_dict.get("deploy_hash"),
         src101_dict.get("creator"),
-        json.dumps(src101_dict.get("pri")),
+        serialize_value(src101_dict.get("pri")),
         src101_dict.get("dua"),
         src101_dict.get("idua"),
         src101_dict.get("coef"),
@@ -388,7 +395,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("prim"),
         src101_dict.get("address_btc"),
         src101_dict.get("address_eth"),
-        src101_dict.get("txt_data"),
+        serialize_value(src101_dict.get("txt_data")),
         src101_dict.get("owner"),
         src101_dict.get("toaddress"),
         src101_dict.get("destination"),
@@ -403,6 +410,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         INSERT INTO {table_name} ({", ".join(column_names)})
         VALUES ({placeholders})
     """  # nosec
+
     cursor.execute(query, tuple(column_values))
 
     return
@@ -716,7 +724,7 @@ def purge_balances(cursor):
 
 
 def insert_balances(cursor, all_balances):
-    logger.warning(f"Inserting {len(all_balances)} balances")
+    logger.info(f"Inserting {len(all_balances)} balances")
     values = [
         (
             key,
@@ -745,7 +753,7 @@ def purge_owners(cursor):
 
 
 def insert_owners(cursor, all_owners):
-    logger.warning(f"Inserting {len(all_owners)} owners")
+    logger.info(f"Inserting {len(all_owners)} owners")
     values = [
         (
             value.get("index"),
@@ -782,11 +790,11 @@ def rebuild_owners(db, block_index=None):
         db.begin()
 
         existing_owners = get_existing_owners(cursor)
-        logger.warning(existing_owners)
+        # logger.warning(existing_owners)
         src101_valid_list = get_src101_valid_list(cursor, block_index)
-        logger.warning(src101_valid_list)
+        # logger.warning(src101_valid_list)
         all_owners = calculate_owners(src101_valid_list)
-        logger.warning(all_owners)
+        # logger.warning(all_owners)
         if not balances_need_update(existing_owners, all_owners):
             logger.info("No changes in owners. Skipping deletion and insertion.")
             return
@@ -805,8 +813,11 @@ def rebuild_owners(db, block_index=None):
 
 
 def rebuild_balances(db, block_index=None):
-    cursor = db.cursor()
+    if DEBUG_SKIP_REBUILD_BALANCES:
+        logger.warning("DEBUG MODE: Skipping rebuild_balances due to DEBUG_SKIP_REBUILD_BALANCES flag")
+        return
 
+    cursor = db.cursor()
     try:
         logger.info("Validating Balances Table..")
         db.begin()
