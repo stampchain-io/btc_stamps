@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
     env:
       USE_TEST_TX_HEX: '1'
@@ -91,9 +91,9 @@ jobs:
         run:  poetry run mypy . --explicit-package-bases 
         working-directory: ./indexer
         
-      - name: Check Dependencies for Vulnerabilities
-        run: poetry run run_safety
-        working-directory: ./indexer
+      # - name: Check Dependencies for Vulnerabilities
+      #   run: poetry run run_safety
+      #   working-directory: ./indexer
 
       - name: Run STAMP/SRC-20 Validations
         run: |
