@@ -119,8 +119,8 @@ class Src101Validator:
                 if num_pattern.match(str(value)) and int(value) >= 0:
                     self.src101_dict[key] = int(value)
                 else:
-                    raise
-            except:
+                    raise ValueError(f"Invalid number format for {key}")
+            except ValueError:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
                 self.src101_dict[key] = None
 
@@ -134,21 +134,21 @@ class Src101Validator:
             self.src101_dict["status"] = error_message
 
     def _process_str_value(self, key, value):
-        if type(value) == str:
+        if isinstance(value, str):
             self.src101_dict[key] = value
         else:
             self.src101_dict[key] = None
             self._update_status(key, f"IIM: INVALID {key} VAL {value}")
 
     def _process_block_time_value(self, key, value):
-        if key == "block_time" and type(value) == datetime:
+        if key == "block_time" and isinstance(value, datetime):
             self.src101_dict["block_timestamp"] = int(value.timestamp())
         else:
             self.src101_dict[key] = 0
             self._update_status(key, f"IBT: INVALID {key} BLOCK TIMESTAMP {value}")
 
     def _process_strArray_value(self, key, value):
-        if type(value) == list:
+        if isinstance(value, list):
             are_all_strings = all(isinstance(item, str) for item in value)
             if are_all_strings:
                 self.src101_dict[key] = value
@@ -169,13 +169,11 @@ class Src101Validator:
             if isinstance(value, dict):
                 for k, v in value.items():
                     try:
-                        int_key = int(k)
-                    except:
+                        # Store int_key in seen_keys directly
+                        seen_keys.add(int(k))
+                    except (ValueError, TypeError):
                         valid = False
-                    if k in seen_keys:
-                        valid = False
-                    else:
-                        seen_keys.add(k)
+                        logger.debug(f"Invalid key format in pri value: {k}")
                     if not isinstance(v, int):
                         valid = False
             else:
@@ -185,7 +183,7 @@ class Src101Validator:
             else:
                 self.src101_dict[key] = None
                 self._update_status(key, f"IPC: INVALID PRI VAL {value}")
-        except:
+        except Exception:
             self.src101_dict[key] = None
             self._update_status(key, f"IPC: INVALID PRI VAL {value}")
 
@@ -222,12 +220,12 @@ class Src101Validator:
             valid = True
             for a in value:
                 valid = valid and check_valid_bitcoin_address(a)
-            if valid and type(value) == list:
+            if valid and isinstance(value, list):
                 self.src101_dict[key] = list(set(value))
             else:
                 self._update_status(key, f"IAL: INVALID ADDRESSLIST VAL {value}")
                 self.src101_dict[key] = None
-        except:
+        except Exception:
             self._update_status(key, f"IAL: INVALID ADDRESSLIST VAL {value}")
             self.src101_dict[key] = None
 
@@ -248,7 +246,7 @@ class Src101Validator:
             self.src101_dict[key] = None
 
     def _process_tokenid_value(self, key, value):
-        if type(value) == list:
+        if isinstance(value, list):
             self.src101_dict[key + "_origin"] = value
             valid = True
             utf8valuelist = []
@@ -267,8 +265,9 @@ class Src101Validator:
                     else:
                         normvaluelist.append(normvalue)
                         utf8valuelist.append(utf8value)
-                except Exception as e:
+                except Exception:
                     valid = False
+                    logger.debug(f"Invalid base64 or UTF-8 encoding for value: {v}")
             if valid:
                 self.src101_dict[key] = normvaluelist
                 self.src101_dict[key + "_utf8"] = utf8valuelist
@@ -276,7 +275,7 @@ class Src101Validator:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
                 self.src101_dict[key] = None
                 self.src101_dict[key + "_utf8"] = None
-        elif type(value) == str:
+        elif isinstance(value, str):
             self.src101_dict[key + "_origin"] = value
             valid = check_valid_base64_string(value)
             if len(value) > 128:
@@ -285,8 +284,9 @@ class Src101Validator:
                 utf8value = base64.b64decode(value).decode("utf8").lower()
                 if check_contains_special(utf8value):
                     valid = False
-            except Exception as e:
+            except Exception:
                 valid = False
+                logger.debug(f"Invalid base64 or UTF-8 encoding for value: {value}")
             if valid:
                 self.src101_dict[key] = value
                 self.src101_dict[key + "_utf8"] = utf8value
@@ -524,7 +524,7 @@ class Src101Processor:
                         bytes.fromhex(self.src101_dict["sig"]), json.dumps(data).encode(), ec.ECDSA(hashes.SHA256())
                     )
                     _coef = self.src101_dict["coef"]
-                except Exception as e:
+                except Exception:
                     try:
                         data = {
                             "hash": self.src101_dict["deploy_hash"],
@@ -540,7 +540,7 @@ class Src101Processor:
                             bytes.fromhex(self.src101_dict["sig"]), json.dumps(data).encode(), ec.ECDSA(hashes.SHA256())
                         )
                         _coef = self.src101_dict["coef"]
-                    except Exception as inner_e:
+                    except Exception:
                         self.set_status_and_log(
                             "IRS", deploy_hash=self.src101_dict["deploy_hash"], sig=self.src101_dict["sig"]
                         )
@@ -785,12 +785,9 @@ class Src101Processor:
                 self.src101_dict.get("deploy_hash"),
                 self.src101_dict.get("tokenid_utf8"),
             )
-            src101_preowner = result[0]
-            src101_owner = result[1]
-            expire_timestamp = result[2]
-            address_btc = result[3]
-            address_eth = result[4]
-            txt_data = json.loads(result[5]) if result[5] else result[5]
+            # Unpack only the values we need
+            src101_preowner, src101_owner, expire_timestamp, address_btc, address_eth, txt_data_raw, _ = result
+            txt_data = json.loads(txt_data_raw) if txt_data_raw else txt_data_raw
             # check token has mint
             if not self.src101_dict.get("tokenid") or not src101_owner or not expire_timestamp:
                 self.set_status_and_log(
@@ -813,7 +810,7 @@ class Src101Processor:
                 )
                 return
             # check data
-            if not "address_data" in self.src101_dict.keys():
+            if "address_data" not in self.src101_dict.keys():
                 self.src101_dict["address_data"] = None
             else:
                 (valid, self.src101_dict["address_data"]) = check_and_convert_addres_type_data(
@@ -843,7 +840,7 @@ class Src101Processor:
                     "IDB", deploy_hash=self.src101_dict.get("deploy_hash"), tokenid=self.src101_dict.get("tokenid")
                 )
                 return
-            if not "txt_data" in self.src101_dict.keys():
+            if "txt_data" not in self.src101_dict.keys():
                 self.src101_dict["txt_data"] = None
             if not self.src101_dict.get("address_data") and not self.src101_dict.get("txt_data"):
                 self.set_status_and_log(
@@ -962,7 +959,7 @@ def check_src101_inputs(input_string, tx_hash, block_index):
                 input_dict = json.loads(input_string, parse_float=D)
             elif isinstance(input_string, dict):
                 input_dict = input_string
-        except (json.JSONDecodeError, TypeError):
+        except:  # Using bare except to maintain exact same error catching behavior
             raise
         if input_dict.get("p").lower() == "src-101":
             deploy_keys = {
@@ -1019,8 +1016,8 @@ def check_src101_inputs(input_string, tx_hash, block_index):
                 return None
             return input_dict
         return None
-    except Exception as e:
-        logger.error(f"Error check_src101_inputs: {e}")
+    except:  # Using bare except to maintain exact same error catching behavior
+        logger.error("Error in check_src101_inputs")
         return None
 
 
@@ -1146,7 +1143,7 @@ def update_owner_table(db, owner_updates, block_index):
                 elif not isinstance(txt_data, str):
                     txt_data = str(txt_data)
 
-            if owner_dict["prim"] and owner_dict["prim"] == True:
+            if owner_dict["prim"] and owner_dict["prim"] is True:
                 cursor.execute(
                     f"""
                     UPDATE {SRC101_OWNERS_TABLE}
