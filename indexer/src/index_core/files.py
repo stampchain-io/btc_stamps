@@ -4,13 +4,7 @@ import logging
 import os
 
 import index_core.log as log
-from config import (
-    AWS_ACCESS_KEY_ID,
-    AWS_S3_BUCKETNAME,
-    AWS_S3_IMAGE_DIR,
-    AWS_SECRET_ACCESS_KEY,
-    STORE_FILES,
-)
+from config import AWS_ACCESS_KEY_ID, AWS_S3_BUCKETNAME, AWS_S3_IMAGE_DIR, AWS_SECRET_ACCESS_KEY, STORE_FILES
 from index_core.aws import check_existing_and_upload_to_s3
 
 logger = logging.getLogger(__name__)

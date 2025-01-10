@@ -9,10 +9,10 @@ def print_connection_details(prod_host, dev_host, block_index):
     print("\n" + "=" * 50)
     print(colored(" Database Comparison Details ", "white", "on_blue", attrs=["bold"]))
     print("=" * 50)
-    print(f"\n📊 Connection Info:")
+    print("\n📊 Connection Info:")
     print(f"├─ Production DB: {colored(prod_host, 'cyan')}")
     print(f"└─ Development DB: {colored(dev_host, 'cyan')}")
-    print(f"\n📈 Comparison Range:")
+    print("\n📈 Comparison Range:")
     print(f"└─ Up to block: {colored(str(block_index), 'green', attrs=['bold'])}")
     print("\n" + "=" * 50 + "\n")
 
@@ -84,7 +84,7 @@ def lookup_cpid_transactions(cursor, cpid):
     cursor.execute(
         """
         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-        FROM StampTableV4 
+        FROM StampTableV4
         WHERE cpid = %s
         ORDER BY block_index ASC, tx_index ASC
     """,
@@ -119,7 +119,7 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
     prod_cursor.execute(
         """
         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-        FROM StampTableV4 
+        FROM StampTableV4
         WHERE block_index < %s AND stamp > 0
         ORDER BY block_index ASC, tx_index ASC
     """,
@@ -130,7 +130,7 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
     dev_cursor.execute(
         """
         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-        FROM StampTableV4 
+        FROM StampTableV4
         WHERE block_index < %s AND stamp > 0
         ORDER BY block_index ASC, tx_index ASC
     """,
@@ -194,7 +194,7 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
     prod_cursor.execute(
         """
         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-        FROM StampTableV4 
+        FROM StampTableV4
         WHERE block_index < %s AND stamp < 0
         ORDER BY block_index ASC, tx_index ASC
     """,
@@ -205,7 +205,7 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
     dev_cursor.execute(
         """
         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-        FROM StampTableV4 
+        FROM StampTableV4
         WHERE block_index < %s AND stamp < 0
         ORDER BY block_index ASC, tx_index ASC
     """,
@@ -305,10 +305,10 @@ def main():
     # fetch tx_hash, stamp from prod db
     prod_cursor.execute(
         """
-                                            SELECT tx_hash, stamp
-                                            FROM StampTableV4
-                                            WHERE block_index < %s
-                                            """,
+        SELECT tx_hash, stamp
+        FROM StampTableV4
+        WHERE block_index < %s
+        """,
         (block_index,),
     )
 
@@ -317,10 +317,10 @@ def main():
     # fetch tx_hash, stamp from dev db
     dev_cursor.execute(
         """
-                                            SELECT tx_hash, stamp
-                                            FROM StampTableV4
-                                            WHERE block_index < %s
-                                            """,
+        SELECT tx_hash, stamp
+        FROM StampTableV4
+        WHERE block_index < %s
+        """,
         (block_index,),
     )
 
@@ -328,10 +328,10 @@ def main():
 
     prod_cursor.execute(
         """
-                                            SELECT tx_hash, amt
-                                            FROM SRC20Valid
-                                            WHERE block_index < %s
-                                            """,
+        SELECT tx_hash, amt
+        FROM SRC20Valid
+        WHERE block_index < %s
+        """,
         (block_index,),
     )
 
@@ -340,10 +340,10 @@ def main():
     # fetch tx_hash, stamp from dev db
     dev_cursor.execute(
         """
-                                        SELECT tx_hash, amt
-                                            FROM SRC20Valid
-                                            WHERE block_index < %s
-                                            """,
+        SELECT tx_hash, amt
+        FROM SRC20Valid
+        WHERE block_index < %s
+        """,
         (block_index,),
     )
 
@@ -351,20 +351,20 @@ def main():
 
     prod_cursor.execute(
         """
-                                            SELECT block_index, messages_hash, txlist_hash
-                                            FROM blocks
-                                            WHERE block_index < %s
-                                            """,
+        SELECT block_index, messages_hash, txlist_hash
+        FROM blocks
+        WHERE block_index < %s
+        """,
         (block_index,),
     )
     prod_blocks = prod_cursor.fetchall()
 
     dev_cursor.execute(
         """
-                                            SELECT block_index, messages_hash, txlist_hash
-                                            FROM blocks
-                                            WHERE block_index < %s
-                                            """,
+        SELECT block_index, messages_hash, txlist_hash
+        FROM blocks
+        WHERE block_index < %s
+        """,
         (block_index,),
     )
     dev_blocks = dev_cursor.fetchall()
@@ -385,33 +385,33 @@ def main():
     not_in_dev_src20 = prod_src20 - dev_src20
     not_in_dev_list_src20 = [item[0] for item in not_in_dev_src20]
 
-    print(
-        f"not in SRC20Valid {prod_host} ",
-        len(not_in_prod_list_src20),
-        (not_in_prod_list_src20),
-    )
-    print(
-        f"not in SRC20Valid {dev_host} ",
-        len(not_in_prod_list_src20),
-        (not_in_dev_list_src20),
-    )
+    # print(
+    #     f"not in SRC20Valid {prod_host} ",
+    #     len(not_in_prod_list_src20),
+    #     (not_in_prod_list_src20),
+    # )
+    # print(
+    #     f"not in SRC20Valid {dev_host} ",
+    #     len(not_in_prod_list_src20),
+    #     (not_in_dev_list_src20),
+    # )
 
     if not_in_prod_list_src20:
         # Use the values of tx_hash in not_in_prod_list to do a db lookup on dev db to fetch ident and stamp_url
         dev_cursor.execute(
             """
-                        SELECT tx_hash, amt, status, creator_bal, destination_bal
-                        FROM SRC20Valid
-                        WHERE tx_hash IN %s
-                        ORDER BY block_index ASC
-                        """,
+            SELECT tx_hash, amt, status, creator_bal, destination_bal
+            FROM SRC20Valid
+            WHERE tx_hash IN %s
+            ORDER BY block_index ASC
+            """,
             (not_in_prod_list_src20,),
         )
 
         results = dev_cursor.fetchall()
-        print("not in prod SRC20Valid ------------------  from dev db ", len(results))
-        for result in results:
-            print(result)
+        # print("not in prod SRC20Valid ------------------  from dev db ", len(results))
+        # for result in results:
+        #     print(result)
 
     # convert rows to list
     prod_list = set(prod_list)
@@ -425,48 +425,48 @@ def main():
         # Use the values of tx_hash in not_in_prod_list to do a db lookup on dev db to fetch ident and stamp_url
         dev_cursor.execute(
             """
-                        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-                        FROM StampTableV4
-                        WHERE tx_hash IN %s and stamp > 0
-                        ORDER BY tx_index ASC
-                        """,
+            SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+            FROM StampTableV4
+            WHERE tx_hash IN %s and stamp > 0
+            ORDER BY tx_index ASC
+            """,
             (not_in_prod_list,),
         )
 
         results = dev_cursor.fetchall()
 
-        print("\nnot in prod StampTableV4 - results from dev db ")
-        for result in results[:5]:
-            print("result", result)
+        # print("\nnot in prod StampTableV4 - results from dev db")
+        # for result in results[:5]:
+        #     print("result", result)
 
     if not_in_dev_list:
         prod_cursor.execute(
             """
-                        SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
-                        FROM StampTableV4
-                        WHERE tx_hash IN %s and stamp > 0
-                        ORDER BY tx_index ASC
-                        """,
+            SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
+            FROM StampTableV4
+            WHERE tx_hash IN %s and stamp > 0
+            ORDER BY tx_index ASC
+            """,
             (not_in_dev_list,),
         )
 
         results = prod_cursor.fetchall()
-        print(" \nnot in dev StampTableV4 - results from prod db")
-        for result in results[:5]:
-            print(result)
+        # print("\nnot in dev StampTableV4 - results from prod db")
+        # for result in results[:5]:
+        #     print(result)
 
-    print(f"\nnot in StampTableV4 Prod incl cursed {prod_host} ", len(not_in_prod_list))
+    # print(f"\nnot in StampTableV4 Prod incl cursed {prod_host} ", len(not_in_prod_list))
     # print("not_in_prod_list", not_in_prod_list)
-    print(f"\nnot in StampTableV4 Dev incl cursed {dev_host} ", len(not_in_dev_list))
+    # print(f"\nnot in StampTableV4 Dev incl cursed {dev_host} ", len(not_in_dev_list))
     # print(not_in_dev_list)
 
-    missing_in_prod_list = set(not_in_prod_list) - set(not_in_dev_list)
-    missing_in_StampTableV4_Dev = set(not_in_dev_list) - set(not_in_prod_list)
+    # missing_in_prod_list = set(not_in_prod_list) - set(not_in_dev_list)
+    # missing_in_StampTableV4_Dev = set(not_in_dev_list) - set(not_in_prod_list)
 
-    print(f"\nmissing in StampTableV4 Prod incl cursed {prod_host} ", len(missing_in_prod_list))
-    print(missing_in_prod_list)
-    print(f"\nmissing in StampTableV4 Dev incl cursed {dev_host} ", len(missing_in_StampTableV4_Dev))
-    print(missing_in_StampTableV4_Dev)
+    # print(f"\nmissing in StampTableV4 Prod incl cursed {prod_host} ", len(missing_in_prod_list))
+    # print(missing_in_prod_list)
+    # print(f"\nmissing in StampTableV4 Dev incl cursed {dev_host} ", len(missing_in_StampTableV4_Dev))
+    # print(missing_in_StampTableV4_Dev)
 
     # Fetch SRC101Valid data
     prod_cursor.execute(
@@ -573,7 +573,7 @@ def main():
         print(colored(" SRC20Valid Comparison ", "white", "on_blue", attrs=["bold"]))
         print("=" * 50)
 
-        print(f"\n📊 Missing Transactions:")
+        print("\n📊 Missing Transactions:")
         if len(not_in_prod_list_src20) == 0:
             print(f"├─ Production: {colored('✓ No missing records', 'green', attrs=['bold'])}")
         else:
