@@ -41,18 +41,8 @@ def rpc_call(payload):
         try:
             headers = {"content-type": "application/json"}
             
-            # Try Bearer token auth if QUICKNODE_API_KEY is available
-            if config.QUICKNODE_ENDPOINT and config.QUICKNODE_API_KEY:
-                headers["Authorization"] = f"Bearer {config.QUICKNODE_API_KEY}"
-                logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)} with Bearer auth")
-            # Fallback to RPC_TOKEN if available (legacy auth method)
-            elif config.QUICKNODE_ENDPOINT and config.RPC_TOKEN:
-                if not url.endswith('/'):
-                    url = f"{url}/"
-                url = f"{url}{config.RPC_TOKEN}"
-                logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)} with URL token")
-            else:
-                logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
+            # Authentication is handled via API key in URL path
+            logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
             
             response = requests.post(
                 url,
