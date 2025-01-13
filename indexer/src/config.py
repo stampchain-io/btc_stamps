@@ -49,9 +49,6 @@ QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)  # 
 # Strip any surrounding quotes from the URL if present
 if QUICKNODE_ENDPOINT:
     QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
-RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)  # Keep for backward compatibility
-
-
 def _has_valid_standard_rpc() -> bool:
     """Check if all standard RPC credentials are properly set."""
     # Just check if all required values are present
@@ -66,25 +63,41 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
             f"Got QUICKNODE_ENDPOINT={'set' if QUICKNODE_ENDPOINT else 'not set'}, "
             f"QUICKNODE_API_KEY={'set' if QUICKNODE_API_KEY else 'not set'}"
         )
-    logger.info(f"Using Quicknode endpoint: {QUICKNODE_ENDPOINT}")
+    # Log credential presence without exposing sensitive data
+    logger.info("Checking Quicknode credentials:")
+    logger.info(f"- QUICKNODE_URL/ENDPOINT present: {'Yes' if QUICKNODE_ENDPOINT else 'No'}")
+    logger.info(f"- QUICKNODE_API_KEY present: {'Yes' if QUICKNODE_API_KEY else 'No'}")
+    logger.info(f"- QUICKNODE_API_KEY length: {len(QUICKNODE_API_KEY) if QUICKNODE_API_KEY else 0}")
+    
+    # Clean and format the URL
+    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip().rstrip('/')
+    
     # Ensure URL has proper scheme
     if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
         QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
-    # Ensure URL ends with forward slash for consistent path handling
-    if not QUICKNODE_ENDPOINT.endswith("/"):
-        QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
+        
+    # Add trailing slash for consistent path handling
+    QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
+    
+    logger.info(f"Using formatted Quicknode endpoint: {QUICKNODE_ENDPOINT}")
 
-    # Format: https://sample-endpoint-name.network.quiknode.pro/token/
-    if RPC_TOKEN:  # Try legacy token auth first
-        RPC_URL = f"{QUICKNODE_ENDPOINT}/{RPC_TOKEN}"
-    else:  # Otherwise use the endpoint as-is for Bearer auth
+    # Format: https://sample-endpoint-name.network.quiknode.pro/api-key/
+    # Clean API key and include it in URL path for Quicknode
+    clean_api_key = QUICKNODE_API_KEY.strip("'\"")  # Remove any quotes
+    if not QUICKNODE_ENDPOINT.endswith(clean_api_key):
+        RPC_URL = f"{QUICKNODE_ENDPOINT}{clean_api_key}/"
+    else:
         RPC_URL = QUICKNODE_ENDPOINT
-    RPC_IP = None  # Don't use RPC_IP with Quicknode
-    RPC_PORT = None  # Don't use port with Quicknode
-    RPC_USER = None  # Don't use RPC_USER with Quicknode
-    RPC_PASSWORD = None  # Don't use RPC_PASSWORD with Quicknode
+    
+    # Don't use standard RPC credentials with Quicknode
+    RPC_IP = None
+    RPC_PORT = None
+    RPC_USER = None
+    RPC_PASSWORD = None
+    
+    logger.debug("Using Quicknode URL format with API key in path")
     logger.debug("Configuration values:")
-    logger.debug(f"- RPC_URL: {RPC_URL}")  # No need to mask URL since token is in header
+    logger.debug(f"- RPC_URL: {RPC_URL}")  # No need to mask URL since auth is via Bearer token
     logger.debug(f"- RPC_IP: {RPC_IP}")
     logger.debug(f"- RPC_PORT: {RPC_PORT}")
     logger.debug(f"- RPC_USER: {RPC_USER}")
@@ -108,7 +121,7 @@ else:
     logger.info("Standard RPC configuration validated")
 
 logger.info(
-    f"Final RPC URL format: {RPC_URL.replace(RPC_TOKEN or '', '****') if RPC_TOKEN else RPC_URL.replace(RPC_PASSWORD or '', '****')}"
+    f"Final RPC URL format: {RPC_URL.replace(RPC_PASSWORD or '', '****')}"
 )
 
 RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
