@@ -525,7 +525,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
         )
 
     else:
-        skip_logger.debug("Skipping transaction: {}".format(tx_hash))
+        # skip_logger.debug("Skipping transaction: {}".format(tx_hash))
         return (None for _ in range(11))
 
 
