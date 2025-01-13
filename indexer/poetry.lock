@@ -2803,12 +2803,12 @@ files = [
 
 [[package]]
 name = "pycoin"
-version = "0.92.20230326"
+version = "0.92.20241201"
 description = "Utilities for Bitcoin and altcoin addresses and transaction manipulation."
 optional = false
 python-versions = "*"
 files = [
-    {file = "pycoin-0.92.20230326.tar.gz", hash = "sha256:0d85f0013447c356b2f6cc0bb903ad07ee4b72805ee13b40296cd0831112c0df"},
+    {file = "pycoin-0.92.20241201.tar.gz", hash = "sha256:6e937be181573ccf02b35064844bec46de130386b45f3df196d3074a8c790512"},
 ]
 
 [[package]]
@@ -4050,4 +4050,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "6ec173e9fe0dbad02471da4764f93b1ff04a7d97eea0badec03afda6c9d61d18"
+content-hash = "855051a28f0de8bb3a9745ae9568413f7767ec11f07f189ccbe70ff36f6119a9"
