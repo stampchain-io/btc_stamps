@@ -40,10 +40,10 @@ def rpc_call(payload):
     for i in range(TRIES):
         try:
             headers = {"content-type": "application/json"}
-            
+
             # Authentication is handled via API key in URL path
             logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
-            
+
             response = requests.post(
                 url,
                 data=json.dumps(payload),

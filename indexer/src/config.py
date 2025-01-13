@@ -49,6 +49,8 @@ QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)  # 
 # Strip any surrounding quotes from the URL if present
 if QUICKNODE_ENDPOINT:
     QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
+
+
 def _has_valid_standard_rpc() -> bool:
     """Check if all standard RPC credentials are properly set."""
     # Just check if all required values are present
@@ -68,17 +70,17 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
     logger.info(f"- QUICKNODE_URL/ENDPOINT present: {'Yes' if QUICKNODE_ENDPOINT else 'No'}")
     logger.info(f"- QUICKNODE_API_KEY present: {'Yes' if QUICKNODE_API_KEY else 'No'}")
     logger.info(f"- QUICKNODE_API_KEY length: {len(QUICKNODE_API_KEY) if QUICKNODE_API_KEY else 0}")
-    
+
     # Clean and format the URL
-    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip().rstrip('/')
-    
+    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip().rstrip("/")
+
     # Ensure URL has proper scheme
     if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
         QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
-        
+
     # Add trailing slash for consistent path handling
     QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
-    
+
     logger.info(f"Using formatted Quicknode endpoint: {QUICKNODE_ENDPOINT}")
 
     # Format: https://sample-endpoint-name.network.quiknode.pro/api-key/
@@ -88,13 +90,13 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
         RPC_URL = f"{QUICKNODE_ENDPOINT}{clean_api_key}/"
     else:
         RPC_URL = QUICKNODE_ENDPOINT
-    
+
     # Don't use standard RPC credentials with Quicknode
     RPC_IP = None
     RPC_PORT = None
     RPC_USER = None
     RPC_PASSWORD = None
-    
+
     logger.debug("Using Quicknode URL format with API key in path")
     logger.debug("Configuration values:")
     logger.debug(f"- RPC_URL: {RPC_URL}")  # No need to mask URL since auth is via Bearer token
@@ -120,9 +122,7 @@ else:
         logger.debug(f"Using non-TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
     logger.info("Standard RPC configuration validated")
 
-logger.info(
-    f"Final RPC URL format: {RPC_URL.replace(RPC_PASSWORD or '', '****')}"
-)
+logger.info(f"Final RPC URL format: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
 
 RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 
