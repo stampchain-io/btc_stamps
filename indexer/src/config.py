@@ -43,13 +43,13 @@ S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
 
 # Define for Quicknode or similar remote nodes which use a token
-QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_ENDPOINT", None)
+QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_URL", None)  # Fallback to old URL for compatibility
 QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)  # Used for Bearer token auth
 
 # Strip any surrounding quotes from the URL if present
 if QUICKNODE_ENDPOINT:
     QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
-RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)
+RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)  # Keep for backward compatibility
 
 
 def _has_valid_standard_rpc() -> bool:
@@ -87,8 +87,11 @@ if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
     if not QUICKNODE_ENDPOINT.endswith("/"):
         QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
 
-    # Format: https://sample-endpoint-name.network.quiknode.pro/
-    RPC_URL = QUICKNODE_ENDPOINT  # API key used in Authorization header
+    # Format: https://sample-endpoint-name.network.quiknode.pro/token/
+    if RPC_TOKEN:  # Try legacy token auth first
+        RPC_URL = f"{QUICKNODE_ENDPOINT}/{RPC_TOKEN}"
+    else:  # Otherwise use the endpoint as-is for Bearer auth
+        RPC_URL = QUICKNODE_ENDPOINT
     RPC_IP = None  # Don't use RPC_IP with Quicknode
     RPC_PORT = None  # Don't use port with Quicknode
     RPC_USER = None  # Don't use RPC_USER with Quicknode
@@ -103,7 +106,7 @@ else:
     # If not using Quicknode, validate standard RPC credentials
     if not _has_valid_standard_rpc():
         raise ConfigurationError(
-            "Must provide either valid Quicknode credentials (QUICKNODE_URL and RPC_TOKEN) "
+            "Must provide either valid Quicknode credentials (QUICKNODE_ENDPOINT and QUICKNODE_API_KEY) "
             "or valid standard RPC credentials (non-default values for RPC_USER, RPC_PASSWORD, "
             "RPC_IP, and RPC_PORT). Using default values is not allowed."
         )
