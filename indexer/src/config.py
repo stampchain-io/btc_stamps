@@ -53,22 +53,9 @@ RPC_TOKEN: Optional[str] = os.environ.get("RPC_TOKEN", None)  # Keep for backwar
 
 
 def _has_valid_standard_rpc() -> bool:
-    """Check if all standard RPC credentials are properly set with non-default values."""
-    # Allow test credentials in test environment
-    if os.environ.get("USE_TEST_TX_HEX") == "1":
-        return all(x is not None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT])
-
-    # In production, require non-default values
-    if any(x is None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT]):
-        return False
-    return all(
-        [
-            RPC_USER != "rpc",
-            RPC_PASSWORD != "rpc",
-            RPC_IP != "127.0.0.1",
-            RPC_PORT != "8332",
-        ]
-    )
+    """Check if all standard RPC credentials are properly set."""
+    # Just check if all required values are present
+    return all(x is not None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT])
 
 
 # First check if Quicknode credentials are provided
