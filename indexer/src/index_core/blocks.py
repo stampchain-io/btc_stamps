@@ -681,12 +681,48 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     )
 
 
+def quick_filter_src20_transaction(tx_hex):
+    """
+    Quick pre-filter to check if a transaction might be a SRC-20 transaction.
+    Only checks for multisig and p2wsh patterns.
+
+    Returns:
+        bool: True if transaction might be a SRC-20, False if definitely not
+    """
+    try:
+        # Quick decode of transaction
+        ctx = backend.deserialize(tx_hex)
+
+        # Check outputs for SRC-20 patterns
+        for vout in ctx.vout:
+            script = bytes(vout.scriptPubKey)
+
+            # Check for P2WSH pattern (0x00 + 32 bytes)
+            if len(script) == 34 and script[0] == 0x00:
+                return True
+
+            # Quick check for potential multisig pattern
+            # Look for OP_CHECKMULTISIG (0xae) near the end
+            if len(script) > 2 and script[-1] == 0xAE:
+                return True
+
+        return False
+
+    except Exception as e:
+        # If we can't decode, better to include it than miss it
+        logger.debug(f"Error in quick filter: {e}")
+        return True
+
+
 def filter_block_transactions(block_data, stamp_issuances=None):
     """
     Filter transactions from a block based on genesis status.
     Before BTC_SRC20_GENESIS_BLOCK, only returns stamp issuance transactions.
-    After BTC_SRC20_GENESIS_BLOCK, returns all transactions.
+    After BTC_SRC20_GENESIS_BLOCK:
+    - Always includes stamp issuance transactions
+    - Quick filters other transactions for SRC-20 patterns in parallel
     Always returns full tx_hash_list for message hash calculation.
+    Maintains original transaction order.
 
     Args:
         block_data: The block data from backend.get_tx_list
@@ -698,25 +734,42 @@ def filter_block_transactions(block_data, stamp_issuances=None):
     # Get all transactions from block
     all_txs = block_data["tx"]
 
+    # Store all tx hashes for message hash calculation (maintain original order)
+    tx_hash_list = [tx["txid"] for tx in all_txs]
+
+    # Get set of issuance transactions if any
+    issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
+
     # Before SRC20 genesis, only get stamp issuance transactions
     if util.CURRENT_BLOCK_INDEX < config.BTC_SRC20_GENESIS_BLOCK:
-        # Use existing stamp issuances if provided
-        issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
-
-        # Only process issuance transactions
-        filtered_txs = [tx for tx in all_txs if tx["txid"] in issuance_tx_hashes]
-
-        # Store all tx hashes for message hash calculation
-        tx_hash_list = [tx["txid"] for tx in all_txs]
-
-        # Only store raw transactions for issuances
-        for tx in filtered_txs:
-            raw_transactions[tx["txid"]] = tx["hex"]
-    else:
-        # After genesis block, process all transactions
-        tx_hash_list = [tx["txid"] for tx in all_txs]
+        # Only process issuance transactions (in order)
         for tx in all_txs:
-            raw_transactions[tx["txid"]] = tx["hex"]
+            if tx["txid"] in issuance_tx_hashes:
+                raw_transactions[tx["txid"]] = tx["hex"]
+    else:
+        # After genesis block:
+        # 1. First add all stamp issuance transactions (in order)
+        for tx in all_txs:
+            if tx["txid"] in issuance_tx_hashes:
+                raw_transactions[tx["txid"]] = tx["hex"]
+
+        # 2. Quick filter remaining transactions in parallel while maintaining order
+        non_issuance_txs = [tx for tx in all_txs if tx["txid"] not in issuance_tx_hashes]
+
+        if non_issuance_txs:  # Only spawn thread pool if we have transactions to filter
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                # Submit all tasks and store futures in order
+                futures = [executor.submit(quick_filter_src20_transaction, tx["hex"]) for tx in non_issuance_txs]
+
+                # Process results in original order
+                for tx, future in zip(non_issuance_txs, futures):
+                    try:
+                        if future.result():  # If passed quick filter
+                            raw_transactions[tx["txid"]] = tx["hex"]
+                    except Exception as e:
+                        logger.debug(f"Error in parallel filtering for tx {tx['txid']}: {e}")
+                        # Include tx if filtering failed
+                        raw_transactions[tx["txid"]] = tx["hex"]
 
     return tx_hash_list, raw_transactions
 
