@@ -681,6 +681,46 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     )
 
 
+def filter_block_transactions(block_data, stamp_issuances=None):
+    """
+    Filter transactions from a block based on genesis status.
+    Before BTC_SRC20_GENESIS_BLOCK, only returns stamp issuance transactions.
+    After BTC_SRC20_GENESIS_BLOCK, returns all transactions.
+    Always returns full tx_hash_list for message hash calculation.
+
+    Args:
+        block_data: The block data from backend.get_tx_list
+        stamp_issuances: Optional list of stamp issuances already fetched for this block
+    """
+    tx_hash_list = []
+    raw_transactions = {}
+
+    # Get all transactions from block
+    all_txs = block_data["tx"]
+
+    # Before SRC20 genesis, only get stamp issuance transactions
+    if util.CURRENT_BLOCK_INDEX < config.BTC_SRC20_GENESIS_BLOCK:
+        # Use existing stamp issuances if provided
+        issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
+
+        # Only process issuance transactions
+        filtered_txs = [tx for tx in all_txs if tx["txid"] in issuance_tx_hashes]
+
+        # Store all tx hashes for message hash calculation
+        tx_hash_list = [tx["txid"] for tx in all_txs]
+
+        # Only store raw transactions for issuances
+        for tx in filtered_txs:
+            raw_transactions[tx["txid"]] = tx["hex"]
+    else:
+        # After genesis block, process all transactions
+        tx_hash_list = [tx["txid"] for tx in all_txs]
+        for tx in all_txs:
+            raw_transactions[tx["txid"]] = tx["hex"]
+
+    return tx_hash_list, raw_transactions
+
+
 def follow(db):
     """
     Continuously follows the blockchain, parsing and indexing new blocks
@@ -810,7 +850,15 @@ def follow(db):
 
                 block_hash = backend.getblockhash(block_index)
 
-                txhash_list, raw_transactions, block_time, previous_block_hash, difficulty = backend.get_tx_list(block_hash)
+                # Get full block data from backend
+                txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = backend.get_tx_list(
+                    block_hash
+                )
+
+                # Filter transactions based on genesis status
+                block_data = {"tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]}
+                txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+
                 util.CURRENT_BLOCK_INDEX = block_index
 
                 try:
@@ -831,7 +879,7 @@ def follow(db):
 
                 valid_stamps_in_block: List[ValidStamp] = []
 
-                if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_GENESIS_BLOCK:
+                if block_index < config.BTC_SRC20_GENESIS_BLOCK and not stamp_issuances_list[block_index]:
                     valid_src20_str = ""
                     new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                         db,
@@ -856,8 +904,9 @@ def follow(db):
 
                 tx_results = []
 
+                # Process transactions in parallel
                 futures = []
-                for tx_hash in txhash_list:
+                for tx_hash in raw_transactions:  # Only process transactions we have raw data for
                     future = executor.submit(
                         process_tx,
                         db,
