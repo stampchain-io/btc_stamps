@@ -1,6 +1,6 @@
 import binascii
 
-import bitcoin as bitcoinlib
+from bitcoin.core.script import CScriptOp, CScriptTruncatedPushDataError
 
 import config
 import index_core.exceptions as exceptions
@@ -10,11 +10,11 @@ def get_asm(scriptpubkey):
     try:
         asm = []
         for element in scriptpubkey:
-            if isinstance(element, bitcoinlib.core.script.CScriptOp):
+            if isinstance(element, CScriptOp):
                 asm.append(str(element))
             else:
                 asm.append(element)
-    except bitcoinlib.core.script.CScriptTruncatedPushDataError:
+    except CScriptTruncatedPushDataError:
         raise exceptions.PushDataDecodeError("invalid pushdata due to truncation")
     if not asm:
         raise exceptions.DecodeError("empty output")

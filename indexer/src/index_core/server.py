@@ -7,7 +7,7 @@ import signal
 import sys
 
 import appdirs
-import bitcoin as bitcoinlib
+from bitcoin import SelectParams
 import pymysql as mysql
 from pymysql.connections import Connection
 
@@ -68,13 +68,20 @@ def initialize_config(
     customnet=None,
     checkdb=False,
 ):
-
+    """
+    Initialize configuration with proper network selection.
+    """
+    # Set network based on config
     if config.TESTNET or testnet:
         config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
+        SelectParams("testnet")
     elif regtest:
         config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
+        SelectParams("regtest")
     else:
         config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
+        SelectParams("mainnet")
+
     # Set other config attributes based on parameters
     config.BACKEND_NAME = "bitcoincore"
     config.BACKEND_CONNECT = backend_connect or "localhost"
@@ -119,13 +126,6 @@ def initialize_config(
         config.REGTEST = True  # Custom nets are regtests with different parameters
     else:
         config.CUSTOMNET = False
-
-    if config.TESTNET:
-        bitcoinlib.SelectParams("testnet")
-    elif config.REGTEST:
-        bitcoinlib.SelectParams("regtest")
-    else:
-        bitcoinlib.SelectParams("mainnet")
 
     network = ""
     if config.TESTNET:

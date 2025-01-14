@@ -10,6 +10,8 @@ import threading
 import unicodedata
 from binascii import unhexlify
 
+from bitcoin.core import x
+from bitcoin.wallet import CBitcoinAddress, P2WSHBitcoinAddress
 from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
 
@@ -150,6 +152,8 @@ class DictCache:
         with self.lock:
             self.dict.move_to_end(key, last=True)
 
+
+address_cache = DictCache(size=10000)
 
 URL_USERNAMEPASS_REGEX = re.compile(".+://(.+)@")
 
@@ -394,3 +398,44 @@ def convert_to_dict_or_string(input_data, output_format="dict"):
             raise SerializationError(f"An error occurred during JSON serialization: {e}")
     else:
         raise DataConversionError("Invalid output format: {}".format(output_format))
+
+
+def decode_address(script_pubkey):
+    """
+    Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
+    Uses caching to avoid repeated conversions of the same script_pubkey.
+
+    Args:
+        script_pubkey (bytes): The scriptPubKey to decode.
+
+    Returns:
+        str: The decoded Bitcoin address.
+
+    Raises:
+        ValueError: If the scriptPubKey format is unsupported.
+    """
+    # Convert script_pubkey to a hashable type for cache key
+    cache_key = bytes(script_pubkey)
+
+    # Check cache first
+    if cache_key in address_cache:
+        return address_cache[cache_key]
+
+    try:
+        # Handle Taproot (P2TR)
+        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:
+            witness_program = script_pubkey[2:]
+            # Maintain existing network-specific behavior
+            if config.TESTNET:
+                address = encoding.pubkeyhash_to_addr(witness_program, prefix="tb", encoding="bech32", witver=1)
+            else:
+                address = encoding.pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
+        else:
+            # Handle all other address types using bitcoin-core's native implementation
+            address = str(CBitcoinAddress.from_scriptPubKey(script_pubkey))
+
+        # Cache the result
+        address_cache[cache_key] = address
+        return address
+    except Exception:
+        raise ValueError("Unsupported scriptPubKey format")
