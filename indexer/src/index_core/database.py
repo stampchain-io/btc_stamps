@@ -418,19 +418,28 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
 
 def insert_transactions(db, transactions):
     """
-    Insert multiple transactions into the database.
+    Insert multiple transactions into the database using efficient bulk inserts.
+    Maintains transaction order using tx_index.
+    Uses batch processing for better performance.
+    Does not commit - transaction boundaries are handled by the caller.
 
     Args:
         db (DatabaseConnection): The database connection object.
         transactions (list): A list of namedtuples representing transactions.
 
     Returns:
-        int: The index of the last inserted transaction.
+        None
+
+    Raises:
+        ValueError: If error occurs during insertion
     """
-    # assert transactions.block_index is not None
     try:
+        # Sort transactions by tx_index to maintain order
+        sorted_transactions = sorted(transactions, key=lambda x: x.tx_index if x.tx_index is not None else float("inf"))
+
+        # Prepare values for bulk insert
         values = []
-        for tx in transactions:
+        for tx in sorted_transactions:
             values.append(
                 (
                     tx.tx_index,
@@ -446,28 +455,45 @@ def insert_transactions(db, transactions):
                     tx.keyburn,
                 )
             )
+
+        BATCH_SIZE = 1000  # Adjust based on your needs
         with db.cursor() as cursor:
-            cursor.executemany(
-                """INSERT INTO transactions (
-                    tx_index,
-                    tx_hash,
-                    block_index,
-                    block_hash,
-                    block_time,
-                    source,
-                    destination,
-                    btc_amount,
-                    fee,
-                    data,
-                    keyburn
-                ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)""",
-                (values),
-            )
+            for i in range(0, len(values), BATCH_SIZE):
+                batch = values[i : i + BATCH_SIZE]
+                cursor.executemany(
+                    """INSERT INTO transactions (
+                        tx_index,
+                        tx_hash,
+                        block_index,
+                        block_hash,
+                        block_time,
+                        source,
+                        destination,
+                        btc_amount,
+                        fee,
+                        data,
+                        keyburn
+                    ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)""",
+                    batch,
+                )
+
     except Exception as e:
+        # Don't rollback here - let the caller handle it
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
 
 def insert_into_stamp_table(db, parsed_stamps: List):
+    """
+    Insert multiple stamps into the database.
+    Does not commit - transaction boundaries are handled by the caller.
+
+    Args:
+        db (DatabaseConnection): The database connection object
+        parsed_stamps (List): List of parsed stamp objects to insert
+
+    Raises:
+        ValueError: If error occurs during insertion
+    """
     try:
         with db.cursor() as cursor:
             insert_query = f"""
@@ -512,6 +538,7 @@ def insert_into_stamp_table(db, parsed_stamps: List):
 
             cursor.executemany(insert_query, data)
     except Exception as e:
+        # Don't rollback here - let the caller handle it
         raise ValueError(f"Error occurred while inserting to StampTable: {e}")
 
 
