@@ -7,7 +7,7 @@ import time
 
 import bitcoin as bitcoinlib
 import requests
-from bitcoin.core import CBlock
+from bitcoin.core import CBlock, CTransaction, x
 from requests.exceptions import ConnectionError, Timeout
 
 import config
@@ -209,11 +209,11 @@ def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
 
 
 def deserialize(tx_hex):
-    return bitcoinlib.core.CTransaction.deserialize(binascii.unhexlify(tx_hex))
+    return CTransaction.deserialize(x(tx_hex))
 
 
 def serialize(ctx):
-    return bitcoinlib.core.CTransaction.serialize(ctx)
+    return CTransaction.serialize(ctx)
 
 
 def get_tx_list(block_hash):

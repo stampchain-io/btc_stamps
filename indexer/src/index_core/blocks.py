@@ -14,8 +14,6 @@ from collections import namedtuple
 from typing import List
 
 from bitcoin.core.script import CScriptInvalidError
-from bitcoin.wallet import CBitcoinAddress
-from bitcoinlib.keys import pubkeyhash_to_addr
 from pymysql.connections import Connection
 
 # import cProfile
@@ -345,7 +343,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                         keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
                         p2wsh_data = None
                         destination_pubkey = ctx.vout[0].scriptPubKey
-                        destinations = decode_address(destination_pubkey)
+                        destinations = util.decode_address(destination_pubkey)
                     else:
                         p2wsh_data = None
                 else:
@@ -386,7 +384,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         prev_vout_script_pubkey = prev_vout.scriptPubKey
 
         # Decode the address associated with the output.
-        source = decode_address(prev_vout_script_pubkey)
+        source = util.decode_address(prev_vout_script_pubkey)
 
         return TransactionInfo(
             str(source),
@@ -404,37 +402,6 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
     except (DecodeError, BTCOnlyError):
         return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None)
-
-
-def decode_address(script_pubkey):
-    """
-    Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
-
-    Args:
-        script_pubkey (bytes): The scriptPubKey to decode.
-
-    Returns:
-        str: The decoded Bitcoin address.
-
-    Raises:
-        ValueError: If the scriptPubKey format is unsupported.
-    """
-    try:
-        # Attempt standard address decoding
-        address = CBitcoinAddress.from_scriptPubKey(script_pubkey)
-        return str(address)
-    except Exception:
-        # Handle other types of addresses
-        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:  # Taproot check
-            # Extract the witness program for Taproot
-            witness_program = script_pubkey[2:]
-            # Decode as Bech32m address
-            if config.TESTNET:
-                return pubkeyhash_to_addr(witness_program, prefix="tb", encoding="bech32", witver=1)
-            else:
-                return pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
-        else:
-            raise ValueError("Unsupported scriptPubKey format")
 
 
 def decode_checkmultisig(ctx, chunk):
@@ -463,7 +430,7 @@ def decode_checkmultisig(ctx, chunk):
             raise DecodeError("invalid data length")
 
         script_pubkey = ctx.vout[0].scriptPubKey
-        destination = decode_address(script_pubkey)
+        destination = util.decode_address(script_pubkey)
         destination_nvalue = ctx.vout[0].nValue
         return str(destination), destination_nvalue, data
     else:
@@ -616,31 +583,117 @@ def log_block_info(
     src20_in_block: int,
 ):
     """
-    Logs the information of a block.
-
-    Parameters:
-    - block_index (int): The index of the block.
-    - start_time (float): The start time of the block.
-    - new_ledger_hash (str): The hash of the new ledger.
-    - new_txlist_hash (str): The hash of the new transaction list.
-    - new_messages_hash (str): The hash of the new messages.
-
-    Returns:
-    None
+    Logs block information with highly stable ETA using weighted EMA and complexity factors.
+    Skips first block of each batch in calculations due to CP overhead.
     """
-    logger = logging.getLogger(__name__)
-    logger.block_status(  # type: ignore[attr-defined]
-        "Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s / S20:%s)"
-        % (
-            str(block_index),
-            "{:.2f}".format(time.time() - start_time),
-            new_ledger_hash[-5:] if new_ledger_hash else "N/A",
-            new_txlist_hash[-5:],
-            new_messages_hash[-5:],
-            stamps_in_block,
-            src20_in_block,
+    try:
+        # Get current tip of the blockchain
+        block_tip = backend.getblockcount()
+
+        # Calculate progress based on genesis block
+        total_blocks = block_tip - config.BLOCK_FIRST
+        current_progress = (block_index - config.BLOCK_FIRST) / total_blocks if total_blocks > 0 else 0
+
+        # Initialize tracking variables if not exists
+        if not hasattr(log_block_info, "state"):
+            log_block_info.state = {
+                "ema_time": None,
+                "block_count": 0,
+                "last_eta": None,
+                "long_ema": None,
+                "last_update_block": None,
+                "complexity_factor": 1.0,
+                "is_first_block": True,  # Track if this is first block of a batch
+            }
+
+        state = log_block_info.state
+        current_time = time.time() - start_time
+
+        # Skip ETA calculations for first block of each batch
+        if not state["is_first_block"]:
+            state["block_count"] += 1
+
+            # Adjust complexity factor based on stamps and src20 transactions
+            transaction_complexity = 1.0 + (stamps_in_block + src20_in_block) * 0.1
+            state["complexity_factor"] = 0.9 * state["complexity_factor"] + 0.1 * transaction_complexity
+
+            # Calculate short-term EMA (more responsive)
+            alpha_short = min(0.1, 2 / (min(state["block_count"], 20) + 1))
+            if state["ema_time"] is None:
+                state["ema_time"] = current_time
+            else:
+                state["ema_time"] = (1 - alpha_short) * state["ema_time"] + alpha_short * current_time
+
+            # Calculate long-term EMA (more stable)
+            alpha_long = min(0.02, 1 / (min(state["block_count"], 100) + 1))
+            if state["long_ema"] is None:
+                state["long_ema"] = current_time
+            else:
+                state["long_ema"] = (1 - alpha_long) * state["long_ema"] + alpha_long * current_time
+
+            # Blend short and long term EMAs based on block count
+            blend_factor = min(state["block_count"] / 100, 1.0)
+            blended_time = (1 - blend_factor) * state["ema_time"] + blend_factor * state["long_ema"]
+
+            # Apply complexity factor
+            adjusted_time = blended_time * state["complexity_factor"]
+
+            # Calculate remaining blocks and time
+            blocks_remaining = block_tip - block_index
+            est_seconds_remaining = blocks_remaining * adjusted_time
+
+            # Convert to hours and minutes
+            hours = int(est_seconds_remaining // 3600)
+            minutes = int((est_seconds_remaining % 3600) // 60)
+
+            # Update ETA display every 10 blocks or on significant changes
+            should_update = (
+                state["last_eta"] is None
+                or state["block_count"] % 10 == 0
+                or abs(hours - state["last_eta"][0]) > 1
+                or abs(minutes - state["last_eta"][1]) > 15
+            )
+
+            if should_update:
+                state["last_eta"] = (hours, minutes)
+                state["last_update_block"] = block_index
+            else:
+                hours, minutes = state["last_eta"]
+
+            # Format ETA string
+            eta = f"{hours}h {minutes:02d}m"
+        else:
+            # For first block, just show progress without ETA
+            eta = "calculating..."
+            state["is_first_block"] = False
+
+        logger.block_status(  # type: ignore[attr-defined]
+            "Block: %s (%ss, ETA: %s, Progress: %s%%, S:%s/S20:%s)"
+            % (
+                str(block_index),
+                "{:.2f}".format(current_time),
+                eta,
+                "{:.1f}".format(current_progress * 100),
+                stamps_in_block,
+                src20_in_block,
+            )
         )
-    )
+
+        # Check if this is the last block of current batch (every 1000 blocks)
+        if block_index % 1000 == 805:  # Assuming 1000 block batches starting at x806
+            state["is_first_block"] = True  # Reset for next batch
+
+    except Exception as e:
+        # Fallback to simple logging if there's any error
+        logger.block_status(  # type: ignore[attr-defined]
+            "Block: %s (%ss, S:%s/S20:%s)"
+            % (
+                str(block_index),
+                "{:.2f}".format(time.time() - start_time),
+                stamps_in_block,
+                src20_in_block,
+            )
+        )
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
@@ -690,7 +743,6 @@ def quick_filter_src20_transaction(tx_hex):
         bool: True if transaction might be a SRC-20, False if definitely not
     """
     try:
-        # Quick decode of transaction
         ctx = backend.deserialize(tx_hex)
 
         # Check outputs for SRC-20 patterns
@@ -701,8 +753,8 @@ def quick_filter_src20_transaction(tx_hex):
             if len(script) == 34 and script[0] == 0x00:
                 return True
 
-            # Quick check for potential multisig pattern
-            # Look for OP_CHECKMULTISIG (0xae) near the end
+            # Check for potential multisig pattern with OP_CHECKMULTISIG
+            # OP_CHECKMULTISIG opcode is 0xAE
             if len(script) > 2 and script[-1] == 0xAE:
                 return True
 
@@ -786,7 +838,6 @@ def follow(db):
     Returns:
         None
     """
-
     initialize(db)
     rebuild_balances(db)
     rebuild_owners(db)
@@ -827,7 +878,7 @@ def follow(db):
     try:
         while True:
             start_time = time.time()
-
+            db.begin()  # Start transaction for entire block
             try:
                 block_tip = backend.getblockcount()
             except (
@@ -925,9 +976,11 @@ def follow(db):
                     )
                 except BlockAlreadyExistsError as e:
                     logger.warning(e)
+                    db.rollback()
                     sys.exit(f"Exiting due to block already existing. {e}")
                 except DatabaseInsertError as e:
                     logger.error(e)
+                    db.rollback()
                     sys.exit("Critical database error encountered. Exiting.")
 
                 valid_stamps_in_block: List[ValidStamp] = []
@@ -1028,8 +1081,10 @@ def follow(db):
         #     should_profile = False
     except KeyboardInterrupt:
         logger.info("Shutting down gracefully...")
+        db.rollback()  # Ensure clean rollback on interrupt
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
+        db.rollback()  # Ensure clean rollback on any error
     finally:
         executor.shutdown(wait=True)
         logger.info("Executor has been shut down.")
