@@ -21,7 +21,8 @@ from config import (  # SRC_VALIDATION_API1,
     SRC_VALIDATION_SECRET_API2,
     TICK_PATTERN_SET,
 )
-from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
+from index_core.caching import BatchBalanceUpdater, balance_cache, deployment_cache, total_minted_cache
+from index_core.database import get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
 
 D = Decimal
@@ -176,7 +177,6 @@ class Src20Processor:
                 return
             self.src20_dict["total_balance_creator"] = D(running_user_balance_creator) - amt
             self.src20_dict["total_balance_destination"] = D(running_user_balance_destination) + amt
-            # self.src20_dict['status'] = 'Balance Updated'
         elif operation == "MINT" and total_minted is not None:
             try:
                 amt = self.normalize_and_validate_amt()
@@ -188,7 +188,9 @@ class Src20Processor:
                     dec=self.dec,
                 )
                 return
-            TOTAL_MINTED_CACHE[self.src20_dict.get("tick")] += amt
+            tick = self.src20_dict.get("tick")
+            current_total = total_minted_cache.get(tick) or D(0)
+            total_minted_cache.set(tick, current_total + amt)
             running_total_mint = D(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
             self.src20_dict["total_minted"] = running_total_mint
@@ -370,7 +372,7 @@ class Src20Processor:
     ):  # NOTE: this is not yet implemented on a block height activation or in the operation handling
         # Check if operation is BULK_XFER and if deploy limits are set
         if self.src20_dict["op"] != "BULK_XFER" or not (self.deploy_lim and self.deploy_max):
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - deployment limits not set or operation mismatch")
+            logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - deployment limits not set or operation mismatch")
             return
 
         # Validate the 'holders_of' target deploy
@@ -402,7 +404,7 @@ class Src20Processor:
         running_user_balance_creator = getattr(running_user_balance_tuple, "total_balance", D("0"))
 
         if running_user_balance_creator <= 0:
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - insufficient balance")
+            logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - insufficient balance")
             return
 
         # Get tick holders and calculate total send amount
@@ -724,16 +726,28 @@ def get_running_mint_total(db, src20_processed_in_block, tick):
     Returns:
         Decimal: The running mint total for the given tick.
     """
-    total_minted = 0
+    total_minted = D(0)
+
+    # First check in-block transactions
     if len(src20_processed_in_block) > 0:
         for item in reversed(src20_processed_in_block):
             if item["tick"] == tick and item["op"] == "MINT" and "total_minted" in item:
-                total_minted = item["total_minted"]
+                total_minted = D(item["total_minted"])
+                # Update cache with latest value
+                total_minted_cache.set(tick, total_minted)
                 break
-    if total_minted == 0:
-        total_minted = get_total_src20_minted_from_db(db, tick)
 
-    return D(total_minted)
+    # If not found in block, try cache
+    if total_minted == D(0):
+        cached_total = total_minted_cache.get(tick)
+        if cached_total is not None:
+            total_minted = cached_total
+        else:
+            # If not in cache, query database
+            total_minted = get_total_src20_minted_from_db(db, tick)
+            total_minted_cache.set(tick, total_minted)
+
+    return total_minted
 
 
 def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in_block):
@@ -851,46 +865,70 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
         ],
     )
 
-    with db.cursor() as src20_cursor:
-        query = f"""
-            SELECT
-                tick,
-                address,
-                amt,
-                last_update,
-                block_time,
-                locked_amt
-            FROM
-                {SRC20_BALANCES_TABLE}
-            WHERE
-                tick = %s
-                AND tick_hash = %s
-                AND address IN %s
-        """  # nosec
-
-        src20_cursor.execute(query, (tick, tick_hash, tuple(addresses)))
-        results = src20_cursor.fetchall()
-        for address in addresses:
-            total_balance = D("0")
-            highest_block_index = 0
-            block_time_unix = None
-            for result in results:
-                tick = result[0]
-                address = result[1]
-                total_balance = result[2]
-                highest_block_index = result[3]
-                block_time_unix = result[4]
-                locked_amt = result[5]
-                balances.append(
-                    BalanceTuple(
-                        tick,
-                        address,
-                        total_balance,
-                        highest_block_index,
-                        block_time_unix,
-                        locked_amt,
-                    )
+    # Try cache first for each address
+    addresses_to_query = []
+    for address in addresses:
+        cached_result = balance_cache.get(tick, tick_hash, address)
+        if cached_result is not None:
+            balances.append(
+                BalanceTuple(
+                    tick,
+                    address,
+                    cached_result,
+                    0,  # We don't cache these values as they're not critical
+                    None,
+                    None,
                 )
+            )
+        else:
+            addresses_to_query.append(address)
+
+    # Query database for uncached addresses
+    if addresses_to_query:
+        with db.cursor() as src20_cursor:
+            query = f"""
+                SELECT
+                    tick,
+                    address,
+                    amt,
+                    last_update,
+                    block_time,
+                    locked_amt
+                FROM
+                    {SRC20_BALANCES_TABLE}
+                WHERE
+                    tick = %s
+                    AND tick_hash = %s
+                    AND address IN %s
+            """  # nosec
+
+            src20_cursor.execute(query, (tick, tick_hash, tuple(addresses_to_query)))
+            results = src20_cursor.fetchall()
+
+            # Create a map of addresses to their results
+            address_results = {result[1]: result for result in results}
+
+            # Process remaining addresses
+            for address in addresses_to_query:
+                result = address_results.get(address)
+                if result:
+                    total_balance = D(str(result[2]))
+                    # Cache the result
+                    balance_cache.set(tick, tick_hash, address, total_balance)
+                    balances.append(
+                        BalanceTuple(
+                            result[0],  # tick
+                            result[1],  # address
+                            total_balance,
+                            result[3],  # highest_block_index
+                            result[4],  # block_time_unix
+                            result[5],  # locked_amt
+                        )
+                    )
+                else:
+                    # If no balance found, add and cache zero balance
+                    balance_cache.set(tick, tick_hash, address, D("0"))
+                    balances.append(BalanceTuple(tick, address, D("0"), 0, None, None))
 
     return balances
 
@@ -988,8 +1026,10 @@ def get_tick_holders_from_balances(db, tick):
 
 
 def update_src20_balances(db, block_index, block_time, processed_src20_in_block):
-    balance_updates: List[Dict[str, Union[str, D]]] = []
+    """Update balances for SRC20 transactions"""
+    balance_updates = []
 
+    # First accumulate all changes within the block
     for src20_dict in processed_src20_in_block:
         if src20_dict.get("valid") != 1:  # Skip invalid transactions
             continue
@@ -1002,8 +1042,10 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
             continue
 
         try:
+            amt = D(str(src20_dict["amt"]))  # Ensure decimal conversion is consistent
+
             if src20_dict["op"] == "MINT":
-                # Credit to destination (creator can be a mint service)
+                # Credit to destination
                 balance_dict = next(
                     (
                         item
@@ -1019,12 +1061,12 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                         "tick": src20_dict["tick"],
                         "tick_hash": src20_dict["tick_hash"],
                         "address": src20_dict["destination"],
-                        "credit": D(src20_dict["amt"]),
+                        "credit": amt,
                         "debit": D(0),
                     }
                     balance_updates.append(balance_dict)
                 else:
-                    balance_dict["credit"] += D(src20_dict["amt"])
+                    balance_dict["credit"] += amt
 
             elif src20_dict["op"] == "TRANSFER":
                 # Debit from creator
@@ -1044,11 +1086,11 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                         "tick_hash": src20_dict["tick_hash"],
                         "address": src20_dict["creator"],
                         "credit": D(0),
-                        "debit": D(src20_dict["amt"]),
+                        "debit": amt,
                     }
                     balance_updates.append(balance_dict)
                 else:
-                    balance_dict["debit"] += D(src20_dict["amt"])
+                    balance_dict["debit"] += amt
 
                 # Credit to destination
                 balance_dict = next(
@@ -1066,20 +1108,27 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                         "tick": src20_dict["tick"],
                         "tick_hash": src20_dict["tick_hash"],
                         "address": src20_dict["destination"],
-                        "credit": D(src20_dict["amt"]),
+                        "credit": amt,
                         "debit": D(0),
                     }
                     balance_updates.append(balance_dict)
                 else:
-                    balance_dict["credit"] += D(src20_dict["amt"])
+                    balance_dict["credit"] += amt
 
         except Exception as e:
             logger.error(f"Error updating SRC20 balances for transaction: {src20_dict}")
             logger.error(f"Error details: {str(e)}")
             raise
 
-    if balance_updates:
-        update_balance_table(db, balance_updates, block_index, block_time)
+    # Now update the database with final balances
+    update_balance_table(db, balance_updates, block_index, block_time)
+
+    # Update caches with final balances
+    for balance_dict in balance_updates:
+        net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
+        current_balance = balance_dict.get("original_amt", D(0)) + net_change
+        balance_cache.set(balance_dict["tick"], balance_dict["tick_hash"], balance_dict["address"], current_balance)
+
     return balance_updates
 
 
@@ -1093,6 +1142,7 @@ def update_balance_table(db, balance_updates, block_index, block_time):
             balance_dict["net_change"] = net_change
             id_field = balance_dict["tick"] + "_" + balance_dict["address"]
 
+            # Get and store original balance
             cursor.execute(f"SELECT amt FROM {SRC20_BALANCES_TABLE} WHERE id = %s", (id_field,))  # nosec
             result = cursor.fetchone()
             if result is not None:
@@ -1108,18 +1158,21 @@ def update_balance_table(db, balance_updates, block_index, block_time):
                 ON DUPLICATE KEY UPDATE
                     amt = amt + VALUES(amt),
                     last_update = VALUES(last_update)
-            """,
+                """,
                 (
                     id_field,
                     balance_dict["address"],
                     balance_dict["tick"],
-                    net_change,
+                    net_change,  # Use net_change directly
                     block_index,
                     block_time,
                     "SRC-20",
                     balance_dict["tick_hash"],
                 ),
             )
+
+            # Invalidate cache after successful update
+            balance_cache.invalidate(balance_dict["tick"], balance_dict["tick_hash"], balance_dict["address"])
 
         except Exception as e:
             logger.error("Error updating balances table:", e)

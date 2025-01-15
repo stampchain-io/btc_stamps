@@ -136,7 +136,9 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
   INDEX `op` (`op`),
   INDEX `creator` (`creator`), 
   INDEX `block_index` (`block_index`),
-  INDEX `idx_src20valid_tick_op_max_deci_lim` (`tick`, `op`, `max`, `deci`, `lim`)
+  INDEX `idx_src20valid_tick_op_max_deci_lim` (`tick`, `op`, `max`, `deci`, `lim`),
+  INDEX `idx_tick_creator_bal` (`tick`, `creator`, `creator_bal`),
+  INDEX `idx_tick_destination_bal` (`tick`, `destination`, `destination_bal`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `balances` (
@@ -153,7 +155,8 @@ CREATE TABLE IF NOT EXISTS `balances` (
   UNIQUE KEY `address_p_tick_unique` (`address`, `p`, `tick`, `tick_hash`),
   INDEX `address` (`address`),
   INDEX `tick` (`tick`),
-  INDEX `tick_tick_hash` (`tick`, `tick_hash`)
+  INDEX `tick_tick_hash` (`tick`, `tick_hash`),
+  INDEX `idx_address_tick_amt` (`address`, `tick`, `amt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS s3objects (
