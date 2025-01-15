@@ -1480,27 +1480,6 @@ def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: in
             time.sleep(delay_between_chunks)
 
 
-def get_total_src721_minted_from_db(db, deploy_hash):
-    """Get the total minted amount for a given deploy_hash from the database."""
-    cached_total = total_minted_cache.get(deploy_hash)
-    if cached_total is not None:
-        return cached_total
-
-    with db.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT COUNT(*) as total_minted
-            FROM {SRC721_VALID_TABLE}
-            WHERE deploy_hash = %s AND op = 'MINT'
-            """,
-            (deploy_hash,),
-        )
-        result = cursor.fetchone()
-        total_minted = D(result[0]) if result[0] is not None else D(0)
-        total_minted_cache.set(deploy_hash, total_minted)
-        return total_minted
-
-
 def update_src20_token_stats(db):
     """
     Updates the src20_token_stats table with latest balances data.

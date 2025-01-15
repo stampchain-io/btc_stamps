@@ -608,14 +608,14 @@ def log_block_info(
     stamps_in_block: int,
     src20_in_block: int,
     src101_in_block: int = 0,
-):
+) -> None:
     """
     Logs block information with highly stable ETA using weighted EMA and complexity factors.
     Skips first block of each batch in calculations due to CP overhead.
     """
     try:
         # Get current tip of the blockchain
-        block_tip = backend.getblockcount()
+        block_tip: int = backend.getblockcount()
 
         # Calculate progress based on CP genesis block to current tip
         blocks_to_process = block_tip - config.CP_STAMP_GENESIS_BLOCK
@@ -623,22 +623,26 @@ def log_block_info(
 
         # Ensure we don't show progress before genesis block
         if block_index < config.CP_STAMP_GENESIS_BLOCK:
-            current_progress = 0
+            current_progress = 0.0
         else:
             current_progress = min(1.0, blocks_processed / blocks_to_process if blocks_to_process > 0 else 0)
 
         # Initialize tracking variables if not exists
-        if not hasattr(log_block_info, "state"):
-            log_block_info.state = {
-                "times": [],  # Store last N block times
-                "window_size": 100,  # Reduced window for faster initial ETA
-                "last_eta_update": 0,
-                "last_eta": None,
-                "last_tip": block_tip,
-                "last_time": start_time,  # Track last block's time
-            }
+        if not hasattr(log_block_info, "_state"):
+            setattr(
+                log_block_info,
+                "_state",
+                {
+                    "times": [],  # Store last N block times
+                    "window_size": 100,  # Reduced window for faster initial ETA
+                    "last_eta_update": 0,
+                    "last_eta": None,
+                    "last_tip": block_tip,
+                    "last_time": start_time,  # Track last block's time
+                },
+            )
 
-        state = log_block_info.state
+        state = getattr(log_block_info, "_state")
         current_time = time.time() - state.get("last_time", start_time)  # Time since last block
         state["last_time"] = time.time()  # Update for next block
 
@@ -888,8 +892,6 @@ def follow(db):
 
     try:
         executor = concurrent.futures.ThreadPoolExecutor()
-        update_cpids_future = None
-        update_cpids_last_run_block = None
 
         while not server.shutdown_flag.is_set():
             start_time = time.time()

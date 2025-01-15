@@ -66,7 +66,8 @@ class ZMQNotifier:
             if events:
                 topic, body, seq = self.socket.recv_multipart()
                 topic_str = topic.decode("utf-8")
-                logger.info(f"Received ZMQ notification - Topic: {topic_str}, Sequence: {seq}")
+                seq_str = seq.decode("utf-8")
+                logger.info(f"Received ZMQ notification - Topic: {topic_str}, Sequence: {seq_str}")
                 return topic, body, seq
         except zmq.error.ZMQError as e:
             logger.error(f"Error receiving ZMQ notification: {e}")

@@ -10,8 +10,7 @@ import threading
 import unicodedata
 from binascii import unhexlify
 
-from bitcoin.core import x
-from bitcoin.wallet import CBitcoinAddress, P2WSHBitcoinAddress
+from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
 

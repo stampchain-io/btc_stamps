@@ -1,11 +1,9 @@
-import binascii
 import collections
 import concurrent.futures
 import json
 import logging
 import time
 
-import bitcoin as bitcoinlib
 import requests
 from bitcoin.core import CBlock, CTransaction, x
 from requests.exceptions import ConnectionError, Timeout
