@@ -38,7 +38,7 @@ class StampProcessor:
                 self.valid_stamps_in_block,
             )
         except (DataConversionError, InvalidInputDataError, ValueError) as e:
-            logger.info(f"INVALID STAMP DATA: {e}")
+            logger.debug(f"INVALID STAMP DATA: {e}")
             return (None,) * 4
 
         if stamp_data.is_btc_stamp:

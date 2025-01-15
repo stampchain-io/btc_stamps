@@ -16,7 +16,9 @@ from exceptions import BackendRPCError
 
 logger = logging.getLogger(__name__)
 
-raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
+# Standard cache sizes
+raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+deserialized_tx_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
 
 
 def rpc_call(payload):
@@ -209,7 +211,16 @@ def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
 
 
 def deserialize(tx_hex):
-    return CTransaction.deserialize(x(tx_hex))
+    """
+    Deserialize a transaction hex string into a CTransaction object.
+    Uses caching to avoid repeated deserialization of the same transaction.
+    """
+    if tx_hex in deserialized_tx_cache:
+        return deserialized_tx_cache[tx_hex]
+
+    ctx = CTransaction.deserialize(x(tx_hex))
+    deserialized_tx_cache[tx_hex] = ctx
+    return ctx
 
 
 def serialize(ctx):
@@ -217,20 +228,24 @@ def serialize(ctx):
 
 
 def get_tx_list(block_hash):
-    block_data = getblock(block_hash, 2)
+    """Get transaction list from block."""
+    block_data = rpc("getblock", [block_hash, 2])
 
     tx_hash_list = []
     raw_transactions = {}
+
     for tx in block_data["tx"]:
         tx_hash = tx["txid"]
         tx_hash_list.append(tx_hash)
         raw_transactions[tx_hash] = tx["hex"]
 
-    block_time = block_data["time"]
-    previous_block_hash = block_data.get("previousblockhash", None)
-    difficulty = block_data.get("difficulty", None)
-
-    return tx_hash_list, raw_transactions, block_time, previous_block_hash, difficulty
+    return (
+        tx_hash_list,
+        raw_transactions,
+        block_data["time"],
+        block_data.get("previousblockhash"),
+        block_data.get("difficulty"),
+    )
 
 
 GETRAWTRANSACTION_MAX_RETRIES = 2
@@ -240,9 +255,12 @@ monotonic_call_id = 0
 def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _retry=0):
     _logger = logger.getChild("getrawtransaction_batch")
 
+    txhash_list = list(set(txhash_list))
+    _logger.debug(f"Processing {len(txhash_list)} transactions")
+
     if len(txhash_list) > config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE:
-        # don't try to load in more than BACKEND_RAW_TRANSACTIONS_CACHE_SIZE entries in a single call
-        txhash_list_chunks = util.chunkify(txhash_list, config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+        chunk_size = min(500, config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+        txhash_list_chunks = util.chunkify(txhash_list, chunk_size)
         txes = {}
         for txhash_list_chunk in txhash_list_chunks:
             txes.update(getrawtransaction_batch(txhash_list_chunk, verbose=verbose, skip_missing=skip_missing))
@@ -250,17 +268,14 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
 
     tx_hash_call_id = {}
     payload = []
-    noncached_txhashes = set()
+    noncached_txhashes = []  # Use list instead of set since we need to iterate once
 
-    txhash_list = set(txhash_list)
-    _logger.debug(f"Processing {len(txhash_list)} transactions")
-
-    # payload for transactions not in cache
+    # Pre-check cache in single pass
     for tx_hash in txhash_list:
         if tx_hash not in raw_transactions_cache:
             global monotonic_call_id
-            monotonic_call_id = monotonic_call_id + 1
-            call_id = "{}".format(monotonic_call_id)
+            monotonic_call_id += 1
+            call_id = str(monotonic_call_id)
             payload.append(
                 {
                     "method": "getrawtransaction",
@@ -269,62 +284,38 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
                     "id": call_id,
                 }
             )
-            noncached_txhashes.add(tx_hash)
+            noncached_txhashes.append(tx_hash)
             tx_hash_call_id[call_id] = tx_hash
-            _logger.debug(f"Added tx {tx_hash} to fetch queue")
-
-    # refresh cache entries
-    for tx_hash in txhash_list.difference(noncached_txhashes):
-        try:
-            raw_transactions_cache.refresh(tx_hash)
-            _logger.debug(f"Refreshed cache for tx {tx_hash}")
-        except Exception as e:
-            _logger.warning(f"Failed to refresh cache for tx {tx_hash}: {str(e)}")
+        else:
+            try:
+                raw_transactions_cache.refresh(tx_hash)
+            except Exception:
+                noncached_txhashes.append(tx_hash)
 
     _logger.debug(
-        "Batch stats: cache_size={}, to_fetch={}, total_requested={}".format(
-            len(raw_transactions_cache), len(payload), len(txhash_list)
-        )
+        f"Batch stats: cache_size={len(raw_transactions_cache)}, to_fetch={len(payload)}, total_requested={len(txhash_list)}"
     )
 
-    # populate cache
+    # Fetch missing transactions
     if payload:
         try:
             batch_responses = rpc_batch(payload)
-            _logger.debug(f"Received {len(batch_responses)} responses from RPC batch")
-
             for response in batch_responses:
                 tx_hash = tx_hash_call_id.get(response.get("id", "??"), "??")
-                _logger.debug(f"Processing response for tx {tx_hash}")
-
                 if "error" not in response or response["error"] is None:
-                    if "result" not in response:
-                        _logger.error(f"Missing 'result' in response for tx {tx_hash}: {response}")
-                        continue
-
-                    tx_hex = response["result"]
-                    _logger.debug(f"Got valid response for tx {tx_hash}")
-
-                    try:
-                        raw_transactions_cache[tx_hash] = tx_hex
-                        _logger.debug(f"Successfully cached tx {tx_hash}")
-                    except Exception as e:
-                        _logger.error(f"Failed to cache tx {tx_hash}: {str(e)}")
-                        raise
-
+                    if "result" in response:
+                        raw_transactions_cache[tx_hash] = response["result"]
                 elif skip_missing and "error" in response and response["error"]["code"] == -5:
                     raw_transactions_cache[tx_hash] = None
-                    _logger.debug(f"Missing TX skipped: {tx_hash}")
                 else:
-                    _logger.error(f"RPC error for tx {tx_hash}: {response.get('error')}")
                     if not skip_missing:
                         raise BackendRPCError(f"Error fetching tx {tx_hash}: {response.get('error')}")
         except Exception as e:
             _logger.error(f"Failed to fetch transactions: {str(e)}")
             raise
 
-    # get transactions from cache
     result = {}
+    missing_txs = []
     for tx_hash in txhash_list:
         try:
             cached_tx = raw_transactions_cache[tx_hash]
@@ -332,27 +323,18 @@ def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _ret
                 result[tx_hash] = None
             else:
                 result[tx_hash] = cached_tx["hex"] if not verbose else cached_tx
-            _logger.debug(f"Retrieved tx {tx_hash} from cache")
         except KeyError:
-            _logger.warning(
-                f"Transaction {tx_hash} missing from cache after fetching. Cache stats: "
-                f"size={len(raw_transactions_cache)}, noncached={len(noncached_txhashes)}"
-            )
-            if _retry < GETRAWTRANSACTION_MAX_RETRIES:
-                _logger.info(f"Retrying fetch for tx {tx_hash} (attempt {_retry + 1})")
-                time.sleep(0.05 * (_retry + 1))
-                r = getrawtransaction_batch(
-                    [tx_hash],
-                    verbose=verbose,
-                    skip_missing=skip_missing,
-                    _retry=_retry + 1,
-                )
-                result[tx_hash] = r[tx_hash]
-            else:
-                _logger.error(f"Max retries exceeded for tx {tx_hash}")
-                if skip_missing:
-                    result[tx_hash] = None
-                    continue
-                raise
+            missing_txs.append(tx_hash)
+
+    # Handle missing transactions with single retry
+    if missing_txs and _retry < GETRAWTRANSACTION_MAX_RETRIES:
+        time.sleep(0.05 * (_retry + 1))
+        retry_results = getrawtransaction_batch(missing_txs, verbose=verbose, skip_missing=skip_missing, _retry=_retry + 1)
+        result.update(retry_results)
+    elif missing_txs and skip_missing:
+        for tx_hash in missing_txs:
+            result[tx_hash] = None
+    elif missing_txs:
+        raise BackendRPCError(f"Failed to fetch transactions after retries: {missing_txs}")
 
     return result

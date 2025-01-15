@@ -24,6 +24,7 @@ import index_core.backend as backend
 import index_core.check as check
 import index_core.log as log
 import index_core.script as script
+import index_core.server as server
 import index_core.util as util
 from index_core.database import (
     get_unlocked_cpids,
@@ -92,6 +93,7 @@ class BlockProcessor:
         self.parsed_stamps: List[StampData] = []
         self.processed_src20_in_block: List[Src20Dict] = []
         self.processed_src101_in_block: List[Src101Dict] = []
+        self.collection_operations = []
 
     def process_transaction_results(self, tx_results):
         logger.debug(f"Processing {len(tx_results)} transaction results")
@@ -127,26 +129,32 @@ class BlockProcessor:
 
             if stamp_data:
                 self.parsed_stamps.append(stamp_data)
+                self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
                 logger.debug(f"Added stamp data for tx: {result.tx_hash}")
             if valid_stamp:
                 self.valid_stamps_in_block.append(valid_stamp)
                 logger.debug(f"Added valid stamp for tx: {result.tx_hash}")
-            if prevalidated_src and stamp_data.pval_src20:
+            if prevalidated_src and stamp_data and stamp_data.pval_src20:
                 logger.debug(f"Processing SRC20 for tx: {result.tx_hash}")
                 _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
                 logger.debug(f"SRC20 dict created: {src20_dict}")
                 self.processed_src20_in_block.append(src20_dict)
-            if prevalidated_src and stamp_data.pval_src101:
+            if prevalidated_src and stamp_data and stamp_data.pval_src101:
                 logger.debug(f"Processing SRC101 for tx: {result.tx_hash}")
-                _, src101_dict = parse_src101(self.db, prevalidated_src, self.processed_src101_in_block, result.block_index)
+                _, src101_dict = parse_src101(
+                    self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index
+                )
                 logger.debug(f"SRC101 dict created: {src101_dict}")
                 self.processed_src101_in_block.append(src101_dict)
 
         if self.parsed_stamps:
             logger.debug(f"Inserting {len(self.parsed_stamps)} stamps into table")
             insert_into_stamp_table(self.db, self.parsed_stamps)
-            for stamp in self.parsed_stamps:
-                stamp.match_and_insert_collection_data(config.LEGACY_COLLECTIONS, self.db)
+
+            if self.collection_operations:
+                logger.debug(f"Processing {len(self.collection_operations)} collection operations")
+                for stamp, collections in self.collection_operations:
+                    stamp.match_and_insert_collection_data(collections, self.db)
 
     def finalize_block(self, block_index, block_time, txhash_list):
         try:
@@ -167,10 +175,12 @@ class BlockProcessor:
             else:
                 valid_src20_str = ""
 
+            src101_count = 0
             if self.processed_src101_in_block:
                 logger.debug(f"Processing {len(self.processed_src101_in_block)} SRC101 transactions")
                 insert_into_src101_tables(self.db, self.processed_src101_in_block)
                 update_src101_owners(self.db, block_index, self.processed_src101_in_block)
+                src101_count = len(self.processed_src101_in_block)
 
             if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
                 clear_zero_balances(self.db)
@@ -184,7 +194,7 @@ class BlockProcessor:
 
             stamps_in_block = len(self.valid_stamps_in_block)
             src20_in_block = len(self.processed_src20_in_block)
-            return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block
+            return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block, src101_count
         except Exception as e:
             logger.error(f"Error in finalize_block: {e}", exc_info=True)
             raise
@@ -581,117 +591,114 @@ def log_block_info(
     new_messages_hash: str,
     stamps_in_block: int,
     src20_in_block: int,
+    src101_in_block: int = 0,
 ):
     """
-    Logs block information with highly stable ETA using weighted EMA and complexity factors.
-    Skips first block of each batch in calculations due to CP overhead.
+    Logs block information with simple moving average for ETA calculation.
+    Excludes CP fetch blocks (every 100 blocks) from the average.
     """
     try:
         # Get current tip of the blockchain
         block_tip = backend.getblockcount()
 
-        # Calculate progress based on genesis block
-        total_blocks = block_tip - config.BLOCK_FIRST
-        current_progress = (block_index - config.BLOCK_FIRST) / total_blocks if total_blocks > 0 else 0
+        # Calculate progress based on CP genesis block to current tip
+        blocks_to_process = block_tip - config.CP_STAMP_GENESIS_BLOCK
+        blocks_processed = block_index - config.CP_STAMP_GENESIS_BLOCK
+
+        # Ensure we don't show progress before genesis block
+        if block_index < config.CP_STAMP_GENESIS_BLOCK:
+            current_progress = 0
+        else:
+            current_progress = min(1.0, blocks_processed / blocks_to_process if blocks_to_process > 0 else 0)
 
         # Initialize tracking variables if not exists
         if not hasattr(log_block_info, "state"):
             log_block_info.state = {
-                "ema_time": None,
-                "block_count": 0,
+                "times": [],  # Store last N block times
+                "window_size": 500,  # Larger window for more stable average
+                "last_eta_update": 0,
                 "last_eta": None,
-                "long_ema": None,
-                "last_update_block": None,
-                "complexity_factor": 1.0,
-                "is_first_block": True,  # Track if this is first block of a batch
+                "last_tip": block_tip,
             }
 
         state = log_block_info.state
         current_time = time.time() - start_time
 
-        # Skip ETA calculations for first block of each batch
-        if not state["is_first_block"]:
-            state["block_count"] += 1
+        # Detect if block tip has changed
+        if block_tip != state["last_tip"]:
+            logger.debug(f"Block tip changed from {state['last_tip']} to {block_tip}")
+            state["last_tip"] = block_tip
 
-            # Adjust complexity factor based on stamps and src20 transactions
-            transaction_complexity = 1.0 + (stamps_in_block + src20_in_block) * 0.1
-            state["complexity_factor"] = 0.9 * state["complexity_factor"] + 0.1 * transaction_complexity
+        # Check if this is a CP fetch block (every 100 blocks)
+        is_cp_fetch_block = (block_index % 100) == 0
+        if is_cp_fetch_block:
+            logger.debug(f"CP fetch block at {block_index}")
 
-            # Calculate short-term EMA (more responsive)
-            alpha_short = min(0.1, 2 / (min(state["block_count"], 20) + 1))
-            if state["ema_time"] is None:
-                state["ema_time"] = current_time
-            else:
-                state["ema_time"] = (1 - alpha_short) * state["ema_time"] + alpha_short * current_time
+        # Only update times list if not a CP fetch block
+        if not is_cp_fetch_block:
+            state["times"].append(current_time)
+            if len(state["times"]) > state["window_size"]:
+                state["times"].pop(0)
 
-            # Calculate long-term EMA (more stable)
-            alpha_long = min(0.02, 1 / (min(state["block_count"], 100) + 1))
-            if state["long_ema"] is None:
-                state["long_ema"] = current_time
-            else:
-                state["long_ema"] = (1 - alpha_long) * state["long_ema"] + alpha_long * current_time
+        # Calculate ETA using simple moving average
+        if len(state["times"]) >= 20:  # Wait for at least 20 samples
+            # Calculate average excluding highest 10% of times to handle outliers
+            sorted_times = sorted(state["times"])
+            cutoff = int(len(sorted_times) * 0.9)
+            avg_time = sum(sorted_times[:cutoff]) / cutoff
 
-            # Blend short and long term EMAs based on block count
-            blend_factor = min(state["block_count"] / 100, 1.0)
-            blended_time = (1 - blend_factor) * state["ema_time"] + blend_factor * state["long_ema"]
-
-            # Apply complexity factor
-            adjusted_time = blended_time * state["complexity_factor"]
-
-            # Calculate remaining blocks and time
             blocks_remaining = block_tip - block_index
-            est_seconds_remaining = blocks_remaining * adjusted_time
+            # Add time for remaining CP fetch blocks
+            cp_fetches_remaining = blocks_remaining // 100  # CP fetch every 100 blocks
+            est_seconds_remaining = (blocks_remaining * avg_time) + (cp_fetches_remaining * 5)  # Assume 5s per CP fetch
 
             # Convert to hours and minutes
             hours = int(est_seconds_remaining // 3600)
             minutes = int((est_seconds_remaining % 3600) // 60)
 
-            # Update ETA display every 10 blocks or on significant changes
+            # Update ETA only every 20 blocks or if significant change
             should_update = (
                 state["last_eta"] is None
-                or state["block_count"] % 10 == 0
-                or abs(hours - state["last_eta"][0]) > 1
-                or abs(minutes - state["last_eta"][1]) > 15
+                or (block_index - state["last_eta_update"]) >= 20
+                or abs(hours - state["last_eta"][0]) > 0
+                or abs(minutes - state["last_eta"][1]) > 5
             )
 
             if should_update:
                 state["last_eta"] = (hours, minutes)
-                state["last_update_block"] = block_index
+                state["last_eta_update"] = block_index
             else:
                 hours, minutes = state["last_eta"]
 
-            # Format ETA string
             eta = f"{hours}h {minutes:02d}m"
         else:
-            # For first block, just show progress without ETA
             eta = "calculating..."
-            state["is_first_block"] = False
 
         logger.block_status(  # type: ignore[attr-defined]
-            "Block: %s (%ss, ETA: %s, Progress: %s%%, S:%s/S20:%s)"
+            "Block: %s/%s │ Time: %ss │ ETA: %s │ Progress: %s%% │ [%s|%s|%s]"
             % (
-                str(block_index),
+                block_index,
+                block_tip,
                 "{:.2f}".format(current_time),
                 eta,
                 "{:.1f}".format(current_progress * 100),
-                stamps_in_block,
-                src20_in_block,
+                f"S:{stamps_in_block}",
+                f"20:{src20_in_block}",
+                f"101:{src101_in_block}",
             )
         )
-
-        # Check if this is the last block of current batch (every 1000 blocks)
-        if block_index % 1000 == 805:  # Assuming 1000 block batches starting at x806
-            state["is_first_block"] = True  # Reset for next batch
 
     except Exception as e:
         # Fallback to simple logging if there's any error
         logger.block_status(  # type: ignore[attr-defined]
-            "Block: %s (%ss, S:%s/S20:%s)"
+            "Block: %s/%s (%ss) [%s|%s|%s]"
             % (
                 str(block_index),
+                str(block_tip),
                 "{:.2f}".format(time.time() - start_time),
-                stamps_in_block,
-                src20_in_block,
+                f"S:{stamps_in_block}",
+                f"20:{src20_in_block}",
+                f"101:{src101_in_block}",
             )
         )
 
@@ -831,12 +838,6 @@ def follow(db):
     Continuously follows the blockchain, parsing and indexing new blocks
     for SRC-20 transactions and to gather details about CP trx such as
     keyburn status.
-
-    Args:
-        db: The database connection object.
-
-    Returns:
-        None
     """
     initialize(db)
     rebuild_balances(db)
@@ -852,147 +853,195 @@ def follow(db):
     logger.info("Resuming parsing.")
     tx_index = next_tx_index(db)
 
-    # a reorg can happen without the block count increasing, or even for that
-    # matter, with the block count decreasing. This should only delay
-    # processing of the new blocks a bit.
-    try:
-        block_tip = backend.getblockcount()
-    except (
-        ConnectionRefusedError,
-        http.client.CannotSendRequest,
-        backend.BackendRPCError,
-    ) as e:
-        if config.FORCE:
-            time.sleep(config.BACKEND_POLL_INTERVAL)
-        else:
-            raise e
-
     stamp_issuances_list = None
-    # profiler = cProfile.Profile()
-    # should_profile = True
-
-    executor = concurrent.futures.ThreadPoolExecutor()
-    update_cpids_future = None
-    update_cpids_last_run_block = None
+    executor = None
 
     try:
-        while True:
+        executor = concurrent.futures.ThreadPoolExecutor()
+        update_cpids_future = None
+        update_cpids_last_run_block = None
+
+        while not server.shutdown_flag.is_set():
             start_time = time.time()
-            db.begin()  # Start transaction for entire block
+
+            # Check shutdown flag before starting new transaction
+            if server.shutdown_flag.is_set():
+                break
+
             try:
-                block_tip = backend.getblockcount()
-            except (
-                ConnectionRefusedError,
-                http.client.CannotSendRequest,
-                backend.BackendRPCError,
-            ) as e:
-                if config.FORCE:
-                    time.sleep(config.BACKEND_POLL_INTERVAL)
-                    continue
-                else:
-                    raise e
+                db.begin()  # Start transaction for entire block
 
-            if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
-                block_index -= 1
-
-            if block_index <= block_tip:
-                db.ping()
-
-                if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
-                    stamp_issuances = stamp_issuances_list[block_index]
-                else:
-                    if block_index + 1 == block_tip:
-                        indicator = True
+                # Get block tip with timeout
+                try:
+                    block_tip = backend.getblockcount()
+                except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
+                    if config.FORCE:
+                        if server.shutdown_flag.is_set():
+                            break
+                        time.sleep(config.BACKEND_POLL_INTERVAL)
+                        continue
                     else:
-                        indicator = None
-                    stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
-                    stamp_issuances = stamp_issuances_list[block_index]
+                        raise e
 
-                if block_tip - block_index < 100:
-                    requires_rollback = False
-                    while True:
-                        if block_index == config.BLOCK_FIRST:
-                            break
-                        logger.info(f"Checking that block {block_index} is not orphan.")
-                        current_hash = backend.getblockhash(block_index)
-                        block_header = backend.getblockheader(current_hash)
-                        backend_parent = block_header["previousblockhash"]
-                        cursor = db.cursor()
-                        block_query = """
-                        SELECT * FROM blocks WHERE block_index = %s
-                        """
-                        cursor.execute(block_query, (block_index - 1,))
-                        blocks = cursor.fetchall()
-                        columns = [desc[0] for desc in cursor.description]
-                        cursor.close()
-                        blocks_dict = [dict(zip(columns, row)) for row in blocks]
-                        if len(blocks_dict) != 1:
-                            break
-                        db_parent = blocks_dict[0]["block_hash"]
+                if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
+                    block_index -= 1
 
-                        if not isinstance(db_parent, str):
-                            raise TypeError("db_parent must be a string")
-                        if not isinstance(backend_parent, str):
-                            raise TypeError("backend_parent must be a string")
-                        if db_parent == backend_parent:
-                            break
+                if block_index <= block_tip:
+                    # Check shutdown flag before heavy operations
+                    if server.shutdown_flag.is_set():
+                        break
+
+                    db.ping()
+
+                    if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
+                        stamp_issuances = stamp_issuances_list[block_index]
+                    else:
+                        if block_index + 1 == block_tip:
+                            indicator = True
                         else:
-                            block_index -= 1
-                            requires_rollback = True
+                            indicator = None
+                        stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
+                        stamp_issuances = stamp_issuances_list[block_index]
 
-                    if requires_rollback:
-                        logger.warning(f"Blockchain reorganization at block {block_index}.")
-                        block_index -= 1
-                        logger.warning(f"Rolling back to block {block_index} to avoid problems.")
-                        purge_block_db(db, block_index)
-                        rebuild_balances(db)
-                        rebuild_owners(db)
+                    if block_tip - block_index < 100:
                         requires_rollback = False
-                        stamp_issuances_list = None
-                        time.sleep(60)  # delay waiting for CP to catch up
+                        while True:
+                            if block_index == config.BLOCK_FIRST:
+                                break
+                            logger.info(f"Checking that block {block_index} is not orphan.")
+                            current_hash = backend.getblockhash(block_index)
+                            block_header = backend.getblockheader(current_hash)
+                            backend_parent = block_header["previousblockhash"]
+                            cursor = db.cursor()
+                            block_query = """
+                            SELECT * FROM blocks WHERE block_index = %s
+                            """
+                            cursor.execute(block_query, (block_index - 1,))
+                            blocks = cursor.fetchall()
+                            columns = [desc[0] for desc in cursor.description]
+                            cursor.close()
+                            blocks_dict = [dict(zip(columns, row)) for row in blocks]
+                            if len(blocks_dict) != 1:
+                                break
+                            db_parent = blocks_dict[0]["block_hash"]
+
+                            if not isinstance(db_parent, str):
+                                raise TypeError("db_parent must be a string")
+                            if not isinstance(backend_parent, str):
+                                raise TypeError("backend_parent must be a string")
+                            if db_parent == backend_parent:
+                                break
+                            else:
+                                block_index -= 1
+                                requires_rollback = True
+
+                        if requires_rollback:
+                            logger.warning(f"Blockchain reorganization at block {block_index}.")
+                            block_index -= 1
+                            logger.warning(f"Rolling back to block {block_index} to avoid problems.")
+                            purge_block_db(db, block_index)
+                            rebuild_balances(db)
+                            rebuild_owners(db)
+                            requires_rollback = False
+                            stamp_issuances_list = None
+                            time.sleep(60)  # delay waiting for CP to catch up
+                            continue
+
+                    block_hash = backend.getblockhash(block_index)
+
+                    # Get full block data from backend
+                    txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = backend.get_tx_list(
+                        block_hash
+                    )
+
+                    # Filter transactions based on genesis status
+                    block_data = {
+                        "tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]
+                    }
+                    txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+
+                    util.CURRENT_BLOCK_INDEX = block_index
+
+                    try:
+                        insert_block(
+                            db,
+                            block_index,
+                            block_hash,
+                            block_time,
+                            previous_block_hash,
+                            difficulty,
+                        )
+                    except BlockAlreadyExistsError as e:
+                        logger.warning(e)
+                        db.rollback()
+                        sys.exit(f"Exiting due to block already existing. {e}")
+                    except DatabaseInsertError as e:
+                        logger.error(e)
+                        db.rollback()
+                        sys.exit("Critical database error encountered. Exiting.")
+
+                    valid_stamps_in_block: List[ValidStamp] = []
+
+                    if block_index < config.BTC_SRC20_GENESIS_BLOCK and not stamp_issuances_list[block_index]:
+                        valid_src20_str = ""
+                        new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                            db,
+                            block_index,
+                            valid_stamps_in_block,
+                            valid_src20_str,
+                            txhash_list,
+                        )
+
+                        stamp_issuances_list.pop(block_index, None)
+                        log_block_info(
+                            block_index,
+                            start_time,
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            0,
+                            0,
+                        )
+                        block_index = commit_and_update_block(db, block_index)
                         continue
 
-                block_hash = backend.getblockhash(block_index)
+                    tx_results = []
 
-                # Get full block data from backend
-                txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = backend.get_tx_list(
-                    block_hash
-                )
+                    # Process transactions in parallel
+                    futures = []
+                    for tx_hash in raw_transactions:  # Only process transactions we have raw data for
+                        future = executor.submit(
+                            process_tx,
+                            db,
+                            tx_hash,
+                            block_index,
+                            stamp_issuances,
+                            raw_transactions,
+                        )
+                        futures.append(future)
 
-                # Filter transactions based on genesis status
-                block_data = {"tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]}
-                txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+                    for future in concurrent.futures.as_completed(futures):
+                        result = future.result()
+                        if result.data is not None:
+                            result = result._replace(
+                                block_index=block_index,
+                                block_hash=block_hash,
+                                block_time=block_time,
+                            )
+                            tx_results.append(result)
 
-                util.CURRENT_BLOCK_INDEX = block_index
+                    tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
+                    # Assign tx_index after sorting
+                    for i, result in enumerate(tx_results):
+                        tx_results[i] = result._replace(tx_index=tx_index)
+                        tx_index += 1
 
-                try:
-                    insert_block(
-                        db,
-                        block_index,
-                        block_hash,
-                        block_time,
-                        previous_block_hash,
-                        difficulty,
-                    )
-                except BlockAlreadyExistsError as e:
-                    logger.warning(e)
-                    db.rollback()
-                    sys.exit(f"Exiting due to block already existing. {e}")
-                except DatabaseInsertError as e:
-                    logger.error(e)
-                    db.rollback()
-                    sys.exit("Critical database error encountered. Exiting.")
+                    block_processor = BlockProcessor(db)
+                    block_processor.insert_transactions(tx_results)
+                    block_processor.process_transaction_results(tx_results)
 
-                valid_stamps_in_block: List[ValidStamp] = []
-
-                if block_index < config.BTC_SRC20_GENESIS_BLOCK and not stamp_issuances_list[block_index]:
-                    valid_src20_str = ""
-                    new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-                        db,
-                        block_index,
-                        valid_stamps_in_block,
-                        valid_src20_str,
-                        txhash_list,
+                    new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block, src101_in_block = (
+                        block_processor.finalize_block(block_index, block_time, txhash_list)
                     )
 
                     stamp_issuances_list.pop(block_index, None)
@@ -1002,92 +1051,57 @@ def follow(db):
                         new_ledger_hash,
                         new_txlist_hash,
                         new_messages_hash,
-                        0,
-                        0,
+                        stamps_in_block,
+                        src20_in_block,
+                        src101_in_block,
                     )
                     block_index = commit_and_update_block(db, block_index)
-                    continue
 
-                tx_results = []
-
-                # Process transactions in parallel
-                futures = []
-                for tx_hash in raw_transactions:  # Only process transactions we have raw data for
-                    future = executor.submit(
-                        process_tx,
-                        db,
-                        tx_hash,
-                        block_index,
-                        stamp_issuances,
-                        raw_transactions,
-                    )
-                    futures.append(future)
-
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    if result.data is not None:
-                        result = result._replace(
-                            block_index=block_index,
-                            block_hash=block_hash,
-                            block_time=block_time,
-                        )
-                        tx_results.append(result)
-
-                tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
-                # Assign tx_index after sorting
-                for i, result in enumerate(tx_results):
-                    tx_results[i] = result._replace(tx_index=tx_index)
-                    tx_index += 1
-
-                block_processor = BlockProcessor(db)
-                block_processor.insert_transactions(tx_results)
-                block_processor.process_transaction_results(tx_results)
-
-                new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block = (
-                    block_processor.finalize_block(block_index, block_time, txhash_list)
-                )
-
-                stamp_issuances_list.pop(block_index, None)
-                log_block_info(
-                    block_index,
-                    start_time,
-                    new_ledger_hash,
-                    new_txlist_hash,
-                    new_messages_hash,
-                    stamps_in_block,
-                    src20_in_block,
-                )
-                block_index = commit_and_update_block(db, block_index)
-
-            else:
-                logger.info(f"Block {block_index} is beyond the current block tip {block_tip}. Waiting for new blocks.")
-                # every 50 blocks, update the supply/divisible/locked status of all unlocked CPIDs
-                if (block_index % 50 == 0) and (block_index != update_cpids_last_run_block):
-                    if update_cpids_future is None or update_cpids_future.done():
-                        update_cpids_future = executor.submit(update_cpids_async, db)
-                        update_cpids_last_run_block = block_index
-                        logger.info(f"Submitted update_cpids_async task at block {block_index}.")
-                    else:
-                        logger.info("update_cpids_async is already running. Skipping submission.")
                 else:
-                    logger.info(f"Not time yet for update_cpids_async. Current block: {block_index}")
-                time.sleep(30)  # TODO: Setup ZMQ triggers
+                    if server.shutdown_flag.is_set():
+                        break
+                    logger.info(f"Block {block_index} is beyond the current block tip {block_tip}. Waiting for new blocks.")
 
-        # if should_profile:
-        #     profiler.disable()
-        #     profiler.dump_stats("profile_results.prof")
-        #     stats = pstats.Stats(profiler).sort_stats('cumulative')
-        #     stats.print_stats()
-        #     should_profile = False
+                    # Use shorter sleep intervals to check shutdown flag more frequently
+                    for _ in range(6):  # 6 * 5 = 30 seconds total
+                        if server.shutdown_flag.is_set():
+                            break
+                        time.sleep(5)
+
+            except Exception as e:
+                logger.error(f"Error processing block {block_index}: {e}")
+                db.rollback()
+                # Short sleep before retry
+                if not server.shutdown_flag.is_set():
+                    time.sleep(5)
+
     except KeyboardInterrupt:
-        logger.info("Shutting down gracefully...")
-        db.rollback()  # Ensure clean rollback on interrupt
+        logger.info("Received keyboard interrupt in follow().")
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        db.rollback()  # Ensure clean rollback on any error
+        logger.error(f"An unexpected error occurred in follow(): {e}")
+        raise
     finally:
-        executor.shutdown(wait=True)
-        logger.info("Executor has been shut down.")
+        logger.info("Starting cleanup in follow()...")
+        if executor:
+            logger.info("Shutting down executor...")
+            try:
+                # Try Python 3.9+ shutdown with timeout
+                executor.shutdown(wait=True, timeout=10)
+            except TypeError:
+                # Fallback for older Python versions
+                executor.shutdown(wait=True)
+        try:
+            logger.info("Committing final transactions...")
+            db.commit()
+        except Exception as e:
+            logger.error(f"Error during final commit: {e}")
+        try:
+            logger.info("Closing database connection...")
+            db.close()
+        except Exception as e:
+            logger.error(f"Error closing database: {e}")
+        logger.info("Cleanup complete in follow().")
+        logging.shutdown()
 
 
 def update_cpids_async(db):
