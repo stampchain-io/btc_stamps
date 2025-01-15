@@ -1,12 +1,12 @@
 import threading
 from collections import OrderedDict
 from decimal import Decimal
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 
 class LRUCache:
     def __init__(self, max_size: int = 1000):
-        self.cache = OrderedDict()
+        self.cache: OrderedDict[str, Any] = OrderedDict()
         self.max_size = max_size
         self._lock = threading.Lock()
 
@@ -86,7 +86,7 @@ class BatchBalanceUpdater:
     def __init__(self, db, batch_size: int = 100):
         self.db = db
         self.batch_size = batch_size
-        self.updates = []
+        self.updates: list[tuple[str, str, str, Decimal, int, int, str, str]] = []
         self._lock = threading.Lock()
 
     def add_update(self, tick: str, address: str, amount: Decimal, tick_hash: str, block_index: int, block_time: int):
