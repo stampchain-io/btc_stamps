@@ -1,5 +1,6 @@
-import zmq
 import time
+
+import zmq
 
 context = zmq.Context()
 socket = context.socket(zmq.SUB)
@@ -17,7 +18,9 @@ print("Listening for ZMQ notifications...")
 while True:
     try:
         topic, body, seq = socket.recv_multipart()
-        print(f"Received: {topic.decode('utf-8')}, Sequence: {seq}")
+        topic_str = topic.decode("utf-8")
+        seq_str = seq.decode("utf-8")
+        print(f"Received: {topic_str}, Sequence: {seq_str}")
         if topic == b"rawblock":
             print(f"Raw block received, size: {len(body)} bytes")
     except KeyboardInterrupt:
