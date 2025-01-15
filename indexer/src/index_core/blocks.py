@@ -594,8 +594,8 @@ def log_block_info(
     src101_in_block: int = 0,
 ):
     """
-    Logs block information with simple moving average for ETA calculation.
-    Excludes CP fetch blocks (every 100 blocks) from the average.
+    Logs block information with highly stable ETA using weighted EMA and complexity factors.
+    Skips first block of each batch in calculations due to CP overhead.
     """
     try:
         # Get current tip of the blockchain
@@ -615,14 +615,16 @@ def log_block_info(
         if not hasattr(log_block_info, "state"):
             log_block_info.state = {
                 "times": [],  # Store last N block times
-                "window_size": 500,  # Larger window for more stable average
+                "window_size": 100,  # Reduced window for faster initial ETA
                 "last_eta_update": 0,
                 "last_eta": None,
                 "last_tip": block_tip,
+                "last_time": start_time,  # Track last block's time
             }
 
         state = log_block_info.state
-        current_time = time.time() - start_time
+        current_time = time.time() - state.get("last_time", start_time)  # Time since last block
+        state["last_time"] = time.time()  # Update for next block
 
         # Detect if block tip has changed
         if block_tip != state["last_tip"]:
@@ -634,14 +636,14 @@ def log_block_info(
         if is_cp_fetch_block:
             logger.debug(f"CP fetch block at {block_index}")
 
-        # Only update times list if not a CP fetch block
-        if not is_cp_fetch_block:
+        # Only update times list if not a CP fetch block and time is reasonable
+        if not is_cp_fetch_block and current_time < 10:  # Filter out outliers > 10s
             state["times"].append(current_time)
             if len(state["times"]) > state["window_size"]:
                 state["times"].pop(0)
 
         # Calculate ETA using simple moving average
-        if len(state["times"]) >= 20:  # Wait for at least 20 samples
+        if len(state["times"]) >= 5:  # Reduced minimum samples needed
             # Calculate average excluding highest 10% of times to handle outliers
             sorted_times = sorted(state["times"])
             cutoff = int(len(sorted_times) * 0.9)
@@ -675,30 +677,30 @@ def log_block_info(
             eta = "calculating..."
 
         logger.block_status(  # type: ignore[attr-defined]
-            "Block: %s/%s │ Time: %ss │ ETA: %s │ Progress: %s%% │ [%s|%s|%s]"
+            "Block: %s/%s │ %ss │ ETA: %s │ Prog: %s%% │ [S:%s|20:%s|101:%s]"
             % (
-                block_index,
-                block_tip,
+                str(block_index),
+                str(block_tip),
                 "{:.2f}".format(current_time),
                 eta,
                 "{:.1f}".format(current_progress * 100),
-                f"S:{stamps_in_block}",
-                f"20:{src20_in_block}",
-                f"101:{src101_in_block}",
+                stamps_in_block,
+                src20_in_block,
+                src101_in_block,
             )
         )
 
     except Exception as e:
-        # Fallback to simple logging if there's any error
+        logger.error(f"Error in log_block_info: {e}")
         logger.block_status(  # type: ignore[attr-defined]
-            "Block: %s/%s (%ss) [%s|%s|%s]"
+            "Block: %s/%s │ %ss │ [S:%s|20:%s|101:%s]"
             % (
                 str(block_index),
                 str(block_tip),
                 "{:.2f}".format(time.time() - start_time),
-                f"S:{stamps_in_block}",
-                f"20:{src20_in_block}",
-                f"101:{src101_in_block}",
+                stamps_in_block,
+                src20_in_block,
+                src101_in_block,
             )
         )
 

@@ -4,6 +4,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
+from collections import defaultdict
 
 import pymysql as mysql
 
@@ -26,6 +27,7 @@ from config import (
     TRANSACTIONS_TABLE,
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
+from index_core.caching import balance_cache, deployment_cache, total_minted_cache
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -62,13 +64,10 @@ def initialize(db):
     cursor.close()
 
 
-TOTAL_MINTED_CACHE: dict[str, int] = {}
-
-
 def reset_all_caches():
     """
     Clears all function-associated caches within the module.
-    This includes deploy_cache, block_cache, and cached_stamp.
+    This includes deploy_cache, block_cache, cached_stamp, and the caching.py caches.
     """
     cache_attributes = [
         (get_src20_deploy, "deploy_cache"),
@@ -81,8 +80,10 @@ def reset_all_caches():
         if hasattr(func, attr):
             setattr(func, attr, {})
 
-    global TOTAL_MINTED_CACHE
-    TOTAL_MINTED_CACHE = {}
+    # Clear the caches from caching.py
+    balance_cache.invalidate_all()
+    deployment_cache.invalidate_all()
+    total_minted_cache.invalidate_all()
 
 
 def update_parsed_block(db, block_index):
@@ -709,33 +710,44 @@ def calculate_owners(src101_valid_list):
 
 
 def calculate_balances(src20_valid_list):
-    all_balances: dict[str, dict[str, Any]] = {}
-    for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
-        destination_id = tick + "_" + destination
-        destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
-        destination_amt += amt
+    # Use defaultdict for more efficient balance tracking
+    balances = defaultdict(lambda: defaultdict(D))
+    metadata = {}  # Store metadata separately
 
-        all_balances[destination_id] = {
+    for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
+        # Track balances efficiently
+        balances[tick][destination] += amt
+        if op == "TRANSFER":
+            balances[tick][creator] -= amt
+
+        # Store metadata for destination
+        destination_id = f"{tick}_{destination}"
+        metadata[destination_id] = {
             "tick": tick,
             "tick_hash": tick_hash,
             "address": destination,
-            "amt": destination_amt,
             "last_update": block_index,
             "block_time": block_time,
         }
 
+        # Store metadata for creator in transfers
         if op == "TRANSFER":
-            creator_id = tick + "_" + creator
-            creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
-            creator_amt -= amt
-            all_balances[creator_id] = {
+            creator_id = f"{tick}_{creator}"
+            metadata[creator_id] = {
                 "tick": tick,
                 "tick_hash": tick_hash,
                 "address": creator,
-                "amt": creator_amt,
                 "last_update": block_index,
                 "block_time": block_time,
             }
+
+    # Combine balances with metadata for final output
+    all_balances = {}
+    for tick, tick_balances in balances.items():
+        for address, amt in tick_balances.items():
+            balance_id = f"{tick}_{address}"
+            if amt != D(0):  # Only include non-zero balances
+                all_balances[balance_id] = metadata[balance_id] | {"amt": amt}  # Merge metadata with balance
 
     return all_balances
 
@@ -752,6 +764,7 @@ def purge_balances(cursor):
 
 def insert_balances(cursor, all_balances):
     logger.info(f"Inserting {len(all_balances)} balances")
+
     values = [
         (
             key,
@@ -766,11 +779,18 @@ def insert_balances(cursor, all_balances):
         for key, value in all_balances.items()
     ]
 
-    cursor.executemany(
-        """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
-        values,
-    )
+    BATCH_SIZE = 10000
+    total_rows = len(values)
+
+    for i in range(0, total_rows, BATCH_SIZE):
+        batch = values[i : i + BATCH_SIZE]
+        logger.info(f"Processing batch {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)")
+
+        cursor.executemany(
+            """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
+               VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+            batch,
+        )
 
 
 def purge_owners(cursor):
@@ -989,39 +1009,24 @@ def get_src20_deploy_in_db(db, tick):
 
 
 def get_total_src20_minted_from_db(db, tick):
-    """Retrieve the total amount of tokens minted from the database for a given tick.
+    """Get the total minted amount for a given tick from the database."""
+    cached_total = total_minted_cache.get(tick)
+    if cached_total is not None:
+        return cached_total
 
-    This function performs a database query to fetch the total amount of tokens minted
-    for a specific tick.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        tick (int): The tick value for which to retrieve the total minted tokens.
-
-    Returns:
-        int: The total amount of tokens minted for the given tick.
-    """
-    if tick in TOTAL_MINTED_CACHE:
-        return TOTAL_MINTED_CACHE[tick]
-
-    total_minted = 0
-    with db.cursor() as src20_cursor:
-        src20_cursor.execute(
+    with db.cursor() as cursor:
+        cursor.execute(
             f"""
-            SELECT
-                amt
-            FROM
-                {SRC20_VALID_TABLE}
-            WHERE
-                tick = %s
-                AND op = 'MINT'
-        """,
+            SELECT SUM(amt) as total_minted
+            FROM {SRC20_VALID_TABLE}
+            WHERE tick = %s AND op = 'MINT'
+            """,
             (tick,),
-        )  # nosec
-        for row in src20_cursor.fetchall():
-            total_minted += row[0]
-    TOTAL_MINTED_CACHE[tick] = total_minted
-    return total_minted
+        )
+        result = cursor.fetchone()
+        total_minted = D(result[0]) if result[0] is not None else D(0)
+        total_minted_cache.set(tick, total_minted)
+        return total_minted
 
 
 def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
@@ -1128,9 +1133,11 @@ def get_src101_recs_in_db(db, deploy_hash):
 
 
 def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
-    if deploy_hash in TOTAL_MINTED_CACHE:
-        return TOTAL_MINTED_CACHE[deploy_hash]
-    total_minted = 0
+    """Get the total minted amount for a given deploy_hash from the database."""
+    cached_total = total_minted_cache.get(deploy_hash)
+    if cached_total is not None:
+        return cached_total
+
     with db.cursor() as src101_cursor:
         src101_cursor.execute(
             f"""
@@ -1145,10 +1152,9 @@ def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
             (deploy_hash),
         )  # nosec
         result = src101_cursor.fetchone()
-        if result[0]:
-            total_minted = result[0]
-    TOTAL_MINTED_CACHE[deploy_hash] = total_minted
-    return total_minted
+        total_minted = result[0] if result[0] is not None else 0
+        total_minted_cache.set(deploy_hash, total_minted)
+        return total_minted
 
 
 def get_src101_price(db, deploy_hash, src101_processed_in_block):
@@ -1470,3 +1476,24 @@ def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: in
 
         if i < num_chunks - 1:
             time.sleep(delay_between_chunks)
+
+
+def get_total_src721_minted_from_db(db, deploy_hash):
+    """Get the total minted amount for a given deploy_hash from the database."""
+    cached_total = total_minted_cache.get(deploy_hash)
+    if cached_total is not None:
+        return cached_total
+
+    with db.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) as total_minted
+            FROM {SRC721_VALID_TABLE}
+            WHERE deploy_hash = %s AND op = 'MINT'
+            """,
+            (deploy_hash,),
+        )
+        result = cursor.fetchone()
+        total_minted = D(result[0]) if result[0] is not None else D(0)
+        total_minted_cache.set(deploy_hash, total_minted)
+        return total_minted
