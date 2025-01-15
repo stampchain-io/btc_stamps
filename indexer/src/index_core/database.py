@@ -1026,7 +1026,10 @@ def get_total_src20_minted_from_db(db, tick):
             (tick,),
         )
         result = cursor.fetchone()
-        total_minted = D(result[0]) if result[0] is not None else D(0)
+        if result is None:
+            total_minted = D(0)
+        else:
+            total_minted = D(result[0] if result[0] is not None else 0)
         total_minted_cache.set(tick, total_minted)
         return total_minted
 
