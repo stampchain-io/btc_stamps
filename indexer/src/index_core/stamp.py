@@ -95,7 +95,7 @@ def decode_base64(base64_string, block_index):
     if block_index >= CP_P2WSH_FEAT_BLOCK_START:
         is_valid_base64_string = check_valid_base64_string(base64_string)
         if not is_valid_base64_string:
-            logger.info(f"EXCLUSION: BASE64 DECODE_FAIL invalid string: {base64_string}")
+            logger.debug(f"EXCLUSION: BASE64 DECODE_FAIL invalid string: {base64_string}")
             return None, None
 
     if block_index <= STOP_BASE64_REPAIR:
@@ -120,7 +120,7 @@ def decode_base64(base64_string, block_index):
                 return image_data, is_valid_base64_string
             except Exception as e3:
                 # If all decoding attempts fail, print an error message and return None
-                logger.info(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
+                logger.debug(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
                 return None, None
 
 
@@ -135,7 +135,7 @@ def decode_base64_with_repair(base64_string):
         return image_data
 
     except Exception as e:
-        logger.info(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e}")
+        logger.debug(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e}")
         return None
 
 
