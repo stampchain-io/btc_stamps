@@ -5,10 +5,11 @@ import logging
 import os
 import signal
 import sys
+import threading
 
 import appdirs
-from bitcoin import SelectParams
 import pymysql as mysql
+from bitcoin import SelectParams
 from pymysql.connections import Connection
 
 import config
@@ -25,20 +26,28 @@ logger = logging.getLogger(__name__)
 
 D = decimal.Decimal
 
+# Global flag for graceful shutdown
+shutdown_flag = threading.Event()
+
 
 def sigterm_handler(_signo, _stack_frame):
+    """Handle shutdown signals gracefully."""
     if _signo == 15:
         signal_name = "SIGTERM"
     elif _signo == 2:
         signal_name = "SIGINT"
     else:
         raise ValueError("Unexpected signal number received")
+
     logger.info("Received {}.".format(signal_name))
-    logger.info("Stopping backend.")
-    # backend.stop() this would typically stop addrindexrs
-    logger.info("Shutting down.")
-    logging.shutdown()
-    sys.exit(0)
+    logger.info("Initiating graceful shutdown...")
+
+    # Set the shutdown flag
+    shutdown_flag.set()
+
+    # Let the main loop handle the actual shutdown
+    # This avoids thread cleanup issues
+    return
 
 
 signal.signal(signal.SIGTERM, sigterm_handler)
@@ -68,9 +77,7 @@ def initialize_config(
     customnet=None,
     checkdb=False,
 ):
-    """
-    Initialize configuration with proper network selection.
-    """
+    """Initialize configuration with proper network selection."""
     # Set network based on config
     if config.TESTNET or testnet:
         config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
@@ -302,6 +309,7 @@ def import_csv_data(cursor, csv_file, insert_query):
 
 
 def initialize_db() -> Connection:
+    """Initialize database connection and tables."""
     logger.info("Initializing database...")
     if config.FORCE:
         logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
@@ -333,24 +341,32 @@ def initialize_db() -> Connection:
 
 
 def connect_to_backend():
+    """Connect to Bitcoin backend."""
     if not config.FORCE:
         logger.info("Connecting to Bitcoin Node")
         backend.getblockcount()
 
 
 def start_all(db: Connection) -> None:
+    """Start the server with proper initialization and shutdown handling."""
+    try:
+        # Backend
+        connect_to_backend()
+        if config.STORE_FILES:
+            if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
+                config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
-    # Backend.
-    connect_to_backend()
+        # Start the main indexing process
+        blocks.follow(db)
+    except Exception as e:
+        logger.error(f"Error in main server loop: {e}")
+    finally:
+        if not shutdown_flag.is_set():
+            shutdown_flag.set()
+        logger.info("Server shutdown initiated.")
 
-    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
-        config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
-    # Server.
-    blocks.follow(db)
-
-
-# TODO
 def reparse(db, block_index=None, quiet=True):
+    """Reparse from a specific block index."""
     connect_to_backend()
     blocks.reparse(db, block_index=block_index, quiet=quiet)
