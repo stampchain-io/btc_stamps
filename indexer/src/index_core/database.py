@@ -2,9 +2,9 @@ import decimal
 import json
 import logging
 import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
-from collections import defaultdict
 
 import pymysql as mysql
 
@@ -26,8 +26,8 @@ from config import (
     STAMP_TABLE,
     TRANSACTIONS_TABLE,
 )
-from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
 from index_core.caching import balance_cache, deployment_cache, total_minted_cache
+from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -784,7 +784,9 @@ def insert_balances(cursor, all_balances):
 
     for i in range(0, total_rows, BATCH_SIZE):
         batch = values[i : i + BATCH_SIZE]
-        logger.info(f"Processing batch {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)")
+        logger.info(
+            f"Processing batch balances update {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)"
+        )
 
         cursor.executemany(
             """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
@@ -1497,3 +1499,22 @@ def get_total_src721_minted_from_db(db, deploy_hash):
         total_minted = D(result[0]) if result[0] is not None else D(0)
         total_minted_cache.set(deploy_hash, total_minted)
         return total_minted
+
+
+def update_src20_token_stats(db):
+    """
+    Updates the src20_token_stats table with latest balances data.
+    This should be called after processing each block to keep stats current.
+    """
+    logger.debug("Updating src20_token_stats table")
+
+    query = """
+        INSERT INTO src20_token_stats (tick, total_minted, holders_count)
+        SELECT * FROM v_src20_token_stats
+        ON DUPLICATE KEY UPDATE
+            total_minted = VALUES(total_minted),
+            holders_count = VALUES(holders_count)
+    """
+
+    with db.cursor() as cursor:
+        cursor.execute(query)

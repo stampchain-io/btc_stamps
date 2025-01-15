@@ -42,6 +42,7 @@ from index_core.database import (
     update_assets_in_db,
     update_block_hashes,
     update_parsed_block,
+    update_src20_token_stats,
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp
@@ -57,6 +58,7 @@ from index_core.src101 import Src101Dict  # FIXME: move to models for consistenc
 from index_core.src101 import parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
+from index_core.zmq_utils import ZMQNotifier
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -557,21 +559,35 @@ def create_check_hashes(
     return new_ledger_hash, new_txlist_hash, new_messages_hash
 
 
-def commit_and_update_block(db, block_index):
+def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
     """
     Commits the changes to the database, updates the parsed block, and increments the block index.
+    Updates stats when at tip or when there are SRC20 transactions.
 
     Args:
         db: The database connection object.
         block_index: The current block index.
-
-    Raises:
-        Exception: If an error occurs during the commit or update process.
+        block_tip: The current blockchain tip.
+        src20_in_block: Number of SRC20 transactions in this block.
 
     Returns:
-        None
+        int: The next block index to process.
     """
     try:
+        # Update stats if:
+        # 1. We're at the tip (real-time processing)
+        # 2. There were SRC20 transactions in this block
+        # 3. Every 1000 blocks during bulk indexing (as a safety net)
+        should_update_stats = block_index >= config.BTC_SRC20_GENESIS_BLOCK and (
+            block_index == block_tip  # At tip
+            or src20_in_block > 0  # Has SRC20 transactions
+            or (block_tip - block_index > 100 and block_index % 1000 == 0)  # Bulk safety net
+        )
+
+        if should_update_stats:
+            logger.warning(f"Updating token stats at block {block_index} (src20_txs: {src20_in_block})")
+            update_src20_token_stats(db)
+
         db.commit()
         update_parsed_block(db, block_index)
         block_index += 1
@@ -844,6 +860,7 @@ def follow(db):
     initialize(db)
     rebuild_balances(db)
     rebuild_owners(db)
+    update_src20_token_stats(db)
 
     # Get index of last block.
     if util.CURRENT_BLOCK_INDEX == 0:
@@ -854,6 +871,17 @@ def follow(db):
 
     logger.info("Resuming parsing.")
     tx_index = next_tx_index(db)
+
+    # Add ZMQ initialization here
+    zmq_notifier = None
+    zmq_enabled = False
+    try:
+        zmq_notifier = ZMQNotifier()
+        zmq_enabled = zmq_notifier.check_zmq_ports()
+        if zmq_enabled:
+            logger.info("ZMQ notifications enabled")
+    except Exception as e:
+        logger.warning(f"Failed to initialize ZMQ: {e}")
 
     stamp_issuances_list = None
     executor = None
@@ -889,6 +917,7 @@ def follow(db):
                     block_index -= 1
 
                 if block_index <= block_tip:
+                    logger.debug("Starting block processing after notification")
                     # Check shutdown flag before heavy operations
                     if server.shutdown_flag.is_set():
                         break
@@ -944,6 +973,7 @@ def follow(db):
                             purge_block_db(db, block_index)
                             rebuild_balances(db)
                             rebuild_owners(db)
+                            update_src20_token_stats(db)
                             requires_rollback = False
                             stamp_issuances_list = None
                             time.sleep(60)  # delay waiting for CP to catch up
@@ -1004,7 +1034,7 @@ def follow(db):
                             0,
                             0,
                         )
-                        block_index = commit_and_update_block(db, block_index)
+                        block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
                         continue
 
                     tx_results = []
@@ -1057,18 +1087,47 @@ def follow(db):
                         src20_in_block,
                         src101_in_block,
                     )
-                    block_index = commit_and_update_block(db, block_index)
+                    block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
 
                 else:
                     if server.shutdown_flag.is_set():
                         break
-                    logger.info(f"Block {block_index} is beyond the current block tip {block_tip}. Waiting for new blocks.")
 
-                    # Use shorter sleep intervals to check shutdown flag more frequently
-                    for _ in range(6):  # 6 * 5 = 30 seconds total
-                        if server.shutdown_flag.is_set():
-                            break
-                        time.sleep(5)
+                    # Use ZMQ if enabled
+                    if zmq_enabled:
+                        try:
+                            logger.info(f"Waiting for new blocks via ZMQ after block {block_index}")
+                            while not server.shutdown_flag.is_set():
+                                notification = zmq_notifier.wait_for_notification(5000)
+                                if notification:
+                                    topic, body, seq = notification
+                                    topic_str = topic.decode("utf-8")
+                                    if topic_str in ["hashblock", "rawblock"]:
+                                        logger.info(f"Processing new block notification via ZMQ: {topic_str}")
+                                        block_tip = backend.getblockcount()
+                                        break  # This should exit both loops and trigger block processing
+                                continue  # Keep waiting if no valid notification
+                        except Exception as e:
+                            logger.warning(f"ZMQ notification failed, falling back to polling: {e}")
+                            zmq_enabled = False
+                            if zmq_notifier:
+                                zmq_notifier.cleanup()
+
+                    # Only reach here if ZMQ is disabled or failed
+                    if not zmq_enabled:
+                        logger.info("Using RPC polling for new blocks")
+                        time.sleep(config.BACKEND_POLL_INTERVAL)
+                        block_tip = backend.getblockcount()
+
+                        # Try to re-enable ZMQ periodically
+                        if block_index % 10 == 0:
+                            try:
+                                zmq_notifier = ZMQNotifier()
+                                zmq_enabled = zmq_notifier.check_zmq_ports()
+                                if zmq_enabled:
+                                    logger.info("Successfully re-enabled ZMQ notifications")
+                            except Exception as e:
+                                logger.warning(f"Failed to re-initialize ZMQ: {e}")
 
             except Exception as e:
                 logger.error(f"Error processing block {block_index}: {e}")
@@ -1084,13 +1143,14 @@ def follow(db):
         raise
     finally:
         logger.info("Starting cleanup in follow()...")
+        if zmq_notifier:
+            logger.info("Cleaning up ZMQ resources...")
+            zmq_notifier.cleanup()
         if executor:
             logger.info("Shutting down executor...")
             try:
-                # Try Python 3.9+ shutdown with timeout
                 executor.shutdown(wait=True, timeout=10)
             except TypeError:
-                # Fallback for older Python versions
                 executor.shutdown(wait=True)
         try:
             logger.info("Committing final transactions...")
