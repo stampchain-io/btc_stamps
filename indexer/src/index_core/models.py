@@ -13,10 +13,10 @@ import regex as re
 
 import index_core.log as log
 from config import (
+    BTC_SRC101_GENESIS_BLOCK,
     CP_BMN_FEAT_BLOCK_START,
     CP_P2WSH_FEAT_BLOCK_START,
     CP_SRC20_END_BLOCK,
-    CP_SRC101_GENESIS_BLOCK,
     CP_SRC721_GENESIS_BLOCK,
     CP_SUBASSET_FEAT_BLOCK_START,
     DOMAINNAME,
@@ -514,7 +514,7 @@ class StampData:
 
     def valid_src101(self):
         self.pval_src101 = False
-        if self.block_index >= CP_SRC101_GENESIS_BLOCK:
+        if self.block_index >= BTC_SRC101_GENESIS_BLOCK:
             self.pval_src101 = self.valid_cp_src101() or (self.is_src101() and not self.cpid)
         return self.pval_src101
 

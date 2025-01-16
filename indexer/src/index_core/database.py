@@ -2,7 +2,7 @@ import decimal
 import json
 import logging
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
 
@@ -578,9 +578,15 @@ def get_srcbackground_data(db, tick):
 
 
 def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
+    """
+    Get existing balances, ensuring we only get SRC-20 records
+    """
     query = """
     SELECT id, tick, tick_hash, address, amt, last_update
-    FROM balances where p = 'SRC-20'
+    FROM balances 
+    WHERE p = 'SRC-20'  -- Explicitly filter for SRC-20 only
+    AND amt != 0        -- Exclude zero balances
+    ORDER BY id         -- Ensure consistent ordering
     """
     cursor.execute(query)
     return [tuple(row) for row in cursor.fetchall()]
@@ -614,8 +620,10 @@ def get_existing_owners(cursor) -> List[Tuple[Any, ...]]:
 
 
 def get_src101_valid_list(cursor, block_index=None):
+    """Get valid SRC-101 transactions"""
     query = f"""
-    SELECT op, tokenid, tokenid_utf8, img, deploy_hash, creator, dua, toaddress, prim, address_btc, address_eth, txt_data, block_time, block_index, tx_index
+    SELECT op, tokenid, tokenid_utf8, img, deploy_hash, creator, dua, toaddress, prim, 
+           address_btc, address_eth, txt_data, block_time, block_index, tx_index
     FROM {SRC101_VALID_TABLE}
     WHERE (op = 'TRANSFER' OR op = 'MINT' OR op = 'SETRECORD' OR op = 'RENEW')
     """
@@ -628,7 +636,11 @@ def get_src101_valid_list(cursor, block_index=None):
     else:
         cursor.execute(query)
 
-    return cursor.fetchall()
+    results = cursor.fetchall()
+    logger.info(f"Found {len(results)} SRC-101 transactions")
+    logger.info(f"Operations breakdown: {Counter(r[0] for r in results)}")
+
+    return results
 
 
 def calculate_owners(src101_valid_list):
@@ -752,14 +764,57 @@ def calculate_balances(src20_valid_list):
     return all_balances
 
 
-def balances_need_update(existing_balances, all_balances):
-    return set(existing_balances) != set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items())
+def owners_need_update(existing_owners, all_owners):
+    """Compare existing owners with calculated owners"""
+    try:
+        existing_set = set()
+        new_set = set()
 
+        # Process existing owners
+        logger.info(f"Processing {len(existing_owners)} existing owners")
+        for owner in existing_owners:
+            if len(owner) < 15:
+                continue
 
-def purge_balances(cursor):
-    logger.warning("Purging balances table")
-    query = "DELETE FROM balances"
-    cursor.execute(query)
+            deploy_hash = owner[3]
+            tokenid = owner[4]
+            owner_address = owner[8]
+            block_index = owner[14] or 0
+
+            owner_tuple = (deploy_hash, tokenid, owner_address, block_index)
+            existing_set.add(owner_tuple)
+
+        # Process calculated owners
+        logger.info(f"Processing {len(all_owners)} calculated owners")
+        for key, value in all_owners.items():
+            owner_tuple = (value["deploy_hash"], value["tokenid"], value["owner"], value.get("last_update", 0))
+            new_set.add(owner_tuple)
+
+        # Log comparison details
+        logger.info(f"Comparing {len(existing_set)} existing owners with {len(new_set)} calculated owners")
+
+        # Compare sets
+        if existing_set != new_set:
+            missing_in_new = existing_set - new_set
+            missing_in_existing = new_set - existing_set
+
+            if missing_in_new:
+                logger.info(f"Found {len(missing_in_new)} owners in database that are not in calculated set")
+                for diff in list(missing_in_new)[:5]:
+                    logger.info(f"Missing in calculated: {diff}")
+
+            if missing_in_existing:
+                logger.info(f"Found {len(missing_in_existing)} calculated owners that are not in database")
+                for diff in list(missing_in_existing)[:5]:
+                    logger.info(f"Missing in database: {diff}")
+
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Error comparing owners: {str(e)}")
+        return True
 
 
 def insert_balances(cursor, all_balances):
@@ -796,9 +851,9 @@ def insert_balances(cursor, all_balances):
 
 
 def purge_owners(cursor):
+    """Purge the owners table"""
     logger.warning("Purging owners table")
-    query = "DELETE FROM owners"
-    cursor.execute(query)
+    cursor.execute("TRUNCATE TABLE owners")
 
 
 def insert_owners(cursor, all_owners):
@@ -839,12 +894,10 @@ def rebuild_owners(db, block_index=None):
         db.begin()
 
         existing_owners = get_existing_owners(cursor)
-        # logger.warning(existing_owners)
         src101_valid_list = get_src101_valid_list(cursor, block_index)
-        # logger.warning(src101_valid_list)
         all_owners = calculate_owners(src101_valid_list)
-        # logger.warning(all_owners)
-        if not balances_need_update(existing_owners, all_owners):
+
+        if not owners_need_update(existing_owners, all_owners):
             logger.info("No changes in owners. Skipping deletion and insertion.")
             return
 
@@ -867,6 +920,8 @@ def rebuild_balances(db, block_index=None):
         return
 
     cursor = db.cursor()
+    temp_table = "temp_balances_" + str(int(time.time()))
+
     try:
         logger.info("Validating Balances Table..")
         db.begin()
@@ -879,16 +934,85 @@ def rebuild_balances(db, block_index=None):
             logger.info("No changes in balances. Skipping deletion and insertion.")
             return
 
-        purge_balances(cursor)
-        insert_balances(cursor, all_balances)
+        # First create temp table
+        logger.debug(f"Creating temporary table: {temp_table}")
+        cursor.execute(
+            f"""
+            CREATE TABLE {temp_table} LIKE balances
+        """
+        )
 
+        # Then lock all necessary tables
+        logger.debug("Acquiring table locks")
+        cursor.execute(
+            f"""
+            LOCK TABLES 
+                balances WRITE, 
+                src20_valid READ,
+                {temp_table} WRITE
+        """
+        )
+
+        # Insert into temp table
+        values = [
+            (
+                key,
+                value["tick"],
+                value["tick_hash"],
+                value["address"],
+                value["amt"],
+                value["last_update"],
+                value["block_time"],
+                "SRC-20",
+            )
+            for key, value in all_balances.items()
+        ]
+
+        BATCH_SIZE = 10000
+        total_rows = len(values)
+
+        for i in range(0, total_rows, BATCH_SIZE):
+            batch = values[i : i + BATCH_SIZE]
+            logger.info(
+                f"Processing batch balances update {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)"
+            )
+
+            cursor.executemany(
+                f"""INSERT INTO {temp_table}(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+                batch,
+            )
+
+        # Atomic swap
+        logger.info("Performing atomic table swap")
+        cursor.execute(
+            f"""
+            RENAME TABLE balances TO balances_old,
+                         {temp_table} TO balances
+        """
+        )
+
+        # Cleanup
+        logger.debug("Cleaning up old table")
+        cursor.execute("DROP TABLE IF EXISTS balances_old")
+
+        logger.info("Balance rebuild completed successfully")
         db.commit()
 
     except Exception as e:
+        logger.error(f"Error during balance rebuild: {e}")
         db.rollback()
+        try:
+            cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+        except Exception as drop_error:
+            logger.error(f"Error dropping temp table: {drop_error}")
         raise e
 
     finally:
+        try:
+            cursor.execute("UNLOCK TABLES")
+        except Exception as e:
+            logger.error(f"Error unlocking tables: {e}")
         cursor.close()
 
 
@@ -1500,3 +1624,82 @@ def update_src20_token_stats(db):
 
     with db.cursor() as cursor:
         cursor.execute(query)
+
+
+def balances_need_update(existing_balances, all_balances):
+    """
+    Compare existing balances with calculated balances, accounting for in-progress updates
+    """
+    try:
+        # Normalize the balance data for comparison
+        existing_set = set()
+        new_set = set()
+
+        # Process existing balances
+        for balance in existing_balances:
+            if len(balance) < 6:
+                continue
+
+            id, tick, tick_hash, address, amt, last_update = balance[:6]
+
+            try:
+                # Normalize amount
+                amt = D(str(amt)) if amt else D("0")
+
+                # Skip zero balances
+                if amt == D("0"):
+                    continue
+
+                # Create comparable tuple
+                balance_tuple = (tick, tick_hash, address, amt)
+                existing_set.add(balance_tuple)
+
+            except (ValueError, TypeError, decimal.InvalidOperation) as e:
+                logger.debug(f"Skipping invalid existing balance: {balance}, error: {e}")
+                continue
+
+        # Process calculated balances
+        for key, value in all_balances.items():
+            try:
+                amt = D(str(value.get("amt", "0")))
+
+                # Skip zero balances
+                if amt == D("0"):
+                    continue
+
+                # Create comparable tuple
+                balance_tuple = (value.get("tick", ""), value.get("tick_hash", ""), value.get("address", ""), amt)
+                new_set.add(balance_tuple)
+
+            except (ValueError, TypeError, decimal.InvalidOperation) as e:
+                logger.debug(f"Skipping invalid calculated balance: {key}: {value}, error: {e}")
+                continue
+
+        # Log set sizes after normalization
+        logger.info(
+            f"Comparing {len(existing_set)} non-zero existing balances with {len(new_set)} non-zero calculated balances"
+        )
+
+        # Compare sets
+        if existing_set != new_set:
+            # Calculate specific differences
+            missing_in_new = existing_set - new_set
+            missing_in_existing = new_set - existing_set
+
+            if missing_in_new:
+                logger.info(f"Found {len(missing_in_new)} balances in database that are not in calculated set")
+                for diff in list(missing_in_new)[:5]:
+                    logger.debug(f"Missing in calculated: {diff}")
+
+            if missing_in_existing:
+                logger.info(f"Found {len(missing_in_existing)} calculated balances that are not in database")
+                for diff in list(missing_in_existing)[:5]:
+                    logger.debug(f"Missing in database: {diff}")
+
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Error comparing balances: {str(e)}")
+        return True
