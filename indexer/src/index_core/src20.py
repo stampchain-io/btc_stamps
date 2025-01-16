@@ -220,7 +220,7 @@ class Src20Processor:
         self.src20_dict["status"] = status_message
 
         if is_invalid:
-            logger.info(message)
+            logger.debug(message)
             self.is_valid = False
         else:
             logger.info(message)
