@@ -3,6 +3,9 @@ import json
 import logging
 from typing import Any
 
+import base64
+import re
+
 from cachetools import LRUCache, cached
 from cachetools.keys import hashkey
 
@@ -145,10 +148,15 @@ def get_src721_svg_string(src721_title, src721_desc, db):
     str: The SVG string representing the SRC721.
     """
     custom_background_result, _, _ = get_srcbackground_data(db, "SRC721")
-    image_data = custom_background_result
+    is_valid, cleaned_image_data = validate_base64_image(custom_background_result)
+
+    if not is_valid:
+        logger.warning(f"Invalid base64 image data for SRC721 background")
+        # Use a fallback image or raise an error
+        return None
 
     svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
-    <image x="0" y="0" width="420" height="420" href="data:image/png;base64,{image_data}"/>
+    <image x="0" y="0" width="420" height="420" href="{cleaned_image_data}"/>
     <title>{src721_title}</title>
     <desc>{src721_desc} - provided by stampchain.io</desc>
 </svg>"""
@@ -184,7 +192,13 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
         img_key = f"t{i}-img"
         if img_key in tmp_collection_object and t < len(tmp_collection_object[img_key]):
             image_src_base64 = tmp_collection_object[img_key][t]
-            svg += f'<image x="0" y="0" width="420" height="420" xlink:href="data:image/png;base64,{image_src_base64}"/>'
+            is_valid, cleaned_image_data = validate_base64_image(image_src_base64)
+
+            if not is_valid:
+                logger.warning(f"Invalid base64 image data for layer {i}")
+                continue
+
+            svg += f'<image x="0" y="0" width="420" height="420" xlink:href="{cleaned_image_data}"/>'
 
     svg += "</svg>"
     return svg, tmp_coll_name
@@ -266,3 +280,35 @@ def fetch_collection_details(collection_cpid: str, db: Any) -> str:
         raise e
 
     return collection_asset_item
+
+
+def validate_base64_image(base64_string: str) -> tuple[bool, str]:
+    """
+    Validates and cleans a base64 image string.
+
+    Args:
+        base64_string: The base64 string to validate
+
+    Returns:
+        tuple[bool, str]: (is_valid, cleaned_string)
+    """
+    try:
+        # Remove any existing data URL prefix
+        if base64_string.startswith("data:"):
+            # Extract just the base64 part
+            pattern = r"data:image/[^;]+;base64,"
+            matches = re.findall(pattern, base64_string)
+            if matches:
+                # Keep only the first media type declaration
+                prefix = matches[0]
+                base64_string = base64_string.split(prefix, 1)[1]
+            else:
+                base64_string = base64_string.split("base64,", 1)[1]
+
+        # Try to decode to validate it's proper base64
+        base64.b64decode(base64_string)
+
+        # If we got here, it's valid base64
+        return True, f"data:image/png;base64,{base64_string}"
+    except Exception:
+        return False, ""
