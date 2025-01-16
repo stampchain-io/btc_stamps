@@ -948,7 +948,7 @@ def rebuild_balances(db, block_index=None):
             f"""
             LOCK TABLES 
                 balances WRITE, 
-                src20_valid READ,
+                {SRC20_VALID_TABLE} READ,
                 {temp_table} WRITE
         """
         )
