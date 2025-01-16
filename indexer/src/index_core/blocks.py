@@ -1028,16 +1028,8 @@ def follow(db):
                         )
 
                         stamp_issuances_list.pop(block_index, None)
-                        log_block_info(
-                            block_index,
-                            start_time,
-                            new_ledger_hash,
-                            new_txlist_hash,
-                            new_messages_hash,
-                            0,
-                            0,
-                        )
-                        block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                        log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0, 0, 0)
+                        block_index = commit_and_update_block(db, block_index, block_tip, 0)
                         continue
 
                     tx_results = []
