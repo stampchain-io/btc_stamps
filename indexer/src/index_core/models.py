@@ -13,10 +13,10 @@ import regex as re
 
 import index_core.log as log
 from config import (
+    BTC_SRC101_GENESIS_BLOCK,
     CP_BMN_FEAT_BLOCK_START,
     CP_P2WSH_FEAT_BLOCK_START,
     CP_SRC20_END_BLOCK,
-    BTC_SRC101_GENESIS_BLOCK,
     CP_SRC721_GENESIS_BLOCK,
     CP_SUBASSET_FEAT_BLOCK_START,
     DOMAINNAME,
