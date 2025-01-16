@@ -29,7 +29,6 @@ RPC_IP=localhost
 RPC_USER=rpc
 RPC_PASSWORD=rpc
 RPC_PORT=8332
-QUI
 EOL
 else
     echo "📄 Using existing .env.local file"

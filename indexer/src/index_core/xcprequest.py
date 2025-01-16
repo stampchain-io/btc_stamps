@@ -184,13 +184,18 @@ def get_xcp_block_data(block_index: int, indicator=None):
                 parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
                 return parsed_block_data["issuances"]
             except (TypeError, IndexError, KeyError) as e:
-                sys.exit(f"Error parsing block data for block {block_index}: {e}")
+                logger.warning(f"Error parsing block data for block {block_index}: {e}")
+                if attempt < max_retries - 1:
+                    logger.warning(f"Retrying parse attempt {attempt + 1}/{max_retries}")
+                    time.sleep(retry_delay)
+                    continue
 
         if attempt < max_retries - 1:
             logger.warning(f"Failed to get block data for block {block_index}, attempt {attempt + 1}/{max_retries}")
             time.sleep(retry_delay)
 
-    sys.exit(f"Failed to get block data for block {block_index} after {max_retries} attempts")
+    logger.error(f"Failed to get block data for block {block_index} after {max_retries} attempts")
+    sys.exit(1)
 
 
 def _parse_issuances_from_block(block_data):
