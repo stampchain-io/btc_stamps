@@ -26,40 +26,58 @@ def parse_valid_src721_in_block(valid_stamps_in_block):
 
 
 def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
-    collection_name, collection_description, collection_website, collection_onchain = None, None, None, None
-    if valid_stamps_in_block:
-        valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
-    else:
-        valid_src721_in_block = []
-    src721_json = convert_to_dict(src721_json)
-    op_val = src721_json.get("op", "").upper()
-    file_suffix, collection_name, collection_description = None, None, None
-    if "symbol" in src721_json:
-        src721_json["tick"] = src721_json.pop("symbol")
-    if op_val == "MINT":
-        svg_output, collection_name = create_src721_mint_svg(src721_json, valid_src721_in_block, db)
-        file_suffix = "svg"
-    elif op_val == "DEPLOY":
-        collection_name = src721_json.get("name", None)
-        collection_description = src721_json.get("description", None)
-        collection_website = src721_json.get("website", None)
-        svg_output = get_src721_svg_string(collection_name, collection_description, db)
-        file_suffix = "svg"
-    else:
-        svg_output = get_src721_svg_string("SRC721", config.DOMAINNAME, db)
+    try:
+        collection_name, collection_description, collection_website, collection_onchain = None, None, None, None
+        if valid_stamps_in_block:
+            valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
+        else:
+            valid_src721_in_block = []
+
+        src721_json = convert_to_dict(src721_json)
+        op_val = src721_json.get("op", "").upper()
         file_suffix = "svg"
 
-    # Set collection_onchain to 1 if collection_name is found
-    collection_onchain = 1 if collection_name is not None else None
+        if "symbol" in src721_json:
+            src721_json["tick"] = src721_json.pop("symbol")
 
-    return (
-        svg_output.encode("utf-8"),
-        file_suffix,
-        collection_name,
-        collection_description,
-        collection_website,
-        collection_onchain,
-    )
+        if op_val == "MINT":
+            svg_output, collection_name = create_src721_mint_svg(src721_json, valid_src721_in_block, db)
+        elif op_val == "DEPLOY":
+            collection_name = src721_json.get("name", None)
+            collection_description = src721_json.get("description", None)
+            collection_website = src721_json.get("website", None)
+            svg_output = get_src721_svg_string(collection_name, collection_description, db)
+        else:
+            svg_output = get_src721_svg_string("SRC721", config.DOMAINNAME, db)
+
+        # Ensure we have valid SVG output
+        if not svg_output:
+            logger.error("Failed to generate SVG output")
+            svg_output = "<svg>Error generating image</svg>"
+
+        # Set collection_onchain to 1 if collection_name is found
+        collection_onchain = 1 if collection_name is not None else None
+
+        return (
+            svg_output.encode("utf-8"),
+            file_suffix,
+            collection_name,
+            collection_description,
+            collection_website,
+            collection_onchain,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in validate_src721_and_process: {e}")
+        fallback_svg = "<svg>Error processing SRC721</svg>"
+        return (
+            fallback_svg.encode("utf-8"),
+            "svg",
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 def convert_to_dict(json_string_or_dict):
@@ -152,17 +170,22 @@ def get_src721_svg_string(src721_title, src721_desc, db):
 
     if not is_valid:
         logger.warning(f"Invalid base64 image data for SRC721 background")
-        # Use a fallback image or raise an error
-        return None
+        # Provide fallback SVG instead of returning None
+        fallback_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
+            <rect width="420" height="420" fill="#f0f0f0"/>
+            <text x="210" y="210" text-anchor="middle" dominant-baseline="middle">{src721_title}</text>
+            <title>{src721_title}</title>
+            <desc>{src721_desc} - provided by stampchain.io</desc>
+        </svg>"""
+        return fallback_svg.replace("\n", "").replace("    ", "")
 
     svg_output = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
-    <image x="0" y="0" width="420" height="420" href="{cleaned_image_data}"/>
-    <title>{src721_title}</title>
-    <desc>{src721_desc} - provided by stampchain.io</desc>
-</svg>"""
+        <image x="0" y="0" width="420" height="420" href="{cleaned_image_data}"/>
+        <title>{src721_title}</title>
+        <desc>{src721_desc} - provided by stampchain.io</desc>
+    </svg>"""
 
-    svg_output = svg_output.replace("\n", "").replace("    ", "")
-    return svg_output
+    return svg_output.replace("\n", "").replace("    ", "")
 
 
 def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
