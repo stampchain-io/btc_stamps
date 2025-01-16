@@ -68,7 +68,7 @@ jobs:
         working-directory: ./indexer
 
       - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src" >> $GITHUB_ENV
+        run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer" >> $GITHUB_ENV
 
       - name: Check import order with isort
         run: poetry run isort . --check-only

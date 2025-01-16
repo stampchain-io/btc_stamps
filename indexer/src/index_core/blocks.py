@@ -553,8 +553,7 @@ def create_check_hashes(
     try:
         update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
     except BlockUpdateError as e:
-        logger.error(e)
-        sys.exit("Exiting due to a critical update error.")
+        sys.exit(f"Exiting due to a critical update error: {e}")
 
     return new_ledger_hash, new_txlist_hash, new_messages_hash
 
@@ -596,7 +595,7 @@ def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
         print("Error message:", e)
         db.rollback()
         db.close()
-        sys.exit()
+        sys.exit(f"Critical database error encountered: {e}")
 
 
 def log_block_info(

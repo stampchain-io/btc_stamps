@@ -176,7 +176,7 @@ BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP
 BTC_SRC20_OLGA_BLOCK: int = 865000  # block height of first SRC-20 with P2WSH OLGA encoding
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 
-CP_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101
+BTC_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101
 BTC_SRC101_IMG_OPTIONAL_BLOCK: int = 872200
 
 CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK

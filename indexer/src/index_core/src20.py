@@ -1254,6 +1254,7 @@ def fetch_api_ledger_data(block_index: int):
 
     max_retries = 5
     backoff_time = 1
+    retry_count = 0
 
     def fetch_url(url):
         try:
@@ -1282,6 +1283,9 @@ def fetch_api_ledger_data(block_index: int):
                             logger.error("api_ledger_validation is empty")
                             return None, None
 
+                        if retry_count > 0:
+                            logger.info(f"Successfully fetched ledger data after {retry_count} retries")
+
                         return api_ledger_hash, api_ledger_validation
                     else:
                         logger.error("No 'data' key in response JSON")
@@ -1300,7 +1304,8 @@ def fetch_api_ledger_data(block_index: int):
             logger.error(f"Request failed for URL {url}: {e}")
             return None, None
 
-    for _ in range(max_retries):
+    for attempt in range(max_retries):
+        retry_count = attempt
         with ThreadPoolExecutor() as executor:
             future_to_url = {executor.submit(fetch_url, url): url for url in urls}
             for future in as_completed(future_to_url):
@@ -1320,8 +1325,8 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         if api_ledger_validation is None:
             raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
     except Exception as e:
-        logger.error(f"Error fetching API data: {e}")
-        # Continue processing even if API data is unavailable
+        logger.error(f"Error fetching SRC-20 ledger data from remote API: {e}")
+        # NOTE(reinamora): Continue processing even if API data is unavailable, will want to reparse and validate
         return False
 
     if api_ledger_hash == ledger_hash:
@@ -1419,12 +1424,13 @@ def compare_string_formats(local_str: str, api_str: str):
     api_sorted = sorted(api_entries)
 
     if local_sorted != api_sorted:
-        print("\nSorting difference detected:")
-        print("  Local sorted:", ";".join(local_sorted))
-        print("  API sorted:  ", ";".join(api_sorted))
-        sys.exit()
+        sys.exit(
+            "Sorting difference detected:\n  Local sorted: {}\n  API sorted:   {}".format(
+                ";".join(local_sorted), ";".join(api_sorted)
+            )
+        )
     else:
-        print("\nBoth strings have the same sorting order.")
+        logger.debug("Local and remote API validation strings have the same sorting order.")
 
     local_formatted = set(normalize_entry(entry) for entry in local_entries)
     api_formatted = set(normalize_entry(entry) for entry in api_entries)
@@ -1435,11 +1441,11 @@ def compare_string_formats(local_str: str, api_str: str):
         for entry in sorted(format_diff):
             local_entry = next((e for e in local_entries if normalize_entry(e) == entry), None)
             api_entry = next((e for e in api_entries if normalize_entry(e) == entry), None)
-            print(f"  Local: {local_entry}")
-            print(f"  API:   {api_entry}")
+            logger.error(f"  Local: {local_entry}")
+            logger.error(f"  API:   {api_entry}")
             print()
     else:
-        print("\nNo formatting differences detected.")
+        logger.debug("No formatting differences detected in local and remote API validation strings.")
 
 
 def normalize_entry(entry):

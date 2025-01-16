@@ -1,0 +1,60 @@
+services:
+  mysql:
+    env_file:
+      - ${ENV_FILE:-.env.local}
+    profiles: ["with-db"]
+    image: mysql:8.4.0
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --bind-address=0.0.0.0
+      --skip-grant-tables
+    volumes:
+      - ./db_data:/var/lib/mysql
+      - ./table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
+    environment:
+      - MYSQL_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - MYSQL_ROOT_PASSWORD=${RDS_PASSWORD:-root}
+      - MYSQL_USER=${RDS_USER}
+      - MYSQL_PASSWORD=${RDS_PASSWORD}
+      - MYSQL_ROOT_HOST=%
+    ports:
+      - "3306:3306"
+
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: 3.12
+        INSTALL_DEV: "true"
+    image: ${IMAGE_NAME:-btc_stamps/indexer:local-dev}
+    labels:
+      com.docker.compose.environment: "local-development"
+      com.docker.compose.project: "indexer-local"
+    network_mode: ${NETWORK_MODE:-host}
+    env_file:
+      - ${ENV_FILE:-.env.local}
+    environment:
+      - DEBUG=1
+      - DOCKER_CONTAINER=1
+      - RDS_HOSTNAME=${RDS_HOSTNAME:-localhost}
+      - RDS_USER=${RDS_USER:-}
+      - RDS_PASSWORD=${RDS_PASSWORD:-}
+      - RDS_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - QUICKNODE_URL=${QUICKNODE_URL:-}
+      - RPC_TOKEN=${RPC_TOKEN:-}
+      - RPC_IP=${RPC_IP:-}
+      - RPC_USER=${RPC_USER:-rpc}
+      - RPC_PASSWORD=${RPC_PASSWORD:-rpc}
+      - BACKEND_POLL_INTERVAL=${BACKEND_POLL_INTERVAL:-0.5}
+      - PYTHONDONTWRITEBYTECODE=1
+      - POETRY_VIRTUALENVS_CREATE=false
+
+
+    volumes:
+      - ./logs:/app/logs
+      - ../files:/usr/src/app/files
+      - .:/app:cached
+      - ~/.cache/pip:/root/.cache/pip
+    ports:
+      - "5678:5678"
