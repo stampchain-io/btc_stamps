@@ -1254,6 +1254,7 @@ def fetch_api_ledger_data(block_index: int):
 
     max_retries = 5
     backoff_time = 1
+    retry_count = 0
 
     def fetch_url(url):
         try:
@@ -1282,6 +1283,9 @@ def fetch_api_ledger_data(block_index: int):
                             logger.error("api_ledger_validation is empty")
                             return None, None
 
+                        if retry_count > 0:
+                            logger.info(f"Successfully fetched ledger data after {retry_count} retries")
+
                         return api_ledger_hash, api_ledger_validation
                     else:
                         logger.error("No 'data' key in response JSON")
@@ -1300,7 +1304,8 @@ def fetch_api_ledger_data(block_index: int):
             logger.error(f"Request failed for URL {url}: {e}")
             return None, None
 
-    for _ in range(max_retries):
+    for attempt in range(max_retries):
+        retry_count = attempt
         with ThreadPoolExecutor() as executor:
             future_to_url = {executor.submit(fetch_url, url): url for url in urls}
             for future in as_completed(future_to_url):
