@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import threading
+import time
 
 import appdirs
 import pymysql as mysql
@@ -32,22 +33,24 @@ shutdown_flag = threading.Event()
 
 def sigterm_handler(_signo, _stack_frame):
     """Handle shutdown signals gracefully."""
-    if _signo == 15:
-        signal_name = "SIGTERM"
-    elif _signo == 2:
+    if _signo == signal.SIGINT:
         signal_name = "SIGINT"
+        exit_code = 130
+    elif _signo == signal.SIGTERM:
+        signal_name = "SIGTERM"
+        exit_code = 143
     else:
-        raise ValueError("Unexpected signal number received")
+        exit_code = 1
+        signal_name = f"SIGNAL_{_signo}"
 
-    logger.info("Received {}.".format(signal_name))
+    logger.info(f"Received {signal_name}.")
     logger.info("Initiating graceful shutdown...")
 
-    # Set the shutdown flag
     shutdown_flag.set()
 
-    # Let the main loop handle the actual shutdown
-    # This avoids thread cleanup issues
-    return
+    # Allow time for cleanup
+    time.sleep(2)
+    sys.exit(exit_code)
 
 
 signal.signal(signal.SIGTERM, sigterm_handler)

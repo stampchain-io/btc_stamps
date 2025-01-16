@@ -74,8 +74,9 @@ RUN apt-get update && \
         libgmp-dev \
         libmpfr-dev \
         libmpc-dev \
-        netcat-traditional && \
-    rm -rf /var/lib/apt/lists/*
+        netcat-traditional \
+        supervisor \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install dockerize (as root)
 ARG TARGETARCH
@@ -112,8 +113,11 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chown indexer:indexer /docker-entrypoint.sh && \
     chmod +x /docker-entrypoint.sh
 
+# Copy supervisor config
+COPY supervisor.conf /etc/supervisor/conf.d/indexer.conf
+
 # Switch to indexer user after all system operations are complete
 USER indexer
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["python", "-m", "start"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/indexer.conf"]

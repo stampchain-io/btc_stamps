@@ -1,4 +1,3 @@
-
 services:
   db:
     image: mysql:8.4.0
@@ -39,16 +38,17 @@ services:
       dockerfile: Dockerfile
       args:
          PYTHON_VERSION: 3.12
-    command: sh -c "dockerize -wait tcp://db:3306 -timeout 5m && poetry run indexer"
+    command: sh -c "dockerize -wait tcp://db:3306 -timeout 5m && /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf"
     volumes:
       - ../indexer:/usr/src/app
       - ../files:/usr/src/app/files
+      - /var/log/supervisor:/var/log/supervisor
     depends_on:
       - db
     env_file:
       - ../indexer/.env
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'poetry run indexer' || exit 1"]
+      test: ["CMD-SHELL", "supervisorctl status indexer | grep RUNNING || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
