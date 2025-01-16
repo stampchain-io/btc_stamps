@@ -856,6 +856,30 @@ def filter_block_transactions(block_data, stamp_issuances=None):
     return tx_hash_list, raw_transactions
 
 
+def check_db_connection(db):
+    """Check if database connection is alive and reconnect if needed."""
+    try:
+        db.ping(reconnect=True)
+        return db
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        try:
+            if not db._closed:
+                db.close()
+        except:
+            pass
+
+        from index_core.server import initialize_db
+
+        try:
+            new_db = initialize_db()
+            logger.info("Successfully reconnected to database")
+            return new_db
+        except Exception as e:
+            logger.error(f"Failed to reconnect to database: {e}")
+            raise
+
+
 def follow(db):
     """
     Continuously follows the blockchain, parsing and indexing new blocks
@@ -925,7 +949,8 @@ def follow(db):
                     if server.shutdown_flag.is_set():
                         break
 
-                    db.ping()
+                    # Check database connection before operations
+                    db = check_db_connection(db)
 
                     if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                         stamp_issuances = stamp_issuances_list[block_index]
@@ -1087,6 +1112,9 @@ def follow(db):
                 else:
                     if server.shutdown_flag.is_set():
                         break
+
+                    # Check database connection before waiting
+                    db = check_db_connection(db)
 
                     # Use ZMQ if enabled
                     if zmq_enabled:
