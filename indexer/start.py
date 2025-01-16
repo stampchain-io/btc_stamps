@@ -104,9 +104,11 @@ def test_setup():
         sys.exit(0)
 
     except ImportError as e:
-        sys.exit(f"\n❌ Import error: {str(e)}")
+        print(f"\n❌ Import error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        sys.exit(f"\n❌ Test setup failed: {str(e)}", file=sys.stderr)
+        print(f"\n❌ Test setup failed: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
 import index_core.log as log

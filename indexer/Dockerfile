@@ -28,19 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Poetry
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
-# Create indexer user and set up directories
-RUN useradd -m indexer && \
-    mkdir -p /app && \
-    chown -R indexer:indexer /app && \
-    chown -R indexer:indexer /usr/local
-
 WORKDIR /app
 
-# Switch to indexer user for the remaining operations
-USER indexer
-
-# Now we can use --chown since the user exists
-COPY --chown=indexer:indexer pyproject.toml poetry.lock ./
+# Copy project files
+COPY pyproject.toml poetry.lock ./
 
 # Install dependencies
 RUN if [ "$INSTALL_DEV" = "true" ]; then \
@@ -50,7 +41,7 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
     fi
 
 # Copy project files (will respect .dockerignore)
-COPY --chown=indexer:indexer . .
+COPY . .
 
 # Install project with all dependencies
 RUN if [ "$INSTALL_DEV" = "true" ]; then \
@@ -73,12 +64,7 @@ ENV PYTHONPATH=/app:/app/src \
 
 WORKDIR /app
 
-# Create user and set up directories
-RUN useradd -m indexer && \
-    mkdir -p /app && \
-    chown -R indexer:indexer /app
-
-# Install system dependencies first
+# Install system dependencies first (as root)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         wget \
@@ -91,23 +77,12 @@ RUN apt-get update && \
         netcat-traditional && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder and fix permissions
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-RUN chown -R indexer:indexer /usr/local/lib/python3.12/site-packages
-
-# Copy Poetry binary
-COPY --from=builder /usr/local/bin/poetry /usr/local/bin/poetry
-
-# Install dockerize
+# Install dockerize (as root)
 ARG TARGETARCH
 ENV ARCH=${TARGETARCH:-amd64} \
     DOCKERIZE_VERSION=v0.7.0
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        wget && \
-    rm -rf /var/lib/apt/lists/* && \
-    case "${ARCH}" in \
+RUN case "${ARCH}" in \
         "amd64")  DOCKERIZE_ARCH=amd64  ;; \
         "arm64")  DOCKERIZE_ARCH=arm64  ;; \
         "arm")    DOCKERIZE_ARCH=armhf  ;; \
@@ -117,13 +92,27 @@ RUN apt-get update && \
     tar -C /usr/local/bin -xzvf "dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz" && \
     rm "dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz"
 
-# Copy from builder
+# Create user and set up directories (as root)
+RUN useradd -m indexer && \
+    mkdir -p /app && \
+    chown -R indexer:indexer /app
+
+# Copy Python packages from builder and fix permissions (as root)
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+RUN chown -R indexer:indexer /usr/local/lib/python3.12/site-packages
+
+# Copy Poetry binary (as root)
+COPY --from=builder /usr/local/bin/poetry /usr/local/bin/poetry
+
+# Copy application files and set permissions (as root)
 COPY --from=builder --chown=indexer:indexer /app /app
 
-# Copy and set up entrypoint script
-COPY --chown=indexer:indexer docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Copy and set up entrypoint script (as root)
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chown indexer:indexer /docker-entrypoint.sh && \
+    chmod +x /docker-entrypoint.sh
 
+# Switch to indexer user after all system operations are complete
 USER indexer
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
