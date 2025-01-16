@@ -561,7 +561,9 @@ def create_check_hashes(
 def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
     """
     Commits the changes to the database, updates the parsed block, and increments the block index.
-    Updates stats when at tip or when there are SRC20 transactions.
+    Updates stats when:
+    - At tip: Every block with SRC20 transactions
+    - During bulk: Every 1000 blocks as a safety net
 
     Args:
         db: The database connection object.
@@ -574,12 +576,12 @@ def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
     """
     try:
         # Update stats if:
-        # 1. We're at the tip (real-time processing)
-        # 2. There were SRC20 transactions in this block
-        # 3. Every 1000 blocks during bulk indexing (as a safety net)
+        # 1. We're at the tip AND (it's a normal block OR has SRC20 transactions)
+        # 2. Every 1000 blocks during bulk indexing (as a safety net)
         should_update_stats = block_index >= config.BTC_SRC20_GENESIS_BLOCK and (
-            block_index == block_tip  # At tip
-            or src20_in_block > 0  # Has SRC20 transactions
+            (
+                block_index == block_tip and (block_index % 100 == 0 or src20_in_block > 0)
+            )  # At tip with SRC20 or every 100th block
             or (block_tip - block_index > 100 and block_index % 1000 == 0)  # Bulk safety net
         )
 
