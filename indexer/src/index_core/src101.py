@@ -413,7 +413,7 @@ class Src101Processor:
         self.src101_dict["status"] = status_message
 
         if is_invalid:
-            logger.warning(message)
+            logger.debug(message)
             self.is_valid = False
         else:
             logger.info(message)
