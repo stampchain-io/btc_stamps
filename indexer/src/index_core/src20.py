@@ -1320,8 +1320,8 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         if api_ledger_validation is None:
             raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
     except Exception as e:
-        logger.error(f"Error fetching API data: {e}")
-        # Continue processing even if API data is unavailable
+        logger.error(f"Error fetching SRC-20 ledger data from remote API: {e}")
+        # NOTE(reinamora): Continue processing even if API data is unavailable, will want to reparse and validate
         return False
 
     if api_ledger_hash == ledger_hash:
