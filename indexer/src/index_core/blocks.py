@@ -13,6 +13,7 @@ import time
 from collections import namedtuple
 from typing import List
 
+import pymysql as mysql
 from bitcoin.core.script import CScriptInvalidError
 from pymysql.connections import Connection
 
@@ -894,26 +895,40 @@ def filter_block_transactions(block_data, stamp_issuances=None):
 
 def check_db_connection(db):
     """Check if database connection is alive and reconnect if needed."""
-    try:
-        db.ping(reconnect=True)
-        return db
-    except Exception as e:
-        logger.error(f"Database connection error: {e}")
-        try:
-            if not db._closed:
-                db.close()
-        except:
-            pass
+    max_retries = 3
+    retry_delay = 5  # seconds
 
-        from index_core.server import initialize_db
-
+    for attempt in range(max_retries):
         try:
-            new_db = initialize_db()
-            logger.info("Successfully reconnected to database")
-            return new_db
+            # First try to ping the connection
+            db.ping(reconnect=True)
+            return db
         except Exception as e:
-            logger.error(f"Failed to reconnect to database: {e}")
-            raise
+            logger.warning(f"Database connection check failed (attempt {attempt + 1}/{max_retries}): {e}")
+
+            # Close the connection if it exists
+            try:
+                if not db._closed:
+                    db.close()
+            except:
+                pass
+
+            if attempt < max_retries - 1:
+                logger.info(f"Waiting {retry_delay} seconds before retry...")
+                time.sleep(retry_delay)
+
+                try:
+                    from index_core.server import initialize_db
+
+                    new_db = initialize_db()
+                    logger.info("Successfully reconnected to database")
+                    return new_db
+                except Exception as reconnect_error:
+                    logger.error(f"Failed to reconnect to database: {reconnect_error}")
+                    # Continue to next retry
+            else:
+                logger.error("Max retries reached for database reconnection")
+                raise Exception("Failed to establish database connection after max retries")
 
 
 def follow(db):
@@ -950,6 +965,21 @@ def follow(db):
 
     stamp_issuances_list = None
     executor = None
+    consecutive_errors = 0
+    max_consecutive_errors = 5
+    error_cooldown = 10  # seconds
+    last_keepalive = time.time()
+    KEEPALIVE_INTERVAL = 60  # Send keepalive every minute
+
+    def send_keepalive(db):
+        """Send a lightweight query to keep the connection alive"""
+        try:
+            with db.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            return True
+        except Exception as e:
+            logger.warning(f"Keepalive query failed: {e}")
+            return False
 
     try:
         executor = concurrent.futures.ThreadPoolExecutor()
@@ -962,6 +992,9 @@ def follow(db):
                 break
 
             try:
+                # Check database connection before starting new block
+                db = check_db_connection(db)
+
                 db.begin()  # Start transaction for entire block
 
                 # Get block tip with timeout
@@ -1157,15 +1190,21 @@ def follow(db):
                         try:
                             logger.info(f"Waiting for new blocks via ZMQ after block {block_index}")
                             while not server.shutdown_flag.is_set():
-                                notification = zmq_notifier.wait_for_notification(5000)
+                                # Send keepalive if needed
+                                if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
+                                    if not send_keepalive(db):
+                                        db = check_db_connection(db)
+                                    last_keepalive = time.time()
+
+                                notification = zmq_notifier.wait_for_notification(min(5000, KEEPALIVE_INTERVAL * 1000))
                                 if notification:
                                     topic, body, seq = notification
                                     topic_str = topic.decode("utf-8")
                                     if topic_str in ["hashblock", "rawblock"]:
                                         logger.info(f"Processing new block notification via ZMQ: {topic_str}")
                                         block_tip = backend.getblockcount()
-                                        break  # This should exit both loops and trigger block processing
-                                continue  # Keep waiting if no valid notification
+                                        break
+                                continue
                         except Exception as e:
                             logger.warning(f"ZMQ notification failed, falling back to polling: {e}")
                             zmq_enabled = False
@@ -1175,6 +1214,13 @@ def follow(db):
                     # Only reach here if ZMQ is disabled or failed
                     if not zmq_enabled:
                         logger.info("Using RPC polling for new blocks")
+
+                        # Send keepalive if needed
+                        if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
+                            if not send_keepalive(db):
+                                db = check_db_connection(db)
+                            last_keepalive = time.time()
+
                         time.sleep(config.BACKEND_POLL_INTERVAL)
                         block_tip = backend.getblockcount()
 
@@ -1187,6 +1233,27 @@ def follow(db):
                                     logger.info("Successfully re-enabled ZMQ notifications")
                             except Exception as e:
                                 logger.warning(f"Failed to re-initialize ZMQ: {e}")
+
+                consecutive_errors = 0  # Reset error counter on successful iteration
+
+            except (mysql.Error, mysql.OperationalError) as e:
+                logger.error(f"Database error processing block {block_index}: {e}")
+                db.rollback()
+                consecutive_errors += 1
+
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(f"Too many consecutive database errors ({consecutive_errors}). Taking a longer break...")
+                    time.sleep(error_cooldown * 2)  # Double the cooldown
+                    consecutive_errors = 0  # Reset counter after break
+                else:
+                    time.sleep(error_cooldown)
+
+                # Try to reconnect to database
+                try:
+                    db = check_db_connection(db)
+                except Exception as reconnect_error:
+                    logger.error(f"Failed to reconnect to database: {reconnect_error}")
+                    raise
 
             except Exception as e:
                 logger.error(f"Error processing block {block_index}: {e}")

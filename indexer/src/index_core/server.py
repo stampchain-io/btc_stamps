@@ -342,13 +342,23 @@ def initialize_db() -> Connection:
 
     logger.info("Connecting to database (MySQL).")
 
+    # Connection configuration with proper timeouts and reconnect settings
+    db_config = {
+        "host": rds_host,
+        "user": rds_user,
+        "password": rds_password,
+        "port": rds_port,
+        "connect_timeout": 10,
+        "read_timeout": 30,
+        "write_timeout": 30,
+        "charset": "utf8mb4",
+        "autocommit": False,
+        "client_flag": mysql.constants.CLIENT.MULTI_STATEMENTS,
+        "init_command": "SET SESSION wait_timeout=28800",
+    }
+
     # First connect without database to create it if needed
-    db: Connection = mysql.connect(
-        host=rds_host,
-        user=rds_user,
-        password=rds_password,
-        port=rds_port,
-    )
+    db: Connection = mysql.connect(**db_config)
 
     try:
         with db.cursor() as cursor:
@@ -362,13 +372,8 @@ def initialize_db() -> Connection:
 
     # Reconnect with database selected
     db.close()
-    db = mysql.connect(
-        host=rds_host,
-        user=rds_user,
-        password=rds_password,
-        port=rds_port,
-        database=rds_database,
-    )
+    db_config["database"] = rds_database
+    db = mysql.connect(**db_config)
 
     util.CURRENT_BLOCK_INDEX = last_db_index(db)
 
