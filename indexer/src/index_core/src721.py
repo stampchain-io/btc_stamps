@@ -314,23 +314,36 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
     Returns:
         tuple[bool, str]: (is_valid, cleaned_string)
     """
+    if not base64_string:
+        return False, ""
+
     try:
+        # If already a valid data URL, return as is
+        if base64_string.startswith("data:image/"):
+            # Verify the base64 part is valid
+            content = base64_string.split("base64,", 1)[1]
+            base64.b64decode(content)
+            return True, base64_string
+
         # Remove any existing data URL prefix
         if base64_string.startswith("data:"):
-            # Extract just the base64 part
-            pattern = r"data:image/[^;]+;base64,"
+            # Extract just the base64 part and mimetype
+            pattern = r"data:image/([^;]+);base64,"
             matches = re.findall(pattern, base64_string)
             if matches:
-                # Keep only the first media type declaration
-                prefix = matches[0]
-                base64_string = base64_string.split(prefix, 1)[1]
+                mimetype = matches[0]
+                base64_string = base64_string.split(f"data:image/{mimetype};base64,", 1)[1]
             else:
                 base64_string = base64_string.split("base64,", 1)[1]
+                mimetype = "png"  # Default to PNG if no mimetype found
+        else:
+            mimetype = "png"  # Default to PNG for raw base64
 
         # Try to decode to validate it's proper base64
         base64.b64decode(base64_string)
 
         # If we got here, it's valid base64
-        return True, f"data:image/png;base64,{base64_string}"
-    except Exception:
+        return True, f"data:image/{mimetype};base64,{base64_string}"
+    except Exception as e:
+        logger.debug(f"Base64 validation failed: {str(e)}")
         return False, ""
