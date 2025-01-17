@@ -463,16 +463,9 @@ def decode_checkmultisig(ctx, chunk):
 def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None):
     if not isinstance(tx_hash, str):
         raise TypeError("tx_hash must be a string")
-    # NOTE: this is for future reparsing options
-    # cursor = db.cursor()
-    # cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,)) # this will include all CP transactinos as well ofc
-    # transactions = cursor.fetchall()
-    # cursor.close()
-    # if transactions:
-    #     return tx_index
 
     if tx_hex is None:
-        tx_hex = backend.getrawtransaction(tx_hash)
+        tx_hex = backend.getrawtransaction(tx_hash, verbose=False, skip_missing=False, current_block=block_index)
 
     transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, "source", None)
@@ -738,6 +731,7 @@ def log_block_info(
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
+    """Process a single transaction and return its parsed information."""
     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
 
     tx_hex = raw_transactions[tx_hash]
@@ -910,7 +904,8 @@ def check_db_connection(db):
             try:
                 if not db._closed:
                     db.close()
-            except:
+            except (AttributeError, mysql.Error) as e:
+                logger.debug(f"Error during database cleanup: {e}")
                 pass
 
             if attempt < max_retries - 1:
@@ -929,6 +924,34 @@ def check_db_connection(db):
             else:
                 logger.error("Max retries reached for database reconnection")
                 raise Exception("Failed to establish database connection after max retries")
+
+
+def update_cpids_async(db):
+    try:
+        # Create a new database connection for this async task
+        from index_core.server import initialize_db
+
+        task_db = initialize_db()
+
+        try:
+            cpids = get_unlocked_cpids(task_db)
+            if cpids:
+                cpids_list = [cpid[0] for cpid in cpids]
+                assets_details = get_xcp_assets_by_cpids(cpids_list, chunk_size=200, delay_between_chunks=6, max_workers=5)
+                if assets_details:
+                    update_assets_in_db(task_db, assets_details, chunk_size=200, delay_between_chunks=6)
+                    logger.info("Successfully updated assets in the database.")
+                else:
+                    logger.warning("No asset details were retrieved.")
+            else:
+                logger.info("No CPIDs to update.")
+        finally:
+            task_db.close()
+
+    except Exception as e:
+        logger.error(f"Error in update_cpids_async: {e}")
+        if not config.FORCE:
+            raise
 
 
 def follow(db):
@@ -983,6 +1006,8 @@ def follow(db):
 
     try:
         executor = concurrent.futures.ThreadPoolExecutor()
+        update_cpids_future = None
+        update_cpids_last_run_block = 0
 
         while not server.shutdown_flag.is_set():
             start_time = time.time()
@@ -1021,15 +1046,36 @@ def follow(db):
                     # Check database connection before operations
                     db = check_db_connection(db)
 
+                    # Remove CPID update from here since we do it in the idle block
+
                     if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
                         stamp_issuances = stamp_issuances_list[block_index]
                     else:
-                        if block_index + 1 == block_tip:
-                            indicator = True
-                        else:
-                            indicator = None
-                        stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
-                        stamp_issuances = stamp_issuances_list[block_index]
+                        try:
+                            if server.shutdown_flag.is_set():
+                                logger.info("Shutdown flag detected before CP fetch, breaking...")
+                                break
+
+                            if block_index + 1 == block_tip:
+                                indicator = True
+                            else:
+                                indicator = None
+
+                            stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
+
+                            if server.shutdown_flag.is_set():
+                                logger.info("Shutdown flag detected after CP fetch, breaking...")
+                                break
+
+                            stamp_issuances = stamp_issuances_list[block_index]
+                        except KeyboardInterrupt:
+                            logger.info("Received keyboard interrupt during CP fetch.")
+                            server.shutdown_flag.set()
+                            break
+                        except Exception as e:
+                            logger.error(f"Error during CP fetch: {e}")
+                            if not config.FORCE:
+                                raise
 
                     if block_tip - block_index < 100:
                         requires_rollback = False
@@ -1185,6 +1231,26 @@ def follow(db):
                     # Check database connection before waiting
                     db = check_db_connection(db)
 
+                    # Update CPIDs if needed (every 50 blocks)
+                    if (block_index % 50 == 0) and (block_index != update_cpids_last_run_block):
+                        if update_cpids_future is None or update_cpids_future.done():
+                            if update_cpids_future is not None and update_cpids_future.done():
+                                try:
+                                    # Check if the previous update had any errors
+                                    update_cpids_future.result()
+                                except Exception as e:
+                                    logger.error(f"Previous CPID update failed: {e}")
+                                    if not config.FORCE:
+                                        raise
+
+                            update_cpids_future = executor.submit(update_cpids_async, db)
+                            update_cpids_last_run_block = block_index
+                            logger.info(f"Submitted update_cpids_async task at block {block_index}.")
+                        else:
+                            logger.info("update_cpids_async is already running. Skipping submission.")
+                    else:
+                        logger.info(f"Not time yet for update_cpids_async. Current block: {block_index}")
+
                     # Use ZMQ if enabled
                     if zmq_enabled:
                         try:
@@ -1290,20 +1356,3 @@ def follow(db):
             logger.error(f"Error closing database: {e}")
         logger.info("Cleanup complete in follow().")
         logging.shutdown()
-
-
-def update_cpids_async(db):
-    try:
-        cpids = get_unlocked_cpids(db)
-        if cpids:
-            cpids_list = [cpid[0] for cpid in cpids]
-            assets_details = get_xcp_assets_by_cpids(cpids_list, chunk_size=200, delay_between_chunks=6, max_workers=5)
-            if assets_details:
-                update_assets_in_db(db, assets_details, chunk_size=200, delay_between_chunks=6)
-                logger.info("Successfully updated assets in the database.")
-            else:
-                logger.warning("No asset details were retrieved.")
-        else:
-            logger.info("No CPIDs to update.")
-    except Exception as e:
-        logger.error(f"Error in update_cpids_async: {e}")
