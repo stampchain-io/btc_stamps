@@ -333,7 +333,7 @@ def initialize_db() -> Connection:
     rds_host = os.environ.get("RDS_HOSTNAME", "db")
     rds_user = os.environ.get("RDS_USER")
     rds_password = os.environ.get("RDS_PASSWORD")
-    rds_database = os.environ.get("RDS_DATABASE")
+    rds_database = os.environ.get("RDS_DATABASE", "btc_stamps")
     rds_port = int(os.environ.get("RDS_PORT", 3306))
 
     if rds_password is None:
@@ -342,15 +342,37 @@ def initialize_db() -> Connection:
 
     logger.info("Connecting to database (MySQL).")
 
+    # First connect without database to create it if needed
     db: Connection = mysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        port=rds_port,
+    )
+
+    try:
+        with db.cursor() as cursor:
+            # Create database if it doesn't exist
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{rds_database}`")
+            cursor.execute(f"USE `{rds_database}`")
+            db.commit()
+    except Exception as e:
+        logger.error(f"Error creating database: {e}")
+        raise
+
+    # Reconnect with database selected
+    db.close()
+    db = mysql.connect(
         host=rds_host,
         user=rds_user,
         password=rds_password,
         port=rds_port,
         database=rds_database,
     )
+
     util.CURRENT_BLOCK_INDEX = last_db_index(db)
 
+    # Initialize tables from schema
     initialize_tables(db)
 
     return db

@@ -20,6 +20,7 @@ jobs:
         python-version: ['3.9', '3.12']  # Test multiple versions
     outputs:
       status: ${{ steps.test.outputs.test_status }}
+
     steps:
       - uses: actions/checkout@v4
       
@@ -27,15 +28,38 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          
+      
       - name: Cache Poetry dependencies
         uses: actions/cache@v3
         with:
           path: ~/.cache/pypoetry
           key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "indexer/src/rust_parser -> target"
+
+      - name: Install Maturin
+        run: pip install maturin
+
+      - name: Build Rust parser
+        working-directory: ./indexer
+        run: maturin develop --release
+
       - name: Run Build Test
         id: test
         working-directory: ./indexer
         run: |
           ./test-local.sh
           echo "test_status=success" >> $GITHUB_OUTPUT
+
+      - name: Run Rust parser tests
+        working-directory: ./indexer
+        run: poetry run pytest tests/test_rust_parser.py -v

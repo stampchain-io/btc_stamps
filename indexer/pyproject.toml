@@ -1,8 +1,18 @@
+[build-system]
+requires = ["poetry-core>=1.0.0", "maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "src"
+module-name = "btc_stamps_parser"
+features = ["pyo3/extension-module"]
+manifest-path = "src/rust_parser/Cargo.toml"
+python-packages = ["index_core"]
+
 [tool.poetry]
 name = "indexer"
 version = "1.8.26+canary.36"
 description = "Bitcoin Stamps Indexer"
-# readme = "README.md"
 authors = ["reinamora <reinamora@stampchain.io>"]
 homepage = "https://stampchain.io"
 repository = "https://github.com/stampchain-io/btc_stamps/"
@@ -20,6 +30,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.9"
+maturin = "^1.4.0"
 appdirs = "1.4.4"
 bitcoinlib = "0.6.15"
 colorlog = "6.8.2"
@@ -81,10 +92,6 @@ test-setup = "start:test_setup"
 [[tool.poetry.packages]]
 from = "src"
 include = "index_core/**/*"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 127

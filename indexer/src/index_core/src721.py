@@ -1,10 +1,9 @@
+import base64
 import copy
 import json
 import logging
-from typing import Any
-
-import base64
 import re
+from typing import Any
 
 from cachetools import LRUCache, cached
 from cachetools.keys import hashkey

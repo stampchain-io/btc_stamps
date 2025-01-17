@@ -11,12 +11,22 @@ from requests.exceptions import ConnectionError, Timeout
 import config
 import index_core.util as util
 from exceptions import BackendRPCError
+from index_core.parser import RUST_PARSER_AVAILABLE, Parser
 
 logger = logging.getLogger(__name__)
 
 # Standard cache sizes
 raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
 deserialized_tx_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+
+# Initialize Rust parser if available
+_parser = None
+if RUST_PARSER_AVAILABLE:
+    try:
+        _parser = Parser()
+        logger.info("Using high-performance Rust parser")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Rust parser: {e}. Falling back to Python parser")
 
 
 def rpc_call(payload):
@@ -211,11 +221,21 @@ def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
 def deserialize(tx_hex):
     """
     Deserialize a transaction hex string into a CTransaction object.
-    Uses caching to avoid repeated deserialization of the same transaction.
+    Uses Rust parser if available for better performance.
     """
     if tx_hex in deserialized_tx_cache:
         return deserialized_tx_cache[tx_hex]
 
+    if _parser is not None:
+        try:
+            # Use Rust parser for better performance
+            tx = _parser.deserialize_transaction(tx_hex)
+            deserialized_tx_cache[tx_hex] = tx
+            return tx
+        except Exception as e:
+            logger.warning(f"Rust parser failed: {e}. Falling back to Python parser")
+
+    # Fallback to Python parser
     ctx = CTransaction.deserialize(x(tx_hex))
     deserialized_tx_cache[tx_hex] = ctx
     return ctx
@@ -226,7 +246,15 @@ def serialize(ctx):
 
 
 def get_tx_list(block_hash):
-    """Get transaction list from block."""
+    """Get transaction list from block using Rust parser if available."""
+    if _parser is not None:
+        try:
+            block_data = rpc("getblock", [block_hash, 0])  # Get raw block hex
+            return _parser.parse_block(block_data)
+        except Exception as e:
+            logger.warning(f"Rust block parser failed: {e}. Falling back to Python parser")
+
+    # Fallback to original implementation
     block_data = rpc("getblock", [block_hash, 2])
 
     tx_hash_list = []

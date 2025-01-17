@@ -46,6 +46,7 @@ from index_core.database import (
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.models import StampData, ValidStamp
+from index_core.parser import RUST_PARSER_AVAILABLE, Parser
 from index_core.src20 import Src20Dict  # FIXME: move to models for consistency
 from index_core.src20 import (
     clear_zero_balances,
@@ -64,6 +65,15 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 skip_logger = logging.getLogger("list_tx.skip")
+
+# Initialize Rust parser if available
+_parser = None
+if RUST_PARSER_AVAILABLE:
+    try:
+        _parser = Parser()
+        logger.info("Using high-performance Rust parser")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Rust parser: {e}. Falling back to Python parser")
 
 TxResult = namedtuple(
     "TxResult",
@@ -799,6 +809,7 @@ def quick_filter_src20_transaction(tx_hex):
 def filter_block_transactions(block_data, stamp_issuances=None):
     """
     Filter transactions from a block based on genesis status.
+    Uses Rust parser for efficient batch processing if available.
     Before BTC_SRC20_GENESIS_BLOCK, only returns stamp issuance transactions.
     After BTC_SRC20_GENESIS_BLOCK:
     - Always includes stamp issuance transactions
@@ -835,23 +846,48 @@ def filter_block_transactions(block_data, stamp_issuances=None):
             if tx["txid"] in issuance_tx_hashes:
                 raw_transactions[tx["txid"]] = tx["hex"]
 
-        # 2. Quick filter remaining transactions in parallel while maintaining order
+        # 2. Quick filter remaining transactions
         non_issuance_txs = [tx for tx in all_txs if tx["txid"] not in issuance_tx_hashes]
 
-        if non_issuance_txs:  # Only spawn thread pool if we have transactions to filter
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                # Submit all tasks and store futures in order
-                futures = [executor.submit(quick_filter_src20_transaction, tx["hex"]) for tx in non_issuance_txs]
+        if non_issuance_txs:
+            if RUST_PARSER_AVAILABLE and _parser is not None:
+                try:
+                    # Log transaction hex strings
+                    logger.debug(f"Parsing transactions: {[tx['hex'] for tx in non_issuance_txs]}")
 
-                # Process results in original order
-                for tx, future in zip(non_issuance_txs, futures):
-                    try:
-                        if future.result():  # If passed quick filter
+                    # Use Rust parser for parallel filtering
+                    tx_hexes = [tx["hex"] for tx in non_issuance_txs]
+                    parsed_txs = _parser.batch_parse_transactions(tx_hexes)
+
+                    # Add transactions that passed filtering
+                    for tx, ctx in zip(non_issuance_txs, parsed_txs):
+                        # Use the same filtering logic as quick_filter_src20_transaction
+                        for out in ctx.vout:
+                            script_bytes = bytes(out.scriptPubKey)
+                            # Check for P2WSH pattern (0x00 + 32 bytes)
+                            if len(script_bytes) == 34 and script_bytes[0] == 0x00:
+                                raw_transactions[tx["txid"]] = tx["hex"]
+                                break
+                            # Check for OP_CHECKMULTISIG (0xAE)
+                            if len(script_bytes) > 2 and script_bytes[-1] == 0xAE:
+                                raw_transactions[tx["txid"]] = tx["hex"]
+                                break
+
+                except Exception as e:
+                    logger.warning(f"Rust batch parsing failed: {e}. Falling back to Python implementation")
+                    # Fall through to original implementation
+
+            if not RUST_PARSER_AVAILABLE or _parser is None:
+                # Original implementation with ThreadPoolExecutor
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    futures = [executor.submit(quick_filter_src20_transaction, tx["hex"]) for tx in non_issuance_txs]
+                    for tx, future in zip(non_issuance_txs, futures):
+                        try:
+                            if future.result():
+                                raw_transactions[tx["txid"]] = tx["hex"]
+                        except Exception as e:
+                            logger.debug(f"Error in parallel filtering for tx {tx['txid']}: {e}")
                             raw_transactions[tx["txid"]] = tx["hex"]
-                    except Exception as e:
-                        logger.debug(f"Error in parallel filtering for tx {tx['txid']}: {e}")
-                        # Include tx if filtering failed
-                        raw_transactions[tx["txid"]] = tx["hex"]
 
     return tx_hash_list, raw_transactions
 
