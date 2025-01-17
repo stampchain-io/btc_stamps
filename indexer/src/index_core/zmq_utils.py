@@ -2,6 +2,7 @@ import logging
 from typing import Optional, Tuple
 
 import zmq
+import zmq.sugar.socket
 
 import config
 
@@ -9,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class ZMQNotifier:
-    def __init__(self):
+    def __init__(self) -> None:
         self.context: Optional[zmq.Context] = None
-        self.socket: Optional[zmq.Socket] = None
-        self._is_active = False
+        self.socket: Optional[zmq.sugar.socket.Socket] = None
+        self._is_active: bool = False
 
     def check_zmq_ports(self) -> bool:
         """Check if ZMQ block notifications are available"""
@@ -29,10 +30,10 @@ class ZMQNotifier:
             self.socket.setsockopt(zmq.LINGER, 0)  # Don't wait on close
 
             try:
-                host = config.ZMQ_HOST or config.BACKEND_CONNECT
-                port = config.ZMQ_BLOCK_PORT
+                host: str = config.ZMQ_HOST or config.BACKEND_CONNECT
+                port: int = config.ZMQ_BLOCK_PORT
 
-                zmq_url = f"tcp://{host}:{port}"
+                zmq_url: str = f"tcp://{host}:{port}"
                 logger.debug(f"Connecting to ZMQ block port {zmq_url}")
                 self.socket.connect(zmq_url)
 
@@ -60,13 +61,16 @@ class ZMQNotifier:
 
         try:
             logger.debug(f"Polling ZMQ socket for new blocks with {timeout}ms timeout...")
-            events = self.socket.poll(timeout)
+            events: int = self.socket.poll(timeout)
             logger.debug(f"ZMQ poll returned {events} events")
 
             if events:
+                topic: bytes
+                body: bytes
+                seq: bytes
                 topic, body, seq = self.socket.recv_multipart()
-                topic_str = topic.decode("utf-8")
-                seq_str = seq.decode("utf-8")
+                topic_str: str = topic.decode("utf-8")
+                seq_str: str = seq.decode("utf-8")
                 logger.info(f"Received ZMQ notification - Topic: {topic_str}, Sequence: {seq_str}")
                 return topic, body, seq
         except zmq.error.ZMQError as e:
@@ -75,7 +79,7 @@ class ZMQNotifier:
 
         return None
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Clean up ZMQ resources"""
         if self.socket:
             self.socket.close()
