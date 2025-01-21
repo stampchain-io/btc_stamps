@@ -8,7 +8,9 @@ import concurrent.futures
 import decimal
 import http
 import logging
+import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -1564,6 +1566,13 @@ def follow(db):
                 if not server.shutdown_flag.is_set():
                     time.sleep(5)
 
+            # Add validation check every 1000 blocks
+            if config.DEBUG_VALIDATION and block_index % 1000 == 0:
+                if not validate_block_against_production(block_index):
+                    logger.error("Validation failed - terminating execution")
+                    cleanup_resources(executor, zmq_notifier, update_cpids_future, db)
+                    sys.exit(1)
+
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt in follow().")
     except Exception as e:
@@ -1579,3 +1588,28 @@ class LedgerMismatchError(Exception):
     def __init__(self, block_index):
         self.block_index = block_index
         super().__init__(f"Ledger hash mismatch at block {block_index}")
+
+
+def validate_block_against_production(block_index: int) -> bool:
+    """Run the compare_tables script to validate against production."""
+    if not config.DEBUG_VALIDATION:
+        return True
+
+    logger = logging.getLogger("validate_block")
+    logger.info(f"Validating block {block_index} against production database...")
+
+    try:
+        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tools", "compare_tables.py")
+        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logger.error(f"Validation failed at block {block_index}")
+            logger.error(f"Comparison output:\n{result.stdout}\n{result.stderr}")
+            return False
+
+        logger.info(f"Block {block_index} validation successful")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error running validation: {str(e)}")
+        return True
