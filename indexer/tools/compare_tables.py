@@ -157,13 +157,9 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
     if only_in_prod or only_in_dev or mismatched:
         print(colored("\n✗ Differences found", "red", attrs=["bold"]))
 
-        if mismatched:
-            print(colored(f"\n→ Matching TX hash but different stamps ({len(mismatched)} records):", "yellow"))
-            for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
-                print_stamp_comparison(prod_dict[tx], dev_dict[tx])
-
+        # First show items that exist in one side but not the other
         if only_in_prod:
-            print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "red"))
+            print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "yellow"))
             for tx in sorted(list(only_in_prod), key=lambda x: prod_dict[x][3])[:5]:
                 record = prod_dict[tx]
                 print(f"  • Block: {colored(record[3], 'cyan')}")
@@ -174,7 +170,7 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
                 print_cpid_cross_reference(prod_cursor, dev_cursor, record, "prod")
 
         if only_in_dev:
-            print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "red"))
+            print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "yellow"))
             for tx in sorted(list(only_in_dev), key=lambda x: dev_dict[x][3])[:5]:
                 record = dev_dict[tx]
                 print(f"  • Block: {colored(record[3], 'cyan')}")
@@ -183,6 +179,12 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
                 print(f"    ├─ Ident: {record[1]}")
                 print(f"    ├─ CPID: {record[5]}")
                 print_cpid_cross_reference(prod_cursor, dev_cursor, record, "dev")
+
+        if mismatched:
+            print(colored(f"\n→ Matching TX hash but different stamps ({len(mismatched)} records):", "yellow"))
+            for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
+                print_stamp_comparison(prod_dict[tx], dev_dict[tx])
+
     else:
         print(colored("\n✓ All stamps match perfectly!", "green", attrs=["bold"]))
 
@@ -190,14 +192,35 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index):
 def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
     print_comparison_header("Cursed Stamps (Negative Values)")
 
-    # Fetch all cursed stamp records
+    # First, get all stamps with their CPIDs from both databases
+    prod_cursor.execute(
+        """
+        SELECT cpid, stamp
+        FROM StampTableV4
+        WHERE block_index < %s
+        """,
+        (block_index,),
+    )
+    prod_cpid_stamps = {(row[0], row[1]) for row in prod_cursor.fetchall()}
+
+    dev_cursor.execute(
+        """
+        SELECT cpid, stamp
+        FROM StampTableV4
+        WHERE block_index < %s
+        """,
+        (block_index,),
+    )
+    dev_cpid_stamps = {(row[0], row[1]) for row in dev_cursor.fetchall()}
+
+    # Now get cursed stamp records
     prod_cursor.execute(
         """
         SELECT stamp, ident, tx_hash, block_index, tx_index, cpid
         FROM StampTableV4
         WHERE block_index < %s AND stamp < 0
         ORDER BY block_index ASC, tx_index ASC
-    """,
+        """,
         (block_index,),
     )
     prod_records = prod_cursor.fetchall()
@@ -208,7 +231,7 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
         FROM StampTableV4
         WHERE block_index < %s AND stamp < 0
         ORDER BY block_index ASC, tx_index ASC
-    """,
+        """,
         (block_index,),
     )
     dev_records = dev_cursor.fetchall()
@@ -217,13 +240,30 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
     prod_dict = {record[2]: record for record in prod_records}  # tx_hash as key
     dev_dict = {record[2]: record for record in dev_records}
 
-    # Categorize differences
+    # Find tx_hashes that are unique to each side
     only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
     only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
     common_tx = set(prod_dict.keys()) & set(dev_dict.keys())
 
     # Find mismatched stamps in common transactions
     mismatched = [tx for tx in common_tx if prod_dict[tx][0] != dev_dict[tx][0] or prod_dict[tx][1] != dev_dict[tx][1]]
+
+    # Find records with different tx_hash but same CPID and stamp
+    diff_tx_same_cpid_prod = []
+    for tx in only_in_prod:
+        record = prod_dict[tx]
+        if (record[5], record[0]) in dev_cpid_stamps:  # Check if CPID and stamp combination exists in dev
+            diff_tx_same_cpid_prod.append(tx)
+
+    diff_tx_same_cpid_dev = []
+    for tx in only_in_dev:
+        record = dev_dict[tx]
+        if (record[5], record[0]) in prod_cpid_stamps:  # Check if CPID and stamp combination exists in prod
+            diff_tx_same_cpid_dev.append(tx)
+
+    # Find truly unique records (no matching CPID and stamp combination)
+    truly_unique_in_prod = [tx for tx in only_in_prod if (prod_dict[tx][5], prod_dict[tx][0]) not in dev_cpid_stamps]
+    truly_unique_in_dev = [tx for tx in only_in_dev if (dev_dict[tx][5], dev_dict[tx][0]) not in prod_cpid_stamps]
 
     print("\nCursed Stamps Summary:")
     print(f"├─ Production cursed stamps: {colored(len(prod_records), 'cyan')}")
@@ -232,32 +272,68 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
     if only_in_prod or only_in_dev or mismatched:
         print(colored("\n✗ Differences found in cursed stamps", "red", attrs=["bold"]))
 
+        # Show completely unique records first (no matching CPID and stamp)
+        if truly_unique_in_prod:
+            print(colored(f"\n→ Unique cursed stamps only in Production ({len(truly_unique_in_prod)} records):", "yellow"))
+            print(colored("   (No matching CPID and stamp number in Development)", "white"))
+            for tx in sorted(truly_unique_in_prod, key=lambda x: prod_dict[x][3])[:5]:
+                record = prod_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {record[0]}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    └─ CPID: {record[5]}")
+
+        if truly_unique_in_dev:
+            print(colored(f"\n→ Unique cursed stamps only in Development ({len(truly_unique_in_dev)} records):", "yellow"))
+            print(colored("   (No matching CPID and stamp number in Production)", "white"))
+            for tx in sorted(truly_unique_in_dev, key=lambda x: dev_dict[x][3])[:5]:
+                record = dev_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {record[0]}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    └─ CPID: {record[5]}")
+
+        # Show records with different tx_hash but same CPID and stamp
+        if diff_tx_same_cpid_prod:
+            print(
+                colored(
+                    f"\n→ Different tx_hash but same CPID and stamp in Production ({len(diff_tx_same_cpid_prod)} records):",
+                    "yellow",
+                )
+            )
+            for tx in sorted(diff_tx_same_cpid_prod, key=lambda x: prod_dict[x][3])[:5]:
+                record = prod_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {record[0]}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    ├─ CPID: {record[5]}")
+                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "prod")
+
+        if diff_tx_same_cpid_dev:
+            print(
+                colored(
+                    f"\n→ Different tx_hash but same CPID and stamp in Development ({len(diff_tx_same_cpid_dev)} records):",
+                    "yellow",
+                )
+            )
+            for tx in sorted(diff_tx_same_cpid_dev, key=lambda x: dev_dict[x][3])[:5]:
+                record = dev_dict[tx]
+                print(f"  • Block: {colored(record[3], 'cyan')}")
+                print(f"    ├─ TX: {record[2]}")
+                print(f"    ├─ Stamp: {record[0]}")
+                print(f"    ├─ Ident: {record[1]}")
+                print(f"    ├─ CPID: {record[5]}")
+                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "dev")
+
+        # Show records with matching tx_hash but different values
         if mismatched:
             print(colored(f"\n→ Matching TX hash but different cursed values ({len(mismatched)} records):", "yellow"))
             for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
                 print_stamp_comparison(prod_dict[tx], dev_dict[tx])
 
-        if only_in_prod:
-            print(colored(f"\n→ Cursed only in Production ({len(only_in_prod)} records):", "red"))
-            for tx in sorted(list(only_in_prod), key=lambda x: prod_dict[x][3])[:5]:
-                record = prod_dict[tx]
-                print(f"  • Block: {colored(record[3], 'cyan')}")
-                print(f"    ├─ TX: {record[2]}")
-                print(f"    ├─ Stamp: {colored(record[0], 'red')}")
-                print(f"    ├─ Ident: {record[1]}")
-                print(f"    ├─ CPID: {record[5]}")
-                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "prod")
-
-        if only_in_dev:
-            print(colored(f"\n→ Cursed only in Development ({len(only_in_dev)} records):", "red"))
-            for tx in sorted(list(only_in_dev), key=lambda x: dev_dict[x][3])[:5]:
-                record = dev_dict[tx]
-                print(f"  • Block: {colored(record[3], 'cyan')}")
-                print(f"    ├─ TX: {record[2]}")
-                print(f"    ├─ Stamp: {colored(record[0], 'red')}")
-                print(f"    ├─ Ident: {record[1]}")
-                print(f"    ├─ CPID: {record[5]}")
-                print_cpid_cross_reference(prod_cursor, dev_cursor, record, "dev")
     else:
         print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 

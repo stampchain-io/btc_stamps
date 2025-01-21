@@ -1393,16 +1393,20 @@ def get_next_stamp_number(db, identifier):
 
 def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[str, Any]]) -> bool:
     """Check for reissue with caching."""
-    cached_result = reissue_cache.get(cpid)
-    if cached_result is not None:
-        return cached_result
+    # If the CPID is already in the cache, it's a reissue
+    if reissue_cache.contains(cpid):
+        return True
 
-    result = check_reissue_in_block(valid_stamps_in_block, cpid)
-    if result is None:
-        result = check_reissue_in_db(db, cpid)
+    if check_reissue_in_block(valid_stamps_in_block, cpid):
+        reissue_cache.set(cpid, True)
+        return True
 
-    reissue_cache.set(cpid, result)
-    return result
+    if check_reissue_in_db(db, cpid):
+        reissue_cache.set(cpid, True)
+        return True
+
+    # If not found in block or database, we don't know if it's a valid stamp to cache yet, added to cache after validation
+    return False
 
 
 def check_reissue_in_block(valid_stamps_in_block: List[Dict[str, Any]], cpid: str) -> Optional[bool]:

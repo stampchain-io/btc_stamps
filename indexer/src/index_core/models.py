@@ -683,8 +683,17 @@ class StampData:
             self.update_stamp_data_rows_from_cp_asset(stamp)
         self.update_stamp_hash_and_block_time()
 
+        # Check for reissue before processing further
         self.is_reissue(check_reissue, db, valid_stamps_in_block)
+
+        # Process and validate the stamp data
         self.validate_and_process_stamp_data(decode_base64, db, valid_stamps_in_block)
+
+        # Add to reissue cache if is_btc_stamp is True
+        if self.is_btc_stamp:
+            from index_core.caching import reissue_cache
+
+            reissue_cache.set(self.cpid, True)
 
         self.normalize_mime_and_suffix()
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
