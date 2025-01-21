@@ -124,9 +124,9 @@ cache_manager.register_cache("total_minted", total_minted_cache.cache)
 
 # Cache for deploy data
 deploy_cache = LRUCache[DeployResult](max_size=1000)  # (lim, max, dec)
-block_cache = LRUCache[Any](max_size=1000)
-stamp_cache = LRUCache[int](max_size=1000)
-reissue_cache = LRUCache[bool](max_size=1000)
+block_cache = LRUCache[Any](max_size=2)
+stamp_cache = LRUCache[int](max_size=2)
+reissue_cache = LRUCache[bool](max_size=100000)
 subasset_cache = LRUCache[str](max_size=1000)
 collection_cache = LRUCache[str](max_size=1000)
 price_cache = LRUCache[Optional[Dict[int, Any]]](max_size=1000)  # For SRC-101 price data
