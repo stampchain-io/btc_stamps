@@ -1,28 +1,28 @@
 import ast
 import binascii
-import collections
 import decimal
 import hashlib
 import json
 import logging
 import re
-import threading
 import unicodedata
 from binascii import unhexlify
+from typing import Optional
 
 from bitcoin.wallet import CBitcoinAddress
 from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
 
 import config
+from index_core.caching import LRUCache
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal
-
 CP_BLOCK_COUNT = None
+CURRENT_BLOCK_INDEX: Optional[int] = None  # resolves to database.last_db_index(db)
 
-CURRENT_BLOCK_INDEX = None  # resolves to database.last_db_index(db)
+address_cache: LRUCache[str] = LRUCache(max_size=10000)
 
 
 def chunkify(lst, n):
@@ -114,45 +114,6 @@ def enabled(change_name, block_index=None):
     else:
         return False
 
-
-class DictCache:
-    """Threadsafe FIFO dict cache"""
-
-    def __init__(self, size=100):
-        if int(size) < 1:
-            raise AttributeError("size < 1 or not a number")
-        self.size = size
-        self.dict = collections.OrderedDict()
-        self.lock = threading.Lock()
-
-    def __getitem__(self, key):
-        with self.lock:
-            return self.dict[key]
-
-    def __setitem__(self, key, value):
-        with self.lock:
-            while len(self.dict) >= self.size:
-                self.dict.popitem(last=False)
-            self.dict[key] = value
-
-    def __delitem__(self, key):
-        with self.lock:
-            del self.dict[key]
-
-    def __len__(self):
-        with self.lock:
-            return len(self.dict)
-
-    def __contains__(self, key):
-        with self.lock:
-            return key in self.dict
-
-    def refresh(self, key):
-        with self.lock:
-            self.dict.move_to_end(key, last=True)
-
-
-address_cache = DictCache(size=10000)
 
 URL_USERNAMEPASS_REGEX = re.compile(".+://(.+)@")
 
@@ -418,7 +379,7 @@ def decode_address(script_pubkey):
 
     # Check cache first
     if cache_key in address_cache:
-        return address_cache[cache_key]
+        return address_cache.get(cache_key)
 
     try:
         # Handle Taproot (P2TR)
@@ -434,7 +395,7 @@ def decode_address(script_pubkey):
             address = str(CBitcoinAddress.from_scriptPubKey(script_pubkey))
 
         # Cache the result
-        address_cache[cache_key] = address
+        address_cache.set(cache_key, address)
         return address
     except Exception:
         raise ValueError("Unsupported scriptPubKey format")

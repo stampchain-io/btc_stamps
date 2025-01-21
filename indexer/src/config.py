@@ -10,6 +10,26 @@ from exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+# Cache size configurations
+BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = int(os.environ.get("BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", "20000"))  # ~6-13 blocks
+DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "10000"))  # ~3-6 blocks
+RUST_PARSER_MAX_CACHE_MB = int(os.environ.get("RUST_PARSER_MAX_CACHE_MB", "250"))  # 250MB for raw transaction data
+RUST_PARSER_ENTRIES = int(os.environ.get("RUST_PARSER_ENTRIES", "20000"))  # Match Python cache size
+
+# Additional cache sizes
+BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "10000"))  # Active balance tracking (~2MB memory)
+DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "1000"))  # Deployment info (~0.5MB memory)
+TOTAL_MINTED_CACHE_SIZE = int(os.environ.get("TOTAL_MINTED_CACHE_SIZE", "10000"))  # Minting stats (~1MB memory)
+SUBASSET_CACHE_SIZE = int(os.environ.get("SUBASSET_CACHE_SIZE", "500"))  # SRC-721 subasset lookup (~50KB memory)
+
+# Batch processing configurations
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
+MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
+
+# Memory thresholds
+MEMORY_WARNING_THRESHOLD = float(os.environ.get("MEMORY_WARNING_THRESHOLD", "70.0"))  # Early warning at 70%
+MAX_MEMORY_PERCENT = float(os.environ.get("MAX_MEMORY_PERCENT", "80.0"))  # Critical at 80%
+
 # Debug flags
 DEBUG_SKIP_REBUILD_BALANCES = os.environ.get("DEBUG_SKIP_REBUILD_BALANCES", "False").lower() == "true"
 

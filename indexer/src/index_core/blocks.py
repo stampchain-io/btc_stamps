@@ -8,7 +8,9 @@ import concurrent.futures
 import decimal
 import http
 import logging
+import signal
 import sys
+import threading
 import time
 from collections import namedtuple
 from typing import List
@@ -27,6 +29,8 @@ import index_core.log as log
 import index_core.script as script
 import index_core.server as server
 import index_core.util as util
+from index_core.backend import Backend
+from index_core.caching import clear_all_caches
 from index_core.database import (
     get_unlocked_cpids,
     initialize,
@@ -46,18 +50,17 @@ from index_core.database import (
     update_src20_token_stats,
 )
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
+from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
-from index_core.parser import RUST_PARSER_AVAILABLE, Parser
-from index_core.src20 import Src20Dict  # FIXME: move to models for consistency
 from index_core.src20 import (
+    Src20Dict,
     clear_zero_balances,
     parse_src20,
     process_balance_updates,
     update_src20_balances,
     validate_src20_ledger_hash,
 )
-from index_core.src101 import Src101Dict  # FIXME: move to models for consistency
-from index_core.src101 import parse_src101, update_src101_owners
+from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
 from index_core.zmq_utils import ZMQNotifier
@@ -66,15 +69,11 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 skip_logger = logging.getLogger("list_tx.skip")
+# Define how often to run garbage collection
+GC_INTERVAL = 100
 
-# Initialize Rust parser if available
-_parser = None
-if RUST_PARSER_AVAILABLE:
-    try:
-        _parser = Parser()
-        logger.info("Using high-performance Rust parser")
-    except Exception as e:
-        logger.warning(f"Failed to initialize Rust parser: {e}. Falling back to Python parser")
+# Initialize backend instance
+backend_instance = Backend()
 
 TxResult = namedtuple(
     "TxResult",
@@ -107,58 +106,65 @@ class BlockProcessor:
         self.processed_src20_in_block: List[Src20Dict] = []
         self.processed_src101_in_block: List[Src101Dict] = []
         self.collection_operations = []
+        self._lock = threading.Lock()
 
     def process_transaction_results(self, tx_results):
+        """Process transaction results."""
         logger.debug(f"Processing {len(tx_results)} transaction results")
+        # Then process each transaction for stamps
         for result in tx_results:
-            logger.debug(f"Processing transaction: {result.tx_hash}")
-            stamp_data = StampData(
-                tx_hash=result.tx_hash,
-                source=result.source,
-                prev_tx_hash=result.prev_tx_hash,
-                destination=result.destination,
-                destination_nvalue=result.destination_nvalue,
-                btc_amount=result.btc_amount,
-                fee=result.fee,
-                data=result.data,
-                decoded_tx=result.decoded_tx,
-                keyburn=result.keyburn,
-                tx_index=result.tx_index,
-                block_index=result.block_index,
-                block_time=result.block_time,
-                is_op_return=result.is_op_return,
-                p2wsh_data=result.p2wsh_data,
-            )
-            logger.debug(f"Created StampData for tx: {result.tx_hash}")
-
-            _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
-                stamp_data=stamp_data,
-                db=self.db,
-                valid_stamps_in_block=self.valid_stamps_in_block,
-            )
-            logger.debug(
-                f"Parsed stamp data for tx: {result.tx_hash}, prevalidated_src exists: {prevalidated_src is not None}"
-            )
-
-            if stamp_data:
-                self.parsed_stamps.append(stamp_data)
-                self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
-                logger.debug(f"Added stamp data for tx: {result.tx_hash}")
-            if valid_stamp:
-                self.valid_stamps_in_block.append(valid_stamp)
-                logger.debug(f"Added valid stamp for tx: {result.tx_hash}")
-            if prevalidated_src and stamp_data and stamp_data.pval_src20:
-                logger.debug(f"Processing SRC20 for tx: {result.tx_hash}")
-                _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
-                logger.debug(f"SRC20 dict created: {src20_dict}")
-                self.processed_src20_in_block.append(src20_dict)
-            if prevalidated_src and stamp_data and stamp_data.pval_src101:
-                logger.debug(f"Processing SRC101 for tx: {result.tx_hash}")
-                _, src101_dict = parse_src101(
-                    self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index
+            try:
+                logger.debug(f"Processing transaction: {result.tx_hash}")
+                stamp_data = StampData(
+                    tx_hash=result.tx_hash,
+                    source=result.source,
+                    prev_tx_hash=result.prev_tx_hash,
+                    destination=result.destination,
+                    destination_nvalue=result.destination_nvalue,
+                    btc_amount=result.btc_amount,
+                    fee=result.fee,
+                    data=result.data,
+                    decoded_tx=result.decoded_tx,
+                    keyburn=result.keyburn,
+                    tx_index=result.tx_index,
+                    block_index=result.block_index,
+                    block_time=result.block_time,
+                    is_op_return=result.is_op_return,
+                    p2wsh_data=result.p2wsh_data,
                 )
-                logger.debug(f"SRC101 dict created: {src101_dict}")
-                self.processed_src101_in_block.append(src101_dict)
+                logger.debug(f"Created StampData for tx: {result.tx_hash}")
+
+                _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
+                    stamp_data=stamp_data,
+                    db=self.db,
+                    valid_stamps_in_block=self.valid_stamps_in_block,
+                )
+                logger.debug(
+                    f"Parsed stamp data for tx: {result.tx_hash}, prevalidated_src exists: {prevalidated_src is not None}"
+                )
+
+                if stamp_data:
+                    self.parsed_stamps.append(stamp_data)
+                    self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
+                    logger.debug(f"Added stamp data for tx: {result.tx_hash}")
+                if valid_stamp:
+                    self.valid_stamps_in_block.append(valid_stamp)
+                    logger.debug(f"Added valid stamp for tx: {result.tx_hash}")
+                if prevalidated_src and stamp_data and stamp_data.pval_src20:
+                    logger.debug(f"Processing SRC20 for tx: {result.tx_hash}")
+                    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
+                    logger.debug(f"SRC20 dict created: {src20_dict}")
+                    self.processed_src20_in_block.append(src20_dict)
+                if prevalidated_src and stamp_data and stamp_data.pval_src101:
+                    logger.debug(f"Processing SRC101 for tx: {result.tx_hash}")
+                    _, src101_dict = parse_src101(
+                        self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index
+                    )
+                    logger.debug(f"SRC101 dict created: {src101_dict}")
+                    self.processed_src101_in_block.append(src101_dict)
+            except Exception as e:
+                logger.error(f"Error in process_transaction_results for tx {result.tx_hash}: {e}", exc_info=True)
+                raise
 
         if self.parsed_stamps:
             logger.debug(f"Inserting {len(self.parsed_stamps)} stamps into table")
@@ -167,7 +173,11 @@ class BlockProcessor:
             if self.collection_operations:
                 logger.debug(f"Processing {len(self.collection_operations)} collection operations")
                 for stamp, collections in self.collection_operations:
-                    stamp.match_and_insert_collection_data(collections, self.db)
+                    try:
+                        stamp.match_and_insert_collection_data(collections, self.db)
+                    except Exception as e:
+                        logger.error(f"Error in match_and_insert_collection_data: {e}", exc_info=True)
+                        raise
 
     def finalize_block(self, block_index, block_time, txhash_list):
         try:
@@ -175,16 +185,20 @@ class BlockProcessor:
                 logger.debug(f"Finalizing block {block_index} with {len(self.processed_src20_in_block)} SRC20 transactions")
                 logger.debug(f"First SRC20 transaction: {self.processed_src20_in_block[0]}")
 
-                # First insert the transactions
-                insert_into_src20_tables(self.db, self.processed_src20_in_block)
-                logger.debug("Successfully inserted SRC20 transactions")
+                try:
+                    # First insert the transactions
+                    insert_into_src20_tables(self.db, self.processed_src20_in_block)
+                    logger.debug("Successfully inserted SRC20 transactions")
 
-                # Then update balances
-                balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
-                logger.debug(f"Balance updates completed: {balance_updates}")
+                    # Then update balances
+                    balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
+                    logger.debug(f"Balance updates completed: {balance_updates}")
 
-                valid_src20_str = process_balance_updates(balance_updates)
-                logger.debug(f"Processed balance updates: {valid_src20_str[:100]}...")
+                    valid_src20_str = process_balance_updates(balance_updates)
+                    logger.debug(f"Processed balance updates: {valid_src20_str[:100]}...")
+                except Exception as e:
+                    logger.error(f"Error in SRC20 processing: {e}", exc_info=True)
+                    raise
             else:
                 valid_src20_str = ""
 
@@ -203,7 +217,9 @@ class BlockProcessor:
             )
 
             if valid_src20_str:
-                validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+                logger.debug("Validate Ledger Hash")
+                if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
+                    raise LedgerMismatchError(block_index)
 
             stamps_in_block = len(self.valid_stamps_in_block)
             src20_in_block = len(self.processed_src20_in_block)
@@ -317,7 +333,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
         destinations, src_destination_nvalue, btc_amount, data, p2wsh_data = [], 0, 0, b"", b""
 
-        ctx = backend.deserialize(tx_hex)
+        ctx = backend_instance.deserialize(tx_hex)
         vout_info = process_vout(ctx, block_index, stamp_issuance=stamp_issuance)
         pubkeys_compiled = vout_info.pubkeys_compiled
         keyburn = vout_info.keyburn
@@ -399,8 +415,9 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         prev_tx_index = vin.prevout.n
 
         # Get the full transaction data for the previous transaction.
-        prev_tx = backend.getrawtransaction(util.ib2h(prev_tx_hash))
-        prev_ctx = backend.deserialize(prev_tx)
+        # TODO: Can we atch process these for all calls from trx in the block
+        prev_tx = backend_instance.getrawtransaction(util.ib2h(prev_tx_hash))
+        prev_ctx = backend_instance.deserialize(prev_tx)
 
         # Get the output being spent by the input.
         prev_vout = prev_ctx.vout[prev_tx_index]
@@ -461,11 +478,13 @@ def decode_checkmultisig(ctx, chunk):
 
 
 def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None):
+
     if not isinstance(tx_hash, str):
         raise TypeError("tx_hash must be a string")
 
     if tx_hex is None:
-        tx_hex = backend.getrawtransaction(tx_hash, verbose=False, skip_missing=False, current_block=block_index)
+        logger.debug(f"Fetching raw transaction for tx_hash: {tx_hash}")
+        tx_hex = backend_instance.getrawtransaction(tx_hash, verbose=False, skip_missing=False, current_block=block_index)
 
     transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
     source = getattr(transaction_info, "source", None)
@@ -490,7 +509,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
 
     if source and (data or destination):
         logger.debug(
-            "Saving to MySQL transactions: {} DATA: {} KEYBURN: {} OP_RETURN: {}".format(tx_hash, data, keyburn, is_op_return)
+            "Processing transaction: {} DATA: {} KEYBURN: {} OP_RETURN: {}".format(tx_hash, data, keyburn, is_op_return)
         )
 
         return (
@@ -620,7 +639,7 @@ def log_block_info(
     """
     try:
         # Get current tip of the blockchain
-        block_tip: int = backend.getblockcount()
+        block_tip: int = backend_instance.getblockcount()
 
         # Calculate progress based on CP genesis block to current tip
         blocks_to_process = block_tip - config.CP_STAMP_GENESIS_BLOCK
@@ -631,6 +650,9 @@ def log_block_info(
             current_progress = 0.0
         else:
             current_progress = min(1.0, blocks_processed / blocks_to_process if blocks_to_process > 0 else 0)
+
+        # Log memory usage
+        memory_manager.log_memory_usage(block_index)
 
         # Initialize tracking variables if not exists
         if not hasattr(log_block_info, "_state"):
@@ -732,6 +754,8 @@ def log_block_info(
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     """Process a single transaction and return its parsed information."""
+
+    logger.debug(f"Processing transaction: {tx_hash} at block_index: {block_index}")
     stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
 
     tx_hex = raw_transactions[tx_hash]
@@ -773,12 +797,9 @@ def quick_filter_src20_transaction(tx_hex):
     """
     Quick pre-filter to check if a transaction might be a SRC-20 transaction.
     Only checks for multisig and p2wsh patterns.
-
-    Returns:
-        bool: True if transaction might be a SRC-20, False if definitely not
     """
     try:
-        ctx = backend.deserialize(tx_hex)
+        ctx = backend_instance.deserialize(tx_hex)
 
         # Check outputs for SRC-20 patterns
         for vout in ctx.vout:
@@ -805,16 +826,6 @@ def filter_block_transactions(block_data, stamp_issuances=None):
     """
     Filter transactions from a block based on genesis status.
     Uses Rust parser for efficient batch processing if available.
-    Before BTC_SRC20_GENESIS_BLOCK, only returns stamp issuance transactions.
-    After BTC_SRC20_GENESIS_BLOCK:
-    - Always includes stamp issuance transactions
-    - Quick filters other transactions for SRC-20 patterns in parallel
-    Always returns full tx_hash_list for message hash calculation.
-    Maintains original transaction order.
-
-    Args:
-        block_data: The block data from backend.get_tx_list
-        stamp_issuances: Optional list of stamp issuances already fetched for this block
     """
     tx_hash_list = []
     raw_transactions = {}
@@ -845,14 +856,12 @@ def filter_block_transactions(block_data, stamp_issuances=None):
         non_issuance_txs = [tx for tx in all_txs if tx["txid"] not in issuance_tx_hashes]
 
         if non_issuance_txs:
-            if RUST_PARSER_AVAILABLE and _parser is not None:
+            # Check if Rust parser is available and properly initialized
+            if backend_instance._parser is not None:
                 try:
-                    # Log transaction hex strings
-                    logger.debug(f"Parsing transactions: {[tx['hex'] for tx in non_issuance_txs]}")
-
                     # Use Rust parser for parallel filtering
                     tx_hexes = [tx["hex"] for tx in non_issuance_txs]
-                    parsed_txs = _parser.batch_parse_transactions(tx_hexes)
+                    parsed_txs = backend_instance._parser.batch_parse_transactions(tx_hexes)
 
                     # Add transactions that passed filtering
                     for tx, ctx in zip(non_issuance_txs, parsed_txs):
@@ -870,9 +879,10 @@ def filter_block_transactions(block_data, stamp_issuances=None):
 
                 except Exception as e:
                     logger.warning(f"Rust batch parsing failed: {e}. Falling back to Python implementation")
-                    # Fall through to original implementation
+                    # Fall through to Python implementation
 
-            if not RUST_PARSER_AVAILABLE or _parser is None:
+            # Use Python implementation if Rust parser is not available or failed
+            if backend_instance._parser is None:
                 # Original implementation with ThreadPoolExecutor
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     futures = [executor.submit(quick_filter_src20_transaction, tx["hex"]) for tx in non_issuance_txs]
@@ -954,60 +964,212 @@ def update_cpids_async(db):
             raise
 
 
+def calculate_rollback_depth(block_index: int, reason: str) -> int:
+    """
+    Calculate how many blocks to roll back based on the reason.
+
+    Args:
+        block_index: Current block index
+        reason: Reason for the rollback
+
+    Returns:
+        int: Number of blocks to roll back (target will be block_index - depth)
+    """
+    if "Chain reorganization" in reason:
+        # For chain reorgs, roll back 10 blocks to be safe
+        return 10
+    elif "Duplicate key" in reason or "transient" in reason:
+        # For duplicate keys or transient errors, just roll back 1 block
+        return 1
+    else:
+        # For unknown errors, roll back 3 blocks to be safe but not excessive
+        return 3
+
+
+def rollback_to_block(db, block_index, reason=""):
+    """
+    Perform a clean rollback to a specific block index.
+
+    Args:
+        db: Database connection
+        block_index: Block index to roll back to
+        reason: Optional reason for the rollback for logging
+    """
+    rollback_depth = calculate_rollback_depth(block_index, reason)
+    target_block = max(block_index - rollback_depth, config.BLOCK_FIRST)
+
+    logger.warning(f"Rolling back {rollback_depth} blocks to {target_block}. Reason: {reason}")
+    purge_block_db(db, target_block)
+
+    # Clear all caches using the centralized cache manager
+    clear_all_caches()
+
+    # Rebuild database state
+    rebuild_balances(db)
+    rebuild_owners(db)
+    update_src20_token_stats(db)
+
+    logger.info(f"Reset to block {target_block}, cleared caches and rebuilt state")
+    return target_block
+
+
+def cleanup_resources(executor, zmq_notifier, update_cpids_future, db):
+    """Helper function to clean up resources safely."""
+    logger.info("Starting cleanup...")
+
+    # Cancel any pending CPID updates
+    if update_cpids_future and not update_cpids_future.done():
+        logger.info("Cancelling pending CPID updates...")
+        update_cpids_future.cancel()
+
+    # Clean up ZMQ
+    if zmq_notifier:
+        logger.info("Cleaning up ZMQ resources...")
+        try:
+            zmq_notifier.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up ZMQ: {e}")
+
+    # Clean up thread pool
+    if executor:
+        logger.info("Shutting down executor...")
+        try:
+            # Give threads a chance to complete
+            executor.shutdown(wait=True)
+        except (TypeError, Exception) as e:
+            logger.error(f"Error shutting down executor: {e}")
+            try:
+                executor.shutdown(wait=False)
+            except Exception:
+                pass
+
+    # Commit any pending transactions and close DB
+    try:
+        logger.info("Finalizing database operations...")
+        if not db._closed:
+            try:
+                db.commit()
+                logger.info("Final commit successful")
+            except Exception as e:
+                logger.error(f"Error during final commit: {e}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    db.close()
+                    logger.info("Database connection closed")
+                except Exception as e:
+                    logger.error(f"Error closing database: {e}")
+    except Exception as e:
+        logger.error(f"Error during database cleanup: {e}")
+
+    logger.info("Cleanup complete")
+    logging.shutdown()
+
+
+def signal_handler(sig, frame):
+    """
+    Handle SIGINT (Ctrl+C) gracefully.
+    This handler is designed to be thread-safe and idempotent.
+    """
+    if server.shutdown_flag.is_set():
+        # If flag is already set, force exit
+        logger.warning("Received second interrupt, forcing exit...")
+        sys.exit(1)
+
+    logger.info("Received interrupt signal, initiating graceful shutdown...")
+    server.shutdown_flag.set()
+
+
 def follow(db):
     """
     Continuously follows the blockchain, parsing and indexing new blocks
     for SRC-20 transactions and to gather details about CP trx such as
     keyburn status.
     """
-    initialize(db)
-    rebuild_balances(db)
-    rebuild_owners(db)
-    update_src20_token_stats(db)
+    # Set up signal handler early
+    signal.signal(signal.SIGINT, signal_handler)
 
-    # Get index of last block.
-    if util.CURRENT_BLOCK_INDEX == 0:
-        logger.warning("New database.")
-        block_index = config.BLOCK_FIRST
-    else:
-        block_index = util.CURRENT_BLOCK_INDEX + 1
-
-    logger.info("Resuming parsing.")
-    tx_index = next_tx_index(db)
-
-    # Add ZMQ initialization here
+    # Initialize resources that need cleanup
+    executor = concurrent.futures.ThreadPoolExecutor()
     zmq_notifier = None
-    zmq_enabled = False
+    update_cpids_future = None
+
     try:
-        zmq_notifier = ZMQNotifier()
-        zmq_enabled = zmq_notifier.check_zmq_ports()
-        if zmq_enabled:
-            logger.info("ZMQ notifications enabled")
-    except Exception as e:
-        logger.warning(f"Failed to initialize ZMQ: {e}")
+        initialize(db)
+        rebuild_balances(db)
+        rebuild_owners(db)
+        update_src20_token_stats(db)
 
-    stamp_issuances_list = None
-    executor = None
-    consecutive_errors = 0
-    max_consecutive_errors = 5
-    error_cooldown = 10  # seconds
-    last_keepalive = time.time()
-    KEEPALIVE_INTERVAL = 60  # Send keepalive every minute
+        # Get index of last block.
+        if util.CURRENT_BLOCK_INDEX == 0:
+            logger.warning("New database.")
+            block_index = config.BLOCK_FIRST
+        else:
+            block_index = util.CURRENT_BLOCK_INDEX + 1
 
-    def send_keepalive(db):
-        """Send a lightweight query to keep the connection alive"""
+        logger.info("Resuming parsing.")
+        tx_index = next_tx_index(db)
+
+        # Initialize thread pool
+        executor = concurrent.futures.ThreadPoolExecutor()
+
+        # Initialize ZMQ
+        zmq_enabled = False
         try:
-            with db.cursor() as cursor:
-                cursor.execute("SELECT 1")
-            return True
+            zmq_notifier = ZMQNotifier()
+            zmq_enabled = zmq_notifier.check_zmq_ports()
+            if zmq_enabled:
+                logger.info("ZMQ notifications enabled")
         except Exception as e:
-            logger.warning(f"Keepalive query failed: {e}")
+            logger.warning(f"Failed to initialize ZMQ: {e}")
+
+        stamp_issuances_list = None
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        error_cooldown = 10  # seconds
+        last_keepalive = time.time()
+        KEEPALIVE_INTERVAL = 60  # Send keepalive every minute
+        update_cpids_last_run_block = 0
+
+        # Track rollbacks to detect loops
+        rollback_history = []
+        MAX_ROLLBACKS = 3  # Maximum number of rollbacks allowed to the same block
+        ROLLBACK_HISTORY_WINDOW = 10  # Number of recent rollbacks to track
+
+        def check_rollback_loop(block_index):
+            """Check if we're in a rollback loop for a specific block."""
+            rollback_history.append(block_index)
+            if len(rollback_history) > ROLLBACK_HISTORY_WINDOW:
+                rollback_history.pop(0)
+
+            # Count occurrences of this block index in recent history
+            count = rollback_history.count(block_index)
+            if count > MAX_ROLLBACKS:
+                logger.error(f"Detected rollback loop at block {block_index} ({count} rollbacks)")
+                return True
             return False
 
-    try:
-        executor = concurrent.futures.ThreadPoolExecutor()
-        update_cpids_future = None
-        update_cpids_last_run_block = 0
+        def send_keepalive(db):
+            """Send a lightweight query to keep the connection alive"""
+            try:
+                with db.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                return True
+            except Exception as e:
+                logger.warning(f"Keepalive query failed: {e}")
+                return False
+
+        def handle_ledger_mismatch(block_index):
+            """Handle ledger hash mismatches based on configuration."""
+            if not config.FORCE:  # If not in force mode, exit on mismatch
+                logger.error(f"Ledger hash mismatch at block {block_index}. Exiting...")
+                sys.exit(f"Ledger hash mismatch detected at block {block_index}")
+            else:
+                logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
+                return True  # Continue processing
 
         while not server.shutdown_flag.is_set():
             start_time = time.time()
@@ -1024,7 +1186,7 @@ def follow(db):
 
                 # Get block tip with timeout
                 try:
-                    block_tip = backend.getblockcount()
+                    block_tip = backend_instance.getblockcount()
                 except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
                     if config.FORCE:
                         if server.shutdown_flag.is_set():
@@ -1083,8 +1245,8 @@ def follow(db):
                             if block_index == config.BLOCK_FIRST:
                                 break
                             logger.info(f"Checking that block {block_index} is not orphan.")
-                            current_hash = backend.getblockhash(block_index)
-                            block_header = backend.getblockheader(current_hash)
+                            current_hash = backend_instance.getblockhash(block_index)
+                            block_header = backend_instance.getblockheader(current_hash)
                             backend_parent = block_header["previousblockhash"]
                             cursor = db.cursor()
                             block_query = """
@@ -1112,21 +1274,21 @@ def follow(db):
                         if requires_rollback:
                             logger.warning(f"Blockchain reorganization at block {block_index}.")
                             block_index -= 1
-                            logger.warning(f"Rolling back to block {block_index} to avoid problems.")
-                            purge_block_db(db, block_index)
-                            rebuild_balances(db)
-                            rebuild_owners(db)
-                            update_src20_token_stats(db)
-                            requires_rollback = False
+
+                            if check_rollback_loop(block_index):
+                                logger.error("Exiting due to rollback loop detection")
+                                sys.exit(f"Detected rollback loop at block {block_index}")
+
+                            block_index = rollback_to_block(db, block_index, "Chain reorganization detected")
                             stamp_issuances_list = None
                             time.sleep(60)  # delay waiting for CP to catch up
                             continue
 
-                    block_hash = backend.getblockhash(block_index)
+                    block_hash = backend_instance.getblockhash(block_index)
 
                     # Get full block data from backend
-                    txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = backend.get_tx_list(
-                        block_hash
+                    txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = (
+                        backend_instance.get_tx_list(block_hash)
                     )
 
                     # Filter transactions based on genesis status
@@ -1203,29 +1365,71 @@ def follow(db):
                         tx_results[i] = result._replace(tx_index=tx_index)
                         tx_index += 1
 
-                    block_processor = BlockProcessor(db)
-                    block_processor.insert_transactions(tx_results)
-                    block_processor.process_transaction_results(tx_results)
+                    try:
+                        block_processor = BlockProcessor(db)
+                        block_processor.insert_transactions(tx_results)
+                        block_processor.process_transaction_results(tx_results)
 
-                    new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block, src101_in_block = (
-                        block_processor.finalize_block(block_index, block_time, txhash_list)
-                    )
+                        logger.debug("Finalizing block")
+                        (
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            stamps_in_block,
+                            src20_in_block,
+                            src101_in_block,
+                        ) = block_processor.finalize_block(block_index, block_time, txhash_list)
 
-                    stamp_issuances_list.pop(block_index, None)
-                    log_block_info(
-                        block_index,
-                        start_time,
-                        new_ledger_hash,
-                        new_txlist_hash,
-                        new_messages_hash,
-                        stamps_in_block,
-                        src20_in_block,
-                        src101_in_block,
-                    )
-                    block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                        stamp_issuances_list.pop(block_index, None)
+                        log_block_info(
+                            block_index,
+                            start_time,
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            stamps_in_block,
+                            src20_in_block,
+                            src101_in_block,
+                        )
+                        block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+
+                    except LedgerMismatchError as e:
+                        if not handle_ledger_mismatch(e.block_index):
+                            db.rollback()
+                            break
+                        else:
+                            # If handle_ledger_mismatch returns True (FORCE mode), continue processing
+                            block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+
+                    except Exception as e:
+                        logger.error(f"Error processing block {block_index}: {e}")
+                        if "Duplicate entry" in str(e):
+                            logger.warning(f"Rolling back block {block_index} due to duplicate key error")
+                            rollback_target = block_index - 1
+
+                            # Check for rollback loop
+                            if check_rollback_loop(rollback_target):
+                                logger.error("Exiting due to rollback loop detection")
+                                sys.exit(f"Detected rollback loop at block {rollback_target}")
+
+                            block_index = rollback_to_block(
+                                db, rollback_target, "Duplicate key error - transient database issue"
+                            )
+                            stamp_issuances_list = None
+                            continue
+
+                        db.rollback()
+                        # Short sleep before retry
+                        if not server.shutdown_flag.is_set():
+                            time.sleep(5)
 
                 else:
                     if server.shutdown_flag.is_set():
+                        logger.info("Shutdown flag detected, completing current block processing...")
+                        # Ensure current block processing completes
+                        block_processor.finalize_block(block_index, block_time, txhash_list)
+                        db.commit()
+                        logger.info("Current block processing completed successfully")
                         break
 
                     # Check database connection before waiting
@@ -1268,7 +1472,7 @@ def follow(db):
                                     topic_str = topic.decode("utf-8")
                                     if topic_str in ["hashblock", "rawblock"]:
                                         logger.info(f"Processing new block notification via ZMQ: {topic_str}")
-                                        block_tip = backend.getblockcount()
+                                        block_tip = backend_instance.getblockcount()
                                         break
                                 continue
                         except Exception as e:
@@ -1288,7 +1492,7 @@ def follow(db):
                             last_keepalive = time.time()
 
                         time.sleep(config.BACKEND_POLL_INTERVAL)
-                        block_tip = backend.getblockcount()
+                        block_tip = backend_instance.getblockcount()
 
                         # Try to re-enable ZMQ periodically
                         if block_index % 10 == 0:
@@ -1305,6 +1509,21 @@ def follow(db):
             except (mysql.Error, mysql.OperationalError) as e:
                 logger.error(f"Database error processing block {block_index}: {e}")
                 db.rollback()
+
+                # Check for duplicate key error
+                if isinstance(e, mysql.Error) and e.args[0] == 1062:  # Duplicate key error
+                    logger.warning(f"Rolling back block {block_index} due to duplicate key error")
+                    rollback_target = block_index - 1
+
+                    # Check for rollback loop
+                    if check_rollback_loop(rollback_target):
+                        logger.error("Exiting due to rollback loop detection")
+                        sys.exit(f"Detected rollback loop at block {rollback_target}")
+
+                    block_index = rollback_to_block(db, rollback_target, "Duplicate key error - transient database issue")
+                    stamp_issuances_list = None
+                    continue
+
                 consecutive_errors += 1
 
                 if consecutive_errors >= max_consecutive_errors:
@@ -1323,6 +1542,18 @@ def follow(db):
 
             except Exception as e:
                 logger.error(f"Error processing block {block_index}: {e}")
+                if "Duplicate entry" in str(e):
+                    logger.warning(f"Rolling back block {block_index} due to duplicate key error")
+                    rollback_target = block_index - 1
+
+                    # Check for rollback loop
+                    if check_rollback_loop(rollback_target):
+                        logger.error("Exiting due to rollback loop detection")
+                        sys.exit(f"Detected rollback loop at block {rollback_target}")
+
+                    block_index = rollback_to_block(db, rollback_target, "Duplicate key error - transient database issue")
+                    stamp_issuances_list = None
+                    continue
                 db.rollback()
                 # Short sleep before retry
                 if not server.shutdown_flag.is_set():
@@ -1334,25 +1565,12 @@ def follow(db):
         logger.error(f"An unexpected error occurred in follow(): {e}")
         raise
     finally:
-        logger.info("Starting cleanup in follow()...")
-        if zmq_notifier:
-            logger.info("Cleaning up ZMQ resources...")
-            zmq_notifier.cleanup()
-        if executor:
-            logger.info("Shutting down executor...")
-            try:
-                executor.shutdown(wait=True, timeout=10)
-            except TypeError:
-                executor.shutdown(wait=True)
-        try:
-            logger.info("Committing final transactions...")
-            db.commit()
-        except Exception as e:
-            logger.error(f"Error during final commit: {e}")
-        try:
-            logger.info("Closing database connection...")
-            db.close()
-        except Exception as e:
-            logger.error(f"Error closing database: {e}")
-        logger.info("Cleanup complete in follow().")
-        logging.shutdown()
+        cleanup_resources(executor, zmq_notifier, update_cpids_future, db)
+
+
+class LedgerMismatchError(Exception):
+    """Raised when there is a mismatch in the ledger hash validation."""
+
+    def __init__(self, block_index):
+        self.block_index = block_index
+        super().__init__(f"Ledger hash mismatch at block {block_index}")

@@ -4,9 +4,11 @@ import logging
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import pymysql as mysql
+from pymysql.connections import Connection
+from pymysql.cursors import Cursor
 
 import config
 import index_core.exceptions as exceptions
@@ -26,8 +28,20 @@ from config import (
     STAMP_TABLE,
     TRANSACTIONS_TABLE,
 )
-from index_core.caching import balance_cache, deployment_cache, total_minted_cache
+from index_core.caching import (
+    SRC101DeployResult,
+    block_cache,
+    cache_manager,
+    clear_all_caches,
+    deploy_cache,
+    price_cache,
+    reissue_cache,
+    src101_deploy_cache,
+    stamp_cache,
+    total_minted_cache,
+)
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
+from index_core.types import NO_DEPLOY, DeployResult
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -36,17 +50,9 @@ D = decimal.Decimal
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-class CacheMixin:
-    block_cache: Dict[int, Any] = {}
-    deploy_cache: Dict[str, Any] = {}
-    cached_stamp: Dict[str, int] = {}
-    cache: Dict[str, bool] = {}
-
-
-def initialize(db):
-    """initialize data, create and populate the database."""
+def initialize(db: Connection) -> None:
+    """Initialize data, create and populate the database."""
     cursor = db.cursor()
-
     cursor.execute(
         """
         SELECT MIN(block_index)
@@ -64,39 +70,13 @@ def initialize(db):
     cursor.close()
 
 
-def reset_all_caches():
-    """
-    Clears all function-associated caches within the module.
-    This includes deploy_cache, block_cache, cached_stamp, and the caching.py caches.
-    """
-    cache_attributes = [
-        (get_src20_deploy, "deploy_cache"),
-        (is_prev_block_parsed, "block_cache"),
-        (get_next_stamp_number, "cached_stamp"),
-        (check_reissue, "cache"),
-    ]
-
-    for func, attr in cache_attributes:
-        if hasattr(func, attr):
-            setattr(func, attr, {})
-
-    # Clear the caches from caching.py
-    balance_cache.invalidate_all()
-    deployment_cache.invalidate_all()
-    total_minted_cache.invalidate_all()
+def reset_all_caches() -> None:
+    """Clear all caches in the system."""
+    cache_manager.clear_all()
 
 
-def update_parsed_block(db, block_index):
-    """
-    Update the 'indexed' flag of a block in the database.
-
-    Args:
-        db (database connection): The database connection object.
-        block_index (int): The index of the block to update.
-
-    Returns:
-        None
-    """
+def update_parsed_block(db: Connection, block_index: int) -> None:
+    """Update the 'indexed' flag of a block in the database."""
     cursor = db.cursor()
     cursor.execute(
         """
@@ -109,46 +89,37 @@ def update_parsed_block(db, block_index):
     cursor.close()
 
 
-def is_prev_block_parsed(db, block_index):
-    """
-    Check if the previous block has been parsed and indexed.
+def is_prev_block_parsed(db: Connection, block_index: int) -> bool:
+    """Check if the previous block has been parsed and indexed."""
+    prev_block_index = block_index - 1
+    cached_result = block_cache.get(str(prev_block_index))
+    if cached_result is not None:
+        return cached_result
 
-    Args:
-        db (DatabaseConnection): The database connection object.
-        block_index (int): The index of the current block.
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        SELECT * FROM blocks
+        WHERE block_index = %s
+        """,
+        (prev_block_index,),
+    )
+    block = cursor.fetchone()
+    cursor.close()
 
-    Returns:
-        bool: True if the previous block has been parsed, False otherwise.
-    """
-    func = cast(CacheMixin, is_prev_block_parsed)
-    if not hasattr(func, "block_cache"):
-        func.block_cache = {}
+    result = block is not None and block[BLOCK_FIELDS_POSITION["indexed"]] == 1
+    block_cache.set(str(prev_block_index), result)
 
-    if block_index - 1 in func.block_cache:
-        block = func.block_cache[block_index - 1]
-    else:
-        cursor = db.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM blocks
-            WHERE block_index = %s
-            """,
-            (block_index - 1,),
-        )
-        block = cursor.fetchone()
-        cursor.close()
-        func.block_cache[block_index - 1] = block
-
-    if block is not None and block[BLOCK_FIELDS_POSITION["indexed"]] == 1:
-        return True
-    else:
-        purge_block_db(db, block_index - 1)
+    if not result:
+        purge_block_db(db, prev_block_index)
         rebuild_balances(db)
         rebuild_owners(db)
-        return False
+
+    return result
 
 
-def insert_into_src20_tables(db, processed_src20_in_block):
+def insert_into_src20_tables(db: Connection, processed_src20_in_block: List[Dict[str, Any]]) -> None:
+    """Insert processed SRC-20 transactions into their respective tables."""
     with db.cursor() as src20_cursor:
         for i, src20_dict in enumerate(processed_src20_in_block):
             id = f"{i}_{src20_dict.get('tx_index')}_"
@@ -158,7 +129,8 @@ def insert_into_src20_tables(db, processed_src20_in_block):
                 insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
 
 
-def insert_into_src101_tables(db, processed_src101_in_block):
+def insert_into_src101_tables(db: Connection, processed_src101_in_block: List[Dict[str, Any]]) -> None:
+    """Insert processed SRC-101 transactions into their respective tables."""
     with db.cursor() as src101_cursor:
         for i, src101_dict in enumerate(processed_src101_in_block):
             id = f"{i}_{src101_dict.get('tx_index')}_"
@@ -172,7 +144,8 @@ def insert_into_src101_tables(db, processed_src101_in_block):
                 insert_into_src101price(src101_cursor, SRC101_PRICE_TABLE, src101_dict)
 
 
-def insert_into_src20_table(cursor, table_name, id, src20_dict):
+def insert_into_src20_table(cursor: Cursor, table_name: str, id: str, src20_dict: Dict[str, Any]) -> None:
+    """Insert a single SRC-20 transaction into the specified table."""
     block_time = src20_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
@@ -230,11 +203,11 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
     """  # nosec
 
     cursor.execute(query, tuple(column_values))
-
     return
 
 
-def insert_into_recipients(cursor, table_name, id, src101_dict):
+def insert_into_recipients(cursor: Cursor, table_name: str, id: str, src101_dict: Dict[str, Any]) -> None:
+    """Insert recipients into the database."""
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
@@ -262,10 +235,10 @@ def insert_into_recipients(cursor, table_name, id, src101_dict):
             VALUES ({placeholders})
         """  # nosec
         cursor.execute(query, tuple(column_values))
-    return
 
 
-def insert_into_src101price(cursor, table_name, src101_dict):
+def insert_into_src101price(cursor: Cursor, table_name: str, src101_dict: Dict[str, Any]) -> None:
+    """Insert SRC-101 price data into the database."""
     if isinstance(src101_dict["pri"], dict):
         for key, value in src101_dict["pri"].items():
             deploy_hash = src101_dict["tx_hash"]
@@ -291,16 +264,16 @@ def insert_into_src101price(cursor, table_name, src101_dict):
                 VALUES ({placeholders})
             """  # nosec
             cursor.execute(query, tuple(column_values))
-        return
 
 
-def insert_into_src101_table(cursor, table_name, id, src101_dict):
+def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_dict: Dict[str, Any]) -> None:
+    """Insert a single SRC-101 transaction into the specified table."""
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
 
     # Helper function to safely serialize values
-    def serialize_value(value):
+    def serialize_value(value: Any) -> Any:
         if isinstance(value, (dict, list)):
             return json.dumps(value)
         return value
@@ -351,7 +324,7 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
     elif isinstance(tokenid_origin, list) and all(isinstance(item, str) for item in tokenid_origin):
         result = ";".join(tokenid_origin)
     else:
-        result = str(tokenid_origin)
+        result = str(tokenid_origin) if tokenid_origin is not None else ""
 
     img = src101_dict.get("img")
     if isinstance(img, str):
@@ -359,7 +332,15 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
     elif isinstance(img, list) and all(isinstance(item, str) for item in img):
         img_str = ";".join(img)
     else:
-        img_str = str(img)
+        img_str = str(img) if img is not None else ""
+
+    tokenid = src101_dict.get("tokenid")
+    tokenid_str = ";".join(tokenid) if isinstance(tokenid, list) else str(tokenid) if tokenid is not None else ""
+
+    tokenid_utf8 = src101_dict.get("tokenid_utf8")
+    tokenid_utf8_str = (
+        ";".join(tokenid_utf8) if isinstance(tokenid_utf8, list) else str(tokenid_utf8) if tokenid_utf8 is not None else ""
+    )
 
     column_values = [
         id,
@@ -370,12 +351,8 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
         src101_dict.get("op"),
         src101_dict.get("name"),
         result,
-        ";".join(src101_dict.get("tokenid")) if type(src101_dict.get("tokenid")) == list else src101_dict.get("tokenid"),
-        (
-            ";".join(src101_dict.get("tokenid_utf8"))
-            if type(src101_dict.get("tokenid_utf8")) == list
-            else src101_dict.get("tokenid_utf8")
-        ),
+        tokenid_str,
+        tokenid_utf8_str,
         img_str,
         src101_dict.get("root"),
         src101_dict.get("desc"),
@@ -413,8 +390,6 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
     """  # nosec
 
     cursor.execute(query, tuple(column_values))
-
-    return
 
 
 def insert_transactions(db, transactions):
@@ -543,7 +518,7 @@ def insert_into_stamp_table(db, parsed_stamps: List):
         raise ValueError(f"Error occurred while inserting to StampTable: {e}")
 
 
-def get_srcbackground_data(db, tick):
+def get_srcbackground_data(db: Connection, tick: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Retrieves the background image data for a given tick and p value.
 
@@ -577,13 +552,11 @@ def get_srcbackground_data(db, tick):
             return None, None, None
 
 
-def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
-    """
-    Get existing balances, ensuring we only get SRC-20 records
-    """
+def get_existing_balances(cursor: Cursor) -> List[Tuple[Any, ...]]:
+    """Get existing balances, ensuring we only get SRC-20 records."""
     query = """
     SELECT id, tick, tick_hash, address, amt, last_update
-    FROM balances 
+    FROM balances
     WHERE p = 'SRC-20'  -- Explicitly filter for SRC-20 only
     AND amt != 0        -- Exclude zero balances
     ORDER BY id         -- Ensure consistent ordering
@@ -592,7 +565,8 @@ def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
     return [tuple(row) for row in cursor.fetchall()]
 
 
-def get_src20_valid_list(cursor, block_index=None):
+def get_src20_valid_list(cursor: Cursor, block_index: Optional[int] = None) -> List[Tuple[Any, ...]]:
+    """Get valid SRC-20 transactions up to the specified block index."""
     query = f"""
     SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
     FROM {SRC20_VALID_TABLE}
@@ -607,22 +581,23 @@ def get_src20_valid_list(cursor, block_index=None):
     else:
         cursor.execute(query)
 
-    return cursor.fetchall()
+    return list(cursor.fetchall())
 
 
-def get_existing_owners(cursor) -> List[Tuple[Any, ...]]:
+def get_existing_owners(cursor: Cursor) -> List[Tuple[Any, ...]]:
+    """Get existing owners from the database."""
     query = """
     SELECT owners.index, id, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, prim, address_btc, address_eth, txt_data, expire_timestamp, last_update
     FROM owners where p = 'SRC-101'
     """
     cursor.execute(query)
-    return [tuple(row) for row in cursor.fetchall()]
+    return list(cursor.fetchall())
 
 
-def get_src101_valid_list(cursor, block_index=None):
-    """Get valid SRC-101 transactions"""
+def get_src101_valid_list(cursor: Cursor, block_index: Optional[int] = None) -> List[Tuple[Any, ...]]:
+    """Get valid SRC-101 transactions up to the specified block index."""
     query = f"""
-    SELECT op, tokenid, tokenid_utf8, img, deploy_hash, creator, dua, toaddress, prim, 
+    SELECT op, tokenid, tokenid_utf8, img, deploy_hash, creator, dua, toaddress, prim,
            address_btc, address_eth, txt_data, block_time, block_index, tx_index
     FROM {SRC101_VALID_TABLE}
     WHERE (op = 'TRANSFER' OR op = 'MINT' OR op = 'SETRECORD' OR op = 'RENEW')
@@ -640,12 +615,20 @@ def get_src101_valid_list(cursor, block_index=None):
     logger.info(f"Found {len(results)} SRC-101 transactions")
     logger.info(f"Operations breakdown: {Counter(r[0] for r in results)}")
 
-    return results
+    return list(results)
 
 
-def calculate_owners(src101_valid_list):
-    all_owners: dict[str, dict[str, Any]] = {}
-    all_index: dict[str, int] = {}
+def calculate_owners(src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, Any]]:
+    """Calculate owners from SRC-101 valid list.
+
+    Args:
+        src101_valid_list: List of tuples containing SRC-101 transaction data
+
+    Returns:
+        Dictionary mapping IDs to owner details
+    """
+    all_owners: Dict[str, Dict[str, Any]] = {}
+    all_index: Dict[str, int] = {}
     for [
         op,
         tokenid,
@@ -721,16 +704,25 @@ def calculate_owners(src101_valid_list):
     return all_owners
 
 
-def calculate_balances(src20_valid_list):
+def calculate_balances(src20_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, D]]:
+    """Calculate balances from SRC-20 valid list.
+
+    Args:
+        src20_valid_list: List of tuples containing SRC-20 transaction data
+            Each tuple contains: (op, creator, destination, tick, tick_hash, amt, block_time, block_index)
+
+    Returns:
+        Dictionary mapping tick_address to balance details including metadata
+    """
     # Use defaultdict for more efficient balance tracking
-    balances = defaultdict(lambda: defaultdict(D))
-    metadata = {}  # Store metadata separately
+    balances: Dict[str, Dict[str, D]] = defaultdict(lambda: defaultdict(D))
+    metadata: Dict[str, Dict[str, Any]] = {}  # Store metadata separately
 
     for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
         # Track balances efficiently
-        balances[tick][destination] += amt
+        balances[tick][destination] += D(amt)
         if op == "TRANSFER":
-            balances[tick][creator] -= amt
+            balances[tick][creator] -= D(amt)
 
         # Store metadata for destination
         destination_id = f"{tick}_{destination}"
@@ -754,7 +746,7 @@ def calculate_balances(src20_valid_list):
             }
 
     # Combine balances with metadata for final output
-    all_balances = {}
+    all_balances: Dict[str, Dict[str, Any]] = {}
     for tick, tick_balances in balances.items():
         for address, amt in tick_balances.items():
             balance_id = f"{tick}_{address}"
@@ -946,8 +938,8 @@ def rebuild_balances(db, block_index=None):
         logger.debug("Acquiring table locks")
         cursor.execute(
             f"""
-            LOCK TABLES 
-                balances WRITE, 
+            LOCK TABLES
+                balances WRITE,
                 {SRC20_VALID_TABLE} READ,
                 {temp_table} WRITE
         """
@@ -1016,18 +1008,10 @@ def rebuild_balances(db, block_index=None):
         cursor.close()
 
 
-def purge_block_db(db, block_index):
-    """Purge transactions from the database. This is for a reorg or
-        where transactions were partially committed.
-
-    Args:
-        db (Database): The database object.
-        block_index (int): The block index from which to start purging.
-
-    Returns:
-        None
-    """
-    reset_all_caches()
+def purge_block_db(db: Connection, block_index: int) -> None:
+    """Purge transactions from the database for a reorg or where transactions were partially committed."""
+    # Clear all caches using the centralized cache manager
+    clear_all_caches()
     cursor = db.cursor()
 
     # First, delete from collection_stamps
@@ -1069,48 +1053,49 @@ def purge_block_db(db, block_index):
     cursor.close()
 
 
-def get_src20_deploy(db, tick, src20_processed_in_block):
-    """
-    Retrieves the 'lim', 'max', and 'dec' values for a given 'tick' DEPLOY. The function first attempts to find these values
-    from an internal cache. If not found in the cache, it then searches within a provided dictionary of processed blocks.
-    As a last resort, it performs a database lookup. The result from any of these sources is cached for future queries.
-
-    Args:
-        db: A database connection object used for querying the database if necessary.
-        tick (str): The tick value for which 'lim', 'max', and 'dec' values are being retrieved.
-        src20_processed_in_block (dict): A dictionary containing processed blocks, used for in-memory lookup before querying the database.
+def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[Dict[str, Any]]) -> DeployResult:
+    """Get SRC20 deployment details with caching.
 
     Returns:
-        tuple: A tuple containing the 'lim', 'max', and 'dec' values for the given tick. If the tick is not found in any source,
-               returns (None, None, None).
-
+        DeployResult: (lim, max, dec) values for the deployment.
+        Returns NO_DEPLOY if no valid deployment exists.
     """
-    func = cast(CacheMixin, get_src20_deploy)
-    if not hasattr(func, "deploy_cache"):
-        func.deploy_cache = {}
+    cached_result = deploy_cache.get(f"src20:{tick}")
+    # Only use cache if it's not None and not a tuple of all None values
+    if cached_result is not None and cached_result != NO_DEPLOY:
+        return cached_result
 
-    if tick in func.deploy_cache:
-        return func.deploy_cache[tick]
+    result = get_src20_deploy_in_block(src20_processed_in_block, tick)
+    if result == NO_DEPLOY:
+        result = get_src20_deploy_in_db(db, tick)
 
-    lim, max_value, dec = get_src20_deploy_in_block(src20_processed_in_block, tick)
-    if lim is not None:
-        func.deploy_cache[tick] = (lim, max_value, dec)
-        return lim, max_value, dec
-
-    lim, max_value, dec = get_src20_deploy_in_db(db, tick)
-    if lim is not None:
-        func.deploy_cache[tick] = (lim, max_value, dec)
-    return lim, max_value, dec
+    if result != NO_DEPLOY:
+        deploy_cache.set(f"src20:{tick}", result)
+    return result
 
 
-def get_src20_deploy_in_block(processed_blocks, tick):
+def get_src20_deploy_in_block(processed_blocks: List[Dict[str, Any]], tick: str) -> DeployResult:
+    """Get SRC20 deployment details from processed blocks.
+
+    Returns:
+        DeployResult: (lim, max, dec) values for the deployment.
+        Returns (None, None, None) if no valid deployment exists in the block.
+    """
     for item in processed_blocks:
         if item.get("tick") == tick and item.get("op") == "DEPLOY" and item.get("valid") == 1:
+            # For in-block deploys, we still use get() with None default since the data hasn't been validated by DB yet
             return item.get("lim"), item.get("max"), item.get("dec")
-    return None, None, None
+    return NO_DEPLOY
 
 
-def get_src20_deploy_in_db(db, tick):
+def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
+    """Get SRC20 deployment details from database.
+
+    Returns:
+        DeployResult: (lim, max, dec) values for the deployment.
+        Returns (None, None, None) if no valid deployment exists in the DB.
+        Note: If a deployment exists in the DB, all values will be non-None.
+    """
     with db.cursor() as src20_cursor:
         src20_cursor.execute(
             f"""
@@ -1122,6 +1107,9 @@ def get_src20_deploy_in_db(db, tick):
                 tick = %s
                 AND op = 'DEPLOY'
                 AND p = 'SRC-20'
+                AND lim IS NOT NULL
+                AND max IS NOT NULL
+                AND deci IS NOT NULL
             ORDER BY
                 block_index ASC
             LIMIT 1
@@ -1130,93 +1118,98 @@ def get_src20_deploy_in_db(db, tick):
         )  # nosec
         result = src20_cursor.fetchone()
         if result:
+            # We know these are all non-None due to the SQL WHERE clause
             return result
-    return None, None, None
+    return NO_DEPLOY
 
 
-def get_total_src20_minted_from_db(db, tick):
+def get_total_src20_minted_from_db(db: Connection, tick: str) -> D:
     """Get the total minted amount for a given tick from the database."""
     cached_total = total_minted_cache.get(tick)
     if cached_total is not None:
         return cached_total
 
-    with db.cursor() as cursor:
-        cursor.execute(
+    with db.cursor() as src20_cursor:
+        src20_cursor.execute(
             f"""
-            SELECT SUM(amt) as total_minted
-            FROM {SRC20_VALID_TABLE}
-            WHERE tick = %s AND op = 'MINT'
-            """,
+            SELECT
+                SUM(amt)
+            FROM
+                {SRC20_VALID_TABLE}
+            WHERE
+                tick = %s
+                AND op = 'MINT'
+        """,
             (tick,),
-        )
-        result = cursor.fetchone()
-        if result is None:
-            total_minted = D(0)
-        else:
-            total_minted = D(result[0] if result[0] is not None else 0)
+        )  # nosec
+        result = src20_cursor.fetchone()
+        # Handle case where result is None or result[0] is None
+        total_minted = D(0) if result is None or result[0] is None else D(str(result[0]))
         total_minted_cache.set(tick, total_minted)
         return total_minted
 
 
-def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
-    """
-    Retrieves the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for a given DEPLOY HASH. The function first attempts to find these values
-    from an internal cache. If not found in the cache, it then searches within a provided dictionary of processed blocks.
-    As a last resort, it performs a database lookup. The result from any of these sources is cached for future queries.
-
-    Args:
-        db: A database connection object used for querying the database if necessary.
-        tick (str): The tick value for which 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values are being retrieved.
-        src101_processed_in_block (dict): A dictionary containing processed blocks, used for in-memory lookup before querying the database.
-
-    Returns:
-        tuple: A tuple containing the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for the given tick. If the tick is not found in any source,
-               returns (None, None, None, None, None, None, None, None).
-
-    """
-    # Initialize the cache if it doesn't exist
-    if not hasattr(get_src101_deploy, "deploy_cache"):
-        get_src101_deploy.deploy_cache = {}
+def get_src101_deploy(db: Connection, deploy_hash: str, src101_processed_in_block: List[Dict[str, Any]]) -> SRC101DeployResult:
+    """Get SRC-101 deployment details with caching."""
     # Check if the result is already cached
-    if deploy_hash in get_src101_deploy.deploy_cache:
-        return get_src101_deploy.deploy_cache[deploy_hash]
+    cached_result = src101_deploy_cache.get(deploy_hash)
+    if cached_result is not None:
+        return cached_result
 
     # Check in the processed_blocks dictionary
-    lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua = get_src101_deploy_in_block(
-        src101_processed_in_block, deploy_hash
-    )
-    if lim is not None and lim != 0:
-        # Cache and return the result
-        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
-        return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
+    result = get_src101_deploy_in_block(src101_processed_in_block, deploy_hash)
+    if result[0] != 0:  # If lim is not 0
+        src101_deploy_cache.set(deploy_hash, result)
+        return result
 
     # Database lookup if not found in cache or processed_blocks
-    lim, pri, mintstart, mintend, wla, imglp, imgf, idua = get_src101_deploy_in_db(db, deploy_hash)
-    rec = get_src101_recs_in_db(db, deploy_hash)
-    if lim is not None and lim != 0:
-        # Cache and return the result
-        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
-    return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
+    db_result = get_src101_deploy_in_db(db, deploy_hash)
+    if db_result[0] != 0:  # If lim is not 0
+        rec = get_src101_recs_in_db(db, deploy_hash)
+        # Replace None rec placeholder with actual rec list
+        result = (
+            db_result[0],  # lim
+            db_result[1],  # pri
+            db_result[2],  # mintstart
+            db_result[3],  # mintend
+            rec,  # rec
+            db_result[5],  # wla
+            db_result[6],  # imglp
+            db_result[7],  # imgf
+            db_result[8],  # idua
+        )
+        src101_deploy_cache.set(deploy_hash, result)
+        return result
+    return (0, None, 0, 0, None, None, None, None, 0)
 
 
-def get_src101_deploy_in_block(processed_blocks, deploy_hash):
+def get_src101_deploy_in_block(processed_blocks: List[Dict[str, Any]], deploy_hash: str) -> SRC101DeployResult:
+    """Get SRC-101 deployment details from processed blocks."""
     for item in processed_blocks:
         if item.get("deploy_hash") == deploy_hash and item.get("op") == "DEPLOY" and item.get("valid") == 1:
             return (
-                item.get("lim"),
+                item.get("lim", 0),
                 item.get("pri"),
-                item.get("mintstart"),
-                item.get("mintend"),
+                item.get("mintstart", 0),
+                item.get("mintend", 0),
                 item.get("rec"),
                 item.get("wla"),
                 item.get("imglp"),
                 item.get("imgf"),
-                item.get("idua"),
+                item.get("idua", 0),
             )
-    return 0, None, 0, 0, None, None, None, None, 0
+    return (0, None, 0, 0, None, None, None, None, 0)
 
 
-def get_src101_deploy_in_db(db, deploy_hash):
+def get_src101_deploy_in_db(
+    db: Connection, deploy_hash: str
+) -> Tuple[int, Optional[Any], int, int, Optional[Any], Optional[Any], Optional[Any], Optional[Any], int]:
+    """Get SRC-101 deployment details from database.
+
+    Returns:
+        A tuple of (lim, pri, mintstart, mintend, None, wla, imglp, imgf, idua).
+        The fifth element (rec) is always None as it's fetched separately.
+    """
     with db.cursor() as src101_cursor:
         src101_cursor.execute(
             f"""
@@ -1236,11 +1229,24 @@ def get_src101_deploy_in_db(db, deploy_hash):
         )  # nosec
         result = src101_cursor.fetchone()
         if result:
-            return result
-    return 0, None, 0, 0, None, None, None, 0
+            # Convert to proper tuple with None for rec field
+            lim, pri, mintstart, mintend, wla, imglp, imgf, idua = result
+            return (
+                int(lim) if lim is not None else 0,
+                pri,
+                int(mintstart) if mintstart is not None else 0,
+                int(mintend) if mintend is not None else 0,
+                None,  # rec placeholder  TODO: investigate why rec was not returned prior to this change
+                wla,
+                imglp,
+                imgf,
+                int(idua) if idua is not None else 0,
+            )
+    return (0, None, 0, 0, None, None, None, None, 0)
 
 
-def get_src101_recs_in_db(db, deploy_hash):
+def get_src101_recs_in_db(db: Connection, deploy_hash: str) -> List[str]:
+    """Get SRC-101 recipients from database."""
     with db.cursor() as src101_rec_cursor:
         src101_rec_cursor.execute(
             f"""
@@ -1261,7 +1267,7 @@ def get_src101_recs_in_db(db, deploy_hash):
         return recipients
 
 
-def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
+def get_total_src101_minted_from_db(db: Connection, deploy_hash: str, blocktimestamp: int) -> D:
     """Get the total minted amount for a given deploy_hash from the database."""
     cached_total = total_minted_cache.get(deploy_hash)
     if cached_total is not None:
@@ -1278,44 +1284,48 @@ def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
                 deploy_hash = %s
                 AND expire_timestamp <= {blocktimestamp}
         """,
-            (deploy_hash),
+            (deploy_hash,),
         )  # nosec
         result = src101_cursor.fetchone()
-        total_minted = result[0] if result[0] is not None else 0
+        total_minted = D(result[0] if result[0] is not None else 0)
         total_minted_cache.set(deploy_hash, total_minted)
         return total_minted
 
 
-def get_src101_price(db, deploy_hash, src101_processed_in_block):
-    if not hasattr(get_src101_price, "price_cache"):
-        get_src101_price.price_cache = {}
+def get_src101_price(
+    db: Connection, deploy_hash: str, src101_processed_in_block: List[Dict[str, Any]]
+) -> Optional[Dict[int, Any]]:
+    """Get SRC-101 price details with caching."""
     # Check if the result is already cached
-    if deploy_hash in get_src101_price.price_cache:
-        return get_src101_price.price_cache[deploy_hash]
+    cached_result = price_cache.get(deploy_hash)
+    if cached_result is not None:
+        return cached_result
 
     # Check in the processed_blocks dictionary
     price = get_src101_price_in_block(src101_processed_in_block, deploy_hash)
     if price is not None:
         # Cache and return the result
-        get_src101_price.price_cache[deploy_hash] = price
+        price_cache.set(deploy_hash, price)
         return price
 
     # Database lookup if not found in cache or processed_blocks
     price = get_src101_price_in_db(db, deploy_hash)
     if price is not None:
         # Cache and return the result
-        get_src101_price.price_cache[deploy_hash] = price
+        price_cache.set(deploy_hash, price)
     return price
 
 
-def get_src101_price_in_block(processed_blocks, deploy_hash):
+def get_src101_price_in_block(processed_blocks: List[Dict[str, Any]], deploy_hash: str) -> Optional[Dict[int, Any]]:
+    """Get SRC-101 price from processed blocks."""
     for item in processed_blocks:
         if item.get("deploy_hash") == deploy_hash:
             return item.get("price")
     return None
 
 
-def get_src101_price_in_db(db, deploy_hash):
+def get_src101_price_in_db(db: Connection, deploy_hash: str) -> Dict[int, Any]:
+    """Get SRC-101 price from database."""
     with db.cursor() as cursor:
         query = f"""
             SELECT
@@ -1347,73 +1357,64 @@ def get_next_stamp_number(db, identifier):
     Returns:
     int: The index of the next transaction.
     """
-    func = cast(CacheMixin, get_next_stamp_number)
-    if not hasattr(func, "cached_stamp"):
-        func.cached_stamp = {}
-
     if identifier not in ["stamp", "cursed"]:
         raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    if identifier in func.cached_stamp:
+    cached_result = stamp_cache.get(identifier)
+    if cached_result is not None:
         if identifier == "cursed":
-            next_number = func.cached_stamp[identifier] - 1
+            next_number = cached_result - 1
         else:
-            next_number = func.cached_stamp[identifier] + 1
-    else:
-        with db.cursor() as cursor:
-            if identifier == "stamp":
-                query = f"""
-                    SELECT MAX(stamp) from {STAMP_TABLE}
-                """  # nosec
-                increment = 1
-                default_value = 0
-            else:  # identifier == 'cursed'
-                query = f"""
-                    SELECT MIN(stamp) from {STAMP_TABLE}
-                """  # nosec
-                increment = -1
-                default_value = -1
+            next_number = cached_result + 1
+        stamp_cache.set(identifier, next_number)
+        return next_number
 
-            cursor.execute(query)
-            transactions = cursor.fetchone()
-            next_number = transactions[0] + increment if transactions[0] is not None else default_value
+    with db.cursor() as cursor:
+        if identifier == "stamp":
+            query = f"""
+                SELECT MAX(stamp) from {STAMP_TABLE}
+            """  # nosec
+            increment = 1
+            default_value = 0
+        else:  # identifier == 'cursed'
+            query = f"""
+                SELECT MIN(stamp) from {STAMP_TABLE}
+            """  # nosec
+            increment = -1
+            default_value = -1
 
-    func.cached_stamp[identifier] = next_number
+        cursor.execute(query)
+        transactions = cursor.fetchone()
+        next_number = transactions[0] + increment if transactions[0] is not None else default_value
+
+    stamp_cache.set(identifier, next_number)
     return next_number
 
 
-def check_reissue(db, cpid, valid_stamps_in_block):
-    """
-    Validate if there was a prior valid stamp for the given cpid in the database or block.
+def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[str, Any]]) -> bool:
+    """Check for reissue with caching."""
+    cached_result = reissue_cache.get(cpid)
+    if cached_result is not None:
+        return cached_result
 
-    Parameters:
-    - db: The database connection object.
-    - cpid: The unique identifier for the stamp.
-    - valid_stamps_in_block: A list of CPID based stamps processed in the block.
+    result = check_reissue_in_block(valid_stamps_in_block, cpid)
+    if result is None:
+        result = check_reissue_in_db(db, cpid)
 
-    Returns:
-    - is_btc_stamp: The adjusted value of is_btc_stamp after checking for reissue.
-    - is_reissue: A boolean indicating if the stamp is a reissue.
-    """
-    func = cast(CacheMixin, check_reissue)
-    if not hasattr(func, "cache"):
-        func.cache = {}
-
-    if cpid in func.cache:
-        return True
-    if check_reissue_in_block(valid_stamps_in_block, cpid):
-        return True
-    if check_reissue_in_db(db, cpid):
-        return True
+    reissue_cache.set(cpid, result)
+    return result
 
 
-def check_reissue_in_block(valid_stamps_in_block, cpid):
+def check_reissue_in_block(valid_stamps_in_block: List[Dict[str, Any]], cpid: str) -> Optional[bool]:
+    """Check for reissue in processed blocks."""
     for item in reversed(valid_stamps_in_block):
         if item["cpid"] == cpid and (item["is_btc_stamp"] or item.get("is_cursed")):
             return True
+    return None
 
 
-def check_reissue_in_db(db, cpid):
+def check_reissue_in_db(db: Connection, cpid: str) -> bool:
+    """Check for reissue in database."""
     with db.cursor() as cursor:
         cursor.execute(
             f"""
@@ -1427,18 +1428,11 @@ def check_reissue_in_db(db, cpid):
         result = cursor.fetchone()
         if result:
             return True
+    return False
 
 
-def last_db_index(db):
-    """
-    Retrieve the last block index from the database.
-
-    Args:
-        db: The database connection object.
-
-    Returns:
-        The last block index as an integer.
-    """
+def last_db_index(db: Connection) -> int:
+    """Retrieve the last block index from the database."""
     field_position = BLOCK_FIELDS_POSITION
     cursor = db.cursor()
 
@@ -1456,16 +1450,8 @@ def last_db_index(db):
     return last_index
 
 
-def next_tx_index(db):
-    """
-    Return the index of the next incremental transaction # from transactions table.
-
-    Parameters:
-    db (object): The database object.
-
-    Returns:
-    int: The index of the next transaction.
-    """
+def next_tx_index(db: Connection) -> int:
+    """Return the index of the next incremental transaction from transactions table."""
     cursor = db.cursor()
 
     cursor.execute("""SELECT MAX(tx_index) FROM transactions""")
@@ -1480,7 +1466,10 @@ def next_tx_index(db):
     return tx_index
 
 
-def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
+def insert_block(
+    db: Connection, block_index: int, block_hash: str, block_time: int, previous_block_hash: str, difficulty: Optional[float]
+) -> None:
+    """Insert a new block into the database."""
     if difficulty is None:
         difficulty = 0.0
     else:
@@ -1504,23 +1493,9 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
         raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
 
 
-def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash):
-    """
-    Update the hashes of a block in the MySQL database.
-    This is for comoparison of hash tables across nodes.
-    So we can validate that each node has the same data.
-
-    Args:
-        db (MySQLConnection): The MySQL database connection.
-        block_index (int): The index of the block to update.
-        txlist_hash (str): The new transaction list hash.
-        ledger_hash (str): The new ledger hash.
-        messages_hash (str): The new messages hash.
-    Returns:
-        None
-    """
+def update_block_hashes(db: Connection, block_index: int, txlist_hash: str, ledger_hash: str, messages_hash: str) -> None:
+    """Update the hashes of a block in the MySQL database."""
     cursor = db.cursor()
-    # logger.info('Updating MySQL Block: {}'.format(block_index))
     block_query = """UPDATE blocks SET
                         txlist_hash = %s,
                         ledger_hash = %s,
@@ -1537,19 +1512,24 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
         cursor.close()
 
 
-def get_balances_at_block(db, block_index):
+def get_balances_at_block(db: Connection, block_index: int) -> Dict[str, Dict[str, D]]:
+    """Get balances at a specific block index."""
     with db.cursor() as cursor:
         src20_valid_list = get_src20_valid_list(cursor, block_index)
     return calculate_balances(src20_valid_list)
 
 
-def get_unlocked_cpids(db) -> List[Tuple[str, ...]]:
+def get_unlocked_cpids(db: Connection) -> List[Tuple[str, ...]]:
+    """Get a list of unlocked CPIDs from the database."""
     with db.cursor() as cursor:
         cursor.execute(f"SELECT DISTINCT cpid FROM {STAMP_TABLE} WHERE locked != 1 AND (ident = 'SRC-721' or ident = 'STAMP')")
         return list(cursor.fetchall())
 
 
-def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2):
+def update_assets_in_db(
+    db: Connection, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2
+) -> None:
+    """Update asset details in the database in chunks."""
     total_assets = len(assets_details)
     num_chunks = (total_assets + chunk_size - 1) // chunk_size
 
@@ -1602,6 +1582,7 @@ def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: in
         except Exception as e:
             db.rollback()
             logger.error(f"Error updating assets in chunk {i+1}: {e}")
+            raise DatabaseInsertError(f"Failed to update assets in chunk {i+1}: {e}")
 
         if i < num_chunks - 1:
             time.sleep(delay_between_chunks)

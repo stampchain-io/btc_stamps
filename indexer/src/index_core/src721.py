@@ -5,15 +5,20 @@ import logging
 import re
 from typing import Any
 
-from cachetools import LRUCache, cached
-from cachetools.keys import hashkey
-
 import config
+from index_core.caching import LRUCache, cache_manager
 from index_core.database import get_srcbackground_data
 
 logger = logging.getLogger(__name__)
 
 MAX_LAYERS = 10  # Define a maximum number of layers
+
+# Initialize caches with cache manager
+subasset_cache = LRUCache[str](max_size=256)
+collection_cache = LRUCache[str](max_size=config.SUBASSET_CACHE_SIZE)
+
+cache_manager.register_cache("subasset", subasset_cache)
+cache_manager.register_cache("collection", collection_cache)
 
 
 def parse_valid_src721_in_block(valid_stamps_in_block):
@@ -91,17 +96,15 @@ def convert_to_dict(json_string_or_dict):
         raise TypeError("Input must be a JSON-formatted string or a Python dictionary object")
 
 
-subasset_cache: LRUCache[str, str] = LRUCache(maxsize=256)
-
-
-@cached(
-    subasset_cache,
-    key=lambda asset_name, valid_src721_in_block, db: str(hashkey(asset_name)),
-)
 def fetch_src721_subasset_base64(asset_name: str, valid_src721_in_block: list, db: Any) -> str:
+    """Fetch base64 data for SRC721 subasset with caching."""
+    cached_result = subasset_cache.get(asset_name)
+    if cached_result is not None:
+        return cached_result
+
     collection_sub_asset_base64 = next((item for item in valid_src721_in_block if item["cpid"] == asset_name), None)
     if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
-        return collection_sub_asset_base64["stamp_base64"]
+        base64_string = collection_sub_asset_base64["stamp_base64"]
     else:
         # Fetch the asset from the database
         with db.cursor() as cursor:
@@ -113,6 +116,7 @@ def fetch_src721_subasset_base64(asset_name: str, valid_src721_in_block: list, d
             else:
                 raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
 
+    subasset_cache.set(asset_name, base64_string)
     return base64_string
 
 
@@ -136,7 +140,6 @@ def fetch_src721_collection(tmp_collection_object, valid_src721_in_block, db):
             img_key = f"{key}-img"
             output_object[img_key] = []
             for j, asset_name in enumerate(output_object[key]):
-                logger.debug(f"--- Loading t[{i}][{j}]")
                 try:
                     img_data = fetch_src721_subasset_base64(asset_name, valid_src721_in_block, db)
                     output_object[img_key].append(img_data)
@@ -168,7 +171,7 @@ def get_src721_svg_string(src721_title, src721_desc, db):
     is_valid, cleaned_image_data = validate_base64_image(custom_background_result)
 
     if not is_valid:
-        logger.warning(f"Invalid base64 image data for SRC721 background")
+        logger.warning("Invalid base64 image data for SRC721 background")
         # Provide fallback SVG instead of returning None
         fallback_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
             <rect width="420" height="420" fill="#f0f0f0"/>
@@ -269,21 +272,12 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
     return svg_output, collection_name
 
 
-collection_cache: LRUCache[str, str] = LRUCache(maxsize=256)
-
-
-@cached(collection_cache, key=lambda collection_cpid, db: str(hashkey(collection_cpid)))
 def fetch_collection_details(collection_cpid: str, db: Any) -> str:
-    """
-    Fetches the collection asset item from the database.
+    """Fetch collection details with caching."""
+    cached_result = collection_cache.get(collection_cpid)
+    if cached_result is not None:
+        return cached_result
 
-    Args:
-        collection_cpid (str): The CPID of the collection / parent asset.
-        db: The database connection object.
-
-    Returns:
-        str: The collection asset item.
-    """
     try:
         with db.cursor() as cursor:
             cursor.execute(
@@ -294,10 +288,11 @@ def fetch_collection_details(collection_cpid: str, db: Any) -> str:
             logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
                 collection_asset_item = result[0]
-                logger.debug("got collection asset item from db", collection_asset_item)
+                logger.debug("got collection asset item from db: %s", collection_asset_item)
+                collection_cache.set(collection_cpid, collection_asset_item)
             else:
                 collection_asset_item = None
-                logger.warning("Failed to fetch deploy src_data for cpid from database")
+                logger.warning(f"Failed to fetch deploy src_data for cpid from database {collection_cpid}")
     except Exception as e:
         raise e
 
@@ -324,6 +319,16 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
             content = base64_string.split("base64,", 1)[1]
             base64.b64decode(content)
             return True, base64_string
+
+        # Handle case where string starts with mimetype but no data: prefix
+        if base64_string.startswith("image/"):
+            parts = base64_string.split(";base64,", 1)
+            if len(parts) == 2:
+                mimetype = parts[0].split("/")[1]
+                content = parts[1]
+                # Try to decode to validate it's proper base64
+                base64.b64decode(content)
+                return True, f"data:{parts[0]};base64,{content}"
 
         # Remove any existing data URL prefix
         if base64_string.startswith("data:"):

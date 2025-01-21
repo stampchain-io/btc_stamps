@@ -9,6 +9,8 @@ use log::error;
 #[pyclass]
 pub struct FastTransactionParser {
     tx_cache: Mutex<HashMap<String, Vec<u8>>>,
+    max_cache_size: usize,
+    max_memory_bytes: usize,
 }
 
 #[pymethods]
@@ -17,6 +19,8 @@ impl FastTransactionParser {
     fn new() -> Self {
         FastTransactionParser {
             tx_cache: Mutex::new(HashMap::new()),
+            max_cache_size: 10000,  // Maximum number of entries
+            max_memory_bytes: 100 * 1024 * 1024, // 100MB default max memory
         }
     }
 
@@ -25,8 +29,23 @@ impl FastTransactionParser {
         log::debug!("Deserializing transaction with hex length: {}", tx_hex.len());
 
         // Check cache first
-        if let Ok(cache) = self.tx_cache.lock() {
+        if let Ok(mut cache) = self.tx_cache.lock() {
+            let current_memory: usize = cache.iter().map(|(k, v)| k.len() + v.len()).sum();
+            
+            // Check both entry count and memory limits
+            if cache.len() >= self.max_cache_size || current_memory >= self.max_memory_bytes {
+                log::info!(
+                    "Cache limits reached (entries: {}/{}, memory: {:.2}MB/{:.2}MB), clearing cache",
+                    cache.len(),
+                    self.max_cache_size,
+                    current_memory as f64 / 1024.0 / 1024.0,
+                    self.max_memory_bytes as f64 / 1024.0 / 1024.0
+                );
+                cache.clear();
+            }
+
             if let Some(cached_tx) = cache.get(tx_hex) {
+                log::debug!("Cache hit for transaction");
                 if let Ok(tx) = Transaction::consensus_decode(&mut &cached_tx[..]) {
                     return Ok(TransactionInfo::from_transaction(&tx));
                 }
@@ -70,6 +89,9 @@ impl FastTransactionParser {
     }
 
     fn batch_parse_transactions(&self, tx_hexes: Vec<&str>) -> PyResult<Vec<TransactionInfo>> {
+        // Log batch size
+        log::info!("Processing batch of {} transactions", tx_hexes.len());
+        
         tx_hexes.par_iter()
             .map(|&tx_hex| {
                 let tx_bytes = hex::decode(tx_hex).map_err(|e| {
@@ -82,14 +104,50 @@ impl FastTransactionParser {
                     PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid transaction: {}", e))
                 })?;
 
-                // Cache the result
+                // Cache the result with size check
                 if let Ok(mut cache) = self.tx_cache.lock() {
-                    cache.insert(tx_hex.to_string(), tx_bytes);
+                    if cache.len() < self.max_cache_size {
+                        cache.insert(tx_hex.to_string(), tx_bytes);
+                    } else {
+                        log::warn!("Cache size limit reached, skipping caching");
+                    }
                 }
 
                 Ok(TransactionInfo::from_transaction(&tx))
             })
             .collect()
+    }
+
+    fn set_cache_limits(&mut self, max_entries: Option<usize>, max_mb: Option<usize>) -> PyResult<()> {
+        if let Some(entries) = max_entries {
+            self.max_cache_size = entries;
+        }
+        if let Some(mb) = max_mb {
+            self.max_memory_bytes = mb * 1024 * 1024; // Convert MB to bytes
+        }
+        
+        // Clear cache if it exceeds new limits
+        if let Ok(mut cache) = self.tx_cache.lock() {
+            let current_memory: usize = cache.iter().map(|(k, v)| k.len() + v.len()).sum();
+            if cache.len() > self.max_cache_size || current_memory > self.max_memory_bytes {
+                cache.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn get_cache_stats(&self) -> PyResult<HashMap<String, String>> {
+        let mut stats = HashMap::new();
+        if let Ok(cache) = self.tx_cache.lock() {
+            let current_memory: usize = cache.iter().map(|(k, v)| k.len() + v.len()).sum();
+            stats.insert("entries".to_string(), cache.len().to_string());
+            stats.insert("max_entries".to_string(), self.max_cache_size.to_string());
+            stats.insert("memory_mb".to_string(), format!("{:.2}", current_memory as f64 / 1024.0 / 1024.0));
+            stats.insert("max_memory_mb".to_string(), format!("{:.2}", self.max_memory_bytes as f64 / 1024.0 / 1024.0));
+            stats.insert("memory_usage_percent".to_string(), 
+                format!("{:.1}", (current_memory as f64 / self.max_memory_bytes as f64) * 100.0));
+        }
+        Ok(stats)
     }
 
     fn clear_cache(&self) -> PyResult<()> {

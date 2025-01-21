@@ -2,12 +2,13 @@ import unittest
 
 from btc_stamps_parser import FastTransactionParser
 
-import index_core.backend as backend
+from index_core.backend import Backend
 
 
 class TestRustParser(unittest.TestCase):
     def setUp(self):
         self.parser = FastTransactionParser()
+        self.backend = Backend()
         # Using a more recent transaction that we can actually fetch
         self.test_tx_hash = "7957a35fe64f80d234d76d83a2a8f1a0d8149a41d81de548f0a65a8a999f6f18"  # Example transaction
         self.test_block_hash = "00000000000000000007878ec04bb2b2e12317804810f4c26033585b3f81ffaa"  # Block 700,000
@@ -15,7 +16,7 @@ class TestRustParser(unittest.TestCase):
     def test_single_transaction_parsing(self):
         """Test parsing a single transaction"""
         # Get raw transaction
-        tx_hex = backend.getrawtransaction(self.test_tx_hash)
+        tx_hex = self.backend.getrawtransaction(self.test_tx_hash)
 
         # Parse transaction
         tx_info = self.parser.deserialize_transaction(tx_hex)
@@ -37,7 +38,7 @@ class TestRustParser(unittest.TestCase):
     def test_block_parsing(self):
         """Test parsing an entire block"""
         # Get raw block
-        block_data = backend.rpc("getblock", [self.test_block_hash, 0])
+        block_data = self.backend.rpc("getblock", [self.test_block_hash, 0])
 
         # Parse block
         block_info = self.parser.parse_block(block_data)
@@ -53,11 +54,11 @@ class TestRustParser(unittest.TestCase):
     def test_batch_transaction_parsing(self):
         """Test parsing multiple transactions in batch"""
         # Get a few consecutive transactions from the same block
-        block_data = backend.rpc("getblock", [self.test_block_hash, 2])
+        block_data = self.backend.rpc("getblock", [self.test_block_hash, 2])
         tx_hashes = [tx["txid"] for tx in block_data["tx"][:2]]  # Get first two transactions
 
         # Get raw transactions
-        tx_hexes = [backend.getrawtransaction(tx_hash) for tx_hash in tx_hashes]
+        tx_hexes = [self.backend.getrawtransaction(tx_hash) for tx_hash in tx_hashes]
 
         # Parse transactions in batch
         tx_infos = self.parser.batch_parse_transactions(tx_hexes)

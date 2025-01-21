@@ -1,5 +1,6 @@
 """Fast Bitcoin transaction parser using Rust."""
 
+import gc
 import logging
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,7 +34,7 @@ class Parser:
 
         try:
             self._parser = FastTransactionParser()
-            logger.debug("Initialized Rust parser backend")
+            logger.info("Initialized Rust parser backend")
         except Exception as e:
             logger.error(f"Failed to initialize Rust parser: {e}")
             raise ParserError(f"Parser initialization failed: {e}")
@@ -52,12 +53,24 @@ class Parser:
 
     def batch_parse_transactions(self, tx_hexes: List[str]) -> List[CTransaction]:
         """
-        Parse multiple transactions in parallel.
+        Parse multiple transactions in parallel with memory management.
         Returns CTransaction objects for compatibility.
         """
         try:
-            tx_infos = self._parser.batch_parse_transactions(tx_hexes)
-            return [self._convert_to_ctransaction(tx_info) for tx_info in tx_infos]
+            # Process in smaller chunks to manage memory
+            chunk_size = 1000
+            results: List[CTransaction] = []
+
+            for i in range(0, len(tx_hexes), chunk_size):
+                chunk = tx_hexes[i : i + chunk_size]
+                tx_infos = self._parser.batch_parse_transactions(chunk)
+                results.extend(self._convert_to_ctransaction(tx_info) for tx_info in tx_infos)
+
+                # Periodic garbage collection
+                if i > 0 and i % (chunk_size * 5) == 0:
+                    gc.collect()
+
+            return results
         except Exception as e:
             logger.error(f"Failed to batch parse transactions: {e}")
             raise ParserError(f"Batch transaction parsing failed: {e}")
@@ -67,12 +80,21 @@ class Parser:
         try:
             block_info = self._parser.parse_block(block_hex)
 
+            # Pre-allocate collections
             tx_hash_list = []
             raw_transactions = {}
 
-            for tx in block_info.transactions:
-                tx_hash_list.append(tx.txid)
-                raw_transactions[tx.txid] = tx.hex
+            # Process transactions in chunks for memory efficiency
+            chunk_size = 1000
+            for i in range(0, len(block_info.transactions), chunk_size):
+                chunk = block_info.transactions[i : i + chunk_size]
+                for tx in chunk:
+                    tx_hash_list.append(tx.txid)
+                    raw_transactions[tx.txid] = tx.hex
+
+                # Periodic garbage collection
+                if i > 0 and i % (chunk_size * 5) == 0:
+                    gc.collect()
 
             return (
                 tx_hash_list,
@@ -91,7 +113,7 @@ class Parser:
             # Convert inputs
             vin = [
                 CTxIn(
-                    COutPoint(x(input_info.prev_txid)[::-1], input_info.prev_vout),  # Create proper COutPoint
+                    COutPoint(x(input_info.prev_txid)[::-1], input_info.prev_vout),
                     b"",  # Empty scriptSig
                     input_info.sequence,
                 )
