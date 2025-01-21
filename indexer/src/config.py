@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Union
 
 import boto3
 from requests.auth import HTTPBasicAuth
@@ -32,6 +32,7 @@ MAX_MEMORY_PERCENT = float(os.environ.get("MAX_MEMORY_PERCENT", "80.0"))  # Crit
 
 # Debug flags
 DEBUG_SKIP_REBUILD_BALANCES = os.environ.get("DEBUG_SKIP_REBUILD_BALANCES", "False").lower() == "true"
+DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 
 STORE_FILES = os.environ.get("STORE_FILES", "true").lower() == "true"
 
@@ -395,8 +396,6 @@ DEFAULT_REQUESTS_TIMEOUT = 20  # 20 seconds
 
 BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
 BACKEND_RPC_BATCH_NUM_WORKERS = 6
-
-from typing import Dict, List, Union
 
 LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[bool]]]] = [
     {

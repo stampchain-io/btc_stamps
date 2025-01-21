@@ -37,7 +37,7 @@ class Backend:
 
         # Initialize parser
         self._parser = None
-        if RUST_PARSER_AVAILABLE:
+        if RUST_PARSER_AVAILABLE and not config.DISABLE_RUST_PARSER:
             try:
                 self._parser = Parser()
                 logger.info("Using high-performance Rust parser")
