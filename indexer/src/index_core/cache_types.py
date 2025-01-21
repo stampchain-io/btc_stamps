@@ -45,7 +45,8 @@ class LRUCache(Generic[T]):
 
     def __iter__(self) -> Iterator[str]:
         """Return an iterator over the cache keys."""
-        return iter(self.cache)
+        with self._lock:
+            return iter(list(self.cache.keys()))
 
     def __len__(self) -> int:
         """Return the number of items in the cache."""

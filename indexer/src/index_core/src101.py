@@ -351,12 +351,13 @@ class Src101Processor:
         "UE": ("UNEXPECTED ERROR : {error}", False),
     }
 
-    def __init__(self, db, src101_dict, processed_src101_in_block, block_index):
+    def __init__(self, db, src101_dict, processed_src101_in_block, block_index, lock=None):
         self.db = db
         self.src101_dict = src101_dict
         self.processed_src101_in_block = processed_src101_in_block
         self.block_index = block_index
         self.is_valid = True
+        self._lock = lock
 
     def update_valid_src101_list(
         self,
@@ -955,8 +956,8 @@ class Src101Processor:
             logger.warning(f"exception: {e}")
 
 
-def parse_src101(db, src101_dict, processed_src101_in_block, block_index):
-    processor = Src101Processor(db, src101_dict, processed_src101_in_block, block_index)
+def parse_src101(db, src101_dict, processed_src101_in_block, block_index, lock=None):
+    processor = Src101Processor(db, src101_dict, processed_src101_in_block, block_index, lock)
     processor.process()
 
     return processor.is_valid, src101_dict

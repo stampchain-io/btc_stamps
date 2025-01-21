@@ -135,7 +135,7 @@ class Src20Processor:
         "ID": ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
     }
 
-    def __init__(self, db, src20_dict, processed_src20_in_block):
+    def __init__(self, db, src20_dict, processed_src20_in_block, lock=None):
         self.db = db
         self.src20_dict = src20_dict
         self.processed_src20_in_block = processed_src20_in_block
@@ -143,6 +143,7 @@ class Src20Processor:
         self.dec: Optional[Union[str, int]] = src20_dict.get("dec", 0)
         self.deploy_lim: Optional[Union[str, D]] = src20_dict.get("deploy_lim", 0)
         self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
+        self._lock = lock
 
     def normalize_and_validate_amt(self):
         amt = D(self.src20_dict["amt"]).normalize()
@@ -444,7 +445,11 @@ class Src20Processor:
             for th in tick_holders
         ]
 
-        self.processed_src20_in_block.extend(new_dicts)
+        if self._lock:
+            with self._lock:
+                self.processed_src20_in_block.extend(new_dicts)
+        else:
+            self.processed_src20_in_block.extend(new_dicts)
         self.src20_dict["total_balance_creator"] = D(running_user_balance_creator) - D(total_send_amt)
         self.src20_dict["status"] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
@@ -477,7 +482,11 @@ class Src20Processor:
         self.tick_value = self.src20_dict.get("tick")
 
         if not validator.is_valid:
-            self.processed_src20_in_block.append(self.src20_dict)
+            if self._lock:
+                with self._lock:
+                    self.processed_src20_in_block.append(self.src20_dict)
+            else:
+                self.processed_src20_in_block.append(self.src20_dict)
             logger.debug(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
             self.is_valid = False
             return
@@ -485,11 +494,11 @@ class Src20Processor:
         self.validate_and_process_operation()
 
 
-def parse_src20(db, src20_dict, processed_src20_in_block):
+def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
     """
     Process all SRC-20 tokens that pass check_format.
     """
-    processor = Src20Processor(db, src20_dict, processed_src20_in_block)
+    processor = Src20Processor(db, src20_dict, processed_src20_in_block, lock)
     processor.process()
     return processor.is_valid, src20_dict
 

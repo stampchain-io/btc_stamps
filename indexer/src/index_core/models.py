@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import logging
+import threading
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -114,6 +115,7 @@ class StampData:
     collection_website: Optional[str] = None
     collection_onchain: Optional[bool] = None
     db: Optional[object] = None
+    _lock: Optional[threading.Lock] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -476,8 +478,10 @@ class StampData:
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
-        if self.cpid and check_reissue_func(db, self.cpid, valid_stamps_in_block):
-            raise ValueError("reissue invalidation")
+        if self.cpid:
+            with self._lock:
+                if check_reissue_func(db, self.cpid, valid_stamps_in_block):
+                    raise ValueError("reissue invalidation")
 
     def is_src20(self):
         return self.ident == "SRC-20" and self.keyburn == 1
@@ -608,9 +612,10 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
-        svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
-            validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
-        )
+        with self._lock:
+            svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
+                validate_src721_and_process(self.src_data, valid_stamps_in_block, db, self._lock)
+            )
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"

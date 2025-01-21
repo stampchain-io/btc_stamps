@@ -31,6 +31,7 @@ MEMORY_WARNING_THRESHOLD = float(os.environ.get("MEMORY_WARNING_THRESHOLD", "70.
 MAX_MEMORY_PERCENT = float(os.environ.get("MAX_MEMORY_PERCENT", "80.0"))  # Critical at 80%
 
 # Debug flags
+DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 DEBUG_SKIP_REBUILD_BALANCES = os.environ.get("DEBUG_SKIP_REBUILD_BALANCES", "False").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 

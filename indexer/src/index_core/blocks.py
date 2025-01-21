@@ -144,24 +144,29 @@ class BlockProcessor:
                 )
 
                 if stamp_data:
-                    self.parsed_stamps.append(stamp_data)
-                    self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
+                    with self._lock:
+                        self.parsed_stamps.append(stamp_data)
+                        self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
                     logger.debug(f"Added stamp data for tx: {result.tx_hash}")
                 if valid_stamp:
-                    self.valid_stamps_in_block.append(valid_stamp)
+                    with self._lock:
+                        self.valid_stamps_in_block.append(valid_stamp)
                     logger.debug(f"Added valid stamp for tx: {result.tx_hash}")
+
                 if prevalidated_src and stamp_data and stamp_data.pval_src20:
                     logger.debug(f"Processing SRC20 for tx: {result.tx_hash}")
-                    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
+                    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block, self._lock)
                     logger.debug(f"SRC20 dict created: {src20_dict}")
-                    self.processed_src20_in_block.append(src20_dict)
+                    with self._lock:
+                        self.processed_src20_in_block.append(src20_dict)
                 if prevalidated_src and stamp_data and stamp_data.pval_src101:
                     logger.debug(f"Processing SRC101 for tx: {result.tx_hash}")
                     _, src101_dict = parse_src101(
-                        self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index
+                        self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index, self._lock
                     )
                     logger.debug(f"SRC101 dict created: {src101_dict}")
-                    self.processed_src101_in_block.append(src101_dict)
+                    with self._lock:
+                        self.processed_src101_in_block.append(src101_dict)
             except Exception as e:
                 logger.error(f"Error in process_transaction_results for tx {result.tx_hash}: {e}", exc_info=True)
                 raise

@@ -21,7 +21,7 @@ cache_manager.register_cache("subasset", subasset_cache)
 cache_manager.register_cache("collection", collection_cache)
 
 
-def parse_valid_src721_in_block(valid_stamps_in_block):
+def parse_valid_src721_in_block(valid_stamps_in_block, lock=None):
     valid_src721_in_block = []
     for stamp in valid_stamps_in_block:
         if stamp.get("op", "").upper() == "DEPLOY" and stamp.get("is_btc_stamp", False):
@@ -29,11 +29,11 @@ def parse_valid_src721_in_block(valid_stamps_in_block):
     return valid_src721_in_block
 
 
-def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
+def validate_src721_and_process(src721_json, valid_stamps_in_block, db, lock=None):
     try:
         collection_name, collection_description, collection_website, collection_onchain = None, None, None, None
         if valid_stamps_in_block:
-            valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
+            valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block, lock)
         else:
             valid_src721_in_block = []
 
@@ -203,11 +203,14 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     """
     tmp_coll_description = tmp_collection_object.get("description", "")
     tmp_coll_name = tmp_collection_object.get("name", "SRC-721")
-    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "pixelated")
+    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "auto")
 
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 420 420" style="image-rendering:{tmp_coll_img_render}; width: 420px; height: 420px;">
-    <title>{tmp_coll_name}</title>
-    <desc>{tmp_coll_description} - provided by stampchain.io</desc>
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        viewBox="0 0 420 420"
+        preserveAspectRatio="xMidYMid meet"
+        style="image-rendering:{tmp_coll_img_render}; -webkit-image-rendering:{tmp_coll_img_render};">
+        <title>{tmp_coll_name}</title>
+        <desc>{tmp_coll_description} - provided by stampchain.io</desc>
     """
 
     for i, t in enumerate(tmp_nft_object.get("ts", [])):
