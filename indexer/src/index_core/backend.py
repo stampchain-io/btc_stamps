@@ -235,8 +235,10 @@ class Backend:
         Deserialize a transaction hex string into a CTransaction object.
         Uses Rust parser if available for better performance.
         """
-        if tx_hex in self.deserialized_tx_cache:
-            return self.deserialized_tx_cache.get(tx_hex)
+        # Check cache first, get() will track both hits and misses
+        cached_tx = self.deserialized_tx_cache.get(tx_hex)
+        if cached_tx is not None:
+            return cached_tx
 
         if self._parser is not None:
             try:
@@ -306,16 +308,18 @@ class Backend:
         Returns:
             Dict mapping transaction hashes to their raw data
         """
-        # Log memory usage periodically
-        self.memory_manager.log_memory_usage(current_block)
-
         # Remove duplicates while preserving order
         txhash_list = list(dict.fromkeys(txhash_list))
 
         # Check cache first
         noncached_txhashes = []
+        cached_results = {}
         for tx_hash in txhash_list:
-            if not self.raw_transactions_cache.contains(tx_hash):
+            # Use get() to properly track hits/misses
+            cached_tx = self.raw_transactions_cache.get(tx_hash)
+            if cached_tx is not None:
+                cached_results[tx_hash] = cached_tx
+            else:
                 noncached_txhashes.append(tx_hash)
 
         if noncached_txhashes:
@@ -360,7 +364,9 @@ class Backend:
                                     raise BackendRPCError(f"Error fetching transaction: {result['error']}")
                         else:
                             tx_hash = tx_hash_call_id[result["id"]]
-                            self.raw_transactions_cache.set(tx_hash, result["result"])
+                            tx_result = result["result"]
+                            self.raw_transactions_cache.set(tx_hash, tx_result)
+                            cached_results[tx_hash] = tx_result
 
                     # Periodic garbage collection
                     if i % 5 == 0:  # Every 5 chunks
@@ -386,4 +392,4 @@ class Backend:
                         raise BackendRPCError(f"Error fetching transactions: {str(e)}")
 
         # Return results in original order
-        return {tx_hash: self.raw_transactions_cache.get(tx_hash) for tx_hash in txhash_list}
+        return {tx_hash: cached_results.get(tx_hash) for tx_hash in txhash_list}

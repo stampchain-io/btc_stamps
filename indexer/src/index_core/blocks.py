@@ -32,7 +32,7 @@ import index_core.script as script
 import index_core.server as server
 import index_core.util as util
 from index_core.backend import Backend
-from index_core.caching import clear_all_caches
+from index_core.caching import cache_manager, clear_all_caches
 from index_core.database import (
     get_unlocked_cpids,
     initialize,
@@ -658,8 +658,10 @@ def log_block_info(
         else:
             current_progress = min(1.0, blocks_processed / blocks_to_process if blocks_to_process > 0 else 0)
 
-        # Log memory usage
-        memory_manager.log_memory_usage(block_index)
+        # Log memory usage and cache stats every 100 blocks
+        if block_index % 100 == 0:
+            memory_manager.log_memory_usage(block_index)
+            cache_manager.log_cache_stats()  # Use CacheManager's stats logging
 
         # Initialize tracking variables if not exists
         if not hasattr(log_block_info, "_state"):
@@ -1600,11 +1602,34 @@ def validate_block_against_production(block_index: int) -> bool:
 
     try:
         script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tools", "compare_tables.py")
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
 
-        if result.returncode != 0:
+        # Check shutdown flag before starting validation
+        if server.shutdown_flag.is_set():
+            logger.info("Skipping validation due to shutdown signal")
+            return True
+
+        process = subprocess.Popen([sys.executable, script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        while True:
+            try:
+                # Use communicate with timeout to allow for interrupt checking
+                stdout, stderr = process.communicate(timeout=1)
+                break
+            except subprocess.TimeoutExpired:
+                # Check shutdown flag periodically
+                if server.shutdown_flag.is_set():
+                    logger.info("Terminating validation due to shutdown signal")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    return True
+                continue
+
+        if process.returncode != 0:
             logger.error(f"Validation failed at block {block_index}")
-            logger.error(f"Comparison output:\n{result.stdout}\n{result.stderr}")
+            logger.error(f"Comparison output:\n{stdout}\n{stderr}")
             return False
 
         logger.info(f"Block {block_index} validation successful")

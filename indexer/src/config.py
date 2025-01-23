@@ -11,8 +11,8 @@ from exceptions import ConfigurationError
 logger = logging.getLogger(__name__)
 
 # Cache size configurations
-BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = int(os.environ.get("BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", "20000"))  # ~6-13 blocks
-DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "10000"))  # ~3-6 blocks
+BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = int(os.environ.get("BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", "200000"))
+DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "100000"))
 RUST_PARSER_MAX_CACHE_MB = int(os.environ.get("RUST_PARSER_MAX_CACHE_MB", "250"))  # 250MB for raw transaction data
 RUST_PARSER_ENTRIES = int(os.environ.get("RUST_PARSER_ENTRIES", "20000"))  # Match Python cache size
 
@@ -21,6 +21,17 @@ BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "10000"))  # Activ
 DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "1000"))  # Deployment info (~0.5MB memory)
 TOTAL_MINTED_CACHE_SIZE = int(os.environ.get("TOTAL_MINTED_CACHE_SIZE", "10000"))  # Minting stats (~1MB memory)
 SUBASSET_CACHE_SIZE = int(os.environ.get("SUBASSET_CACHE_SIZE", "500"))  # SRC-721 subasset lookup (~50KB memory)
+ADDRESS_CACHE_SIZE = int(os.environ.get("ADDRESS_CACHE_SIZE", "10000"))  # Address lookup cache (~1MB memory)
+SRC721_SUBASSET_CACHE_SIZE = int(os.environ.get("SRC721_SUBASSET_CACHE_SIZE", "256"))  # SRC-721 specific subasset cache
+
+# Block and stamp cache sizes
+BLOCK_CACHE_SIZE = int(os.environ.get("BLOCK_CACHE_SIZE", "2"))  # Small size since we only need recent blocks
+STAMP_CACHE_SIZE = int(
+    os.environ.get("STAMP_CACHE_SIZE", "2")
+)  # Small size since we only need recent stamp # for cursed & stamps
+COLLECTION_CACHE_SIZE = int(os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET_CACHE_SIZE)))
+PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
+SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
 
 # Batch processing configurations
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
@@ -396,7 +407,6 @@ BLOCK_FIRST_REGTEST = 0
 
 DEFAULT_REQUESTS_TIMEOUT = 20  # 20 seconds
 
-BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
 BACKEND_RPC_BATCH_NUM_WORKERS = 6
 
 LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[bool]]]] = [

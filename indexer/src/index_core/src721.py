@@ -6,19 +6,12 @@ import re
 from typing import Any
 
 import config
-from index_core.caching import LRUCache, cache_manager
+from index_core.caching import cache_manager
 from index_core.database import get_srcbackground_data
 
 logger = logging.getLogger(__name__)
 
 MAX_LAYERS = 10  # Define a maximum number of layers
-
-# Initialize caches with cache manager
-subasset_cache = LRUCache[str](max_size=256)
-collection_cache = LRUCache[str](max_size=config.SUBASSET_CACHE_SIZE)
-
-cache_manager.register_cache("subasset", subasset_cache)
-cache_manager.register_cache("collection", collection_cache)
 
 
 def parse_valid_src721_in_block(valid_stamps_in_block, lock=None):
@@ -98,7 +91,7 @@ def convert_to_dict(json_string_or_dict):
 
 def fetch_src721_subasset_base64(asset_name: str, valid_src721_in_block: list, db: Any) -> str:
     """Fetch base64 data for SRC721 subasset with caching."""
-    cached_result = subasset_cache.get(asset_name)
+    cached_result = cache_manager.get_cache_value("subasset", asset_name)
     if cached_result is not None:
         return cached_result
 
@@ -116,7 +109,7 @@ def fetch_src721_subasset_base64(asset_name: str, valid_src721_in_block: list, d
             else:
                 raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
 
-    subasset_cache.set(asset_name, base64_string)
+    cache_manager.set_cache_value("subasset", asset_name, base64_string)
     return base64_string
 
 
@@ -277,7 +270,7 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
 
 def fetch_collection_details(collection_cpid: str, db: Any) -> str:
     """Fetch collection details with caching."""
-    cached_result = collection_cache.get(collection_cpid)
+    cached_result = cache_manager.get_cache_value("collection", collection_cpid)
     if cached_result is not None:
         return cached_result
 
@@ -292,7 +285,7 @@ def fetch_collection_details(collection_cpid: str, db: Any) -> str:
             if result is not None and result[0]:
                 collection_asset_item = result[0]
                 logger.debug("got collection asset item from db: %s", collection_asset_item)
-                collection_cache.set(collection_cpid, collection_asset_item)
+                cache_manager.set_cache_value("collection", collection_cpid, collection_asset_item)
             else:
                 collection_asset_item = None
                 logger.warning(f"Failed to fetch deploy src_data for cpid from database {collection_cpid}")

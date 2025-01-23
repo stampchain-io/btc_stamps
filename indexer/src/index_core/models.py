@@ -25,6 +25,7 @@ from config import (
     STRIP_WHITESPACE,
     SUPPORTED_SUB_PROTOCOLS,
 )
+from index_core.caching import cache_manager
 from index_core.src20 import build_src20_svg_string, check_format
 from index_core.src101 import check_src101_inputs
 from index_core.src721 import validate_src721_and_process
@@ -696,9 +697,7 @@ class StampData:
 
         # Add to reissue cache if is_btc_stamp is True
         if self.is_btc_stamp:
-            from index_core.caching import reissue_cache
-
-            reissue_cache.set(self.cpid, True)
+            cache_manager.set_cache_value("reissue", self.cpid, True)
 
         self.normalize_mime_and_suffix()
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)

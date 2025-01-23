@@ -32,7 +32,15 @@ class MemoryManager:
     def register_cache(self, name: str, cache: LRUCache[Any]) -> None:
         """Register a cache for memory management."""
         self._registered_caches[name] = cache
-        logger.info(f"Registered cache: {name} (max_size={cache.max_size})")
+        logger.debug(f"Registered cache: {name} (max_size={cache.max_size})")
+
+    def unregister_cache(self, name: str) -> None:
+        """Unregister a cache from memory management."""
+        if name in self._registered_caches:
+            del self._registered_caches[name]
+            logger.info(f"Unregistered cache: {name}")
+        else:
+            logger.warning(f"Attempted to unregister non-existent cache: {name}")
 
     def get_memory_usage(self) -> float:
         """Get current memory usage as a percentage."""

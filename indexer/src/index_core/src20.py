@@ -21,7 +21,7 @@ from config import (  # SRC_VALIDATION_API1,
     SRC_VALIDATION_SECRET_API2,
     TICK_PATTERN_SET,
 )
-from index_core.caching import balance_cache, total_minted_cache
+from index_core.caching import cache_manager  # Use CacheManager
 from index_core.database import get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
 
@@ -190,8 +190,8 @@ class Src20Processor:
                 )
                 return
             tick = self.src20_dict.get("tick")
-            current_total = total_minted_cache.get(tick) or D(0)
-            total_minted_cache.set(tick, current_total + amt)
+            current_total = cache_manager.get_cache_value("total_minted", tick) or D(0)  # Use CacheManager
+            cache_manager.set_cache_value("total_minted", tick, current_total + amt)  # Use CacheManager
             running_total_mint = D(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
             self.src20_dict["total_minted"] = running_total_mint
@@ -731,18 +731,18 @@ def get_running_mint_total(db, src20_processed_in_block, tick):
             if item["tick"] == tick and item["op"] == "MINT" and "total_minted" in item:
                 total_minted = D(item["total_minted"])
                 # Update cache with latest value
-                total_minted_cache.set(tick, total_minted)
+                cache_manager.set_cache_value("total_minted", tick, total_minted)
                 break
 
     # If not found in block, try cache
     if total_minted == D(0):
-        cached_total = total_minted_cache.get(tick)
+        cached_total = cache_manager.get_cache_value("total_minted", tick)
         if cached_total is not None:
             total_minted = cached_total
         else:
             # If not in cache, query database
             total_minted = get_total_src20_minted_from_db(db, tick)
-            total_minted_cache.set(tick, total_minted)
+            cache_manager.set_cache_value("total_minted", tick, total_minted)
 
     return total_minted
 
@@ -796,7 +796,7 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
                         balances.append(BalanceCurrent(tick, address, D(total_balance), locked_balance))
                         addresses_to_process.remove(address)
                         # Update cache with this latest balance
-                        balance_cache.set(tick, tick_hash, address, D(total_balance))
+                        cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D(total_balance))
 
         except Exception as e:
             logger.error(f"An exception in user balance: {e}")
@@ -808,7 +808,7 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
             # Check cache for remaining addresses
             addresses_to_query = []
             for address in addresses_to_process:
-                cached_balance = balance_cache.get(tick, tick_hash, address)
+                cached_balance = cache_manager.get_cache_value("balance", f"{tick}:{tick_hash}:{address}")
                 if cached_balance is not None:
                     balances.append(BalanceCurrent(tick, address, cached_balance, None))
                 else:
@@ -838,7 +838,7 @@ def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in
                         )
                     )
                     # Update cache with database value
-                    balance_cache.set(tick, tick_hash, address, D(total_balance))
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D(total_balance))
 
         except Exception as e:
             print(f"An exception occurred: {e}")
@@ -872,7 +872,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
     # Try cache first for each address
     addresses_to_query = []
     for address in addresses:
-        cached_result = balance_cache.get(tick, tick_hash, address)
+        cached_result = cache_manager.get_cache_value("balance", f"{tick}:{tick_hash}:{address}")
         if cached_result is not None:
             balances.append(
                 BalanceTuple(
@@ -918,7 +918,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
                 if result:
                     total_balance = D(str(result[2]))
                     # Cache the result
-                    balance_cache.set(tick, tick_hash, address, total_balance)
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", total_balance)
                     balances.append(
                         BalanceTuple(
                             result[0],  # tick
@@ -931,7 +931,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
                     )
                 else:
                     # If no balance found, add and cache zero balance
-                    balance_cache.set(tick, tick_hash, address, D("0"))
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D("0"))
                     balances.append(BalanceTuple(tick, address, D("0"), 0, None, None))
 
     return balances
@@ -1073,7 +1073,7 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                     balance_dict["credit"] += amt
 
             elif src20_dict["op"] == "TRANSFER":
-                # Debit from creator
+                # Debit from source
                 balance_dict = next(
                     (
                         item
@@ -1131,7 +1131,9 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
     for balance_dict in balance_updates:
         net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
         current_balance = balance_dict.get("original_amt", D(0)) + net_change
-        balance_cache.set(balance_dict["tick"], balance_dict["tick_hash"], balance_dict["address"], current_balance)
+        cache_manager.set_cache_value(
+            "balance", f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}", current_balance
+        )  # Use CacheManager
 
     return balance_updates
 
@@ -1176,7 +1178,9 @@ def update_balance_table(db, balance_updates, block_index, block_time):
             )
 
             # Invalidate cache after successful update
-            balance_cache.invalidate(balance_dict["tick"], balance_dict["tick_hash"], balance_dict["address"])
+            cache_manager.invalidate_cache_entry(
+                "balance", f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}"
+            )
 
         except Exception as e:
             logger.error("Error updating balances table:", e)

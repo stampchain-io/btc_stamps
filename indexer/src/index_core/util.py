@@ -14,15 +14,13 @@ from bitcoinlib import encoding
 from ecdsa import SECP256k1, VerifyingKey
 
 import config
-from index_core.caching import LRUCache
+from index_core.caching import cache_manager
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal
 CP_BLOCK_COUNT = None
 CURRENT_BLOCK_INDEX: Optional[int] = None  # resolves to database.last_db_index(db)
-
-address_cache: LRUCache[str] = LRUCache(max_size=10000)
 
 
 def chunkify(lst, n):
@@ -378,8 +376,9 @@ def decode_address(script_pubkey):
     cache_key = bytes(script_pubkey)
 
     # Check cache first
-    if cache_key in address_cache:
-        return address_cache.get(cache_key)
+    cached_result = cache_manager.get_cache_value("address", cache_key)
+    if cached_result is not None:
+        return cached_result
 
     try:
         # Handle Taproot (P2TR)
@@ -395,7 +394,7 @@ def decode_address(script_pubkey):
             address = str(CBitcoinAddress.from_scriptPubKey(script_pubkey))
 
         # Cache the result
-        address_cache.set(cache_key, address)
+        cache_manager.set_cache_value("address", cache_key, address)
         return address
     except Exception:
         raise ValueError("Unsupported scriptPubKey format")

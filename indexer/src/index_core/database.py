@@ -28,18 +28,7 @@ from config import (
     STAMP_TABLE,
     TRANSACTIONS_TABLE,
 )
-from index_core.caching import (
-    SRC101DeployResult,
-    block_cache,
-    cache_manager,
-    clear_all_caches,
-    deploy_cache,
-    price_cache,
-    reissue_cache,
-    src101_deploy_cache,
-    stamp_cache,
-    total_minted_cache,
-)
+from index_core.caching import SRC101DeployResult, cache_manager, clear_all_caches
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
 from index_core.types import NO_DEPLOY, DeployResult
 
@@ -92,7 +81,7 @@ def update_parsed_block(db: Connection, block_index: int) -> None:
 def is_prev_block_parsed(db: Connection, block_index: int) -> bool:
     """Check if the previous block has been parsed and indexed."""
     prev_block_index = block_index - 1
-    cached_result = block_cache.get(str(prev_block_index))
+    cached_result = cache_manager.get_cache_value("block", str(prev_block_index))
     if cached_result is not None:
         return cached_result
 
@@ -108,7 +97,7 @@ def is_prev_block_parsed(db: Connection, block_index: int) -> bool:
     cursor.close()
 
     result = block is not None and block[BLOCK_FIELDS_POSITION["indexed"]] == 1
-    block_cache.set(str(prev_block_index), result)
+    cache_manager.set_cache_value("block", str(prev_block_index), result)
 
     if not result:
         purge_block_db(db, prev_block_index)
@@ -1060,7 +1049,7 @@ def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[D
         DeployResult: (lim, max, dec) values for the deployment.
         Returns NO_DEPLOY if no valid deployment exists.
     """
-    cached_result = deploy_cache.get(f"src20:{tick}")
+    cached_result = cache_manager.get_cache_value("deploy", f"src20:{tick}")
     # Only use cache if it's not None and not a tuple of all None values
     if cached_result is not None and cached_result != NO_DEPLOY:
         return cached_result
@@ -1070,7 +1059,7 @@ def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[D
         result = get_src20_deploy_in_db(db, tick)
 
     if result != NO_DEPLOY:
-        deploy_cache.set(f"src20:{tick}", result)
+        cache_manager.set_cache_value("deploy", f"src20:{tick}", result)
     return result
 
 
@@ -1125,7 +1114,7 @@ def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
 
 def get_total_src20_minted_from_db(db: Connection, tick: str) -> D:
     """Get the total minted amount for a given tick from the database."""
-    cached_total = total_minted_cache.get(tick)
+    cached_total = cache_manager.get_cache_value("total_minted", tick)
     if cached_total is not None:
         return cached_total
 
@@ -1145,21 +1134,21 @@ def get_total_src20_minted_from_db(db: Connection, tick: str) -> D:
         result = src20_cursor.fetchone()
         # Handle case where result is None or result[0] is None
         total_minted = D(0) if result is None or result[0] is None else D(str(result[0]))
-        total_minted_cache.set(tick, total_minted)
+        cache_manager.set_cache_value("total_minted", tick, total_minted)
         return total_minted
 
 
 def get_src101_deploy(db: Connection, deploy_hash: str, src101_processed_in_block: List[Dict[str, Any]]) -> SRC101DeployResult:
     """Get SRC-101 deployment details with caching."""
     # Check if the result is already cached
-    cached_result = src101_deploy_cache.get(deploy_hash)
+    cached_result = cache_manager.get_cache_value("src101_deploy", deploy_hash)
     if cached_result is not None:
         return cached_result
 
     # Check in the processed_blocks dictionary
     result = get_src101_deploy_in_block(src101_processed_in_block, deploy_hash)
     if result[0] != 0:  # If lim is not 0
-        src101_deploy_cache.set(deploy_hash, result)
+        cache_manager.set_cache_value("src101_deploy", deploy_hash, result)
         return result
 
     # Database lookup if not found in cache or processed_blocks
@@ -1178,7 +1167,7 @@ def get_src101_deploy(db: Connection, deploy_hash: str, src101_processed_in_bloc
             db_result[7],  # imgf
             db_result[8],  # idua
         )
-        src101_deploy_cache.set(deploy_hash, result)
+        cache_manager.set_cache_value("src101_deploy", deploy_hash, result)
         return result
     return (0, None, 0, 0, None, None, None, None, 0)
 
@@ -1269,7 +1258,7 @@ def get_src101_recs_in_db(db: Connection, deploy_hash: str) -> List[str]:
 
 def get_total_src101_minted_from_db(db: Connection, deploy_hash: str, blocktimestamp: int) -> D:
     """Get the total minted amount for a given deploy_hash from the database."""
-    cached_total = total_minted_cache.get(deploy_hash)
+    cached_total = cache_manager.get_cache_value("total_minted", deploy_hash)
     if cached_total is not None:
         return cached_total
 
@@ -1288,7 +1277,7 @@ def get_total_src101_minted_from_db(db: Connection, deploy_hash: str, blocktimes
         )  # nosec
         result = src101_cursor.fetchone()
         total_minted = D(result[0] if result[0] is not None else 0)
-        total_minted_cache.set(deploy_hash, total_minted)
+        cache_manager.set_cache_value("total_minted", deploy_hash, total_minted)
         return total_minted
 
 
@@ -1297,7 +1286,7 @@ def get_src101_price(
 ) -> Optional[Dict[int, Any]]:
     """Get SRC-101 price details with caching."""
     # Check if the result is already cached
-    cached_result = price_cache.get(deploy_hash)
+    cached_result = cache_manager.get_cache_value("price", deploy_hash)
     if cached_result is not None:
         return cached_result
 
@@ -1305,14 +1294,14 @@ def get_src101_price(
     price = get_src101_price_in_block(src101_processed_in_block, deploy_hash)
     if price is not None:
         # Cache and return the result
-        price_cache.set(deploy_hash, price)
+        cache_manager.set_cache_value("price", deploy_hash, price)
         return price
 
     # Database lookup if not found in cache or processed_blocks
     price = get_src101_price_in_db(db, deploy_hash)
     if price is not None:
         # Cache and return the result
-        price_cache.set(deploy_hash, price)
+        cache_manager.set_cache_value("price", deploy_hash, price)
     return price
 
 
@@ -1360,13 +1349,13 @@ def get_next_stamp_number(db, identifier):
     if identifier not in ["stamp", "cursed"]:
         raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    cached_result = stamp_cache.get(identifier)
+    cached_result = cache_manager.get_cache_value("stamp", identifier)
     if cached_result is not None:
         if identifier == "cursed":
             next_number = cached_result - 1
         else:
             next_number = cached_result + 1
-        stamp_cache.set(identifier, next_number)
+        cache_manager.set_cache_value("stamp", identifier, next_number)
         return next_number
 
     with db.cursor() as cursor:
@@ -1387,22 +1376,23 @@ def get_next_stamp_number(db, identifier):
         transactions = cursor.fetchone()
         next_number = transactions[0] + increment if transactions[0] is not None else default_value
 
-    stamp_cache.set(identifier, next_number)
+    cache_manager.set_cache_value("stamp", identifier, next_number)
     return next_number
 
 
 def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[str, Any]]) -> bool:
     """Check for reissue with caching."""
     # If the CPID is already in the cache, it's a reissue
-    if reissue_cache.contains(cpid):
+    reissue_cache = cache_manager.get_cache("reissue")
+    if reissue_cache is not None and cpid in reissue_cache:
         return True
 
     if check_reissue_in_block(valid_stamps_in_block, cpid):
-        reissue_cache.set(cpid, True)
+        cache_manager.set_cache_value("reissue", cpid, True)
         return True
 
     if check_reissue_in_db(db, cpid):
-        reissue_cache.set(cpid, True)
+        cache_manager.set_cache_value("reissue", cpid, True)
         return True
 
     # If not found in block or database, we don't know if it's a valid stamp to cache yet, added to cache after validation

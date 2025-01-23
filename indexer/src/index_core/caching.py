@@ -1,161 +1,249 @@
 """Caching utilities for the indexer."""
 
 import logging
+import time
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from threading import RLock
+from typing import Any, Dict, Optional, TypeVar, Union
 
+from config import (
+    ADDRESS_CACHE_SIZE,
+    BALANCE_CACHE_SIZE,
+    BLOCK_CACHE_SIZE,
+    COLLECTION_CACHE_SIZE,
+    DEPLOYMENT_CACHE_SIZE,
+    PRICE_CACHE_SIZE,
+    SRC101_DEPLOY_CACHE_SIZE,
+    STAMP_CACHE_SIZE,
+    SUBASSET_CACHE_SIZE,
+    TOTAL_MINTED_CACHE_SIZE,
+)
 from index_core.cache_types import LRUCache
 from index_core.memory_manager import memory_manager
-from index_core.types import DeployResult
+from index_core.types import DeployResult, SRC101DeployResult
 
 logger = logging.getLogger(__name__)
 D = Decimal
 T = TypeVar("T")
 
+# Type alias for cache statistics
+CacheStats = Dict[str, Dict[str, Union[int, float]]]
+
 
 class CacheManager:
     """Manages multiple caches and their memory usage."""
 
-    _caches: Dict[str, LRUCache[Any]]
-    _backend_instance: Optional[Any]  # Type as Any to avoid circular import
-
     def __init__(self) -> None:
-        """Initialize the cache manager."""
-        self._caches = {}
-        self._backend_instance = None
+        """Initialize the cache manager and create default caches."""
+        logger.info("Initializing CacheManager")
+        self._caches: Dict[str, LRUCache[Any]] = {}
+        self._backend_instance: Optional[Any] = None
+        self._last_stats_log: float = 0.0
+        self._stats_log_interval: float = 300.0  # Log stats every 5 minutes
+        self._lock = RLock()  # Use RLock instead of Lock for reentrant locking
+
+        # Initialize default caches without holding the main lock
+        self._init_default_caches()
+        logger.info(f"CacheManager initialized with caches: {list(self._caches.keys())}")
+
+    def _init_default_caches(self) -> None:
+        """Initialize all default caches."""
+        logger.info("Starting default cache initialization")
+        try:
+            # Create each cache first with explicit typing
+            caches_to_register: list[tuple[str, LRUCache[Any]]] = [
+                ("balance", LRUCache[D](max_size=BALANCE_CACHE_SIZE)),
+                ("total_minted", LRUCache[D](max_size=TOTAL_MINTED_CACHE_SIZE)),
+                ("deploy", LRUCache[DeployResult](max_size=DEPLOYMENT_CACHE_SIZE)),
+                ("block", LRUCache[Any](max_size=BLOCK_CACHE_SIZE)),
+                ("stamp", LRUCache[int](max_size=STAMP_CACHE_SIZE)),
+                ("reissue", LRUCache[bool](max_size=DEPLOYMENT_CACHE_SIZE)),
+                ("subasset", LRUCache[str](max_size=SUBASSET_CACHE_SIZE)),
+                ("collection", LRUCache[str](max_size=COLLECTION_CACHE_SIZE)),
+                ("price", LRUCache[Optional[Dict[int, Any]]](max_size=PRICE_CACHE_SIZE)),
+                ("src101_deploy", LRUCache[SRC101DeployResult](max_size=SRC101_DEPLOY_CACHE_SIZE)),
+                ("address", LRUCache[str](max_size=ADDRESS_CACHE_SIZE)),
+            ]
+
+            # Register each cache with minimal locking
+            for name, cache in caches_to_register:
+                logger.debug(f"Registering cache: {name}")
+                self.register_cache(name, cache)
+
+            logger.info(f"Successfully initialized all default caches: {list(self._caches.keys())}")
+        except Exception as e:
+            logger.error(f"Error initializing default caches: {e}")
+            raise
 
     def register_cache(self, name: str, cache: LRUCache[Any]) -> None:
         """Register a cache for management."""
-        self._caches[name] = cache
-        memory_manager.register_cache(name, cache)
+        try:
+            # Quick check without lock first
+            existing_cache = self._caches.get(name)
+            if existing_cache is not None and existing_cache.max_size == cache.max_size:
+                logger.debug(f"Cache '{name}' already registered with same size")
+                return
+
+            # Only lock for the actual registration
+            with self._lock:
+                # Re-check after acquiring lock
+                existing_cache = self._caches.get(name)
+                if existing_cache is not None:
+                    if existing_cache.max_size == cache.max_size:
+                        logger.debug(f"Cache '{name}' already registered with same size")
+                        return
+                    logger.warning(
+                        f"Re-registering cache '{name}' with different size: {cache.max_size} "
+                        f"(was {existing_cache.max_size})"
+                    )
+                    existing_cache.clear()
+                    memory_manager.unregister_cache(name)
+
+                # Register the new cache
+                self._caches[name] = cache
+                memory_manager.register_cache(name, cache)
+                logger.debug(f"Registered cache '{name}' with max_size={cache.max_size}")
+        except Exception as e:
+            logger.error(f"Error registering cache '{name}': {e}")
 
     def register_backend(self, backend_instance: Any) -> None:
         """Register backend instance for its caches."""
         self._backend_instance = backend_instance
-        logger.info("Registered backend caches")
+        logger.info(
+            "Registered backend caches with sizes: raw_tx=%d, deserialized_tx=%d",
+            backend_instance.raw_transactions_cache.max_size,
+            backend_instance.deserialized_tx_cache.max_size,
+        )
 
     def clear_all(self) -> None:
         """Clear all registered caches and backend caches."""
-        # Clear registered LRU caches
-        for name, cache in self._caches.items():
-            logger.info(f"Clearing cache: {name} (size={len(cache)})")
-            cache.clear()
+        with self._lock:
+            logger.info("Starting cache clear operation")
+            # Clear registered LRU caches
+            for name, cache in self._caches.items():
+                logger.info(f"Clearing cache '{name}' (current_size={len(cache)}, hits={cache.hits}, misses={cache.misses})")
+                cache.clear()
 
-        # Clear backend caches if registered
-        if self._backend_instance is not None:
-            logger.info("Clearing backend caches")
-            self._backend_instance.raw_transactions_cache.clear()
-            self._backend_instance.deserialized_tx_cache.clear()
+            # Clear backend caches if registered
+            if self._backend_instance is not None:
+                logger.info(
+                    "Clearing backend caches (raw_tx_size=%d, deserialized_tx_size=%d)",
+                    len(self._backend_instance.raw_transactions_cache),
+                    len(self._backend_instance.deserialized_tx_cache),
+                )
+                self._backend_instance.raw_transactions_cache.clear()
+                self._backend_instance.deserialized_tx_cache.clear()
+            logger.info("Completed cache clear operation")
 
-    def get_stats(self) -> Dict[str, int]:
-        """Get statistics about registered caches."""
-        return {name: len(cache) for name, cache in self._caches.items()}
+    def get_stats(self) -> CacheStats:
+        """Get detailed statistics about registered caches."""
+        with self._lock:
+            stats: CacheStats = {}
+            for name, cache in self._caches.items():
+                hit_ratio = round(cache.hits / (cache.hits + cache.misses) * 100, 2) if (cache.hits + cache.misses) > 0 else 0
+                stats[name] = {
+                    "size": len(cache),
+                    "max_size": cache.max_size,
+                    "hits": cache.hits,
+                    "misses": cache.misses,
+                    "hit_ratio": hit_ratio,
+                }
+            logger.debug(f"Cache stats: {stats}")
+            return stats
+
+    def log_cache_stats(self) -> None:
+        """Log statistics about all registered caches."""
+        current_time = time.time()
+        if current_time - self._last_stats_log >= self._stats_log_interval:
+            stats = self.get_stats()
+            for cache_name, cache_stats in stats.items():
+                logger.info(
+                    f"Cache '{cache_name}' stats: "
+                    f"size={cache_stats['size']}/{cache_stats['max_size']}, "
+                    f"hits={cache_stats['hits']}, misses={cache_stats['misses']}, "
+                    f"hit_ratio={cache_stats['hit_ratio']}%"
+                )
+            self._last_stats_log = current_time
 
     def check_memory_pressure(self) -> None:
         """Check memory pressure and clear caches if needed."""
+        logger.debug("Checking memory pressure")
         memory_manager.clear_caches_if_needed()
 
+    def get_cache(self, name: str) -> Optional[LRUCache[Any]]:
+        """Retrieve a cache by name."""
+        # Try without lock first
+        cache = self._caches.get(name)
+        if cache is not None:
+            return cache
 
-class BalanceCache:
-    """Cache for SRC-20 balances."""
+        # If not found, try with lock and reinitialization
+        with self._lock:
+            cache = self._caches.get(name)
+            if cache is None:
+                logger.warning(f"Cache '{name}' not found. Available caches: {list(self._caches.keys())}")
+                try:
+                    logger.info("Attempting to reinitialize default caches")
+                    self._init_default_caches()
+                    cache = self._caches.get(name)
+                    if cache is not None:
+                        logger.info(f"Successfully reinitialized cache '{name}'")
+                    else:
+                        logger.error(f"Cache '{name}' still not found after reinitialization")
+                except Exception as e:
+                    logger.error(f"Failed to reinitialize caches: {e}")
+            return cache
 
-    cache: LRUCache[D]
+    def set_cache_value(self, cache_name: str, key: str, value: Any) -> None:
+        """Set a value in a specific cache."""
+        with self._lock:
+            cache = self.get_cache(cache_name)
+            if cache is not None:
+                try:
+                    self.check_memory_pressure()
+                    cache.set(key, value)
+                    logger.debug(
+                        f"Set value in cache '{cache_name}' for key '{key}' (cache_size={len(cache)}, hits={cache.hits}, misses={cache.misses})"
+                    )
+                except Exception as e:
+                    logger.error(f"Error setting cache value: {e}")
+            else:
+                logger.error(
+                    f"Failed to set value: cache '{cache_name}' not found. Available caches: {list(self._caches.keys())}"
+                )
 
-    def __init__(self, max_size: int = 10000) -> None:
-        """Initialize the balance cache."""
-        self.cache = LRUCache[D](max_size=max_size)
+    def get_cache_value(self, cache_name: str, key: str) -> Optional[Any]:
+        """Get a value from a specific cache."""
+        with self._lock:
+            cache = self.get_cache(cache_name)
+            if cache is not None:
+                try:
+                    value = cache.get(key)
+                    if value is not None:
+                        logger.debug(f"Cache hit in '{cache_name}' for key '{key}' (hits={cache.hits}, misses={cache.misses})")
+                    else:
+                        logger.debug(
+                            f"Cache miss in '{cache_name}' for key '{key}' (hits={cache.hits}, misses={cache.misses})"
+                        )
+                    return value
+                except Exception as e:
+                    logger.error(f"Error getting cache value: {e}")
+                    return None
+            logger.error(f"Failed to get value: cache '{cache_name}' not found. Available caches: {list(self._caches.keys())}")
+            return None
 
-    def get(self, tick: str, tick_hash: str, address: str) -> Optional[D]:
-        """Get balance from cache."""
-        return self.cache.get(f"{tick}:{tick_hash}:{address}")
-
-    def set(self, tick: str, tick_hash: str, address: str, balance: D) -> None:
-        """Set balance in cache."""
-        cache_manager.check_memory_pressure()
-        self.cache.set(f"{tick}:{tick_hash}:{address}", balance)
-
-    def invalidate(self, tick: str, tick_hash: str, address: str) -> None:
+    def invalidate_cache_entry(self, cache_name: str, key: str) -> None:
         """Invalidate a specific cache entry."""
-        key = f"{tick}:{tick_hash}:{address}"
-        if self.cache.contains(key):
-            self.cache.invalidate(key)
-
-    def clear(self) -> None:
-        """Clear the cache."""
-        self.cache.clear()
-
-
-class TotalMintedCache:
-    """Cache for total minted amounts."""
-
-    cache: LRUCache[D]
-
-    def __init__(self, max_size: int = 10000) -> None:
-        """Initialize the total minted cache."""
-        self.cache = LRUCache[D](max_size=max_size)
-
-    def get(self, tick: str) -> Optional[D]:
-        """Get total minted amount from cache."""
-        return self.cache.get(tick)
-
-    def set(self, tick: str, amount: D) -> None:
-        """Set total minted amount in cache."""
-        cache_manager.check_memory_pressure()
-        self.cache.set(tick, amount)
-
-    def invalidate(self, tick: str) -> None:
-        """Invalidate a specific cache entry."""
-        if self.cache.contains(tick):
-            self.cache.invalidate(tick)
-
-    def clear(self) -> None:
-        """Clear the cache."""
-        self.cache.clear()
+        cache = self.get_cache(cache_name)
+        if cache and key in cache:  # Use 'in' operator instead of contains()
+            logger.debug(f"Invalidating entry in cache '{cache_name}' for key '{key}'")
+            cache.invalidate(key)
+        elif cache:
+            logger.debug(f"No entry to invalidate in cache '{cache_name}' for key '{key}'")
 
 
-# Global instances
-cache_manager: CacheManager = CacheManager()
-balance_cache: BalanceCache = BalanceCache()
-total_minted_cache: TotalMintedCache = TotalMintedCache()
-
-# Register caches with the manager
-cache_manager.register_cache("balance", balance_cache.cache)
-cache_manager.register_cache("total_minted", total_minted_cache.cache)
-
-# Cache for deploy data
-deploy_cache = LRUCache[DeployResult](max_size=1000)  # (lim, max, dec)
-block_cache = LRUCache[Any](max_size=2)
-stamp_cache = LRUCache[int](max_size=2)
-reissue_cache = LRUCache[bool](max_size=100000)
-subasset_cache = LRUCache[str](max_size=1000)
-collection_cache = LRUCache[str](max_size=1000)
-price_cache = LRUCache[Optional[Dict[int, Any]]](max_size=1000)  # For SRC-101 price data
-
-# Type alias for SRC-101 deploy data
-SRC101DeployResult = Tuple[
-    Optional[Any],  # lim
-    Optional[Any],  # pri
-    Optional[Any],  # mintstart
-    Optional[Any],  # mintend
-    Optional[List[str]],  # rec
-    Optional[Any],  # wla
-    Optional[Any],  # imglp
-    Optional[Any],  # imgf
-    Optional[Any],  # idua
-]
-
-# Cache for SRC-101 deploy data
-src101_deploy_cache = LRUCache[SRC101DeployResult](max_size=1000)
-
-# Register additional caches
-cache_manager.register_cache("deploy", deploy_cache)
-cache_manager.register_cache("block", block_cache)
-cache_manager.register_cache("stamp", stamp_cache)
-cache_manager.register_cache("reissue", reissue_cache)
-cache_manager.register_cache("subasset", subasset_cache)
-cache_manager.register_cache("collection", collection_cache)
-cache_manager.register_cache("price", price_cache)
-cache_manager.register_cache("src101_deploy", src101_deploy_cache)
+# Global instance
+cache_manager = CacheManager()
 
 
 def clear_all_caches() -> None:
