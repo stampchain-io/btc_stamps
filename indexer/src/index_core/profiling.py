@@ -151,8 +151,8 @@ class Profiler:
             # Save detailed stats to text file
             with open(self.stats_file, "w") as f:
                 # Add profiling context header
-                f.write(f"Profiling Summary\n")
-                f.write(f"================\n")
+                f.write("Profiling Summary\n")
+                f.write("================\n")
                 f.write(f"Start Block: {self.start_block}\n")
                 f.write(f"End Block: {util.CURRENT_BLOCK_INDEX}\n")
                 f.write(f"Blocks Profiled: {self.blocks_profiled}\n")

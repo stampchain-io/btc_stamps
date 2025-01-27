@@ -2,7 +2,6 @@
 
 import gc
 import logging
-import sys
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
