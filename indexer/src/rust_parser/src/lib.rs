@@ -1,10 +1,10 @@
-use pyo3::prelude::*;
 use bitcoin::consensus::Decodable;
-use bitcoin::{Block, Transaction, TxOut, TxIn};
+use bitcoin::{Block, Transaction, TxIn, TxOut};
+use log::error;
+use pyo3::prelude::*;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use rayon::prelude::*;
-use log::error;
 
 #[pyclass]
 pub struct FastTransactionParser {
@@ -19,19 +19,22 @@ impl FastTransactionParser {
     fn new() -> Self {
         FastTransactionParser {
             tx_cache: Mutex::new(HashMap::new()),
-            max_cache_size: 10000,  // Maximum number of entries
+            max_cache_size: 10000,               // Maximum number of entries
             max_memory_bytes: 100 * 1024 * 1024, // 100MB default max memory
         }
     }
 
     fn deserialize_transaction(&self, tx_hex: &str) -> PyResult<TransactionInfo> {
         // Log the length of the transaction hex string
-        log::debug!("Deserializing transaction with hex length: {}", tx_hex.len());
+        log::debug!(
+            "Deserializing transaction with hex length: {}",
+            tx_hex.len()
+        );
 
         // Check cache first
         if let Ok(mut cache) = self.tx_cache.lock() {
             let current_memory: usize = cache.iter().map(|(k, v)| k.len() + v.len()).sum();
-            
+
             // Check both entry count and memory limits
             if cache.len() >= self.max_cache_size || current_memory >= self.max_memory_bytes {
                 log::info!(
@@ -91,8 +94,9 @@ impl FastTransactionParser {
     fn batch_parse_transactions(&self, tx_hexes: Vec<&str>) -> PyResult<Vec<TransactionInfo>> {
         // Log batch size
         log::info!("Processing batch of {} transactions", tx_hexes.len());
-        
-        tx_hexes.par_iter()
+
+        tx_hexes
+            .par_iter()
             .map(|&tx_hex| {
                 let tx_bytes = hex::decode(tx_hex).map_err(|e| {
                     error!("Failed to decode hex in batch: {}", e);
@@ -101,7 +105,10 @@ impl FastTransactionParser {
 
                 let tx = Transaction::consensus_decode(&mut &tx_bytes[..]).map_err(|e| {
                     error!("Failed to decode transaction in batch: {}", e);
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid transaction: {}", e))
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "Invalid transaction: {}",
+                        e
+                    ))
                 })?;
 
                 // Cache the result with size check
@@ -118,14 +125,18 @@ impl FastTransactionParser {
             .collect()
     }
 
-    fn set_cache_limits(&mut self, max_entries: Option<usize>, max_mb: Option<usize>) -> PyResult<()> {
+    fn set_cache_limits(
+        &mut self,
+        max_entries: Option<usize>,
+        max_mb: Option<usize>,
+    ) -> PyResult<()> {
         if let Some(entries) = max_entries {
             self.max_cache_size = entries;
         }
         if let Some(mb) = max_mb {
             self.max_memory_bytes = mb * 1024 * 1024; // Convert MB to bytes
         }
-        
+
         // Clear cache if it exceeds new limits
         if let Ok(mut cache) = self.tx_cache.lock() {
             let current_memory: usize = cache.iter().map(|(k, v)| k.len() + v.len()).sum();
@@ -142,10 +153,21 @@ impl FastTransactionParser {
             let current_memory: usize = cache.iter().map(|(k, v)| k.len() + v.len()).sum();
             stats.insert("entries".to_string(), cache.len().to_string());
             stats.insert("max_entries".to_string(), self.max_cache_size.to_string());
-            stats.insert("memory_mb".to_string(), format!("{:.2}", current_memory as f64 / 1024.0 / 1024.0));
-            stats.insert("max_memory_mb".to_string(), format!("{:.2}", self.max_memory_bytes as f64 / 1024.0 / 1024.0));
-            stats.insert("memory_usage_percent".to_string(), 
-                format!("{:.1}", (current_memory as f64 / self.max_memory_bytes as f64) * 100.0));
+            stats.insert(
+                "memory_mb".to_string(),
+                format!("{:.2}", current_memory as f64 / 1024.0 / 1024.0),
+            );
+            stats.insert(
+                "max_memory_mb".to_string(),
+                format!("{:.2}", self.max_memory_bytes as f64 / 1024.0 / 1024.0),
+            );
+            stats.insert(
+                "memory_usage_percent".to_string(),
+                format!(
+                    "{:.1}",
+                    (current_memory as f64 / self.max_memory_bytes as f64) * 100.0
+                ),
+            );
         }
         Ok(stats)
     }
@@ -258,7 +280,11 @@ impl BlockInfo {
             prev_block_hash: block.header.prev_blockhash.to_string(),
             merkle_root: block.header.merkle_root.to_string(),
             timestamp: block.header.time,
-            transactions: block.txdata.iter().map(TransactionInfo::from_transaction).collect(),
+            transactions: block
+                .txdata
+                .iter()
+                .map(TransactionInfo::from_transaction)
+                .collect(),
         }
     }
 }
