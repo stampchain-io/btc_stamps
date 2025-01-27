@@ -1,0 +1,9 @@
+[build]
+rustflags = ["-D", "warnings"]
+
+[clippy]
+# Allow these specific warnings
+allowed = [
+    "unnecessary_cast",  # If you want to keep some casts for clarity
+    "non_local_definitions"  # Temporary until pyo3 updates
+] 

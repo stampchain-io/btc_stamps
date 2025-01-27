@@ -244,7 +244,7 @@ impl TransactionInfo {
     fn from_transaction(tx: &Transaction) -> Self {
         TransactionInfo {
             txid: tx.txid().to_string(),
-            version: tx.version.0 as i32,
+            version: tx.version.0,
             inputs: tx.input.iter().map(InputInfo::from_txin).collect(),
             outputs: tx.output.iter().map(OutputInfo::from_txout).collect(),
             hex: hex::encode(bitcoin::consensus::serialize(tx)),
