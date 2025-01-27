@@ -611,6 +611,7 @@ def main():
                     print(f"    └─ TX: {record[0]}")
                     print(f"    └─ Token: {record[2]}")
                     print(f"    └─ Owner: {record[1]}")
+                    print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
 
             if only_in_prod:
                 print(colored(f"\n→ Missing from development ({len(only_in_prod)} records):", "yellow"))
@@ -620,6 +621,7 @@ def main():
                     print(f"    └─ TX: {record[0]}")
                     print(f"    └─ Token: {record[2]}")
                     print(f"    └─ Owner: {record[1]}")
+                    print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
 
         if not_in_prod_list_src20 or not_in_dev_list_src20:
             has_mismatches = True

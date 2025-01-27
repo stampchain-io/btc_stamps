@@ -30,6 +30,7 @@ from config import (
 )
 from index_core.caching import SRC101DeployResult, cache_manager, clear_all_caches
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
+from index_core.memory_manager import memory_manager
 from index_core.types import NO_DEPLOY, DeployResult
 
 logger = logging.getLogger(__name__)
@@ -255,83 +256,30 @@ def insert_into_src101price(cursor: Cursor, table_name: str, src101_dict: Dict[s
             cursor.execute(query, tuple(column_values))
 
 
+def serialize_value(value: Any) -> Any:
+    """Helper function to serialize values for database insertion"""
+    if value is None:
+        return ""
+    elif isinstance(value, (list, dict)):
+        return json.dumps(value)
+    elif isinstance(value, bool):
+        return int(value)
+    elif isinstance(value, (int, float, str, decimal.Decimal)):
+        return value
+    else:
+        return str(value)
+
+
 def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_dict: Dict[str, Any]) -> None:
     """Insert a single SRC-101 transaction into the specified table."""
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
 
-    # Helper function to safely serialize values
-    def serialize_value(value: Any) -> Any:
-        if isinstance(value, (dict, list)):
-            return json.dumps(value)
-        return value
+    tokenid_utf8 = src101_dict.get("tokenid_utf8", "")
+    tokenid_utf8_str = ";".join(tokenid_utf8) if isinstance(tokenid_utf8, list) else str(tokenid_utf8) if tokenid_utf8 else ""
 
-    column_names = [
-        "id",
-        "tx_hash",
-        "tx_index",
-        "block_index",
-        "p",
-        "op",
-        "name",
-        "tokenid_origin",
-        "tokenid",
-        "tokenid_utf8",
-        "img",
-        "root",
-        "description",
-        "tick",
-        "wla",
-        "imglp",
-        "imgf",
-        "tick_hash",
-        "deploy_hash",
-        "creator",
-        "pri",
-        "dua",
-        "idua",
-        "coef",
-        "lim",
-        "mintstart",
-        "mintend",
-        "prim",
-        "address_btc",
-        "address_eth",
-        "txt_data",
-        "owner",
-        "toaddress",
-        "destination",
-        "destination_nvalue",
-        "block_time",
-        "status",
-    ]
-
-    tokenid_origin = src101_dict.get("tokenid_origin")
-    if isinstance(tokenid_origin, str):
-        result = tokenid_origin
-    elif isinstance(tokenid_origin, list) and all(isinstance(item, str) for item in tokenid_origin):
-        result = ";".join(tokenid_origin)
-    else:
-        result = str(tokenid_origin) if tokenid_origin is not None else ""
-
-    img = src101_dict.get("img")
-    if isinstance(img, str):
-        img_str = img
-    elif isinstance(img, list) and all(isinstance(item, str) for item in img):
-        img_str = ";".join(img)
-    else:
-        img_str = str(img) if img is not None else ""
-
-    tokenid = src101_dict.get("tokenid")
-    tokenid_str = ";".join(tokenid) if isinstance(tokenid, list) else str(tokenid) if tokenid is not None else ""
-
-    tokenid_utf8 = src101_dict.get("tokenid_utf8")
-    tokenid_utf8_str = (
-        ";".join(tokenid_utf8) if isinstance(tokenid_utf8, list) else str(tokenid_utf8) if tokenid_utf8 is not None else ""
-    )
-
-    column_values = [
+    values = [
         id,
         src101_dict.get("tx_hash"),
         src101_dict.get("tx_index"),
@@ -339,10 +287,10 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
         src101_dict.get("p"),
         src101_dict.get("op"),
         src101_dict.get("name"),
-        result,
-        tokenid_str,
+        src101_dict.get("tokenid_origin"),
+        src101_dict.get("tokenid"),
         tokenid_utf8_str,
-        img_str,
+        src101_dict.get("img"),
         src101_dict.get("root"),
         src101_dict.get("desc"),
         src101_dict.get("tick"),
@@ -371,39 +319,68 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
         src101_dict.get("status"),
     ]
 
-    placeholders = ", ".join(["%s"] * len(column_names))
+    values = [serialize_value(v) for v in values]
+
+    placeholders = ", ".join(["%s"] * len(values))
+    columns = "id, tx_hash, tx_index, block_index, p, op, name, tokenid_origin, tokenid, tokenid_utf8, img, root, description, tick, wla, imglp, imgf, tick_hash, deploy_hash, creator, pri, dua, coef, lim, mintstart, mintend, prim, address_btc, address_eth, txt_data, owner, toaddress, destination, destination_nvalue, block_time, status"
 
     query = f"""
-        INSERT INTO {table_name} ({", ".join(column_names)})
+        INSERT INTO {table_name} ({columns})
         VALUES ({placeholders})
-    """  # nosec
-
-    cursor.execute(query, tuple(column_values))
+        ON DUPLICATE KEY UPDATE
+            tx_hash = VALUES(tx_hash),
+            tx_index = VALUES(tx_index),
+            block_index = VALUES(block_index),
+            p = VALUES(p),
+            op = VALUES(op),
+            name = VALUES(name),
+            tokenid_origin = VALUES(tokenid_origin),
+            tokenid = VALUES(tokenid),
+            tokenid_utf8 = VALUES(tokenid_utf8),
+            img = VALUES(img),
+            root = VALUES(root),
+            description = VALUES(description),
+            tick = VALUES(tick),
+            wla = VALUES(wla),
+            imglp = VALUES(imglp),
+            imgf = VALUES(imgf),
+            tick_hash = VALUES(tick_hash),
+            deploy_hash = VALUES(deploy_hash),
+            creator = VALUES(creator),
+            pri = VALUES(pri),
+            dua = VALUES(dua),
+            idua = VALUES(idua),
+            coef = VALUES(coef),
+            lim = VALUES(lim),
+            mintstart = VALUES(mintstart),
+            mintend = VALUES(mintend),
+            prim = VALUES(prim),
+            address_btc = VALUES(address_btc),
+            address_eth = VALUES(address_eth),
+            txt_data = VALUES(txt_data),
+            owner = VALUES(owner),
+            toaddress = VALUES(toaddress),
+            destination = VALUES(destination),
+            destination_nvalue = VALUES(destination_nvalue),
+            block_time = VALUES(block_time),
+            status = VALUES(status)
+    """
+    cursor.execute(query, values)
 
 
 def insert_transactions(db, transactions):
     """
     Insert multiple transactions into the database using efficient bulk inserts.
-    Maintains transaction order using tx_index.
-    Uses batch processing for better performance.
-    Does not commit - transaction boundaries are handled by the caller.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        transactions (list): A list of namedtuples representing transactions.
-
-    Returns:
-        None
-
-    Raises:
-        ValueError: If error occurs during insertion
+    Uses optimized batch processing for better performance.
     """
     try:
         # Sort transactions by tx_index to maintain order
         sorted_transactions = sorted(transactions, key=lambda x: x.tx_index if x.tx_index is not None else float("inf"))
 
-        # Prepare values for bulk insert
+        BATCH_SIZE = 5000
+
         values = []
+
         for tx in sorted_transactions:
             values.append(
                 (
@@ -421,7 +398,6 @@ def insert_transactions(db, transactions):
                 )
             )
 
-        BATCH_SIZE = 1000  # Adjust based on your needs
         with db.cursor() as cursor:
             for i in range(0, len(values), BATCH_SIZE):
                 batch = values[i : i + BATCH_SIZE]
@@ -442,8 +418,11 @@ def insert_transactions(db, transactions):
                     batch,
                 )
 
+                batch.clear()
+
+            values.clear()
+
     except Exception as e:
-        # Don't rollback here - let the caller handle it
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
 
@@ -694,53 +673,63 @@ def calculate_owners(src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict
 
 
 def calculate_balances(src20_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, D]]:
-    """Calculate balances from SRC-20 valid list.
-
-    Args:
-        src20_valid_list: List of tuples containing SRC-20 transaction data
-            Each tuple contains: (op, creator, destination, tick, tick_hash, amt, block_time, block_index)
-
-    Returns:
-        Dictionary mapping tick_address to balance details including metadata
-    """
+    """Calculate balances from SRC-20 valid list with optimized performance."""
     # Use defaultdict for more efficient balance tracking
     balances: Dict[str, Dict[str, D]] = defaultdict(lambda: defaultdict(D))
-    metadata: Dict[str, Dict[str, Any]] = {}  # Store metadata separately
+    metadata: Dict[str, Dict[str, Any]] = {}
 
-    for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
-        # Track balances efficiently
-        balances[tick][destination] += D(amt)
-        if op == "TRANSFER":
-            balances[tick][creator] -= D(amt)
+    # Process in chunks for better memory management
+    CHUNK_SIZE = 5000
+    for i in range(0, len(src20_valid_list), CHUNK_SIZE):
+        chunk = src20_valid_list[i : i + CHUNK_SIZE]
 
-        # Store metadata for destination
-        destination_id = f"{tick}_{destination}"
-        metadata[destination_id] = {
-            "tick": tick,
-            "tick_hash": tick_hash,
-            "address": destination,
-            "last_update": block_index,
-            "block_time": block_time,
-        }
+        for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in chunk:
+            # Track balances efficiently - exact same logic as original
+            balances[tick][destination] += D(amt)
+            if op == "TRANSFER":
+                balances[tick][creator] -= D(amt)
 
-        # Store metadata for creator in transfers
-        if op == "TRANSFER":
-            creator_id = f"{tick}_{creator}"
-            metadata[creator_id] = {
+            # Always update metadata to match original behavior
+            destination_id = f"{tick}_{destination}"
+            metadata[destination_id] = {
                 "tick": tick,
                 "tick_hash": tick_hash,
-                "address": creator,
+                "address": destination,
                 "last_update": block_index,
                 "block_time": block_time,
             }
 
-    # Combine balances with metadata for final output
+            if op == "TRANSFER":
+                creator_id = f"{tick}_{creator}"
+                metadata[creator_id] = {
+                    "tick": tick,
+                    "tick_hash": tick_hash,
+                    "address": creator,
+                    "last_update": block_index,
+                    "block_time": block_time,
+                }
+
+        # Clear chunk from memory
+        del chunk
+
+        # Check memory pressure and clear caches if needed
+        if i > 0 and i % (CHUNK_SIZE * 5) == 0:
+            memory_manager.clear_caches_if_needed()
+
+    # Combine balances with metadata - exact same logic as original
     all_balances: Dict[str, Dict[str, Any]] = {}
     for tick, tick_balances in balances.items():
         for address, amt in tick_balances.items():
-            balance_id = f"{tick}_{address}"
             if amt != D(0):  # Only include non-zero balances
-                all_balances[balance_id] = metadata[balance_id] | {"amt": amt}  # Merge metadata with balance
+                balance_id = f"{tick}_{address}"
+                all_balances[balance_id] = metadata[balance_id] | {"amt": amt}
+
+    # Clear intermediate data structures
+    balances.clear()
+    metadata.clear()
+
+    # Final memory check
+    memory_manager.clear_caches_if_needed()
 
     return all_balances
 
@@ -896,17 +885,24 @@ def rebuild_owners(db, block_index=None):
 
 
 def rebuild_balances(db, block_index=None):
+    """Rebuild the balances table with optimized performance for large datasets."""
     if DEBUG_SKIP_REBUILD_BALANCES:
         logger.warning("DEBUG MODE: Skipping rebuild_balances due to DEBUG_SKIP_REBUILD_BALANCES flag")
         return
 
     cursor = db.cursor()
-    temp_table = "temp_balances_" + str(int(time.time()))
 
     try:
-        logger.info("Validating Balances Table..")
-        db.begin()
+        logger.info("Starting Balances Table rebuild..")
 
+        # Set longer timeouts for this operation
+        cursor.execute("SET SESSION wait_timeout=600")  # 10 minutes
+        cursor.execute("SET SESSION innodb_lock_wait_timeout=600")  # 10 minutes
+        cursor.execute("SET SESSION net_read_timeout=600")  # 10 minutes
+        cursor.execute("SET SESSION net_write_timeout=600")  # 10 minutes
+        cursor.execute("SET SESSION max_execution_time=600000")  # 10 minutes in milliseconds
+
+        # Get all data first to maintain exact same logic
         existing_balances = get_existing_balances(cursor)
         src20_valid_list = get_src20_valid_list(cursor, block_index)
         all_balances = calculate_balances(src20_valid_list)
@@ -915,26 +911,12 @@ def rebuild_balances(db, block_index=None):
             logger.info("No changes in balances. Skipping deletion and insertion.")
             return
 
-        # First create temp table
+        # Create temp table
+        temp_table = "temp_balances_" + str(int(time.time()))
         logger.debug(f"Creating temporary table: {temp_table}")
-        cursor.execute(
-            f"""
-            CREATE TABLE {temp_table} LIKE balances
-        """
-        )
+        cursor.execute(f"CREATE TABLE {temp_table} LIKE balances")
 
-        # Then lock all necessary tables
-        logger.debug("Acquiring table locks")
-        cursor.execute(
-            f"""
-            LOCK TABLES
-                balances WRITE,
-                {SRC20_VALID_TABLE} READ,
-                {temp_table} WRITE
-        """
-        )
-
-        # Insert into temp table
+        # Insert into temp table in batches
         values = [
             (
                 key,
@@ -947,9 +929,11 @@ def rebuild_balances(db, block_index=None):
                 "SRC-20",
             )
             for key, value in all_balances.items()
+            if value["amt"] != 0  # Skip zero balances
         ]
 
-        BATCH_SIZE = 10000
+        # Use smaller batch size for inserts to prevent timeouts
+        BATCH_SIZE = 1000
         total_rows = len(values)
 
         for i in range(0, total_rows, BATCH_SIZE):
@@ -963,6 +947,7 @@ def rebuild_balances(db, block_index=None):
                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
                 batch,
             )
+            db.commit()  # Commit after each batch to prevent transaction timeouts
 
         # Atomic swap
         logger.info("Performing atomic table swap")
@@ -970,7 +955,7 @@ def rebuild_balances(db, block_index=None):
             f"""
             RENAME TABLE balances TO balances_old,
                          {temp_table} TO balances
-        """
+            """
         )
 
         # Cleanup
@@ -995,6 +980,45 @@ def rebuild_balances(db, block_index=None):
         except Exception as e:
             logger.error(f"Error unlocking tables: {e}")
         cursor.close()
+
+
+def insert_batch_to_temp(cursor, temp_table, balances_batch):
+    """Helper function to insert a batch of balances into temp table."""
+    if not balances_batch:
+        return
+
+    values = [
+        (
+            key,
+            value["tick"],
+            value["tick_hash"],
+            value["address"],
+            value["amt"],
+            value["last_update"],
+            value["block_time"],
+            "SRC-20",
+        )
+        for key, value in balances_batch.items()
+        if value["amt"] != 0  # Only insert non-zero balances
+    ]
+
+    if not values:
+        return
+
+    CHUNK_SIZE = 1000
+    for i in range(0, len(values), CHUNK_SIZE):
+        chunk = values[i : i + CHUNK_SIZE]
+        cursor.executemany(
+            f"""
+            INSERT INTO {temp_table} (id, tick, tick_hash, address, amt, last_update, block_time, p)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                amt = VALUES(amt),
+                last_update = VALUES(last_update),
+                block_time = VALUES(block_time)
+            """,
+            chunk,
+        )
 
 
 def purge_block_db(db: Connection, block_index: int) -> None:
@@ -1049,15 +1073,17 @@ def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[D
         DeployResult: (lim, max, dec) values for the deployment.
         Returns NO_DEPLOY if no valid deployment exists.
     """
+    # Keep original cache key format
     cached_result = cache_manager.get_cache_value("deploy", f"src20:{tick}")
-    # Only use cache if it's not None and not a tuple of all None values
     if cached_result is not None and cached_result != NO_DEPLOY:
         return cached_result
 
+    # Check blocks first, then DB - maintaining original order
     result = get_src20_deploy_in_block(src20_processed_in_block, tick)
     if result == NO_DEPLOY:
         result = get_src20_deploy_in_db(db, tick)
 
+    # Cache only valid results, exactly as before
     if result != NO_DEPLOY:
         cache_manager.set_cache_value("deploy", f"src20:{tick}", result)
     return result

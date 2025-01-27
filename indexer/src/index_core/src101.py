@@ -276,8 +276,8 @@ class Src101Validator:
                 self.src101_dict[key + "_utf8"] = utf8valuelist
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key] = None
-                self.src101_dict[key + "_utf8"] = None
+                self.src101_dict[key] = ""
+                self.src101_dict[key + "_utf8"] = ""
         elif isinstance(value, str):
             self.src101_dict[key + "_origin"] = value
             valid = check_valid_base64_string(value)
@@ -295,13 +295,13 @@ class Src101Validator:
                 self.src101_dict[key + "_utf8"] = utf8value
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key] = None
-                self.src101_dict[key + "_utf8"] = None
+                self.src101_dict[key] = ""
+                self.src101_dict[key + "_utf8"] = ""
         else:
             self._update_status(key, f"IT: INVALID TOKENID VAL TYPE {value}")
-            self.src101_dict[key + "_origin"] = None
-            self.src101_dict[key] = None
-            self.src101_dict[key + "_utf8"] = None
+            self.src101_dict[key + "_origin"] = ""
+            self.src101_dict[key] = ""
+            self.src101_dict[key + "_utf8"] = ""
 
     def _process_uppercase_value(self, key, value):
         self.src101_dict[key] = value.upper()

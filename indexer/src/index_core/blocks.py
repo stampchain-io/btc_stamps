@@ -15,14 +15,13 @@ import sys
 import threading
 import time
 from collections import namedtuple
+from functools import wraps
 from typing import List
 
 import pymysql as mysql
 from bitcoin.core.script import CScriptInvalidError
 from pymysql.connections import Connection
 
-# import cProfile
-# import pstats
 import config
 import index_core.arc4 as arc4
 import index_core.backend as backend
@@ -54,6 +53,7 @@ from index_core.database import (
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
+from index_core.profiling import Profiler
 from index_core.src20 import (
     Src20Dict,
     clear_zero_balances,
@@ -1083,12 +1083,18 @@ def signal_handler(sig, frame):
     Handle SIGINT (Ctrl+C) gracefully.
     This handler is designed to be thread-safe and idempotent.
     """
+    global profiler  # Add global reference to access profiler
+
     if server.shutdown_flag.is_set():
         # If flag is already set, force exit
         logger.warning("Received second interrupt, forcing exit...")
+        if "profiler" in globals():
+            profiler.end_block_profiling()  # End profiling before force exit
         sys.exit(1)
 
     logger.info("Received interrupt signal, initiating graceful shutdown...")
+    if "profiler" in globals():
+        profiler.end_block_profiling()  # End profiling on first interrupt
     server.shutdown_flag.set()
 
 
@@ -1107,6 +1113,7 @@ def follow(db):
     update_cpids_future = None
 
     try:
+        # Initial database setup
         initialize(db)
         rebuild_balances(db)
         rebuild_owners(db)
@@ -1134,6 +1141,11 @@ def follow(db):
                 logger.info("ZMQ notifications enabled")
         except Exception as e:
             logger.warning(f"Failed to initialize ZMQ: {e}")
+
+        # Initialize profiler after setup but before processing
+        global profiler  # Make profiler global so signal handler can access it
+        profiler = Profiler()
+        profiler.start_block_profiling()
 
         stamp_issuances_list = None
         consecutive_errors = 0
@@ -1216,6 +1228,9 @@ def follow(db):
 
                     # Check database connection before operations
                     db = check_db_connection(db)
+
+                    # Start profiling for this block
+                    profiler.start_block_profiling()
 
                     # Remove CPID update from here since we do it in the idle block
 
@@ -1341,6 +1356,7 @@ def follow(db):
                         stamp_issuances_list.pop(block_index, None)
                         log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0, 0, 0)
                         block_index = commit_and_update_block(db, block_index, block_tip, 0)
+                        profiler.end_block_profiling()  # End profiling for this block
                         continue
 
                     tx_results = []
@@ -1401,6 +1417,7 @@ def follow(db):
                             src101_in_block,
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                        profiler.end_block_profiling()  # End profiling for this block
 
                     except LedgerMismatchError as e:
                         if not handle_ledger_mismatch(e.block_index):
@@ -1409,6 +1426,7 @@ def follow(db):
                         else:
                             # If handle_ledger_mismatch returns True (FORCE mode), continue processing
                             block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                            profiler.end_block_profiling()  # End profiling for this block
 
                     except Exception as e:
                         logger.error(f"Error processing block {block_index}: {e}")
@@ -1581,6 +1599,9 @@ def follow(db):
         logger.error(f"An unexpected error occurred in follow(): {e}")
         raise
     finally:
+        # End profiling before cleanup
+        if "profiler" in locals():
+            profiler.end_block_profiling()
         cleanup_resources(executor, zmq_notifier, update_cpids_future, db)
 
 

@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+import psutil
 import requests
 from bitcoin.core import CBlock, CTransaction, x
 from requests.exceptions import ConnectionError, Timeout
@@ -16,6 +17,9 @@ from exceptions import BackendRPCError
 from index_core.caching import LRUCache, cache_manager
 from index_core.memory_manager import memory_manager
 from index_core.parser import RUST_PARSER_AVAILABLE, Parser
+
+# Configure garbage collection for better performance
+gc.set_threshold(25000, 10, 10)  # Adjust primary threshold for less frequent collections
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -31,6 +35,14 @@ class Backend:
         self.deserialized_tx_cache = LRUCache[Any](max_size=config.DESERIALIZED_TX_CACHE_SIZE)
         self.monotonic_call_id = 0
 
+        # Memory management settings
+        self._process = psutil.Process()
+        self._memory_threshold = 85.0  # Memory threshold percentage
+        self._last_gc_time = 0
+        self._gc_interval = 30  # Minimum seconds between full GC
+        self._batch_chunk_size = 100
+        self._gc_chunk_interval = 5
+
         # Register caches with cache manager
         cache_manager.register_cache("raw_transactions", self.raw_transactions_cache)
         cache_manager.register_cache("deserialized_tx", self.deserialized_tx_cache)
@@ -40,12 +52,59 @@ class Backend:
         if RUST_PARSER_AVAILABLE and not config.DISABLE_RUST_PARSER:
             try:
                 self._parser = Parser()
-                logger.info("Using high-performance Rust parser")
+                logger.info("Using high-performance Rust parser with optimized GC")
             except Exception as e:
                 logger.warning(f"Failed to initialize Rust parser: {e}. Falling back to Python parser")
 
         # Initialize memory manager
         self.memory_manager = memory_manager
+
+    def _should_collect_garbage(self, force_check: bool = False) -> bool:
+        """
+        Determine if garbage collection should be performed based on memory usage
+        and time since last collection.
+        """
+        try:
+            current_time = time.time()
+            if current_time - self._last_gc_time < self._gc_interval and not force_check:
+                return False
+
+            current_memory = self._process.memory_percent()
+            if current_memory > self._memory_threshold or force_check:
+                counts = gc.get_count()
+                if counts[0] > 10000 or counts[1] > 1000 or counts[2] > 100:
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Memory check failed: {e}")
+            return force_check
+
+    def _perform_garbage_collection(self):
+        """Perform optimized garbage collection."""
+        try:
+            mem_before = self._process.memory_percent()
+
+            # Perform generational garbage collection
+            gen2_count = gc.get_count()[2]
+            if gen2_count > 100:
+                # Full collection needed
+                gc.collect()
+            else:
+                # Collect only younger generations
+                gc.collect(0)
+                if gc.get_count()[1] > 1000:
+                    gc.collect(1)
+
+            self._last_gc_time = time.time()
+
+            # Log memory change if significant
+            mem_after = self._process.memory_percent()
+            if mem_before - mem_after > 5.0:
+                logger.debug(f"GC freed memory: {mem_before:.1f}% -> {mem_after:.1f}%")
+
+        except Exception as e:
+            logger.warning(f"Garbage collection error: {e}")
+            gc.collect()  # Fallback to full collection
 
     def rpc_call(self, payload):
         """Calls to bitcoin core and returns the response"""
@@ -294,28 +353,13 @@ class Backend:
         max_retries: int = 3,
         current_block: Optional[int] = None,
     ) -> Dict[str, Optional[dict]]:
-        """
-        Fetch raw transactions in batches, with memory logging and caching.
-
-        Args:
-            txhash_list: List of transaction hashes to fetch
-            verbose: Whether to return verbose transaction info
-            skip_missing: Whether to skip missing transactions
-            _retry: Current retry attempt (internal use)
-            max_retries: Maximum number of retry attempts
-            current_block: Current block number for memory logging
-
-        Returns:
-            Dict mapping transaction hashes to their raw data
-        """
-        # Remove duplicates while preserving order
+        """Fetch raw transactions in batches with optimized memory management."""
         txhash_list = list(dict.fromkeys(txhash_list))
 
         # Check cache first
         noncached_txhashes = []
         cached_results = {}
         for tx_hash in txhash_list:
-            # Use get() to properly track hits/misses
             cached_tx = self.raw_transactions_cache.get(tx_hash)
             if cached_tx is not None:
                 cached_results[tx_hash] = cached_tx
@@ -324,12 +368,10 @@ class Backend:
 
         if noncached_txhashes:
             try:
-                # Process in chunks to manage memory
-                chunk_size = min(len(noncached_txhashes), config.BATCH_SIZE)
-                chunks = util.chunkify(noncached_txhashes, chunk_size)
+                chunks = util.chunkify(noncached_txhashes, self._batch_chunk_size)
+                total_chunks = len(chunks)
 
                 for i, chunk in enumerate(chunks):
-                    # Build RPC payload
                     payload = []
                     tx_hash_call_id = {}
 
@@ -337,59 +379,54 @@ class Backend:
                         self.monotonic_call_id += 1
                         call_id = self.monotonic_call_id
                         tx_hash_call_id[call_id] = tx_hash
-
                         payload.append(
                             {"method": "getrawtransaction", "params": [tx_hash, verbose], "jsonrpc": "2.0", "id": call_id}
                         )
 
-                    # Make RPC call
                     response = self.rpc_batch(payload)
 
-                    # Process results
                     for result in response:
                         if "error" in result and result["error"] is not None:
-                            if not skip_missing:
-                                if _retry < max_retries:
-                                    logger.warning(f"Error in batch, retrying: {result['error']}")
-                                    time.sleep(1 * (2**_retry))  # Exponential backoff
-                                    return self.getrawtransaction_batch(
-                                        txhash_list,
-                                        verbose=verbose,
-                                        skip_missing=skip_missing,
-                                        _retry=_retry + 1,
-                                        max_retries=max_retries,
-                                        current_block=current_block,
-                                    )
-                                else:
-                                    raise BackendRPCError(f"Error fetching transaction: {result['error']}")
+                            if not skip_missing and _retry < max_retries:
+                                logger.warning(f"Error in batch, retrying: {result['error']}")
+                                time.sleep(1 * (2**_retry))
+                                return self.getrawtransaction_batch(
+                                    txhash_list,
+                                    verbose=verbose,
+                                    skip_missing=skip_missing,
+                                    _retry=_retry + 1,
+                                    max_retries=max_retries,
+                                    current_block=current_block,
+                                )
+                            elif not skip_missing:
+                                raise BackendRPCError(f"Error fetching transaction: {result['error']}")
                         else:
                             tx_hash = tx_hash_call_id[result["id"]]
                             tx_result = result["result"]
                             self.raw_transactions_cache.set(tx_hash, tx_result)
                             cached_results[tx_hash] = tx_result
 
-                    # Periodic garbage collection
-                    if i % 5 == 0:  # Every 5 chunks
-                        gc.collect()
+                    # Check if garbage collection is needed
+                    if i > 0 and (i % self._gc_chunk_interval == 0):
+                        if self._should_collect_garbage(force_check=(i / total_chunks > 0.5)):
+                            self._perform_garbage_collection()
 
                     # Check memory usage and clear caches if needed
                     self.memory_manager.clear_caches_if_needed()
 
             except Exception as e:
-                if not skip_missing:
-                    if _retry < max_retries:
-                        logger.warning(f"Error in batch, retrying: {str(e)}")
-                        time.sleep(1 * (2**_retry))  # Exponential backoff
-                        return self.getrawtransaction_batch(
-                            txhash_list,
-                            verbose=verbose,
-                            skip_missing=skip_missing,
-                            _retry=_retry + 1,
-                            max_retries=max_retries,
-                            current_block=current_block,
-                        )
-                    else:
-                        raise BackendRPCError(f"Error fetching transactions: {str(e)}")
+                if not skip_missing and _retry < max_retries:
+                    logger.warning(f"Error in batch, retrying: {str(e)}")
+                    time.sleep(1 * (2**_retry))
+                    return self.getrawtransaction_batch(
+                        txhash_list,
+                        verbose=verbose,
+                        skip_missing=skip_missing,
+                        _retry=_retry + 1,
+                        max_retries=max_retries,
+                        current_block=current_block,
+                    )
+                elif not skip_missing:
+                    raise BackendRPCError(f"Error fetching transactions: {str(e)}")
 
-        # Return results in original order
         return {tx_hash: cached_results.get(tx_hash) for tx_hash in txhash_list}

@@ -42,10 +42,11 @@ MEMORY_WARNING_THRESHOLD = float(os.environ.get("MEMORY_WARNING_THRESHOLD", "70.
 MAX_MEMORY_PERCENT = float(os.environ.get("MAX_MEMORY_PERCENT", "80.0"))  # Critical at 80%
 
 # Debug flags
-DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
-DEBUG_SKIP_REBUILD_BALANCES = os.environ.get("DEBUG_SKIP_REBUILD_BALANCES", "False").lower() == "true"
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").lower() == "true"
+DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
-DEBUG_VALIDATION = os.environ.get("DEBUG_VALIDATION", "False").lower() == "true"
+DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
 STORE_FILES = os.environ.get("STORE_FILES", "true").lower() == "true"
 

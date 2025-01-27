@@ -2,9 +2,11 @@
 
 import gc
 import logging
+import sys
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
+import psutil
 from bitcoin.core import COutPoint, CScript, CTransaction, CTxIn, CTxOut, x
 
 try:
@@ -14,6 +16,9 @@ try:
 except ImportError:
     RUST_PARSER_AVAILABLE = False
     logging.warning("Rust parser not available. Make sure to build it with 'poetry run maturin develop'")
+
+# Configure garbage collection for better performance
+gc.set_threshold(25000, 10, 10)  # Adjust primary threshold for less frequent collections
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +39,58 @@ class Parser:
 
         try:
             self._parser = FastTransactionParser()
-            logger.info("Initialized Rust parser backend")
+            self._process = psutil.Process()
+            self._last_gc_time = 0
+            self._memory_threshold = 85.0  # Memory threshold percentage
+            self._chunk_size = 1000
+            self._gc_chunk_interval = 5  # Number of chunks before GC
+            logger.info("Initialized Rust parser backend with optimized GC settings")
         except Exception as e:
             logger.error(f"Failed to initialize Rust parser: {e}")
             raise ParserError(f"Parser initialization failed: {e}")
+
+    def _should_collect_garbage(self, force_check: bool = False) -> bool:
+        """
+        Determine if garbage collection should be performed based on memory usage
+        and time since last collection.
+        """
+        try:
+            current_memory = self._process.memory_percent()
+            if current_memory > self._memory_threshold or force_check:
+                # Get generation counts before collection
+                counts = gc.get_count()
+                if counts[0] > 10000 or counts[1] > 1000 or counts[2] > 100:
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Memory check failed: {e}")
+            return force_check
+
+    def _perform_garbage_collection(self):
+        """Perform optimized garbage collection."""
+        try:
+            # Get memory usage before collection
+            mem_before = self._process.memory_percent()
+
+            # Perform generational garbage collection
+            gen2_count = gc.get_count()[2]
+            if gen2_count > 100:
+                # Full collection needed
+                gc.collect()
+            else:
+                # Collect only younger generations
+                gc.collect(0)
+                if gc.get_count()[1] > 1000:
+                    gc.collect(1)
+
+            # Log memory change if significant
+            mem_after = self._process.memory_percent()
+            if mem_before - mem_after > 5.0:  # If we freed more than 5% of memory
+                logger.debug(f"GC freed memory: {mem_before:.1f}% -> {mem_after:.1f}%")
+
+        except Exception as e:
+            logger.warning(f"Garbage collection error: {e}")
+            gc.collect()  # Fallback to full collection
 
     def deserialize_transaction(self, tx_hex: str) -> CTransaction:
         """
@@ -52,23 +105,20 @@ class Parser:
             raise ParserError(f"Transaction parsing failed: {e}")
 
     def batch_parse_transactions(self, tx_hexes: List[str]) -> List[CTransaction]:
-        """
-        Parse multiple transactions in parallel with memory management.
-        Returns CTransaction objects for compatibility.
-        """
+        """Parse multiple transactions in parallel with optimized memory management."""
         try:
-            # Process in smaller chunks to manage memory
-            chunk_size = 1000
             results: List[CTransaction] = []
+            total_txs = len(tx_hexes)
 
-            for i in range(0, len(tx_hexes), chunk_size):
-                chunk = tx_hexes[i : i + chunk_size]
+            for i in range(0, total_txs, self._chunk_size):
+                chunk = tx_hexes[i : i + self._chunk_size]
                 tx_infos = self._parser.batch_parse_transactions(chunk)
                 results.extend(self._convert_to_ctransaction(tx_info) for tx_info in tx_infos)
 
-                # Periodic garbage collection
-                if i > 0 and i % (chunk_size * 5) == 0:
-                    gc.collect()
+                # Check if garbage collection is needed
+                if i > 0 and (i % (self._chunk_size * self._gc_chunk_interval) == 0):
+                    if self._should_collect_garbage(force_check=(i / total_txs > 0.5)):
+                        self._perform_garbage_collection()
 
             return results
         except Exception as e:
@@ -76,32 +126,30 @@ class Parser:
             raise ParserError(f"Batch transaction parsing failed: {e}")
 
     def parse_block(self, block_hex: str) -> Tuple[List[str], Dict[str, str], int, Optional[str], Optional[float]]:
-        """Parse a block and return transaction information."""
+        """Parse a block with optimized memory management."""
         try:
             block_info = self._parser.parse_block(block_hex)
-
-            # Pre-allocate collections
             tx_hash_list = []
             raw_transactions = {}
 
-            # Process transactions in chunks for memory efficiency
-            chunk_size = 1000
-            for i in range(0, len(block_info.transactions), chunk_size):
-                chunk = block_info.transactions[i : i + chunk_size]
+            total_txs = len(block_info.transactions)
+            for i in range(0, total_txs, self._chunk_size):
+                chunk = block_info.transactions[i : i + self._chunk_size]
                 for tx in chunk:
                     tx_hash_list.append(tx.txid)
                     raw_transactions[tx.txid] = tx.hex
 
-                # Periodic garbage collection
-                if i > 0 and i % (chunk_size * 5) == 0:
-                    gc.collect()
+                # Check if garbage collection is needed
+                if i > 0 and (i % (self._chunk_size * self._gc_chunk_interval) == 0):
+                    if self._should_collect_garbage(force_check=(i / total_txs > 0.5)):
+                        self._perform_garbage_collection()
 
             return (
                 tx_hash_list,
                 raw_transactions,
                 block_info.timestamp,
                 block_info.prev_block_hash,
-                None,  # Difficulty not included in current implementation
+                None,
             )
         except Exception as e:
             logger.error(f"Failed to parse block: {e}")
