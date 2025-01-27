@@ -211,7 +211,7 @@ cd indexer
 poetry install --only main
 
 # Build the high-performance Rust parser
-poetry run maturin develop --release
+poetry run task build
 ```
 
 Execute Indexer:
@@ -229,15 +229,13 @@ The indexer includes a high-performance Rust-based transaction parser that signi
 - Thread-safe caching
 - Parallel batch processing
 
-The Rust parser is automatically built during installation. If you need to rebuild it:
+The Rust parser is automatically built during installation. To rebuild it:
 
 ```shell
 cd indexer
-poetry run maturin develop --release
+poetry run task build
 ```
 
 For development builds (with debug symbols):
 
-```shell
-poetry run maturin develop
 ```

@@ -26,6 +26,7 @@ def main():
         "cargo fmt --version",
         "cargo fmt -- --check --manifest-path src/rust_parser/Cargo.toml",
         "rustup show",
+        "cargo clippy --manifest-path src/rust_parser/Cargo.toml -- -D warnings",
     ]
 
     for command in commands:

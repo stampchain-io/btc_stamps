@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0", "maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-python-source = "src"
+python-source = "src/btc_stamps_parser"
 module-name = "btc_stamps_parser"
 features = ["pyo3/extension-module"]
 manifest-path = "src/rust_parser/Cargo.toml"
@@ -111,6 +111,7 @@ extend-ignore = ["E203", "W503", "E402", "E501"]
 [tool.taskipy.tasks]
 bandit = "bandit -r . -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
+build = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
 
 [tool.mypy]
 mypy_path = "src"

@@ -1,3 +1,5 @@
+#![allow(non_local_definitions)]
+
 use bitcoin::consensus::Decodable;
 use bitcoin::{Block, Transaction, TxIn, TxOut};
 use log::error;
