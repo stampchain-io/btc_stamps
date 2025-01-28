@@ -290,9 +290,9 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
 
     # Define columns in the same order as values
     columns = """
-        id, tx_hash, tx_index, block_index, p, op, name, tokenid_origin, tokenid, tokenid_utf8, 
-        img, root, description, tick, wla, imglp, imgf, tick_hash, deploy_hash, creator, 
-        pri, dua, idua, coef, lim, mintstart, mintend, prim, address_btc, address_eth, 
+        id, tx_hash, tx_index, block_index, p, op, name, tokenid_origin, tokenid, tokenid_utf8,
+        img, root, description, tick, wla, imglp, imgf, tick_hash, deploy_hash, creator,
+        pri, dua, idua, coef, lim, mintstart, mintend, prim, address_btc, address_eth,
         txt_data, owner, toaddress, destination, destination_nvalue, block_time, status
     """.strip()
 
