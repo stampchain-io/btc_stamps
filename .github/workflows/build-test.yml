@@ -29,6 +29,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       
+      - name: Create Python module structure
+        run: |
+          mkdir -p indexer/src/btc_stamps_parser
+          touch indexer/src/btc_stamps_parser/__init__.py
+
       - name: Cache Poetry dependencies
         uses: actions/cache@v3
         with:
