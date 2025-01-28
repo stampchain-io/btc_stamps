@@ -258,8 +258,8 @@ def insert_into_src101price(cursor: Cursor, table_name: str, src101_dict: Dict[s
 
 def serialize_value(value: Any) -> Any:
     """Helper function to serialize values for database insertion"""
-    if value is None:
-        return ""
+    if value is None or value == "":
+        return None  # Return None instead of empty string for NULL values
     elif isinstance(value, (list, dict)):
         return json.dumps(value)
     elif isinstance(value, bool):
@@ -276,8 +276,25 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
 
+    # Handle integer fields specifically
+    integer_fields = ["dua", "idua", "coef", "lim", "mintstart", "mintend", "destination_nvalue"]
+    for field in integer_fields:
+        value = src101_dict.get(field)
+        if value == "" or value is None:
+            src101_dict[field] = None
+        elif isinstance(value, str) and value.isdigit():
+            src101_dict[field] = int(value)
+
     tokenid_utf8 = src101_dict.get("tokenid_utf8", "")
     tokenid_utf8_str = ";".join(tokenid_utf8) if isinstance(tokenid_utf8, list) else str(tokenid_utf8) if tokenid_utf8 else ""
+
+    # Define columns in the same order as values
+    columns = """
+        id, tx_hash, tx_index, block_index, p, op, name, tokenid_origin, tokenid, tokenid_utf8, 
+        img, root, description, tick, wla, imglp, imgf, tick_hash, deploy_hash, creator, 
+        pri, dua, idua, coef, lim, mintstart, mintend, prim, address_btc, address_eth, 
+        txt_data, owner, toaddress, destination, destination_nvalue, block_time, status
+    """.strip()
 
     values = [
         id,
@@ -322,50 +339,33 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
     values = [serialize_value(v) for v in values]
 
     placeholders = ", ".join(["%s"] * len(values))
-    columns = "id, tx_hash, tx_index, block_index, p, op, name, tokenid_origin, tokenid, tokenid_utf8, img, root, description, tick, wla, imglp, imgf, tick_hash, deploy_hash, creator, pri, dua, coef, lim, mintstart, mintend, prim, address_btc, address_eth, txt_data, owner, toaddress, destination, destination_nvalue, block_time, status"
 
     query = f"""
         INSERT INTO {table_name} ({columns})
         VALUES ({placeholders})
         ON DUPLICATE KEY UPDATE
-            tx_hash = VALUES(tx_hash),
-            tx_index = VALUES(tx_index),
-            block_index = VALUES(block_index),
-            p = VALUES(p),
-            op = VALUES(op),
-            name = VALUES(name),
-            tokenid_origin = VALUES(tokenid_origin),
-            tokenid = VALUES(tokenid),
-            tokenid_utf8 = VALUES(tokenid_utf8),
-            img = VALUES(img),
-            root = VALUES(root),
-            description = VALUES(description),
-            tick = VALUES(tick),
-            wla = VALUES(wla),
-            imglp = VALUES(imglp),
-            imgf = VALUES(imgf),
-            tick_hash = VALUES(tick_hash),
-            deploy_hash = VALUES(deploy_hash),
-            creator = VALUES(creator),
-            pri = VALUES(pri),
-            dua = VALUES(dua),
-            idua = VALUES(idua),
-            coef = VALUES(coef),
-            lim = VALUES(lim),
-            mintstart = VALUES(mintstart),
-            mintend = VALUES(mintend),
-            prim = VALUES(prim),
-            address_btc = VALUES(address_btc),
-            address_eth = VALUES(address_eth),
-            txt_data = VALUES(txt_data),
-            owner = VALUES(owner),
-            toaddress = VALUES(toaddress),
-            destination = VALUES(destination),
-            destination_nvalue = VALUES(destination_nvalue),
-            block_time = VALUES(block_time),
-            status = VALUES(status)
     """
-    cursor.execute(query, values)
+
+    # Build the UPDATE part of the query
+    update_parts = []
+    column_list = [c.strip() for c in columns.split(",")]
+    for col in column_list:
+        update_parts.append(f"{col} = VALUES({col})")
+
+    query += "\n" + ",\n".join(update_parts)
+
+    # Log the query and values for debugging
+    logger.debug(f"Executing query with {len(values)} values for {len(column_list)} columns")
+    logger.debug(f"Columns: {columns}")
+    logger.debug(f"Values: {values}")
+
+    try:
+        cursor.execute(query, values)
+    except Exception as e:
+        logger.error(f"Error executing query: {e}")
+        logger.error(f"Query: {query}")
+        logger.error(f"Values count: {len(values)}, Columns count: {len(column_list)}")
+        raise
 
 
 def insert_transactions(db, transactions):

@@ -417,7 +417,7 @@ class Src101Processor:
             logger.debug(message)
             self.is_valid = False
         else:
-            logger.info(message)
+            logger.debug(message)
 
     def handle_deploy(self):
         try:
@@ -948,6 +948,10 @@ class Src101Processor:
             logger.warning(f"Invalid {self.deploy_hash} SRC101: {self.src101_dict['status']}")
             self.is_valid = False
             return
+
+        # Debug: Log the src101_dict before insertion
+        logger.debug(f"SRC101 Dict before insertion: {self.src101_dict}")
+
         try:
             self.validate_and_process_operation()
         except Exception as e:
