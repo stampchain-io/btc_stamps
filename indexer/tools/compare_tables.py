@@ -338,6 +338,59 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
         print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 
 
+def normalize_tokenid(tokenid):
+    """Normalize tokenid by removing JSON array wrapper if present."""
+    if isinstance(tokenid, str) and tokenid.startswith("[") and tokenid.endswith("]"):
+        try:
+            # Parse JSON array and get first element
+            import json
+
+            return json.loads(tokenid)[0]
+        except json.JSONDecodeError:
+            # Specifically catch JSON parsing errors
+            return tokenid
+    return tokenid
+
+
+def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101):
+    print_comparison_header("SRC101Valid")
+
+    has_mismatches = False
+
+    # Normalize the tokenid values when creating the dictionaries
+    prod_dict = {(x[0], x[1], normalize_tokenid(x[2]), x[4]): x for x in prod_src101}
+    dev_dict = {(x[0], x[1], normalize_tokenid(x[2]), x[4]): x for x in dev_src101}
+
+    only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
+    only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
+
+    print_summary("SRC101Valid", len(prod_src101), len(dev_src101), bool(only_in_dev or only_in_prod))
+
+    if only_in_dev or only_in_prod:
+        has_mismatches = True
+        if only_in_dev:
+            print(colored(f"\n→ Missing from production ({len(only_in_dev)} records):", "yellow"))
+            for key in sorted(list(only_in_dev), key=lambda x: x[3])[:5]:
+                record = dev_dict[key]
+                print(f"  • Block: {colored(record[4], 'cyan')}")
+                print(f"    └─ TX: {record[0]}")
+                print(f"    └─ Token: {normalize_tokenid(record[2])}")
+                print(f"    └─ Owner: {record[1]}")
+                print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
+
+        if only_in_prod:
+            print(colored(f"\n→ Missing from development ({len(only_in_prod)} records):", "yellow"))
+            for key in sorted(list(only_in_prod), key=lambda x: x[3])[:5]:
+                record = prod_dict[key]
+                print(f"  • Block: {colored(record[4], 'cyan')}")
+                print(f"    └─ TX: {record[0]}")
+                print(f"    └─ Token: {normalize_tokenid(record[2])}")
+                print(f"    └─ Owner: {record[1]}")
+                print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
+
+    return has_mismatches
+
+
 def main():
     if os.getcwd().endswith("/indexer"):
         sys.path.append(os.getcwd())
@@ -593,35 +646,7 @@ def main():
                     print(f"    └─ Amount: {result[2]}")
 
         # SRC101Valid comparison - SINGLE INSTANCE
-        print_comparison_header("SRC101Valid")
-        prod_dict = {(x[0], x[1], x[2], x[4]): x for x in prod_src101}
-        dev_dict = {(x[0], x[1], x[2], x[4]): x for x in dev_src101}
-        only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
-        only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
-
-        print_summary("SRC101Valid", len(prod_src101), len(dev_src101), bool(only_in_dev or only_in_prod))
-
-        if only_in_dev or only_in_prod:
-            has_mismatches = True
-            if only_in_dev:
-                print(colored(f"\n→ Missing from production ({len(only_in_dev)} records):", "yellow"))
-                for key in sorted(list(only_in_dev), key=lambda x: x[3])[:5]:
-                    record = dev_dict[key]
-                    print(f"  • Block: {colored(record[4], 'cyan')}")
-                    print(f"    └─ TX: {record[0]}")
-                    print(f"    └─ Token: {record[2]}")
-                    print(f"    └─ Owner: {record[1]}")
-                    print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
-
-            if only_in_prod:
-                print(colored(f"\n→ Missing from development ({len(only_in_prod)} records):", "yellow"))
-                for key in sorted(list(only_in_prod), key=lambda x: x[3])[:5]:
-                    record = prod_dict[key]
-                    print(f"  • Block: {colored(record[4], 'cyan')}")
-                    print(f"    └─ TX: {record[0]}")
-                    print(f"    └─ Token: {record[2]}")
-                    print(f"    └─ Owner: {record[1]}")
-                    print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
+        has_mismatches = compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101) or has_mismatches
 
         if not_in_prod_list_src20 or not_in_dev_list_src20:
             has_mismatches = True
