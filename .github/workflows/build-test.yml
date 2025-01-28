@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.12']  # Test multiple versions
+        python-version: ['3.9', '3.10', '3.11', '3.12']  # Removed 3.13 Not Supported in PyO3
     outputs:
       status: ${{ steps.test.outputs.test_status }}
 
