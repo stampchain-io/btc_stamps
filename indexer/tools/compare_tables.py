@@ -347,7 +347,7 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
         print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 
 
-def compare_ownerstable(prod_cursor, dev_cursor):
+def compare_ownerstable(prod_cursor, dev_cursor, block_index):
     print_comparison_header("Owners Table")
 
     # Fetch all owner records
@@ -355,8 +355,10 @@ def compare_ownerstable(prod_cursor, dev_cursor):
         """
         SELECT owners.index, deploy_hash, tokenid, owner, prim, address_btc, address_eth, txt_data, expire_timestamp
         FROM owners
+        WHERE last_update < %s
         ORDER BY deploy_hash ASC, owners.index ASC
-        """
+        """,
+        (block_index,),
     )
     prod_records = prod_cursor.fetchall()
 
@@ -364,8 +366,10 @@ def compare_ownerstable(prod_cursor, dev_cursor):
         """
         SELECT owners.index, deploy_hash, tokenid, owner, prim, address_btc, address_eth, txt_data, expire_timestamp
         FROM owners
+        WHERE last_update < %s
         ORDER BY deploy_hash ASC, owners.index ASC
-        """
+        """,
+        (block_index,),
     )
     dev_records = dev_cursor.fetchall()
 
@@ -389,8 +393,8 @@ def compare_ownerstable(prod_cursor, dev_cursor):
     ]
 
     print("\nOwners Table Summary:")
-    print(f"├─ Production records: {colored(len(prod_records), 'cyan')}")
-    print(f"└─ Development records: {colored(len(dev_records), 'cyan')}")
+    print(f"├─ Production records up to block {colored(block_index, 'cyan')}: {colored(len(prod_records), 'cyan')}")
+    print(f"└─ Development records up to block {colored(block_index, 'cyan')}: {colored(len(dev_records), 'cyan')}")
 
     if len(prod_records) != len(dev_records):
         print(colored(f"\n⚠️  WARNING: Record count mismatch!", "red", attrs=["bold"]))
@@ -795,7 +799,7 @@ def main():
                 print(f"└─ Development: {colored(f'✗ Missing {len(not_in_dev_list_src20)} records', 'red', attrs=['bold'])}")
 
         # Owners Table Comparison
-        compare_ownerstable(prod_cursor, dev_cursor)
+        compare_ownerstable(prod_cursor, dev_cursor, block_index)
 
     finally:
         prod_cursor.close()
