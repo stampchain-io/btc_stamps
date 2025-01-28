@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Union
 
 import boto3
 from requests.auth import HTTPBasicAuth
@@ -10,8 +10,43 @@ from exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+# Cache size configurations
+BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = int(os.environ.get("BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", "200000"))
+DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "100000"))
+RUST_PARSER_MAX_CACHE_MB = int(os.environ.get("RUST_PARSER_MAX_CACHE_MB", "250"))  # 250MB for raw transaction data
+RUST_PARSER_ENTRIES = int(os.environ.get("RUST_PARSER_ENTRIES", "20000"))  # Match Python cache size
+
+# Additional cache sizes
+BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "10000"))  # Active balance tracking (~2MB memory)
+DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "1000"))  # Deployment info (~0.5MB memory)
+TOTAL_MINTED_CACHE_SIZE = int(os.environ.get("TOTAL_MINTED_CACHE_SIZE", "10000"))  # Minting stats (~1MB memory)
+SUBASSET_CACHE_SIZE = int(os.environ.get("SUBASSET_CACHE_SIZE", "500"))  # SRC-721 subasset lookup (~50KB memory)
+ADDRESS_CACHE_SIZE = int(os.environ.get("ADDRESS_CACHE_SIZE", "10000"))  # Address lookup cache (~1MB memory)
+SRC721_SUBASSET_CACHE_SIZE = int(os.environ.get("SRC721_SUBASSET_CACHE_SIZE", "256"))  # SRC-721 specific subasset cache
+
+# Block and stamp cache sizes
+BLOCK_CACHE_SIZE = int(os.environ.get("BLOCK_CACHE_SIZE", "2"))  # Small size since we only need recent blocks
+STAMP_CACHE_SIZE = int(
+    os.environ.get("STAMP_CACHE_SIZE", "2")
+)  # Small size since we only need recent stamp # for cursed & stamps
+COLLECTION_CACHE_SIZE = int(os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET_CACHE_SIZE)))
+PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
+SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
+
+# Batch processing configurations
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
+MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
+
+# Memory thresholds
+MEMORY_WARNING_THRESHOLD = float(os.environ.get("MEMORY_WARNING_THRESHOLD", "70.0"))  # Early warning at 70%
+MAX_MEMORY_PERCENT = float(os.environ.get("MAX_MEMORY_PERCENT", "80.0"))  # Critical at 80%
+
 # Debug flags
-DEBUG_SKIP_REBUILD_BALANCES = os.environ.get("DEBUG_SKIP_REBUILD_BALANCES", "False").lower() == "true"
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").lower() == "true"
+DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
+DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
+DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
 STORE_FILES = os.environ.get("STORE_FILES", "true").lower() == "true"
 
@@ -373,10 +408,7 @@ BLOCK_FIRST_REGTEST = 0
 
 DEFAULT_REQUESTS_TIMEOUT = 20  # 20 seconds
 
-BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
 BACKEND_RPC_BATCH_NUM_WORKERS = 6
-
-from typing import Dict, List, Union
 
 LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[bool]]]] = [
     {

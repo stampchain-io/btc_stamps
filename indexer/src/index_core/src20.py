@@ -7,7 +7,7 @@ import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import List, Optional, TypedDict, Union
 
 import requests
 from requests.exceptions import JSONDecodeError
@@ -21,7 +21,7 @@ from config import (  # SRC_VALIDATION_API1,
     SRC_VALIDATION_SECRET_API2,
     TICK_PATTERN_SET,
 )
-from index_core.caching import BatchBalanceUpdater, balance_cache, deployment_cache, total_minted_cache
+from index_core.caching import cache_manager  # Use CacheManager
 from index_core.database import get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
 
@@ -135,7 +135,7 @@ class Src20Processor:
         "ID": ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
     }
 
-    def __init__(self, db, src20_dict, processed_src20_in_block):
+    def __init__(self, db, src20_dict, processed_src20_in_block, lock=None):
         self.db = db
         self.src20_dict = src20_dict
         self.processed_src20_in_block = processed_src20_in_block
@@ -143,6 +143,7 @@ class Src20Processor:
         self.dec: Optional[Union[str, int]] = src20_dict.get("dec", 0)
         self.deploy_lim: Optional[Union[str, D]] = src20_dict.get("deploy_lim", 0)
         self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
+        self._lock = lock
 
     def normalize_and_validate_amt(self):
         amt = D(self.src20_dict["amt"]).normalize()
@@ -189,8 +190,8 @@ class Src20Processor:
                 )
                 return
             tick = self.src20_dict.get("tick")
-            current_total = total_minted_cache.get(tick) or D(0)
-            total_minted_cache.set(tick, current_total + amt)
+            current_total = cache_manager.get_cache_value("total_minted", tick) or D(0)  # Use CacheManager
+            cache_manager.set_cache_value("total_minted", tick, current_total + amt)  # Use CacheManager
             running_total_mint = D(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
             self.src20_dict["total_minted"] = running_total_mint
@@ -223,7 +224,7 @@ class Src20Processor:
             logger.debug(message)
             self.is_valid = False
         else:
-            logger.info(message)
+            logger.debug(message)
 
     def handle_deploy(self):
         if self.operation.upper() != "DEPLOY":
@@ -387,7 +388,7 @@ class Src20Processor:
 
         # Validate 'destinations' is a list
         if not isinstance(self.src20_dict["destinations"], list):
-            logger.warning(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
+            logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
             return
 
         addresses = [self.src20_dict["creator"]]
@@ -444,7 +445,11 @@ class Src20Processor:
             for th in tick_holders
         ]
 
-        self.processed_src20_in_block.extend(new_dicts)
+        if self._lock:
+            with self._lock:
+                self.processed_src20_in_block.extend(new_dicts)
+        else:
+            self.processed_src20_in_block.extend(new_dicts)
         self.src20_dict["total_balance_creator"] = D(running_user_balance_creator) - D(total_send_amt)
         self.src20_dict["status"] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
@@ -477,19 +482,23 @@ class Src20Processor:
         self.tick_value = self.src20_dict.get("tick")
 
         if not validator.is_valid:
-            self.processed_src20_in_block.append(self.src20_dict)
-            logger.warning(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
+            if self._lock:
+                with self._lock:
+                    self.processed_src20_in_block.append(self.src20_dict)
+            else:
+                self.processed_src20_in_block.append(self.src20_dict)
+            logger.debug(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
             self.is_valid = False
             return
 
         self.validate_and_process_operation()
 
 
-def parse_src20(db, src20_dict, processed_src20_in_block):
+def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
     """
     Process all SRC-20 tokens that pass check_format.
     """
-    processor = Src20Processor(db, src20_dict, processed_src20_in_block)
+    processor = Src20Processor(db, src20_dict, processed_src20_in_block, lock)
     processor.process()
     return processor.is_valid, src20_dict
 
@@ -622,7 +631,7 @@ def check_format(input_string, tx_hash, block_index):
 
     def parse_no_sci_float(s):
         if "e" in s.lower():
-            logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
+            logger.debug(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
             raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
         return D(s)
 
@@ -640,11 +649,11 @@ def check_format(input_string, tx_hash, block_index):
                 logger.debug("Processing dictionary input")
                 input_dict = input_string
             else:
-                logger.warning(f"EXCLUSION: Input string is neither bytes, str, nor dict. Type: {type(input_string)}")
+                logger.debug(f"EXCLUSION: Input string is neither bytes, str, nor dict. Type: {type(input_string)}")
                 return None
             logger.debug(f"Processed input_dict: {input_dict}")
         except (json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.warning(f"EXCLUSION: JSON decode error: {e}")
+            logger.debug(f"EXCLUSION: JSON decode error: {e}")
             return None
         if input_dict.get("p").lower() == "src-721":
             return input_dict
@@ -652,7 +661,7 @@ def check_format(input_string, tx_hash, block_index):
             tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
-                logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
+                logger.debug(f"EXCLUSION: did not match tick pattern {input_dict}")
                 return None
 
             deploy_keys = {"op", "tick", "max", "lim"}
@@ -676,7 +685,7 @@ def check_format(input_string, tx_hash, block_index):
                     for key in key_values_to_check[list(key_values_to_check.keys())[i]]:
                         value = input_dict.get(key)
                         if value is None:
-                            logger.warning(
+                            logger.debug(
                                 f"EXCLUSION: Missing or invalid value for {key}",
                                 input_dict,
                             )
@@ -689,9 +698,7 @@ def check_format(input_string, tx_hash, block_index):
                                 else:
                                     value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
                             except InvalidOperation as e:
-                                logger.warning(
-                                    f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
-                                )
+                                logger.debug(f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}")
                                 return None
                         elif isinstance(value, int):
                             value = D(value)
@@ -701,10 +708,10 @@ def check_format(input_string, tx_hash, block_index):
                         elif isinstance(value, D):
                             pass
                         else:
-                            logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
+                            logger.debug(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
                         if value.is_nan() or not (D("0") <= value <= uint64_max):
-                            logger.warning(f"EXCLUSION: {key} not in range", input_dict)
+                            logger.debug(f"EXCLUSION: {key} not in range", input_dict)
                             return None
             return input_dict
 
@@ -715,17 +722,7 @@ def check_format(input_string, tx_hash, block_index):
 
 
 def get_running_mint_total(db, src20_processed_in_block, tick):
-    """
-    Get the running mint total for a given tick.
-
-    Args:
-        db (Database): The database object.
-        src20_processed_in_block (list): The list of processed SRC20 items in a block.
-        tick (int): The tick value.
-
-    Returns:
-        Decimal: The running mint total for the given tick.
-    """
+    """Get the running mint total for a given tick with caching."""
     total_minted = D(0)
 
     # First check in-block transactions
@@ -734,108 +731,115 @@ def get_running_mint_total(db, src20_processed_in_block, tick):
             if item["tick"] == tick and item["op"] == "MINT" and "total_minted" in item:
                 total_minted = D(item["total_minted"])
                 # Update cache with latest value
-                total_minted_cache.set(tick, total_minted)
+                cache_manager.set_cache_value("total_minted", tick, total_minted)
                 break
 
     # If not found in block, try cache
     if total_minted == D(0):
-        cached_total = total_minted_cache.get(tick)
+        cached_total = cache_manager.get_cache_value("total_minted", tick)
         if cached_total is not None:
             total_minted = cached_total
         else:
             # If not in cache, query database
             total_minted = get_total_src20_minted_from_db(db, tick)
-            total_minted_cache.set(tick, total_minted)
+            cache_manager.set_cache_value("total_minted", tick, total_minted)
 
     return total_minted
 
 
 def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in_block):
+    """Calculate the running balance of multiple users based on the processed transactions
+    in current and prior blocks from the db. This is only called once for each mint,
+    bulk_xfer, or transfer transaction. It may get many addresses from the bulk_xfer list.
+    The bulk_xfer list is assumed to have only unique addresses.
     """
-    Calculate the running balance of multiple users based on the processed transactions
-    in current and prior blocks from the db. this is only be called once for each mint
-    bulk_xfer, or transfer transaction it may get many addresses from the bulk_xfer list. The
-    bulk_xfer list is assumed to have only unique addresses.
-
-    Parameters:
-    - db (Database): The database object.
-    - tick (int): The tick value.
-    - tick_hash (str): The tick hash value.
-    - addresses (list or str): The list or string of addresses to calculate the balances for.
-    - src20_processed_in_block (list): The list of already processed src20 transactions in the block.
-
-    Returns:
-    - list: A list of namedtuples containing the tick, address, and total balance for each address.
-    """
-
-    BalanceCurrent = namedtuple("BalanceCurrent", ["tick", "address", "total_balance", "locked_balance"])
-
     if isinstance(addresses, str):
         addresses = [addresses]
     if len(addresses) != len(set(addresses)):
         raise Exception(f"The addresses list is not all unique addresses: tick={tick}, addresses={addresses}")
 
     balances = []
+    BalanceCurrent = namedtuple("BalanceCurrent", ["tick", "address", "total_balance", "locked_balance"])
+    addresses_to_process = list(addresses)  # Make a copy to modify
 
+    # First check for balances in current block's processed transactions
     if any(item["tick"] == tick for item in src20_processed_in_block):
         try:
-            for prior_tx in reversed(
-                src20_processed_in_block
-            ):  # if there is a total-balance in a trx in the block with the same address, tick, and tick_hash, use that value for total_balance_x
-                if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
-                    for address in addresses:
-                        total_balance = None
-                        locked_balance = None
-                        if (
-                            prior_tx["creator"] == address
-                            and prior_tx["tick"] == tick
-                            and prior_tx["tick_hash"] == tick_hash
-                            and "total_balance_creator"
-                            in prior_tx  # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
-                        ):
-                            if "total_balance_creator" in prior_tx:
-                                total_balance = prior_tx["total_balance_creator"]
+            for prior_tx in reversed(src20_processed_in_block):
+                if prior_tx.get("valid") != 1:
+                    continue
 
-                        elif (
-                            prior_tx["destination"] == address
-                            and prior_tx["tick"] == tick
-                            and prior_tx["tick_hash"] == tick_hash
-                            and "total_balance_destination" in prior_tx
-                        ):
-                            if "total_balance_destination" in prior_tx:
-                                total_balance = prior_tx["total_balance_destination"]
-                        if (
-                            total_balance is not None
-                        ):  # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
-                            balances.append(BalanceCurrent(tick, address, D(total_balance), locked_balance))
-                            addresses.remove(address)
+                for address in list(addresses_to_process):  # Use list() to avoid modification during iteration
+                    total_balance = None
+                    locked_balance = None
+
+                    # Check creator balance
+                    if (
+                        prior_tx["creator"] == address
+                        and prior_tx["tick"] == tick
+                        and prior_tx["tick_hash"] == tick_hash
+                        and "total_balance_creator" in prior_tx
+                    ):
+                        total_balance = prior_tx["total_balance_creator"]
+
+                    # Check destination balance
+                    elif (
+                        prior_tx["destination"] == address
+                        and prior_tx["tick"] == tick
+                        and prior_tx["tick_hash"] == tick_hash
+                        and "total_balance_destination" in prior_tx
+                    ):
+                        total_balance = prior_tx["total_balance_destination"]
+
+                    # If we found a balance, add it and remove address from to-process list
+                    if total_balance is not None:
+                        balances.append(BalanceCurrent(tick, address, D(total_balance), locked_balance))
+                        addresses_to_process.remove(address)
+                        # Update cache with this latest balance
+                        cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D(total_balance))
+
         except Exception as e:
             logger.error(f"An exception in user balance: {e}")
             raise
 
-    if addresses:
+    # For remaining addresses, try cache first then database
+    if addresses_to_process:
         try:
-            total_balance_tuple = get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses)
-            for address in addresses:
-                total_balance = next(
-                    (balance.total_balance for balance in total_balance_tuple if balance.address == address),
-                    0,
-                )
-                locked_balance = next(
-                    (balance.locked_amt for balance in total_balance_tuple if balance.address == address),
-                    0,
-                )  # NOTE: this is not fully implemented
-                # if total_balance is negative throw an exception
-                if total_balance < 0:
-                    raise Exception(f"Negative balance for address {address} in tick {tick}")
-                balances.append(
-                    BalanceCurrent(
-                        tick,
-                        address,
-                        D(total_balance),
-                        locked_balance if total_balance != 0 else 0,
+            # Check cache for remaining addresses
+            addresses_to_query = []
+            for address in addresses_to_process:
+                cached_balance = cache_manager.get_cache_value("balance", f"{tick}:{tick_hash}:{address}")
+                if cached_balance is not None:
+                    balances.append(BalanceCurrent(tick, address, cached_balance, None))
+                else:
+                    addresses_to_query.append(address)
+
+            # Query database only for addresses not in cache
+            if addresses_to_query:
+                total_balance_tuple = get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses_to_query)
+                for address in addresses_to_query:
+                    total_balance = next(
+                        (balance.total_balance for balance in total_balance_tuple if balance.address == address),
+                        0,
                     )
-                )
+                    locked_balance = next(
+                        (balance.locked_amt for balance in total_balance_tuple if balance.address == address),
+                        0,
+                    )
+                    if total_balance < 0:
+                        raise Exception(f"Negative balance for address {address} in tick {tick}")
+
+                    balances.append(
+                        BalanceCurrent(
+                            tick,
+                            address,
+                            D(total_balance),
+                            locked_balance if total_balance != 0 else 0,
+                        )
+                    )
+                    # Update cache with database value
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D(total_balance))
+
         except Exception as e:
             print(f"An exception occurred: {e}")
             raise
@@ -868,7 +872,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
     # Try cache first for each address
     addresses_to_query = []
     for address in addresses:
-        cached_result = balance_cache.get(tick, tick_hash, address)
+        cached_result = cache_manager.get_cache_value("balance", f"{tick}:{tick_hash}:{address}")
         if cached_result is not None:
             balances.append(
                 BalanceTuple(
@@ -914,7 +918,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
                 if result:
                     total_balance = D(str(result[2]))
                     # Cache the result
-                    balance_cache.set(tick, tick_hash, address, total_balance)
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", total_balance)
                     balances.append(
                         BalanceTuple(
                             result[0],  # tick
@@ -927,7 +931,7 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
                     )
                 else:
                     # If no balance found, add and cache zero balance
-                    balance_cache.set(tick, tick_hash, address, D("0"))
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D("0"))
                     balances.append(BalanceTuple(tick, address, D("0"), 0, None, None))
 
     return balances
@@ -1038,7 +1042,7 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
             continue
 
         if "amt" not in src20_dict:  # Skip transactions without amt field
-            logger.warning(f"Skipping transaction without amt field: {src20_dict}")
+            logger.debug(f"Skipping transaction without amt field: {src20_dict}")
             continue
 
         try:
@@ -1069,7 +1073,7 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
                     balance_dict["credit"] += amt
 
             elif src20_dict["op"] == "TRANSFER":
-                # Debit from creator
+                # Debit from source
                 balance_dict = next(
                     (
                         item
@@ -1127,7 +1131,9 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
     for balance_dict in balance_updates:
         net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
         current_balance = balance_dict.get("original_amt", D(0)) + net_change
-        balance_cache.set(balance_dict["tick"], balance_dict["tick_hash"], balance_dict["address"], current_balance)
+        cache_manager.set_cache_value(
+            "balance", f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}", current_balance
+        )  # Use CacheManager
 
     return balance_updates
 
@@ -1172,7 +1178,9 @@ def update_balance_table(db, balance_updates, block_index, block_time):
             )
 
             # Invalidate cache after successful update
-            balance_cache.invalidate(balance_dict["tick"], balance_dict["tick_hash"], balance_dict["address"])
+            cache_manager.invalidate_cache_entry(
+                "balance", f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}"
+            )
 
         except Exception as e:
             logger.error("Error updating balances table:", e)
@@ -1330,6 +1338,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         return False
 
     if api_ledger_hash == ledger_hash:
+        logger.debug("API ledger hash matches local ledger hash")
         return True
 
     logger.warning("API ledger hash does not match local ledger hash")
@@ -1340,17 +1349,11 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
     api_balances = parse_balances(api_ledger_validation)
 
     differences = compare_balances(local_balances, api_balances)
-
-    if differences:
-        print_balance_differences(differences)
-    else:
-        print("\nNo differences in balances found, despite hash mismatch.")
+    print_balance_differences(differences)
 
     compare_string_formats(valid_src20_str, api_ledger_validation)
 
-    return True
-    # If you want to raise an exception instead, you can uncomment the following line
-    # raise ValueError("API ledger hash does not match local ledger hash")
+    return False  # Return False to indicate mismatch
 
 
 def parse_balances(balance_str):
@@ -1362,12 +1365,13 @@ def parse_balances(balance_str):
 
 
 def compare_balances(local_balances, api_balances):
+    """Compare local and API balances."""
     differences = []
     all_addresses = set()
-    for tick_balances in local_balances.values():
-        all_addresses.update(tick_balances.keys())
-    for tick_balances in api_balances.values():
-        all_addresses.update(tick_balances.keys())
+    logger.info("Comparing balances")
+    for balances in [local_balances, api_balances]:
+        for tick_balances in balances.values():
+            all_addresses.update(tick_balances.keys())
 
     for address in sorted(all_addresses):
         address_differences = []
@@ -1376,6 +1380,7 @@ def compare_balances(local_balances, api_balances):
             api_balance = api_balances.get(tick, {}).get(address, D("0"))
             if local_balance != api_balance:
                 address_differences.append((tick, local_balance, api_balance))
+
         if address_differences:
             differences.append((address, address_differences))
 
@@ -1383,6 +1388,10 @@ def compare_balances(local_balances, api_balances):
 
 
 def print_balance_differences(differences):
+    if not differences:
+        print("\nNo balance differences found.")
+        return
+
     print("\nBalance Differences:")
     print("--------------------")
     for address, address_differences in differences:
@@ -1391,9 +1400,11 @@ def print_balance_differences(differences):
         print("  " + "-" * 70)
         for tick, local_balance, api_balance in address_differences:
             difference = local_balance - api_balance
-            print(
-                "  {:<10} {:<20} {:<20} {:<20}".format(tick, f"{local_balance:.8f}", f"{api_balance:.8f}", f"{difference:.8f}")
-            )
+            print_balance_comparison(tick, local_balance, api_balance, difference)
+
+
+def print_balance_comparison(tick, local_balance, api_balance, difference):
+    print("  {:<10} {:<20} {:<20} {:<20}".format(tick, f"{local_balance:.8f}", f"{api_balance:.8f}", f"{difference:.8f}"))
 
 
 def compare_string_formats(local_str: str, api_str: str):

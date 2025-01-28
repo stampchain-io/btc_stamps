@@ -30,13 +30,6 @@ class ModuleLoggingFilter(logging.Filter):
     module level logging filter (NodeJS-style), ie:
         filters="*,-counterpartylib.lib,counterpartylib.lib.api"
 
-        will log:
-         - counterpartycli.server
-         - counterpartylib.lib.api
-
-        but will not log:
-         - counterpartylib.lib
-         - counterpartylib.lib.backend.indexd
     """
 
     def __init__(self, filters):

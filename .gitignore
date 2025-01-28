@@ -16,3 +16,5 @@ indexer/tools_priv
 indexer/tools_priv.diff
 app
 indexer/bitcoin_parser/target
+indexer/src/rust_parser/target/*
+indexer/profiling/*

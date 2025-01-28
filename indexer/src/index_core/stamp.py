@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import subprocess  # nosec
+import threading
 from typing import Optional, cast
 
 import pybase64
@@ -23,11 +24,13 @@ class StampProcessor:
     def __init__(self, db, valid_stamps_in_block):
         self.db = db
         self.valid_stamps_in_block = valid_stamps_in_block
+        self._lock = threading.Lock()
 
     def process_stamp(self, stamp_data: StampData):
         stamp_results = src_dict = prevalidated_src = None
         valid_stamp: Optional[ValidStamp] = None
         try:
+            stamp_data._lock = self._lock  # Pass the lock to StampData
             stamp_data.process_and_store_stamp_data(
                 get_src_or_img_from_data,
                 convert_to_dict_or_string,

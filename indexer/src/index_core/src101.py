@@ -276,8 +276,8 @@ class Src101Validator:
                 self.src101_dict[key + "_utf8"] = utf8valuelist
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key] = None
-                self.src101_dict[key + "_utf8"] = None
+                self.src101_dict[key] = ""
+                self.src101_dict[key + "_utf8"] = ""
         elif isinstance(value, str):
             self.src101_dict[key + "_origin"] = value
             valid = check_valid_base64_string(value)
@@ -295,13 +295,13 @@ class Src101Validator:
                 self.src101_dict[key + "_utf8"] = utf8value
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key] = None
-                self.src101_dict[key + "_utf8"] = None
+                self.src101_dict[key] = ""
+                self.src101_dict[key + "_utf8"] = ""
         else:
             self._update_status(key, f"IT: INVALID TOKENID VAL TYPE {value}")
-            self.src101_dict[key + "_origin"] = None
-            self.src101_dict[key] = None
-            self.src101_dict[key + "_utf8"] = None
+            self.src101_dict[key + "_origin"] = ""
+            self.src101_dict[key] = ""
+            self.src101_dict[key + "_utf8"] = ""
 
     def _process_uppercase_value(self, key, value):
         self.src101_dict[key] = value.upper()
@@ -351,12 +351,13 @@ class Src101Processor:
         "UE": ("UNEXPECTED ERROR : {error}", False),
     }
 
-    def __init__(self, db, src101_dict, processed_src101_in_block, block_index):
+    def __init__(self, db, src101_dict, processed_src101_in_block, block_index, lock=None):
         self.db = db
         self.src101_dict = src101_dict
         self.processed_src101_in_block = processed_src101_in_block
         self.block_index = block_index
         self.is_valid = True
+        self._lock = lock
 
     def update_valid_src101_list(
         self,
@@ -416,7 +417,7 @@ class Src101Processor:
             logger.debug(message)
             self.is_valid = False
         else:
-            logger.info(message)
+            logger.debug(message)
 
     def handle_deploy(self):
         try:
@@ -947,6 +948,10 @@ class Src101Processor:
             logger.warning(f"Invalid {self.deploy_hash} SRC101: {self.src101_dict['status']}")
             self.is_valid = False
             return
+
+        # Debug: Log the src101_dict before insertion
+        logger.debug(f"SRC101 Dict before insertion: {self.src101_dict}")
+
         try:
             self.validate_and_process_operation()
         except Exception as e:
@@ -955,8 +960,8 @@ class Src101Processor:
             logger.warning(f"exception: {e}")
 
 
-def parse_src101(db, src101_dict, processed_src101_in_block, block_index):
-    processor = Src101Processor(db, src101_dict, processed_src101_in_block, block_index)
+def parse_src101(db, src101_dict, processed_src101_in_block, block_index, lock=None):
+    processor = Src101Processor(db, src101_dict, processed_src101_in_block, block_index, lock)
     processor.process()
 
     return processor.is_valid, src101_dict

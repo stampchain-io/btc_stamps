@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmpc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
+# Install Poetry and Maturin
+RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}" "maturin==1.4.0"
 
 WORKDIR /app
 
@@ -42,6 +42,9 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
 
 # Copy project files (will respect .dockerignore)
 COPY . .
+
+# Build Rust parser
+RUN poetry run maturin develop --release
 
 # Install project with all dependencies
 RUN if [ "$INSTALL_DEV" = "true" ]; then \

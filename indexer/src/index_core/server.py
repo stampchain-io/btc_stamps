@@ -1,3 +1,4 @@
+import concurrent.futures
 import csv
 import decimal
 import hashlib
@@ -14,12 +15,12 @@ from bitcoin import SelectParams
 from pymysql.connections import Connection
 
 import config
-import index_core.backend as backend
 import index_core.blocks as blocks
 import index_core.log as log
 import index_core.util as util
 from exceptions import ConfigurationError
 from index_core.aws import get_s3_objects
+from index_core.backend import Backend
 from index_core.check import cp_version, software_version
 from index_core.database import last_db_index
 
@@ -29,6 +30,9 @@ D = decimal.Decimal
 
 # Global flag for graceful shutdown
 shutdown_flag = threading.Event()
+
+# Global backend instance
+backend_instance = None
 
 
 def sigterm_handler(_signo, _stack_frame):
@@ -333,7 +337,7 @@ def initialize_db() -> Connection:
     rds_host = os.environ.get("RDS_HOSTNAME", "db")
     rds_user = os.environ.get("RDS_USER")
     rds_password = os.environ.get("RDS_PASSWORD")
-    rds_database = os.environ.get("RDS_DATABASE")
+    rds_database = os.environ.get("RDS_DATABASE", "btc_stamps")
     rds_port = int(os.environ.get("RDS_PORT", 3306))
 
     if rds_password is None:
@@ -342,15 +346,51 @@ def initialize_db() -> Connection:
 
     logger.info("Connecting to database (MySQL).")
 
-    db: Connection = mysql.connect(
+    # First connect without database to create it if needed
+    db = mysql.connect(
+        host=rds_host,
+        user=rds_user,
+        password=rds_password,
+        port=rds_port,
+        connect_timeout=10,
+        read_timeout=30,
+        write_timeout=30,
+        charset="utf8mb4",
+        autocommit=False,
+        client_flag=mysql.constants.CLIENT.MULTI_STATEMENTS,
+        init_command="SET SESSION wait_timeout=28800",
+    )
+
+    try:
+        with db.cursor() as cursor:
+            # Create database if it doesn't exist
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{rds_database}`")
+            cursor.execute(f"USE `{rds_database}`")
+            db.commit()
+    except Exception as e:
+        logger.error(f"Error creating database: {e}")
+        raise
+
+    # Reconnect with database selected
+    db.close()
+    db = mysql.connect(
         host=rds_host,
         user=rds_user,
         password=rds_password,
         port=rds_port,
         database=rds_database,
+        connect_timeout=10,
+        read_timeout=30,
+        write_timeout=30,
+        charset="utf8mb4",
+        autocommit=False,
+        client_flag=mysql.constants.CLIENT.MULTI_STATEMENTS,
+        init_command="SET SESSION wait_timeout=28800",
     )
+
     util.CURRENT_BLOCK_INDEX = last_db_index(db)
 
+    # Initialize tables from schema
     initialize_tables(db)
 
     return db
@@ -358,16 +398,29 @@ def initialize_db() -> Connection:
 
 def connect_to_backend():
     """Connect to Bitcoin backend."""
+    global backend_instance
     if not config.FORCE:
         logger.info("Connecting to Bitcoin Node")
-        backend.getblockcount()
+        try:
+            backend_instance = Backend()
+            # Test connection
+            backend_instance.getblockcount()
+            return backend_instance
+        except Exception as e:
+            logger.error(f"Failed to connect to backend: {e}")
+            raise
 
 
 def start_all(db: Connection) -> None:
     """Start the server with proper initialization and shutdown handling."""
+    executor = None  # Initialize executor to None
     try:
+        # Initialize the executor
+        executor = concurrent.futures.ThreadPoolExecutor()
+
         # Backend
-        connect_to_backend()
+        global backend_instance
+        connect_to_backend()  # This sets the global backend_instance
         if config.STORE_FILES:
             if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
                 config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
@@ -380,9 +433,12 @@ def start_all(db: Connection) -> None:
         if not shutdown_flag.is_set():
             shutdown_flag.set()
         logger.info("Server shutdown initiated.")
+        # Ensure proper cleanup
+        if executor:
+            executor.shutdown(wait=True)
 
 
 def reparse(db, block_index=None, quiet=True):
     """Reparse from a specific block index."""
-    connect_to_backend()
+    connect_to_backend()  # This sets the global backend_instance
     blocks.reparse(db, block_index=block_index, quiet=quiet)

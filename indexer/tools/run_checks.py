@@ -2,21 +2,31 @@ import subprocess
 
 
 def run_command(command):
-    result = subprocess.run(command, shell=True)  # nosec
+    print(f"\nRunning: {command}")
+    result = subprocess.run(command, shell=True, text=True, capture_output=True)  # nosec
     if result.returncode != 0:
+        print("Command failed with output:")
+        print(result.stdout)
+        print(result.stderr)
         raise SystemExit(result.returncode)
+    else:
+        print("Command succeeded")
+        if result.stdout:
+            print(result.stdout)
 
 
 def main():
     commands = [
         "poetry run black . --config=pyproject.toml",
-        "poetry run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics",
+        "poetry run flake8 .",
         "poetry run isort .",
         "poetry run task bandit",
-        # "poetry run mypy . --explicit-package-bases --check-untyped-defs",
         "poetry run mypy . --explicit-package-bases",
-        # "pytest --cov=index_core --cov-report=xml",
         "poetry run run_safety",
+        "cargo fmt --version",
+        "cargo fmt -- --check --manifest-path src/rust_parser/Cargo.toml",
+        "rustup show",
+        "cargo clippy --manifest-path src/rust_parser/Cargo.toml -- -D warnings",
     ]
 
     for command in commands:

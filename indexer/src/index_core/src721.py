@@ -1,15 +1,12 @@
+import base64
 import copy
 import json
 import logging
+import re
 from typing import Any
 
-import base64
-import re
-
-from cachetools import LRUCache, cached
-from cachetools.keys import hashkey
-
 import config
+from index_core.caching import cache_manager
 from index_core.database import get_srcbackground_data
 
 logger = logging.getLogger(__name__)
@@ -17,7 +14,7 @@ logger = logging.getLogger(__name__)
 MAX_LAYERS = 10  # Define a maximum number of layers
 
 
-def parse_valid_src721_in_block(valid_stamps_in_block):
+def parse_valid_src721_in_block(valid_stamps_in_block, lock=None):
     valid_src721_in_block = []
     for stamp in valid_stamps_in_block:
         if stamp.get("op", "").upper() == "DEPLOY" and stamp.get("is_btc_stamp", False):
@@ -25,11 +22,11 @@ def parse_valid_src721_in_block(valid_stamps_in_block):
     return valid_src721_in_block
 
 
-def validate_src721_and_process(src721_json, valid_stamps_in_block, db):
+def validate_src721_and_process(src721_json, valid_stamps_in_block, db, lock=None):
     try:
         collection_name, collection_description, collection_website, collection_onchain = None, None, None, None
         if valid_stamps_in_block:
-            valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block)
+            valid_src721_in_block = parse_valid_src721_in_block(valid_stamps_in_block, lock)
         else:
             valid_src721_in_block = []
 
@@ -92,17 +89,15 @@ def convert_to_dict(json_string_or_dict):
         raise TypeError("Input must be a JSON-formatted string or a Python dictionary object")
 
 
-subasset_cache: LRUCache[str, str] = LRUCache(maxsize=256)
-
-
-@cached(
-    subasset_cache,
-    key=lambda asset_name, valid_src721_in_block, db: str(hashkey(asset_name)),
-)
 def fetch_src721_subasset_base64(asset_name: str, valid_src721_in_block: list, db: Any) -> str:
+    """Fetch base64 data for SRC721 subasset with caching."""
+    cached_result = cache_manager.get_cache_value("subasset", asset_name)
+    if cached_result is not None:
+        return cached_result
+
     collection_sub_asset_base64 = next((item for item in valid_src721_in_block if item["cpid"] == asset_name), None)
     if collection_sub_asset_base64 is not None and collection_sub_asset_base64["stamp_base64"] is not None:
-        return collection_sub_asset_base64["stamp_base64"]
+        base64_string = collection_sub_asset_base64["stamp_base64"]
     else:
         # Fetch the asset from the database
         with db.cursor() as cursor:
@@ -114,6 +109,7 @@ def fetch_src721_subasset_base64(asset_name: str, valid_src721_in_block: list, d
             else:
                 raise RuntimeError(f"Failed to fetch asset src-721 base64 {asset_name} from database")
 
+    cache_manager.set_cache_value("subasset", asset_name, base64_string)
     return base64_string
 
 
@@ -137,7 +133,6 @@ def fetch_src721_collection(tmp_collection_object, valid_src721_in_block, db):
             img_key = f"{key}-img"
             output_object[img_key] = []
             for j, asset_name in enumerate(output_object[key]):
-                logger.debug(f"--- Loading t[{i}][{j}]")
                 try:
                     img_data = fetch_src721_subasset_base64(asset_name, valid_src721_in_block, db)
                     output_object[img_key].append(img_data)
@@ -169,7 +164,7 @@ def get_src721_svg_string(src721_title, src721_desc, db):
     is_valid, cleaned_image_data = validate_base64_image(custom_background_result)
 
     if not is_valid:
-        logger.warning(f"Invalid base64 image data for SRC721 background")
+        logger.warning("Invalid base64 image data for SRC721 background")
         # Provide fallback SVG instead of returning None
         fallback_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
             <rect width="420" height="420" fill="#f0f0f0"/>
@@ -201,11 +196,14 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     """
     tmp_coll_description = tmp_collection_object.get("description", "")
     tmp_coll_name = tmp_collection_object.get("name", "SRC-721")
-    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "pixelated")
+    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "auto")
 
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 420 420" style="image-rendering:{tmp_coll_img_render}; width: 420px; height: 420px;">
-    <title>{tmp_coll_name}</title>
-    <desc>{tmp_coll_description} - provided by stampchain.io</desc>
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        viewBox="0 0 420 420"
+        preserveAspectRatio="xMidYMid meet"
+        style="image-rendering:{tmp_coll_img_render}; -webkit-image-rendering:{tmp_coll_img_render};">
+        <title>{tmp_coll_name}</title>
+        <desc>{tmp_coll_description} - provided by stampchain.io</desc>
     """
 
     for i, t in enumerate(tmp_nft_object.get("ts", [])):
@@ -270,21 +268,12 @@ def create_src721_mint_svg(src_data, valid_src721_in_block, db):
     return svg_output, collection_name
 
 
-collection_cache: LRUCache[str, str] = LRUCache(maxsize=256)
-
-
-@cached(collection_cache, key=lambda collection_cpid, db: str(hashkey(collection_cpid)))
 def fetch_collection_details(collection_cpid: str, db: Any) -> str:
-    """
-    Fetches the collection asset item from the database.
+    """Fetch collection details with caching."""
+    cached_result = cache_manager.get_cache_value("collection", collection_cpid)
+    if cached_result is not None:
+        return cached_result
 
-    Args:
-        collection_cpid (str): The CPID of the collection / parent asset.
-        db: The database connection object.
-
-    Returns:
-        str: The collection asset item.
-    """
     try:
         with db.cursor() as cursor:
             cursor.execute(
@@ -295,10 +284,11 @@ def fetch_collection_details(collection_cpid: str, db: Any) -> str:
             logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
                 collection_asset_item = result[0]
-                logger.debug("got collection asset item from db", collection_asset_item)
+                logger.debug("got collection asset item from db: %s", collection_asset_item)
+                cache_manager.set_cache_value("collection", collection_cpid, collection_asset_item)
             else:
                 collection_asset_item = None
-                logger.warning("Failed to fetch deploy src_data for cpid from database")
+                logger.warning(f"Failed to fetch deploy src_data for cpid from database {collection_cpid}")
     except Exception as e:
         raise e
 
@@ -315,23 +305,46 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
     Returns:
         tuple[bool, str]: (is_valid, cleaned_string)
     """
+    if not base64_string:
+        return False, ""
+
     try:
+        # If already a valid data URL, return as is
+        if base64_string.startswith("data:image/"):
+            # Verify the base64 part is valid
+            content = base64_string.split("base64,", 1)[1]
+            base64.b64decode(content)
+            return True, base64_string
+
+        # Handle case where string starts with mimetype but no data: prefix
+        if base64_string.startswith("image/"):
+            parts = base64_string.split(";base64,", 1)
+            if len(parts) == 2:
+                mimetype = parts[0].split("/")[1]
+                content = parts[1]
+                # Try to decode to validate it's proper base64
+                base64.b64decode(content)
+                return True, f"data:{parts[0]};base64,{content}"
+
         # Remove any existing data URL prefix
         if base64_string.startswith("data:"):
-            # Extract just the base64 part
-            pattern = r"data:image/[^;]+;base64,"
+            # Extract just the base64 part and mimetype
+            pattern = r"data:image/([^;]+);base64,"
             matches = re.findall(pattern, base64_string)
             if matches:
-                # Keep only the first media type declaration
-                prefix = matches[0]
-                base64_string = base64_string.split(prefix, 1)[1]
+                mimetype = matches[0]
+                base64_string = base64_string.split(f"data:image/{mimetype};base64,", 1)[1]
             else:
                 base64_string = base64_string.split("base64,", 1)[1]
+                mimetype = "png"  # Default to PNG if no mimetype found
+        else:
+            mimetype = "png"  # Default to PNG for raw base64
 
         # Try to decode to validate it's proper base64
         base64.b64decode(base64_string)
 
         # If we got here, it's valid base64
-        return True, f"data:image/png;base64,{base64_string}"
-    except Exception:
+        return True, f"data:image/{mimetype};base64,{base64_string}"
+    except Exception as e:
+        logger.debug(f"Base64 validation failed: {str(e)}")
         return False, ""

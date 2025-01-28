@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import logging
+import threading
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from config import (
     STRIP_WHITESPACE,
     SUPPORTED_SUB_PROTOCOLS,
 )
+from index_core.caching import cache_manager
 from index_core.src20 import build_src20_svg_string, check_format
 from index_core.src101 import check_src101_inputs
 from index_core.src721 import validate_src721_and_process
@@ -114,6 +116,7 @@ class StampData:
     collection_website: Optional[str] = None
     collection_onchain: Optional[bool] = None
     db: Optional[object] = None
+    _lock: Optional[threading.Lock] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -476,8 +479,10 @@ class StampData:
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
-        if self.cpid and check_reissue_func(db, self.cpid, valid_stamps_in_block):
-            raise ValueError("reissue invalidation")
+        if self.cpid:
+            with self._lock:
+                if check_reissue_func(db, self.cpid, valid_stamps_in_block):
+                    raise ValueError("reissue invalidation")
 
     def is_src20(self):
         return self.ident == "SRC-20" and self.keyburn == 1
@@ -608,9 +613,10 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
-        svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
-            validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
-        )
+        with self._lock:
+            svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
+                validate_src721_and_process(self.src_data, valid_stamps_in_block, db, self._lock)
+            )
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"
@@ -683,8 +689,15 @@ class StampData:
             self.update_stamp_data_rows_from_cp_asset(stamp)
         self.update_stamp_hash_and_block_time()
 
+        # Check for reissue before processing further
         self.is_reissue(check_reissue, db, valid_stamps_in_block)
+
+        # Process and validate the stamp data
         self.validate_and_process_stamp_data(decode_base64, db, valid_stamps_in_block)
+
+        # Add to reissue cache if is_btc_stamp is True
+        if self.is_btc_stamp:
+            cache_manager.set_cache_value("reissue", self.cpid, True)
 
         self.normalize_mime_and_suffix()
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)

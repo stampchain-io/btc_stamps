@@ -1,8 +1,16 @@
+[build-system]
+requires = ["poetry-core>=1.0.0", "maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "btc_stamps_parser"
+features = ["pyo3/extension-module"]
+manifest-path = "src/rust_parser/Cargo.toml"
+
 [tool.poetry]
 name = "indexer"
 version = "1.8.26+canary.36"
 description = "Bitcoin Stamps Indexer"
-# readme = "README.md"
 authors = ["reinamora <reinamora@stampchain.io>"]
 homepage = "https://stampchain.io"
 repository = "https://github.com/stampchain-io/btc_stamps/"
@@ -20,6 +28,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.9"
+maturin = "^1.4.0"
 appdirs = "1.4.4"
 bitcoinlib = "0.6.15"
 colorlog = "6.8.2"
@@ -42,6 +51,9 @@ colour-runner = "0.1.1"
 ecdsa = "0.19.0"
 toml = "^0.10.2"
 eth-account = "^0.13.3"
+psutil = ">=6.1.1"
+filelock = ">=3.16.1"
+safety = ">=3.2.14"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
@@ -82,10 +94,6 @@ test-setup = "start:test_setup"
 from = "src"
 include = "index_core/**/*"
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-
 [tool.black]
 line-length = 127
 
@@ -101,6 +109,7 @@ extend-ignore = ["E203", "W503", "E402", "E501"]
 [tool.taskipy.tasks]
 bandit = "bandit -r . -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
+build = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
 
 [tool.mypy]
 mypy_path = "src"
