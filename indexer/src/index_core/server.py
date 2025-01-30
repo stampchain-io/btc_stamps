@@ -10,7 +10,6 @@ import threading
 import time
 
 import appdirs
-import pymysql as mysql
 from bitcoin import SelectParams
 from pymysql.connections import Connection
 
@@ -23,6 +22,7 @@ from index_core.aws import get_s3_objects
 from index_core.backend import Backend
 from index_core.check import cp_version, software_version
 from index_core.database import last_db_index
+from index_core.database_manager import db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -281,10 +281,11 @@ def initialize_tables(db):
         sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
         for command in sql_commands:
             try:
-                cursor.execute(command)
+                db_manager.execute_with_retry(cursor, command)
             except Exception as e:
                 logger.error(f"Error executing command:{command};\nerror:{e}")
                 raise e
+
         import_csv_data(
             cursor,
             "bootstrap/creator.csv",
@@ -328,65 +329,24 @@ def import_csv_data(cursor, csv_file, insert_query):
             cursor.execute(insert_query, tuple(row))
 
 
-def initialize_db() -> Connection:
+def initialize_db():
     """Initialize database connection and tables."""
     logger.info("Initializing database...")
     if config.FORCE:
         logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
 
-    rds_host = os.environ.get("RDS_HOSTNAME", "db")
-    rds_user = os.environ.get("RDS_USER")
-    rds_password = os.environ.get("RDS_PASSWORD")
-    rds_database = os.environ.get("RDS_DATABASE", "btc_stamps")
-    rds_port = int(os.environ.get("RDS_PORT", 3306))
-
-    if rds_password is None:
-        logger.error("Database password is not set.")
-        raise ValueError("Database password is not set.")
-
-    logger.info("Connecting to database (MySQL).")
-
-    # First connect without database to create it if needed
-    db = mysql.connect(
-        host=rds_host,
-        user=rds_user,
-        password=rds_password,
-        port=rds_port,
-        connect_timeout=10,
-        read_timeout=30,
-        write_timeout=30,
-        charset="utf8mb4",
-        autocommit=False,
-        client_flag=mysql.constants.CLIENT.MULTI_STATEMENTS,
-        init_command="SET SESSION wait_timeout=28800",
-    )
+    # Get connection from database manager
+    db = db_manager.connect()
 
     try:
         with db.cursor() as cursor:
             # Create database if it doesn't exist
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{rds_database}`")
-            cursor.execute(f"USE `{rds_database}`")
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{os.environ.get('RDS_DATABASE', 'btc_stamps')}`")
+            cursor.execute(f"USE `{os.environ.get('RDS_DATABASE', 'btc_stamps')}`")
             db.commit()
     except Exception as e:
         logger.error(f"Error creating database: {e}")
         raise
-
-    # Reconnect with database selected
-    db.close()
-    db = mysql.connect(
-        host=rds_host,
-        user=rds_user,
-        password=rds_password,
-        port=rds_port,
-        database=rds_database,
-        connect_timeout=10,
-        read_timeout=30,
-        write_timeout=30,
-        charset="utf8mb4",
-        autocommit=False,
-        client_flag=mysql.constants.CLIENT.MULTI_STATEMENTS,
-        init_command="SET SESSION wait_timeout=28800",
-    )
 
     util.CURRENT_BLOCK_INDEX = last_db_index(db)
 

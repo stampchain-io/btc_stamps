@@ -256,47 +256,56 @@ def insert_into_src101price(cursor: Cursor, table_name: str, src101_dict: Dict[s
             cursor.execute(query, tuple(column_values))
 
 
-def serialize_value(value: Any) -> Any:
-    """Helper function to serialize values for database insertion"""
-    if value is None or value == "":
-        return None  # Return None instead of empty string for NULL values
-    elif isinstance(value, (list, dict)):
-        return json.dumps(value)
-    elif isinstance(value, bool):
-        return int(value)
-    elif isinstance(value, (int, float, str, decimal.Decimal)):
-        return value
-    else:
-        return str(value)
-
-
-def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_dict: Dict[str, Any]) -> None:
-    """Insert a single SRC-101 transaction into the specified table."""
+def insert_into_src101_table(cursor, table_name, id, src101_dict):
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
 
-    # Handle integer fields specifically
-    integer_fields = ["dua", "idua", "coef", "lim", "mintstart", "mintend", "destination_nvalue"]
-    for field in integer_fields:
-        value = src101_dict.get(field)
-        if value == "" or value is None:
-            src101_dict[field] = None
-        elif isinstance(value, str) and value.isdigit():
-            src101_dict[field] = int(value)
+    column_names = [
+        "id",
+        "tx_hash",
+        "tx_index",
+        "block_index",
+        "p",
+        "op",
+        "name",
+        "tokenid_origin",
+        "tokenid",
+        "tokenid_utf8",
+        "root",
+        "description",
+        "tick",
+        "wla",
+        "imglp",
+        "imgf",
+        "tick_hash",
+        "deploy_hash",
+        "creator",
+        "pri",
+        "dua",
+        "idua",
+        "coef",
+        "lim",
+        "mintstart",
+        "mintend",
+        "prim",
+        "owner",
+        "toaddress",
+        "destination",
+        "destination_nvalue",
+        "block_time",
+        "status",
+    ]
 
-    tokenid_utf8 = src101_dict.get("tokenid_utf8", "")
-    tokenid_utf8_str = ";".join(tokenid_utf8) if isinstance(tokenid_utf8, list) else str(tokenid_utf8) if tokenid_utf8 else ""
+    tokenid_origin = src101_dict.get("tokenid_origin")
+    if isinstance(tokenid_origin, str):
+        result = tokenid_origin
+    elif isinstance(tokenid_origin, list) and all(isinstance(item, str) for item in tokenid_origin):
+        result = ";".join(tokenid_origin)
+    else:
+        result = str(tokenid_origin)
 
-    # Define columns in the same order as values
-    columns = """
-        id, tx_hash, tx_index, block_index, p, op, name, tokenid_origin, tokenid, tokenid_utf8,
-        img, root, description, tick, wla, imglp, imgf, tick_hash, deploy_hash, creator,
-        pri, dua, idua, coef, lim, mintstart, mintend, prim, address_btc, address_eth,
-        txt_data, owner, toaddress, destination, destination_nvalue, block_time, status
-    """.strip()
-
-    values = [
+    column_values = [
         id,
         src101_dict.get("tx_hash"),
         src101_dict.get("tx_index"),
@@ -304,10 +313,13 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
         src101_dict.get("p"),
         src101_dict.get("op"),
         src101_dict.get("name"),
-        src101_dict.get("tokenid_origin"),
-        src101_dict.get("tokenid"),
-        tokenid_utf8_str,
-        src101_dict.get("img"),
+        result,
+        ";".join(src101_dict.get("tokenid")) if type(src101_dict.get("tokenid")) == list else src101_dict.get("tokenid"),
+        (
+            ";".join(src101_dict.get("tokenid_utf8"))
+            if type(src101_dict.get("tokenid_utf8")) == list
+            else src101_dict.get("tokenid_utf8")
+        ),
         src101_dict.get("root"),
         src101_dict.get("desc"),
         src101_dict.get("tick"),
@@ -317,7 +329,7 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
         src101_dict.get("tick_hash"),
         src101_dict.get("deploy_hash"),
         src101_dict.get("creator"),
-        serialize_value(src101_dict.get("pri")),
+        json.dumps(src101_dict.get("pri")),
         src101_dict.get("dua"),
         src101_dict.get("idua"),
         src101_dict.get("coef"),
@@ -325,9 +337,6 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
         src101_dict.get("mintstart"),
         src101_dict.get("mintend"),
         src101_dict.get("prim"),
-        src101_dict.get("address_btc"),
-        src101_dict.get("address_eth"),
-        serialize_value(src101_dict.get("txt_data")),
         src101_dict.get("owner"),
         src101_dict.get("toaddress"),
         src101_dict.get("destination"),
@@ -336,36 +345,13 @@ def insert_into_src101_table(cursor: Cursor, table_name: str, id: str, src101_di
         src101_dict.get("status"),
     ]
 
-    values = [serialize_value(v) for v in values]
-
-    placeholders = ", ".join(["%s"] * len(values))
+    placeholders = ", ".join(["%s"] * len(column_names))
 
     query = f"""
-        INSERT INTO {table_name} ({columns})
+        INSERT INTO {table_name} ({", ".join(column_names)})
         VALUES ({placeholders})
-        ON DUPLICATE KEY UPDATE
-    """
-
-    # Build the UPDATE part of the query
-    update_parts = []
-    column_list = [c.strip() for c in columns.split(",")]
-    for col in column_list:
-        update_parts.append(f"{col} = VALUES({col})")
-
-    query += "\n" + ",\n".join(update_parts)
-
-    # Log the query and values for debugging
-    logger.debug(f"Executing query with {len(values)} values for {len(column_list)} columns")
-    logger.debug(f"Columns: {columns}")
-    logger.debug(f"Values: {values}")
-
-    try:
-        cursor.execute(query, values)
-    except Exception as e:
-        logger.error(f"Error executing query: {e}")
-        logger.error(f"Query: {query}")
-        logger.error(f"Values count: {len(values)}, Columns count: {len(column_list)}")
-        raise
+    """  # nosec
+    cursor.execute(query, tuple(column_values))
 
 
 def insert_transactions(db, transactions):
@@ -614,13 +600,19 @@ def calculate_owners(src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict
         block_index,
         tx_index,
     ] in src101_valid_list:
-        id = "SRC-101" + "_" + deploy_hash + tokenid
+        id = "SRC-101" + "_" + deploy_hash + (tokenid or "")
 
         if op == "MINT":
-            tokenid_split = tokenid.split(";")
-            tokenid_utf8_split = tokenid_utf8.split(";")
-            img_split = img.split(";")
-            for i in range(len(tokenid_split)):
+            tokenid_split = (tokenid or "").split(";")
+            tokenid_utf8_split = (tokenid_utf8 or "").split(";")
+            img_split = (img or "").split(";")
+
+            max_length = max(len(tokenid_split), len(tokenid_utf8_split), len(img_split))
+            tokenid_split = tokenid_split + [""] * (max_length - len(tokenid_split))
+            tokenid_utf8_split = tokenid_utf8_split + [""] * (max_length - len(tokenid_utf8_split))
+            img_split = img_split + [""] * (max_length - len(img_split))
+
+            for i in range(max_length):
                 _index = all_index.get(deploy_hash, 0)
                 id = "SRC-101" + "_" + deploy_hash + tokenid_split[i]
                 all_owners[id] = {
@@ -1421,7 +1413,6 @@ def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[st
         cache_manager.set_cache_value("reissue", cpid, True)
         return True
 
-    # If not found in block or database, we don't know if it's a valid stamp to cache yet, added to cache after validation
     return False
 
 

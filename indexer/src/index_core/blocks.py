@@ -65,6 +65,7 @@ from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
 from index_core.zmq_utils import ZMQNotifier
+from index_core.database_manager import db_manager
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -588,35 +589,18 @@ def create_check_hashes(
 
 
 def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
-    """
-    Commits the changes to the database, updates the parsed block, and increments the block index.
-    Updates stats when:
-    - At tip: Every block with SRC20 transactions
-    - During bulk: Every 1000 blocks as a safety net
-
-    Args:
-        db: The database connection object.
-        block_index: The current block index.
-        block_tip: The current blockchain tip.
-        src20_in_block: Number of SRC20 transactions in this block.
-
-    Returns:
-        int: The next block index to process.
-    """
+    """Commit transaction and update block with proper error handling."""
     try:
-        # Update stats if:
-        # 1. We're at the tip AND (it's a normal block OR has SRC20 transactions)
-        # 2. Every 1000 blocks during bulk indexing (as a safety net)
-        should_update_stats = block_index >= config.BTC_SRC20_GENESIS_BLOCK and (
-            (
-                block_index == block_tip and (block_index % 100 == 0 or src20_in_block > 0)
-            )  # At tip with SRC20 or every 100th block
-            or (block_tip - block_index > 100 and block_index % 1000 == 0)  # Bulk safety net
-        )
-
-        if should_update_stats:
-            logger.warning(f"Updating token stats at block {block_index} (src20_txs: {src20_in_block})")
-            update_src20_token_stats(db)
+        # Update SRC-20 token stats if:
+        # 1. At tip with SRC20 transactions OR every 100th block
+        # 2. During bulk sync, every 1000th block as safety net
+        if block_index >= config.BTC_SRC20_GENESIS_BLOCK:
+            should_update_stats = (block_index == block_tip and (block_index % 100 == 0 or src20_in_block > 0)) or (
+                block_tip - block_index > 100 and block_index % 1000 == 0
+            )
+            if should_update_stats:
+                logger.debug(f"Updating token stats at block {block_index} (src20_txs: {src20_in_block})")
+                update_src20_token_stats(db)
 
         db.commit()
         update_parsed_block(db, block_index)
@@ -906,42 +890,12 @@ def filter_block_transactions(block_data, stamp_issuances=None):
 
 
 def check_db_connection(db):
-    """Check if database connection is alive and reconnect if needed."""
-    max_retries = 3
-    retry_delay = 5  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            # First try to ping the connection
-            db.ping(reconnect=True)
-            return db
-        except Exception as e:
-            logger.warning(f"Database connection check failed (attempt {attempt + 1}/{max_retries}): {e}")
-
-            # Close the connection if it exists
-            try:
-                if not db._closed:
-                    db.close()
-            except (AttributeError, mysql.Error) as e:
-                logger.debug(f"Error during database cleanup: {e}")
-                pass
-
-            if attempt < max_retries - 1:
-                logger.info(f"Waiting {retry_delay} seconds before retry...")
-                time.sleep(retry_delay)
-
-                try:
-                    from index_core.server import initialize_db
-
-                    new_db = initialize_db()
-                    logger.info("Successfully reconnected to database")
-                    return new_db
-                except Exception as reconnect_error:
-                    logger.error(f"Failed to reconnect to database: {reconnect_error}")
-                    # Continue to next retry
-            else:
-                logger.error("Max retries reached for database reconnection")
-                raise Exception("Failed to establish database connection after max retries")
+    """Check database connection and reconnect if necessary."""
+    try:
+        return db_manager.ensure_connection(db)
+    except Exception as e:
+        logger.error(f"Database connection check failed: {e}")
+        raise
 
 
 def update_cpids_async(db):

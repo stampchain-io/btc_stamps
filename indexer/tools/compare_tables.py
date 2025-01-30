@@ -338,57 +338,71 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
         print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 
 
-def normalize_tokenid(tokenid):
-    """Normalize tokenid by removing JSON array wrapper if present."""
-    if isinstance(tokenid, str) and tokenid.startswith("[") and tokenid.endswith("]"):
-        try:
-            # Parse JSON array and get first element
-            import json
-
-            return json.loads(tokenid)[0]
-        except json.JSONDecodeError:
-            # Specifically catch JSON parsing errors
-            return tokenid
-    return tokenid
-
-
 def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101):
     print_comparison_header("SRC101Valid")
 
-    has_mismatches = False
+    # Create dictionaries with tx_hash as key and full record as value
+    prod_dict = {row[0]: row for row in prod_src101}
+    dev_dict = {row[0]: row for row in dev_src101}
 
-    # Normalize the tokenid values when creating the dictionaries
-    prod_dict = {(x[0], x[1], normalize_tokenid(x[2]), x[4]): x for x in prod_src101}
-    dev_dict = {(x[0], x[1], normalize_tokenid(x[2]), x[4]): x for x in dev_src101}
-
-    only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
+    # Find differences
     only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
+    only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
+    common_tx = set(prod_dict.keys()) & set(dev_dict.keys())
 
-    print_summary("SRC101Valid", len(prod_src101), len(dev_src101), bool(only_in_dev or only_in_prod))
+    # Find mismatched records in common transactions
+    mismatched = [
+        tx
+        for tx in common_tx
+        if (
+            prod_dict[tx][1] != dev_dict[tx][1]  # owner
+            or prod_dict[tx][2] != dev_dict[tx][2]  # tokenid
+            or prod_dict[tx][3] != dev_dict[tx][3]  # tokenid_utf8
+            or prod_dict[tx][4] != dev_dict[tx][4]  # block_index
+        )
+    ]
 
-    if only_in_dev or only_in_prod:
-        has_mismatches = True
-        if only_in_dev:
-            print(colored(f"\n→ Missing from production ({len(only_in_dev)} records):", "yellow"))
-            for key in sorted(list(only_in_dev), key=lambda x: x[3])[:5]:
-                record = dev_dict[key]
-                print(f"  • Block: {colored(record[4], 'cyan')}")
-                print(f"    └─ TX: {record[0]}")
-                print(f"    └─ Token: {normalize_tokenid(record[2])}")
-                print(f"    └─ Owner: {record[1]}")
-                print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
+    print_summary("SRC101Valid", len(prod_src101), len(dev_src101), bool(only_in_prod or only_in_dev or mismatched))
 
+    if only_in_prod or only_in_dev or mismatched:
         if only_in_prod:
-            print(colored(f"\n→ Missing from development ({len(only_in_prod)} records):", "yellow"))
-            for key in sorted(list(only_in_prod), key=lambda x: x[3])[:5]:
-                record = prod_dict[key]
-                print(f"  • Block: {colored(record[4], 'cyan')}")
-                print(f"    └─ TX: {record[0]}")
-                print(f"    └─ Token: {normalize_tokenid(record[2])}")
-                print(f"    └─ Owner: {record[1]}")
-                print(f"    └─ Token (UTF8): {record[3] if record[3] is not None else ''}")
+            print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "yellow"))
+            for tx_hash in sorted(list(only_in_prod))[:5]:
+                record = prod_dict[tx_hash]
+                print(f"  • TX: {colored(tx_hash, 'cyan')}")
+                print(f"    ├─ Owner: {record[1]}")
+                print(f"    ├─ TokenID: {record[2]}")
+                print(f"    ├─ TokenID UTF8: {record[3]}")
+                print(f"    └─ Block: {record[4]}")
 
-    return has_mismatches
+        if only_in_dev:
+            print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "yellow"))
+            for tx_hash in sorted(list(only_in_dev))[:5]:
+                record = dev_dict[tx_hash]
+                print(f"  • TX: {colored(tx_hash, 'cyan')}")
+                print(f"    ├─ Owner: {record[1]}")
+                print(f"    ├─ TokenID: {record[2]}")
+                print(f"    ├─ TokenID UTF8: {record[3]}")
+                print(f"    └─ Block: {record[4]}")
+
+        if mismatched:
+            print(colored(f"\n→ Mismatched records ({len(mismatched)} records):", "yellow"))
+            for tx_hash in sorted(mismatched)[:5]:
+                prod_record = prod_dict[tx_hash]
+                dev_record = dev_dict[tx_hash]
+                print(f"  • TX: {colored(tx_hash, 'cyan')}")
+                print("    ├─ Production:")
+                print(f"    │   ├─ Block: {prod_record[4]}")
+                print(f"    │   ├─ Owner: {prod_record[1]}")
+                print(f"    │   ├─ TokenID: {prod_record[2]}")
+                print(f"    │   └─ TokenID UTF8: {prod_record[3]}")
+                print("    └─ Development:")
+                print(f"        ├─ Block: {dev_record[4]}")
+                print(f"        ├─ Owner: {dev_record[1]}")
+                print(f"        ├─ TokenID: {dev_record[2]}")
+                print(f"        └─ TokenID UTF8: {dev_record[3]}")
+
+    return bool(only_in_prod or only_in_dev or mismatched)
 
 
 def main():
@@ -575,7 +589,7 @@ def main():
         # Fetch SRC101Valid data
         prod_cursor.execute(
             """
-            SELECT tx_hash, owner, tokenid, tokenid_utf8, block_index, tx_index
+            SELECT tx_hash, owner, tokenid, tokenid_utf8, block_index
             FROM SRC101Valid
             WHERE block_index < %s
             ORDER BY block_index ASC
@@ -586,7 +600,7 @@ def main():
 
         dev_cursor.execute(
             """
-            SELECT tx_hash, owner, tokenid, tokenid_utf8, block_index, tx_index
+            SELECT tx_hash, owner, tokenid, tokenid_utf8, block_index
             FROM SRC101Valid
             WHERE block_index < %s
             ORDER BY block_index ASC

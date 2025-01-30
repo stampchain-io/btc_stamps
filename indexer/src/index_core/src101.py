@@ -6,11 +6,10 @@ import logging
 import math
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
+from typing import Any, Dict, Optional, Tuple, TypedDict, Union
 
 from cryptography.hazmat.primitives import hashes
 
-# Type hint for database result tuple
 ResultType = Tuple[str, str, int, Optional[str], Optional[str], Optional[Union[str, Dict[str, Any]]], Optional[bool]]
 from cryptography.hazmat.primitives.asymmetric import ec
 from eth_account import Account
@@ -276,8 +275,8 @@ class Src101Validator:
                 self.src101_dict[key + "_utf8"] = utf8valuelist
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key] = ""
-                self.src101_dict[key + "_utf8"] = ""
+                self.src101_dict[key] = None
+                self.src101_dict[key + "_utf8"] = None
         elif isinstance(value, str):
             self.src101_dict[key + "_origin"] = value
             valid = check_valid_base64_string(value)
@@ -289,19 +288,18 @@ class Src101Validator:
                     valid = False
             except Exception:
                 valid = False
-                logger.debug(f"Invalid base64 or UTF-8 encoding for value: {value}")
             if valid:
                 self.src101_dict[key] = value
                 self.src101_dict[key + "_utf8"] = utf8value
             else:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
-                self.src101_dict[key] = ""
-                self.src101_dict[key + "_utf8"] = ""
+                self.src101_dict[key] = None
+                self.src101_dict[key + "_utf8"] = None
         else:
             self._update_status(key, f"IT: INVALID TOKENID VAL TYPE {value}")
-            self.src101_dict[key + "_origin"] = ""
-            self.src101_dict[key] = ""
-            self.src101_dict[key + "_utf8"] = ""
+            self.src101_dict[key + "_origin"] = None
+            self.src101_dict[key] = None
+            self.src101_dict[key + "_utf8"] = None
 
     def _process_uppercase_value(self, key, value):
         self.src101_dict[key] = value.upper()
@@ -449,9 +447,9 @@ class Src101Processor:
 
             if (
                 not self.src101_dict.get("tokenid")
-                or not type(self.src101_dict.get("tokenid")) == list
+                or not isinstance(self.src101_dict.get("tokenid"), list)
                 or not self.src101_dict.get("tokenid_utf8")
-                or not type(self.src101_dict.get("tokenid_utf8")) == list
+                or not isinstance(self.src101_dict.get("tokenid_utf8"), list)
             ):
                 self.set_status_and_log(
                     "ITT", deploy_hash=self.src101_dict.get("deploy_hash"), tokenid=self.src101_dict.get("tokenid")
@@ -459,7 +457,7 @@ class Src101Processor:
                 return
 
             if (
-                not type(self.src101_dict.get("coef")) == int
+                not isinstance(self.src101_dict.get("coef"), int)
                 or self.src101_dict.get("coef", 1001) > 1000
                 or self.src101_dict.get("coef", -1) < 0
             ):
@@ -469,7 +467,15 @@ class Src101Processor:
                 return
 
             if self.block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
-                if not self.src101_dict.get("img") or not type(self.src101_dict.get("img")) == list:
+                if not self.src101_dict.get("img"):
+                    self.set_status_and_log(
+                        "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
+                    )
+                    return
+                # Convert single URL to list for consistency
+                if isinstance(self.src101_dict.get("img"), str):
+                    self.src101_dict["img"] = [self.src101_dict["img"]]
+                elif not isinstance(self.src101_dict.get("img"), list):
                     self.set_status_and_log(
                         "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
                     )
@@ -477,12 +483,16 @@ class Src101Processor:
             else:
                 if self.src101_dict.get("img") is None:
                     self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
-                elif not type(self.src101_dict.get("img")) == list:
+                elif not isinstance(self.src101_dict.get("img"), list):
                     self.set_status_and_log(
                         "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
                     )
                     return
-            if not self.src101_dict.get("dua") or type(self.src101_dict.get("dua")) != int or self.src101_dict.get("dua") <= 0:
+            if (
+                not self.src101_dict.get("dua")
+                or isinstance(self.src101_dict.get("dua"), int)
+                and self.src101_dict.get("dua") <= 0
+            ):
                 self.set_status_and_log(
                     "ITD", deploy_hash=self.src101_dict.get("deploy_hash"), dua=self.src101_dict.get("dua")
                 )
@@ -520,9 +530,6 @@ class Src101Processor:
                         "dua": str(self.src101_dict["dua"]),
                     }
 
-                    if not isinstance(self.wla, str):
-                        logger.error(f"Invalid WLA type: {type(self.wla)}")
-                        return False
                     compressed_public_key_bytes = bytes.fromhex(self.wla)
                     public_key_from_compressed = ec.EllipticCurvePublicKey.from_encoded_point(
                         ec.SECP256K1(), compressed_public_key_bytes
@@ -539,9 +546,6 @@ class Src101Processor:
                             "address": self.src101_dict["creator"],
                             "dua": str(self.src101_dict["dua"]),
                         }
-                        if not isinstance(self.wla, str):
-                            logger.error(f"Invalid WLA type: {type(self.wla)}")
-                            return False
                         compressed_public_key_bytes = bytes.fromhex(self.wla)
                         public_key_from_compressed = ec.EllipticCurvePublicKey.from_encoded_point(
                             ec.SECP256K1(), compressed_public_key_bytes
@@ -605,12 +609,12 @@ class Src101Processor:
                 address_eth = result[4]
                 txt_data: Optional[Union[Dict[str, Any], str]] = None
                 try:
-                    if isinstance(result, tuple) and len(result) > 5 and result[5] is not None:
-                        txt_data_raw = result[5]
-                        if isinstance(txt_data_raw, str):
-                            txt_data = json.loads(txt_data_raw)
-                        elif isinstance(txt_data_raw, dict):
-                            txt_data = txt_data_raw
+                    if isinstance(result[5], str):
+                        txt_data = json.loads(result[5])
+                    elif isinstance(result[5], dict):
+                        txt_data = result[5]
+                    else:
+                        txt_data = result[5]  # Keep original value if not str/dict
                 except (json.JSONDecodeError, TypeError, IndexError) as e:
                     logger.error(f"Error decoding txt_data: {e}")
                     txt_data = None
@@ -653,7 +657,17 @@ class Src101Processor:
                 self.src101_dict.get("tokenid_utf8"),
             )
             _, src101_owner, expire_timestamp, address_btc, address_eth, txt_data_raw, _ = result
-            txt_data = json.loads(txt_data_raw) if isinstance(txt_data_raw, str) and txt_data_raw else txt_data_raw
+            txt_data: Optional[Union[Dict[str, Any], str]] = None
+            try:
+                if isinstance(txt_data_raw, str):
+                    txt_data = json.loads(txt_data_raw)
+                elif isinstance(txt_data_raw, dict):
+                    txt_data = txt_data_raw
+                else:
+                    txt_data = txt_data_raw  # Keep original value if not str/dict
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Error decoding txt_data in handle_transfer: {e}")
+                txt_data = txt_data_raw  # Keep original value on error
             prim = result[6]
 
             # check token has mint
@@ -712,7 +726,17 @@ class Src101Processor:
             address_btc = result[3]
             address_eth = result[4]
             txt_data_raw = result[5]
-            txt_data = json.loads(txt_data_raw) if isinstance(txt_data_raw, str) and txt_data_raw else txt_data_raw
+            txt_data: Optional[Union[Dict[str, Any], str]] = None
+            try:
+                if isinstance(txt_data_raw, str):
+                    txt_data = json.loads(txt_data_raw)
+                elif isinstance(txt_data_raw, dict):
+                    txt_data = txt_data_raw
+                else:
+                    txt_data = txt_data_raw  # Keep original value if not str/dict
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Error decoding txt_data in handle_renew: {e}")
+                txt_data = txt_data_raw  # Keep original value on error
             prim = result[6]
             # check token has mint
             if (
@@ -741,7 +765,11 @@ class Src101Processor:
                 )
                 return
 
-            if not self.src101_dict.get("dua") or type(self.src101_dict.get("dua")) != int or self.src101_dict.get("dua") <= 0:
+            if (
+                not self.src101_dict.get("dua")
+                or isinstance(self.src101_dict.get("dua"), int)
+                and self.src101_dict.get("dua") <= 0
+            ):
                 self.set_status_and_log(
                     "ITD", deploy_hash=self.src101_dict.get("deploy_hash"), dua=self.src101_dict.get("dua")
                 )
@@ -802,15 +830,23 @@ class Src101Processor:
                 self.src101_dict.get("deploy_hash"),
                 self.src101_dict.get("tokenid_utf8"),
             )
-            # Unpack only the values we need
-            result: ResultType = get_owner_expire_data_from_running(
-                self.db,
-                self.processed_src101_in_block,
-                self.src101_dict.get("deploy_hash"),
-                self.src101_dict.get("tokenid_utf8"),
-            )
-            src101_preowner, src101_owner, expire_timestamp, address_btc, address_eth, txt_data_raw, _ = result
-            txt_data = json.loads(txt_data_raw) if isinstance(txt_data_raw, str) and txt_data_raw else txt_data_raw
+            src101_preowner = result[0]
+            src101_owner = result[1]
+            expire_timestamp = result[2]
+            address_btc = result[3]
+            address_eth = result[4]
+            txt_data_raw = result[5]
+            txt_data: Optional[Union[Dict[str, Any], str]] = None
+            try:
+                if isinstance(txt_data_raw, str):
+                    txt_data = json.loads(txt_data_raw)
+                elif isinstance(txt_data_raw, dict):
+                    txt_data = txt_data_raw
+                else:
+                    txt_data = txt_data_raw
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Error decoding txt_data in handle_setrecord: {e}")
+                txt_data = txt_data_raw
             # check token has mint
             if not self.src101_dict.get("tokenid") or not src101_owner or not expire_timestamp:
                 self.set_status_and_log(
@@ -836,18 +872,9 @@ class Src101Processor:
             if "address_data" not in self.src101_dict.keys():
                 self.src101_dict["address_data"] = None
             else:
-                prev_tx_hash = self.src101_dict.get("prev_tx_hash")
-                if not prev_tx_hash:
-                    logger.error("Missing prev_tx_hash")
-                    return
-                address_result = check_and_convert_addres_type_data(
-                    self.src101_dict["address_data"], bytes(reversed(prev_tx_hash)).hex()
+                (valid, self.src101_dict["address_data"]) = check_and_convert_addres_type_data(
+                    self.src101_dict["address_data"], bytes(reversed(self.src101_dict.get("prev_tx_hash"))).hex()
                 )
-                if not isinstance(address_result, tuple) or len(address_result) != 2:
-                    logger.error("Invalid result from check_and_convert_addres_type_data")
-                    return
-                valid, address_data = address_result
-                self.src101_dict["address_data"] = address_data
                 if not valid:
                     self.set_status_and_log(
                         "ID", deploy_hash=self.src101_dict.get("deploy_hash"), tokenid=self.src101_dict.get("tokenid")
@@ -864,7 +891,7 @@ class Src101Processor:
                     else address_eth
                 )
             if (
-                self.src101_dict.get("prim")
+                self.src101_dict.get("prim") is True
                 and self.src101_dict.get("address_data")
                 and self.src101_dict.get("address_data").get("btc") != self.src101_dict.get("creator")
             ):
@@ -970,35 +997,24 @@ def parse_src101(db, src101_dict, processed_src101_in_block, block_index, lock=N
 AddressDataType = Dict[str, str]
 
 
-def check_and_convert_addres_type_data(data: AddressDataType, hex_prev_tx_hash: str) -> Tuple[bool, AddressDataType]:
-    """Check and convert address type data"""
+def check_and_convert_addres_type_data(data, hex_prev_tx_hash):
     try:
         valid = False
-        if not isinstance(data, dict):
-            logger.error("Invalid data type: not a dictionary")
-            return False, {}
-
-        if "btc" in data and data["btc"] and isinstance(data["btc"], str):
+        if "btc" in data.keys() and data["btc"] and data["btc"] != "":
             valid = check_valid_bitcoin_address(data["btc"])
             if not valid:
-                return False, data
-
-        if "eth" in data and data["eth"] and isinstance(data["eth"], str):
-            try:
-                recovered_address = Account.recover_message(
-                    encode_defunct(text=hex_prev_tx_hash), signature=bytes.fromhex(data["eth"])
-                )
-                valid = check_valid_eth_address(recovered_address)
-                recovered_address = recovered_address[2:]  # Remove '0x' prefix
-                data["eth"] = recovered_address
-            except ValueError as e:
-                logger.error(f"Invalid ETH address or signature: {e}")
-                return False, data
-
+                return valid
+        if "eth" in data.keys() and data["eth"] and data["eth"] != "":
+            recovered_address = Account.recover_message(
+                encode_defunct(text=hex_prev_tx_hash), signature=bytes.fromhex(data["eth"])
+            )
+            valid = check_valid_eth_address(recovered_address)
+            recovered_address = recovered_address[2:]
+            data["eth"] = recovered_address
         return valid, data
     except Exception as e:
-        logger.error(f"Error checking address data: {e}")
-        return False, {}
+        logger.error(f"Error in check_and_convert_addres_type_data: {e}")
+        return False, data
 
 
 def check_src101_inputs(input_string, tx_hash, block_index):
@@ -1113,7 +1129,7 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                             owner_updates.append(owner_dict)
                     else:
                         raise ValueError("cannot mint the same tokenid")
-                if src101_dict["op"] == "TRANSFER":
+                elif src101_dict["op"] == "TRANSFER":
                     if owner_dict is None:
                         owner_dict = {
                             "p": src101_dict["p"],
@@ -1131,9 +1147,9 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                         }
                         owner_updates.append(owner_dict)
                     else:
-                        owner_dict["owner"] = (src101_dict["src101_owner"],)
+                        owner_dict["owner"] = src101_dict["src101_owner"]
                         owner_dict["preowner"] = src101_dict["src101_preowner"]
-                if src101_dict["op"] == "RENEW":
+                elif src101_dict["op"] == "RENEW":
                     if owner_dict is None:
                         owner_dict = {
                             "p": src101_dict["p"],
@@ -1151,8 +1167,8 @@ def update_src101_owners(db, block_index, src101_processed_in_block):
                         }
                         owner_updates.append(owner_dict)
                     else:
-                        owner_dict["expire_timestamp"] = (src101_dict["expire_timestamp"],)
-                if src101_dict["op"] == "SETRECORD":
+                        owner_dict["expire_timestamp"] = src101_dict["expire_timestamp"]
+                elif src101_dict["op"] == "SETRECORD":
                     if owner_dict is None:
                         owner_dict = {
                             "p": src101_dict["p"],
@@ -1193,16 +1209,7 @@ def update_owner_table(db, owner_updates, block_index):
             max_index = cursor.fetchone()[0]
             id_field = owner_dict["p"] + "_" + owner_dict["deploy_hash"] + "_" + owner_dict["tokenid"]
             imgurl = owner_dict["img"]
-
-            # Ensure txt_data is properly serialized
-            txt_data = owner_dict["txt_data"]
-            if txt_data is not None:
-                if isinstance(txt_data, (dict, list)):
-                    txt_data = json.dumps(txt_data)
-                elif not isinstance(txt_data, str):
-                    txt_data = str(txt_data)
-
-            if owner_dict["prim"] and owner_dict["prim"] is True:
+            if owner_dict["prim"]:
                 cursor.execute(
                     f"""
                     UPDATE {SRC101_OWNERS_TABLE}
@@ -1240,7 +1247,7 @@ def update_owner_table(db, owner_updates, block_index):
                     imgurl,
                     owner_dict["preowner"],
                     owner_dict["owner"],
-                    txt_data,
+                    json.dumps(owner_dict["txt_data"]) if owner_dict["txt_data"] else None,
                     owner_dict["expire_timestamp"],
                     owner_dict["address_btc"],
                     owner_dict["address_eth"],
@@ -1270,27 +1277,20 @@ def update_owner_table(db, owner_updates, block_index):
 #     return result
 
 
-def get_owner_expire_data_from_running(
-    db, processed_src101_in_block: List[Dict[str, Any]], deploy_hash: str, tokenid_utf8: str
-) -> ResultType:
-    """Get owner and expire data from running transactions"""
-    preowner: Optional[str] = None
-    owner: Optional[str] = None
-    expire_timestamp: Optional[int] = None
-    address_btc: Optional[str] = None
-    address_eth: Optional[str] = None
-    txt_data: Optional[str] = None
-    prim: Optional[bool] = None
-
+def get_owner_expire_data_from_running(db, processed_src101_in_block, deploy_hash, tokenid_utf8):
+    preowner = None
+    owner = None
+    expire_timestamp = None
+    address_btc = None
+    address_eth = None
+    txt_data = None
+    prim = None
     for d in processed_src101_in_block:
-        if not isinstance(d, dict):
-            continue
-
-        tokenid_utf8_val = d.get("tokenid_utf8")
         if (
-            tokenid_utf8_val
-            and isinstance(tokenid_utf8_val, list)
-            and tokenid_utf8 in tokenid_utf8_val
+            d
+            and d.get("tokenid_utf8")
+            and isinstance(d.get("tokenid_utf8"), list)
+            and tokenid_utf8 in d.get("tokenid_utf8")
             and d.get("hash") == deploy_hash
             and d.get("valid", 0) == 1
         ):
@@ -1299,13 +1299,13 @@ def get_owner_expire_data_from_running(
             expire_timestamp = d.get("expire_timestamp")
             address_btc = d.get("address_btc")
             address_eth = d.get("address_eth")
-            txt_data_raw = d.get("txt_data")
-            txt_data = json.dumps(txt_data_raw) if txt_data_raw is not None else None
+            txt_data = json.dumps(d.get("txt_data"))
             prim = d.get("prim")
         elif (
-            tokenid_utf8_val
-            and isinstance(tokenid_utf8_val, str)
-            and tokenid_utf8 == tokenid_utf8_val
+            d
+            and d.get("tokenid_utf8")
+            and isinstance(d.get("tokenid_utf8"), str)
+            and tokenid_utf8 == d.get("tokenid_utf8")
             and d.get("hash") == deploy_hash
             and d.get("valid", 0) == 1
         ):
@@ -1314,17 +1314,14 @@ def get_owner_expire_data_from_running(
             expire_timestamp = d.get("expire_timestamp")
             address_btc = d.get("address_btc")
             address_eth = d.get("address_eth")
-            txt_data_raw = d.get("txt_data")
-            txt_data = json.dumps(txt_data_raw) if txt_data_raw is not None else None
+            txt_data = json.dumps(d.get("txt_data"))
             prim = d.get("prim")
-
     if owner and expire_timestamp:
-        return (preowner or "", owner, expire_timestamp, address_btc, address_eth, txt_data, prim)
+        return [preowner, owner, expire_timestamp, address_btc, address_eth, txt_data, prim]
     return get_owner_expire_data_from_db(db, deploy_hash, tokenid_utf8)
 
 
-def get_owner_expire_data_from_db(db, deploy_hash: str, tokenid_utf8: str) -> ResultType:
-    """Get owner and expire data from database"""
+def get_owner_expire_data_from_db(db, deploy_hash, tokenid_utf8):
     cursor = db.cursor()
     cursor.execute(
         f"SELECT preowner, owner,expire_timestamp,address_btc,address_eth,txt_data,prim FROM {SRC101_OWNERS_TABLE} WHERE tokenid_utf8 = %s AND deploy_hash = %s",
@@ -1332,6 +1329,5 @@ def get_owner_expire_data_from_db(db, deploy_hash: str, tokenid_utf8: str) -> Re
     )
     result = cursor.fetchone()
     if not result:
-        return ("", "", 0, None, None, None, None)
-    # Convert list to tuple to match ResultType
-    return tuple(result) if isinstance(result, (list, tuple)) else ("", "", 0, None, None, None, None)
+        result = [None, None, None, None, None, None, None]
+    return result
