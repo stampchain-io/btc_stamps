@@ -1,5 +1,6 @@
 import collections
 import concurrent.futures
+import functools
 import gc
 import json
 import logging
@@ -9,11 +10,10 @@ from typing import Any, Dict, List, Optional
 import psutil
 import requests
 from bitcoin.core import CBlock, CTransaction, x
-from requests.exceptions import ConnectionError, Timeout
 from requests.adapters import HTTPAdapter
-from urllib3.util.ssl_ import create_urllib3_context
-import functools
+from requests.exceptions import ConnectionError, Timeout
 from urllib3.util.retry import Retry
+from urllib3.util.ssl_ import create_urllib3_context
 
 import config
 import index_core.util as util
