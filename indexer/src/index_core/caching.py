@@ -4,7 +4,7 @@ import logging
 import time
 from decimal import Decimal
 from threading import RLock
-from typing import Any, Dict, Optional, TypeVar, Union
+from typing import Any, Dict, List, Optional, TypeVar, Union
 
 from config import (
     ADDRESS_CACHE_SIZE,
@@ -240,6 +240,22 @@ class CacheManager:
             cache.invalidate(key)
         elif cache:
             logger.debug(f"No entry to invalidate in cache '{cache_name}' for key '{key}'")
+
+    def invalidate_cache_entries(self, cache_name: str, keys: List[str]) -> None:
+        """
+        Invalidate multiple cache entries efficiently.
+
+        Args:
+            cache_name: Name of the cache to invalidate entries from
+            keys: List of cache keys to invalidate
+        """
+        with self._lock:
+            cache = self.get_cache(cache_name)
+            if cache:
+                for key in keys:
+                    if key in cache:
+                        logger.debug(f"Invalidating entry in cache '{cache_name}' for key '{key}'")
+                        cache.invalidate(key)
 
 
 # Global instance

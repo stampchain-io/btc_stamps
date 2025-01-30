@@ -34,6 +34,12 @@ from index_core.util import create_base62_hash
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
+# Precompile frequently used regex patterns
+JS_PATTERN = re.compile(
+    r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b",
+    re.IGNORECASE,
+)
+
 
 class ValidStamp(TypedDict):
     stamp_number: int
@@ -266,40 +272,35 @@ class StampData:
         """
         js_code = bytestring_data.decode("utf-8", errors="ignore")
 
-        # Enhanced regex to detect common JavaScript syntax elements, including ES6 features
-        js_pattern = re.compile(
-            r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b",
-            re.VERSION1,  # Ensure consistent behavior across all Python versions
-        )
-        if not js_pattern.search(js_code):
-            return False
+        # Use precompiled JS_PATTERN
+        if JS_PATTERN.search(js_code):
+            # Additional checks use precompiled patterns
+            # Check for some common JavaScript structures and constructs
+            js_formatting_patterns = [
+                r"\bfunction\s+\w+\s*\(",  # function declarations
+                r"\bvar\s+\w+\s*=",  # var declarations
+                r"\blet\s+\w+\s*=",  # let declarations
+                r"\bconst\s+\w+\s*=",  # const declarations
+                r"\bif\s*\(.*?\)\s*{",  # if statements
+                r"\belse\s*{",  # else statements
+                r"\bfor\s*\(.*?\)\s*{",  # for loops
+                r"\bwhile\s*\(.*?\)\s*{",  # while loops
+                r"\bclass\s+\w+\s*{",  # class declarations
+                r'\bimport\s+.*?\s+from\s+["\']',  # import statements
+                r"\bexport\s+(default\s+)?\w+\s*",  # export statements
+                r"\bnew\s+\w+\s*\(",  # object instantiation
+                r"\breturn\s+",  # return statements
+                r"\btypeof\s+\w+",  # typeof operator
+                r"\binstanceof\s+\w+",  # instanceof operator
+                r"\bcatch\s*\(.*?\)\s*{",  # catch blocks
+                r"\btry\s*{",  # try blocks
+                r"\bfinally\s*{",  # finally blocks
+                r"\b=>\s*{",  # arrow functions
+            ]
 
-        # Check for some common JavaScript structures and constructs
-        js_formatting_patterns = [
-            r"\bfunction\s+\w+\s*\(",  # function declarations
-            r"\bvar\s+\w+\s*=",  # var declarations
-            r"\blet\s+\w+\s*=",  # let declarations
-            r"\bconst\s+\w+\s*=",  # const declarations
-            r"\bif\s*\(.*?\)\s*{",  # if statements
-            r"\belse\s*{",  # else statements
-            r"\bfor\s*\(.*?\)\s*{",  # for loops
-            r"\bwhile\s*\(.*?\)\s*{",  # while loops
-            r"\bclass\s+\w+\s*{",  # class declarations
-            r'\bimport\s+.*?\s+from\s+["\']',  # import statements
-            r"\bexport\s+(default\s+)?\w+\s*",  # export statements
-            r"\bnew\s+\w+\s*\(",  # object instantiation
-            r"\breturn\s+",  # return statements
-            r"\btypeof\s+\w+",  # typeof operator
-            r"\binstanceof\s+\w+",  # instanceof operator
-            r"\bcatch\s*\(.*?\)\s*{",  # catch blocks
-            r"\btry\s*{",  # try blocks
-            r"\bfinally\s*{",  # finally blocks
-            r"\b=>\s*{",  # arrow functions
-        ]
-
-        for pattern in js_formatting_patterns:
-            if re.search(pattern, js_code, re.VERSION1):
-                return True
+            for pattern in js_formatting_patterns:
+                if re.search(pattern, js_code, re.VERSION1):
+                    return True
 
         return False
 

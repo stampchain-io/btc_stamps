@@ -49,6 +49,7 @@ from index_core.database import (
     update_parsed_block,
     update_src20_token_stats,
 )
+from index_core.database_manager import db_manager
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
 from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
@@ -65,7 +66,6 @@ from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
 from index_core.zmq_utils import ZMQNotifier
-from index_core.database_manager import db_manager
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)

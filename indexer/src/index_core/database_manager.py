@@ -5,7 +5,7 @@ import os
 import queue
 import threading
 import time
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 import pymysql
 from pymysql.connections import Connection
@@ -80,7 +80,7 @@ class ConnectionPool:
             # Verify the connection is still alive
             try:
                 connection.ping(reconnect=True)
-            except:
+            except Exception:
                 # Connection is dead, remove it and create a new one
                 self._remove_connection(connection)
                 connection = self._create_connection()
@@ -110,8 +110,8 @@ class ConnectionPool:
             # Verify the connection is still usable
             connection.ping(reconnect=True)
             self._pool.put(connection, timeout=self.timeout)
-        except:
-            # Connection is dead, remove it
+        except Exception as e:
+            logger.debug(f"Connection ping failed: {str(e)}")
             self._remove_connection(connection)
 
     def _remove_connection(self, connection: Connection):
@@ -124,7 +124,7 @@ class ConnectionPool:
             if conn_id in self._active_connections:
                 try:
                     connection.close()
-                except:
+                except Exception:
                     pass
                 del self._active_connections[conn_id]
 
@@ -154,7 +154,10 @@ class ConnectionPool:
 
         with self._lock:
             for conn in list(self._active_connections.values()):
-                self._remove_connection(conn)
+                try:
+                    self._remove_connection(conn)
+                except Exception:
+                    pass
 
 
 class DatabaseManager:

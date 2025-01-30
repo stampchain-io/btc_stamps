@@ -29,6 +29,11 @@ D = Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
+# Precompile regex patterns used in validation
+TICK_REGEX = re.compile(rf"^[{re.escape(''.join(TICK_PATTERN_SET))}]+$")  # Join set elements
+NUMERIC_REGEX = re.compile(r"^[0-9]*(\.[0-9]*)?$")
+DECIMAL_REGEX = re.compile(r"^[0-9]+$")
+
 
 class Src20Dict(TypedDict, total=False):
     tick: Optional[str]
@@ -56,9 +61,6 @@ class Src20Validator:
         self.validation_errors: List[str] = []
 
     def process_values(self) -> Src20Dict:
-        num_pattern = re.compile(r"^[0-9]*(\.[0-9]*)?$")
-        dec_pattern = re.compile(r"^[0-9]+$")
-
         for key, value in list(self.src20_dict.items()):
             if value == "":
                 self.src20_dict[key] = None  # type: ignore
@@ -67,15 +69,15 @@ class Src20Validator:
             elif key in ["p", "op", "holders_of"]:
                 self._process_uppercase_value(key, value)  # type: ignore
             elif key in ["max", "lim", "amt", "dec"]:
-                self._apply_regex_validation(key, value, num_pattern, dec_pattern)
+                self._apply_regex_validation(key, value)
 
         return self.src20_dict
 
-    def _apply_regex_validation(self, key, value, num_pattern, dec_pattern):
+    def _apply_regex_validation(self, key, value):
         if key in ["max", "lim", "amt"]:
             if isinstance(value, D):
                 self.src20_dict[key] = value
-            elif num_pattern.match(str(value)):
+            elif NUMERIC_REGEX.match(str(value)):
                 self.src20_dict[key] = D(str(value))
             else:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
@@ -83,7 +85,7 @@ class Src20Validator:
             if key in ["max", "lim"] and self.src20_dict[key] is not None:
                 self.src20_dict[key] = self.src20_dict[key].quantize(Decimal("1"), rounding=ROUND_DOWN)
         elif key == "dec":
-            if dec_pattern.match(str(value)) and 0 <= int(value) <= 18:
+            if DECIMAL_REGEX.match(str(value)) and 0 <= int(value) <= 18:
                 self.src20_dict[key] = int(value)
             else:
                 self._update_status(key, f"NN: INVALID DEC VAL {key}")
@@ -101,6 +103,9 @@ class Src20Validator:
     def _process_tick_value(self, key: str, value: str) -> None:
         self.src20_dict["tick"] = value.lower()
         self.src20_dict["tick"] = escape_non_ascii_characters(self.src20_dict["tick"])
+        # if not TICK_REGEX.match(self.src20_dict["tick"]):
+        #     self._update_status(key, "Invalid tick format")
+        #     return
         self.src20_dict["tick_hash"] = self.create_tick_hash(value.lower())
 
     def _process_uppercase_value(self, key: str, value: str) -> None:
@@ -1139,55 +1144,62 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
 
 
 def update_balance_table(db, balance_updates, block_index, block_time):
-    """Update the balances table with the balance_updates list"""
     cursor = db.cursor()
+    try:
+        # Group updates by address maintaining original order
+        address_updates = defaultdict(list)
+        for bu in balance_updates:
+            key = (bu["tick"], bu["address"])
+            address_updates[key].append(bu)
 
-    for balance_dict in balance_updates:
-        try:
-            net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
-            balance_dict["net_change"] = net_change
-            id_field = balance_dict["tick"] + "_" + balance_dict["address"]
+        # Get initial balances
+        id_fields = [f"{t}_{a}" for t, a in address_updates.keys()]
+        cursor.execute(f"SELECT id, amt FROM {SRC20_BALANCES_TABLE} WHERE id IN %s", (tuple(id_fields),))
+        db_balances = dict(cursor.fetchall())
 
-            # Get and store original balance
-            cursor.execute(f"SELECT amt FROM {SRC20_BALANCES_TABLE} WHERE id = %s", (id_field,))  # nosec
-            result = cursor.fetchone()
-            if result is not None:
-                balance_dict["original_amt"] = D(result[0])
-            else:
-                balance_dict["original_amt"] = D(0)
+        insert_values = []
+        for (tick, address), updates in address_updates.items():
+            id_field = f"{tick}_{address}"
+            current_balance = D(db_balances.get(id_field, 0))
 
-            cursor.execute(
-                """
-                INSERT INTO balances
-                (id, address, tick, amt, last_update, block_time, p, tick_hash)
-                VALUES (%s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    amt = amt + VALUES(amt),
-                    last_update = VALUES(last_update)
-                """,
-                (
-                    id_field,
-                    balance_dict["address"],
-                    balance_dict["tick"],
-                    net_change,  # Use net_change directly
-                    block_index,
-                    block_time,
-                    "SRC-20",
-                    balance_dict["tick_hash"],
-                ),
-            )
+            # Process updates in original order
+            for bu in updates:
+                bu["original_amt"] = current_balance
+                net_change = bu.get("credit", D(0)) - bu.get("debit", D(0))
+                current_balance += net_change
 
-            # Invalidate cache after successful update
-            cache_manager.invalidate_cache_entry(
-                "balance", f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}"
-            )
+                insert_values.append(
+                    (
+                        id_field,
+                        address,
+                        "SRC-20",  # p value
+                        tick,
+                        bu["tick_hash"],
+                        net_change,
+                        block_index,
+                        block_time,
+                    )
+                )
 
-        except Exception as e:
-            logger.error("Error updating balances table:", e)
-            raise e
+            # Set final balance for all updates in this group
+            for bu in updates:
+                bu["final_calculated_balance"] = current_balance
 
-    cursor.close()
-    return
+        # Bulk insert
+        cursor.executemany(
+            """
+            INSERT INTO balances
+            (id, address, p, tick, tick_hash, amt, last_update, block_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
+            ON DUPLICATE KEY UPDATE
+                amt = amt + VALUES(amt),
+                last_update = VALUES(last_update)
+            """,
+            insert_values,
+        )
+
+    finally:
+        cursor.close()
 
 
 def process_balance_updates(balance_updates):
@@ -1200,28 +1212,18 @@ def process_balance_updates(balance_updates):
     Returns:
         str: A string representation of valid src20 entries.
     """
-
     valid_src20_list = []
-    if balance_updates:
-        for src20 in balance_updates:
-            creator = src20.get("address")
-            tick = src20.get("tick", "")
-            if "\\" in tick:
-                tick = decode_unicode_escapes(tick)
+    for src20 in balance_updates:
+        tick = src20["tick"]
+        if "\\" in tick:  # Decode escaped unicode tickers
+            tick = decode_unicode_escapes(tick)
 
-            amt = D(src20.get("net_change", D(0))) + D(src20.get("original_amt", D(0)))
-            amt = amt.normalize()
+        amt = D(src20["final_calculated_balance"])
+        amt_str = format_decimal(amt)
+        valid_src20_list.append(f"{tick},{src20['address']},{amt_str}")
 
-            amt_str = format_decimal(amt)
-            valid_src20_list.append(f"{tick},{creator},{amt_str}")
-
-    valid_src20_list = sorted(
-        valid_src20_list,
-        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
-    )
-
-    valid_src20_str = ";".join(valid_src20_list)
-    return valid_src20_str
+    valid_src20_list = sorted(valid_src20_list, key=lambda x: (x.split(",")[0], x.split(",")[1]))
+    return ";".join(valid_src20_list)
 
 
 def format_decimal(amt):

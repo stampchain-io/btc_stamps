@@ -106,13 +106,18 @@ class Parser:
     def batch_parse_transactions(self, tx_hexes: List[str]) -> List[CTransaction]:
         """Parse multiple transactions in parallel with optimized memory management."""
         try:
-            results: List[CTransaction] = []
             total_txs = len(tx_hexes)
+            # Pre-allocate list with final size to avoid resizing overhead
+            results: List[CTransaction] = [None] * total_txs  # type: ignore
 
             for i in range(0, total_txs, self._chunk_size):
                 chunk = tx_hexes[i : i + self._chunk_size]
+                end_idx = i + len(chunk)
+
+                # Process chunk and assign directly to pre-allocated slice
                 tx_infos = self._parser.batch_parse_transactions(chunk)
-                results.extend(self._convert_to_ctransaction(tx_info) for tx_info in tx_infos)
+                # Use list comprehension instead of generator for faster execution
+                results[i:end_idx] = [self._convert_to_ctransaction(tx_info) for tx_info in tx_infos]
 
                 # Check if garbage collection is needed
                 if i > 0 and (i % (self._chunk_size * self._gc_chunk_interval) == 0):

@@ -10,6 +10,10 @@ import psutil
 import requests
 from bitcoin.core import CBlock, CTransaction, x
 from requests.exceptions import ConnectionError, Timeout
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
+import functools
+from urllib3.util.retry import Retry
 
 import config
 import index_core.util as util
@@ -59,6 +63,9 @@ class Backend:
         # Initialize memory manager
         self.memory_manager = memory_manager
 
+        # Initialize optimized SSL session
+        self._session = self._create_optimized_session()
+
     def _should_collect_garbage(self, force_check: bool = False) -> bool:
         """
         Determine if garbage collection should be performed based on memory usage
@@ -106,6 +113,45 @@ class Backend:
             logger.warning(f"Garbage collection error: {e}")
             gc.collect()  # Fallback to full collection
 
+    def _create_optimized_session(self):
+        """Create a requests session with optimized SSL configuration"""
+        session = requests.Session()
+
+        # Configure SSL context with modern settings
+        ssl_context = create_urllib3_context()
+        ssl_options = ssl_context.options
+        ssl_options |= 0x4  # OP_LEGACY_SERVER_CONNECT
+        ssl_context.options = ssl_options
+
+        # Optimized cipher suite and TLS settings
+        ssl_context.set_ciphers("ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:TLS_AES_128_GCM_SHA256")
+        ssl_context.post_handshake_auth = True
+
+        # Enhanced connection pooling configuration
+        adapter = HTTPAdapter(
+            max_retries=Retry(
+                total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(["GET", "POST"])
+            ),
+            pool_connections=config.BACKEND_RPC_BATCH_NUM_WORKERS * 2,
+            pool_maxsize=100,
+            pool_block=False,
+        )
+
+        # Mount adapters for both HTTP and HTTPS
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        # Configure SSL verification
+        session.verify = not config.BACKEND_SSL_NO_VERIFY
+        if not config.BACKEND_SSL_NO_VERIFY:
+            session.ssl_context = ssl_context
+
+        # Configure session-wide timeout
+        session.request = functools.partial(session.request, timeout=(5, 30))
+
+        logger.debug("Created optimized session handling both HTTP/HTTPS with connection pooling")
+        return session
+
     def rpc_call(self, payload):
         """Calls to bitcoin core and returns the response"""
         url = config.RPC_URL
@@ -131,12 +177,8 @@ class Backend:
                 # Authentication is handled via API key in URL path
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
 
-                response = requests.post(
-                    url,
-                    data=json.dumps(payload),
-                    headers=headers,
-                    verify=(not config.BACKEND_SSL_NO_VERIFY),
-                    timeout=config.REQUESTS_TIMEOUT,
+                response = self._session.post(
+                    url, data=json.dumps(payload), headers=headers, timeout=(5, 30)  # Separate connect and read timeouts
                 )
                 if response.status_code != 200:
                     logger.debug(f"Response status code: {response.status_code}")

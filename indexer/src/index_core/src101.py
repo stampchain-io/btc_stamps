@@ -32,6 +32,11 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
+# Precompile regex patterns for SRC-101 validation
+NUMERIC_PATTERN = re.compile(r"^[0-9]*(\.[0-9]*)?$")
+ADDRESS_REGEX = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{25,34}$")  # Bitcoin address pattern
+ETH_ADDRESS_REGEX = re.compile(r"^0x[a-fA-F0-9]{40}$")
+
 
 class Src101Dict(TypedDict, total=False):
     tick: Optional[str]
@@ -65,9 +70,6 @@ class Src101Validator:
 
     def process_values(self):
         try:
-            num_pattern = re.compile(r"^[0-9]*(\.[0-9]*)?$")
-            # dec_pattern = re.compile(r"^[0-9]+$")
-
             for key, value in list(self.src101_dict.items()):
                 try:
                     if value == "":
@@ -103,7 +105,7 @@ class Src101Validator:
                     elif key in ["root"]:
                         self._process_lowercase_value(key, value)
                     elif key in ["lim", "dua", "idua", "mintstart", "mintend", "coef"]:
-                        self._apply_regex_validation(key, value, num_pattern)
+                        self._apply_regex_validation(key, value, NUMERIC_PATTERN)
                 except Exception as e:
                     self.src101_dict[key] = None
                     self._update_status(f"{key}:{value}", e)
