@@ -172,7 +172,15 @@ else:
         logger.debug(f"Using non-TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
     logger.info("Standard RPC configuration validated")
 
-logger.info(f"Final RPC URL format: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
+# Modified URL masking that works for both authentication types
+if QUICKNODE_ENDPOINT and QUICKNODE_API_KEY:
+    # Mask API key in URL path using regex
+    masked_url = re.sub(r"(https?://[^/]+/)([^/]+)(/?)", r"\1****\3", RPC_URL)
+else:
+    # Standard credential masking
+    masked_url = RPC_URL.replace(RPC_PASSWORD or "", "****")
+
+logger.info(f"Final RPC URL format: {masked_url}")
 
 RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 
