@@ -140,7 +140,7 @@ class Src20Processor:
         "ID": ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
     }
 
-    def __init__(self, db, src20_dict, processed_src20_in_block, lock=None):
+    def __init__(self, db, src20_dict, processed_src20_in_block, lock=None, block_index=None, block_time=None):
         self.db = db
         self.src20_dict = src20_dict
         self.processed_src20_in_block = processed_src20_in_block
@@ -148,6 +148,8 @@ class Src20Processor:
         self.dec: Optional[Union[str, int]] = src20_dict.get("dec", 0)
         self.deploy_lim: Optional[Union[str, D]] = src20_dict.get("deploy_lim", 0)
         self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
+        self.block_index = block_index
+        self.block_time = block_time
         self._lock = lock
 
     def normalize_and_validate_amt(self):
@@ -1038,166 +1040,143 @@ def update_src20_balances(db, block_index, block_time, processed_src20_in_block)
     """Update balances for SRC20 transactions"""
     balance_updates = []
 
-    # First accumulate all changes within the block
-    for src20_dict in processed_src20_in_block:
-        if src20_dict.get("valid") != 1:  # Skip invalid transactions
-            continue
+    # Skip invalid transactions and non-balance affecting operations
+    valid_transactions = [
+        tx for tx in processed_src20_in_block if tx.get("valid") == 1 and tx.get("op") in ["MINT", "TRANSFER"] and "amt" in tx
+    ]
 
-        if src20_dict.get("op") not in ["MINT", "TRANSFER"]:  # Skip non-balance affecting operations
-            continue
-
-        if "amt" not in src20_dict:  # Skip transactions without amt field
-            logger.debug(f"Skipping transaction without amt field: {src20_dict}")
-            continue
-
+    # Process each valid transaction
+    for src20_dict in valid_transactions:
         try:
-            amt = D(str(src20_dict["amt"]))  # Ensure decimal conversion is consistent
+            amt = D(str(src20_dict["amt"]))
 
             if src20_dict["op"] == "MINT":
-                # Credit to destination
-                balance_dict = next(
-                    (
-                        item
-                        for item in balance_updates
-                        if item["tick"] == src20_dict["tick"]
-                        and item["tick_hash"] == src20_dict["tick_hash"]
-                        and item["address"] == src20_dict["destination"]
-                    ),
-                    None,
-                )
-                if balance_dict is None:
-                    balance_dict = {
-                        "tick": src20_dict["tick"],
-                        "tick_hash": src20_dict["tick_hash"],
-                        "address": src20_dict["destination"],
-                        "credit": amt,
-                        "debit": D(0),
-                    }
-                    balance_updates.append(balance_dict)
-                else:
-                    balance_dict["credit"] += amt
-
+                _process_mint_operation(balance_updates, src20_dict, amt)
             elif src20_dict["op"] == "TRANSFER":
-                # Debit from source
-                balance_dict = next(
-                    (
-                        item
-                        for item in balance_updates
-                        if item["tick"] == src20_dict["tick"]
-                        and item["tick_hash"] == src20_dict["tick_hash"]
-                        and item["address"] == src20_dict["creator"]
-                    ),
-                    None,
-                )
-                if balance_dict is None:
-                    balance_dict = {
-                        "tick": src20_dict["tick"],
-                        "tick_hash": src20_dict["tick_hash"],
-                        "address": src20_dict["creator"],
-                        "credit": D(0),
-                        "debit": amt,
-                    }
-                    balance_updates.append(balance_dict)
-                else:
-                    balance_dict["debit"] += amt
-
-                # Credit to destination
-                balance_dict = next(
-                    (
-                        item
-                        for item in balance_updates
-                        if item["tick"] == src20_dict["tick"]
-                        and item["tick_hash"] == src20_dict["tick_hash"]
-                        and item["address"] == src20_dict["destination"]
-                    ),
-                    None,
-                )
-                if balance_dict is None:
-                    balance_dict = {
-                        "tick": src20_dict["tick"],
-                        "tick_hash": src20_dict["tick_hash"],
-                        "address": src20_dict["destination"],
-                        "credit": amt,
-                        "debit": D(0),
-                    }
-                    balance_updates.append(balance_dict)
-                else:
-                    balance_dict["credit"] += amt
+                _process_transfer_operation(balance_updates, src20_dict, amt)
 
         except Exception as e:
             logger.error(f"Error updating SRC20 balances for transaction: {src20_dict}")
             logger.error(f"Error details: {str(e)}")
             raise
 
-    # Now update the database with final balances
+    # Update database and cache
     update_balance_table(db, balance_updates, block_index, block_time)
-
-    # Update caches with final balances
-    for balance_dict in balance_updates:
-        net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
-        current_balance = balance_dict.get("original_amt", D(0)) + net_change
-        cache_manager.set_cache_value(
-            "balance", f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}", current_balance
-        )  # Use CacheManager
+    _update_balance_caches(balance_updates)
 
     return balance_updates
 
 
+def _process_mint_operation(balance_updates, src20_dict, amt):
+    """Process a MINT operation and update the balance_updates list."""
+    # Find or create balance entry for destination
+    balance_dict = _get_or_create_balance_entry(
+        balance_updates, src20_dict["tick"], src20_dict["tick_hash"], src20_dict["destination"]
+    )
+    balance_dict["credit"] += amt
+
+
+def _process_transfer_operation(balance_updates, src20_dict, amt):
+    """Process a TRANSFER operation and update the balance_updates list."""
+    # Debit from source
+    source_balance = _get_or_create_balance_entry(
+        balance_updates, src20_dict["tick"], src20_dict["tick_hash"], src20_dict["creator"]
+    )
+    source_balance["debit"] += amt
+
+    # Credit to destination
+    dest_balance = _get_or_create_balance_entry(
+        balance_updates, src20_dict["tick"], src20_dict["tick_hash"], src20_dict["destination"]
+    )
+    dest_balance["credit"] += amt
+
+
+def _get_or_create_balance_entry(balance_updates, tick, tick_hash, address):
+    """Find or create a balance entry for the given tick/address combination."""
+    balance_dict = next(
+        (
+            item
+            for item in balance_updates
+            if item["tick"] == tick and item["tick_hash"] == tick_hash and item["address"] == address
+        ),
+        None,
+    )
+
+    if balance_dict is None:
+        balance_dict = {"tick": tick, "tick_hash": tick_hash, "address": address, "credit": D(0), "debit": D(0)}
+        balance_updates.append(balance_dict)
+
+    return balance_dict
+
+
+def _update_balance_caches(balance_updates):
+    """Update the cache with the final balances."""
+    for balance_dict in balance_updates:
+        net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
+        current_balance = balance_dict.get("original_amt", D(0)) + net_change
+
+        cache_key = f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}"
+        cache_manager.set_cache_value("balance", cache_key, current_balance)
+
+
 def update_balance_table(db, balance_updates, block_index, block_time):
+    """Update the balances table with the balance_updates list"""
+    if not balance_updates:
+        return
+
     cursor = db.cursor()
     try:
-        # Group updates by address maintaining original order
-        address_updates = defaultdict(list)
-        for bu in balance_updates:
-            key = (bu["tick"], bu["address"])
-            address_updates[key].append(bu)
+        # Calculate net changes and prepare id lookup
+        id_to_balance = {}
+        for balance_dict in balance_updates:
+            net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
+            balance_dict["net_change"] = net_change
+            id_field = f"{balance_dict['tick']}_{balance_dict['address']}"
+            id_to_balance[id_field] = balance_dict
 
-        # Get initial balances
-        id_fields = [f"{t}_{a}" for t, a in address_updates.keys()]
-        cursor.execute(f"SELECT id, amt FROM {SRC20_BALANCES_TABLE} WHERE id IN %s", (tuple(id_fields),))
-        db_balances = dict(cursor.fetchall())
+        # Fetch all existing balances in one query
+        id_list = list(id_to_balance.keys())
+        placeholders = ",".join(["%s"] * len(id_list))
+        cursor.execute(f"SELECT id, amt FROM {SRC20_BALANCES_TABLE} WHERE id IN ({placeholders})", tuple(id_list))
 
-        insert_values = []
-        for (tick, address), updates in address_updates.items():
-            id_field = f"{tick}_{address}"
-            current_balance = D(db_balances.get(id_field, 0))
+        # Update balance_dict with original amounts
+        for id_field, amt in cursor.fetchall():
+            id_to_balance[id_field]["original_amt"] = D(amt)
 
-            # Process updates in original order
-            for bu in updates:
-                bu["original_amt"] = current_balance
-                net_change = bu.get("credit", D(0)) - bu.get("debit", D(0))
-                current_balance += net_change
+        # Set zero for any missing balances
+        for balance_dict in balance_updates:
+            if "original_amt" not in balance_dict:
+                balance_dict["original_amt"] = D(0)
 
-                insert_values.append(
-                    (
-                        id_field,
-                        address,
-                        "SRC-20",  # p value
-                        tick,
-                        bu["tick_hash"],
-                        net_change,
-                        block_index,
-                        block_time,
-                    )
-                )
+        insert_data = [
+            (
+                f"{b['tick']}_{b['address']}",
+                b["address"],
+                b["tick"],
+                b["net_change"],
+                block_index,
+                block_time,
+                "SRC-20",
+                b["tick_hash"],
+            )
+            for b in balance_updates
+        ]
 
-            # Set final balance for all updates in this group
-            for bu in updates:
-                bu["final_calculated_balance"] = current_balance
-
-        # Bulk insert
         cursor.executemany(
             """
             INSERT INTO balances
-            (id, address, p, tick, tick_hash, amt, last_update, block_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
+            (id, address, tick, amt, last_update, block_time, p, tick_hash)
+            VALUES (%s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s)
             ON DUPLICATE KEY UPDATE
                 amt = amt + VALUES(amt),
                 last_update = VALUES(last_update)
             """,
-            insert_values,
+            insert_data,
         )
 
+    except Exception as e:
+        logger.error("Error updating balances table:", e)
+        raise e
     finally:
         cursor.close()
 
@@ -1212,18 +1191,28 @@ def process_balance_updates(balance_updates):
     Returns:
         str: A string representation of valid src20 entries.
     """
+
     valid_src20_list = []
-    for src20 in balance_updates:
-        tick = src20["tick"]
-        if "\\" in tick:  # Decode escaped unicode tickers
-            tick = decode_unicode_escapes(tick)
+    if balance_updates:
+        for src20 in balance_updates:
+            creator = src20.get("address")
+            tick = src20.get("tick", "")
+            if "\\" in tick:
+                tick = decode_unicode_escapes(tick)
 
-        amt = D(src20["final_calculated_balance"])
-        amt_str = format_decimal(amt)
-        valid_src20_list.append(f"{tick},{src20['address']},{amt_str}")
+            amt = D(src20.get("net_change", D(0))) + D(src20.get("original_amt", D(0)))
+            amt = amt.normalize()
 
-    valid_src20_list = sorted(valid_src20_list, key=lambda x: (x.split(",")[0], x.split(",")[1]))
-    return ";".join(valid_src20_list)
+            amt_str = format_decimal(amt)
+            valid_src20_list.append(f"{tick},{creator},{amt_str}")
+
+    valid_src20_list = sorted(
+        valid_src20_list,
+        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
+    )
+
+    valid_src20_str = ";".join(valid_src20_list)
+    return valid_src20_str
 
 
 def format_decimal(amt):
