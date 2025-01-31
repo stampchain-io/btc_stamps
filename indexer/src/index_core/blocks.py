@@ -785,48 +785,28 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     )
 
 
-def quick_filter_src20_transaction(tx_hex):
-    """
-    Quick pre-filter to check if a transaction might be a SRC-20 transaction.
-    Only checks for multisig and p2wsh patterns.
-    """
-    try:
-        ctx = backend_instance.deserialize(tx_hex)
-
-        # Check outputs for SRC-20 patterns
-        for vout in ctx.vout:
-            script = bytes(vout.scriptPubKey)
-
-            # Check for P2WSH pattern (0x00 + 32 bytes)
-            if len(script) == 34 and script[0] == 0x00:
-                return True
-
-            # Check for potential multisig pattern with OP_CHECKMULTISIG
-            # OP_CHECKMULTISIG opcode is 0xAE
-            if len(script) > 2 and script[-1] == 0xAE:
-                return True
-
-        return False
-
-    except Exception as e:
-        # If we can't decode, better to include it than miss it
-        logger.debug(f"Error in quick filter: {e}")
-        return True
-
-
 def filter_block_transactions(block_data, block_hash, stamp_issuances=None):
     """
     Filter transactions from a block based on genesis status.
     Uses Rust parser for efficient batch processing if available.
+
+    Args:
+        block_data (dict): Block data containing transactions
+        block_hash (str): Block hash for retrieving raw block data
+        stamp_issuances (list): Optional list of stamp issuances
+
+    Returns:
+        tuple: (txhash_list, raw_transactions)
     """
-    tx_hash_list = []
     raw_transactions = {}
+    start_time = time.time()
 
     # Get all transactions from block
     all_txs = block_data["tx"]
+    total_txs = len(all_txs)
 
     # Store all tx hashes for message hash calculation (maintain original order)
-    tx_hash_list = [tx["txid"] for tx in all_txs]
+    txhash_list = [tx["txid"] for tx in all_txs]
 
     # Get set of issuance transactions if any
     issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
@@ -837,51 +817,63 @@ def filter_block_transactions(block_data, block_hash, stamp_issuances=None):
         for tx in all_txs:
             if tx["txid"] in issuance_tx_hashes:
                 raw_transactions[tx["txid"]] = tx["hex"]
-    else:
-        # After genesis block:
-        # 1. First add all stamp issuance transactions (in order)
-        for tx in all_txs:
-            if tx["txid"] in issuance_tx_hashes:
+        return txhash_list, raw_transactions
+
+    # After genesis block:
+    # 1. First add all stamp issuance transactions
+    for tx in all_txs:
+        if tx["txid"] in issuance_tx_hashes:
+            raw_transactions[tx["txid"]] = tx["hex"]
+
+    # 2. Quick filter remaining transactions
+    non_issuance_txs = [tx for tx in all_txs if tx["txid"] not in issuance_tx_hashes]
+    non_issuance_count = len(non_issuance_txs)
+
+    if non_issuance_txs:
+        # Try Rust pre-filter if available
+        if backend_instance._parser is not None:
+            try:
+                # Get raw block and apply pre-filter
+                block_hex = backend_instance.rpc("getblock", [block_hash, 0])
+                pre_filter_result = backend_instance._parser.pre_filter_block(block_hex)
+                
+                # Add filtered transactions
+                filtered_count = 0
+                filtered_txids = {tx_info.txid for tx_info in pre_filter_result.transactions}
+                for tx in non_issuance_txs:
+                    if tx["txid"] in filtered_txids:
+                        raw_transactions[tx["txid"]] = tx["hex"]
+                        filtered_count += 1
+
+                # Log performance metrics
+                filtering_rate = ((non_issuance_count - filtered_count) / non_issuance_count * 100) if non_issuance_count > 0 else 0
+                processing_time = time.time() - start_time
+                logger.info(
+                    f"Pre-filter stats: Total={total_txs}, Non-issuance={non_issuance_count}, "
+                    f"Filtered={filtered_count}, Rate={filtering_rate:.1f}%, "
+                    f"Time={processing_time:.3f}s, Block={block_hash}"
+                )
+
+            except Exception as e:
+                logger.warning(f"Rust pre-filter failed: {e}, falling back to Python implementation")
+                # Fall through to Python implementation
+                backend_instance._parser = None
+
+        # Use Python implementation if Rust parser is not available or failed
+        if backend_instance._parser is None:
+            # If Rust parser fails, include all transactions to be safe
+            filtered_count = len(non_issuance_txs)
+            for tx in non_issuance_txs:
                 raw_transactions[tx["txid"]] = tx["hex"]
 
-        # 2. Quick filter remaining transactions
-        non_issuance_txs = [tx for tx in all_txs if tx["txid"] not in issuance_tx_hashes]
+            # Log Python implementation metrics
+            processing_time = time.time() - start_time
+            logger.warning(
+                f"Using fallback mode: Total={total_txs}, Non-issuance={non_issuance_count}, "
+                f"Time={processing_time:.3f}s, Block={block_hash}"
+            )
 
-        if non_issuance_txs:
-            # Check if Rust parser is available and properly initialized
-            if backend_instance._parser is not None:
-                try:
-                    # Use new Rust pre-filter for efficient filtering
-                    block_hex = backend_instance.rpc("getblock", [block_hash, 0])
-                    pre_filter_result = backend_instance._parser.pre_filter_block(block_hex)
-                    
-                    # Add filtered transactions to raw_transactions
-                    for tx_info in pre_filter_result.transactions:
-                        tx_id = tx_info.txid
-                        # Find original transaction hex from non_issuance_txs
-                        for tx in non_issuance_txs:
-                            if tx["txid"] == tx_id:
-                                raw_transactions[tx_id] = tx["hex"]
-                                break
-
-                except Exception as e:
-                    logger.warning(f"Rust batch parsing failed: {e}. Falling back to Python implementation")
-                    # Fall through to Python implementation
-
-            # Use Python implementation if Rust parser is not available or failed
-            if backend_instance._parser is None:
-                # Original implementation with ThreadPoolExecutor
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = [executor.submit(quick_filter_src20_transaction, tx["hex"]) for tx in non_issuance_txs]
-                    for tx, future in zip(non_issuance_txs, futures):
-                        try:
-                            if future.result():
-                                raw_transactions[tx["txid"]] = tx["hex"]
-                        except Exception as e:
-                            logger.debug(f"Error in parallel filtering for tx {tx['txid']}: {e}")
-                            raw_transactions[tx["txid"]] = tx["hex"]
-
-    return tx_hash_list, raw_transactions
+    return txhash_list, raw_transactions
 
 
 def check_db_connection(db):

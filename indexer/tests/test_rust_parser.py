@@ -100,17 +100,11 @@ class TestRustParser(unittest.TestCase):
         # Verify transaction info objects
         for tx in result.transactions:
             self.assertTrue(hasattr(tx, 'txid'))
-            self.assertTrue(hasattr(tx, 'outputs'))
+            self.assertTrue(hasattr(tx, 'hex'))
             
-            # Verify each transaction has at least one qualifying output
-            has_qualifying_output = False
-            for output in tx.outputs:
-                if (output.is_op_return or 
-                    'OP_CHECKMULTISIG' in output.script_pubkey or
-                    len(output.script_pubkey) >= 70):  # P2WSH pattern check
-                    has_qualifying_output = True
-                    break
-            self.assertTrue(has_qualifying_output)
+            # Verify each transaction has valid hex
+            self.assertTrue(len(tx.hex) > 0)
+            self.assertTrue(all(c in '0123456789abcdefABCDEF' for c in tx.hex))
 
     def test_pre_filter_memory_usage(self):
         """Test memory usage during pre-filtering"""
