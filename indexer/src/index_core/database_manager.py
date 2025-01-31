@@ -216,7 +216,7 @@ class DatabaseManager:
                     time.sleep(wait_time)
 
         logger.error(f"Failed to acquire database connection after {self.max_retries} attempts")
-        raise last_error
+        raise RuntimeError(f"Failed to acquire database connection: {last_error}")
 
     def get_cursor(self) -> Cursor:
         """Get a cursor from a pooled connection."""
@@ -242,7 +242,9 @@ class DatabaseManager:
                         logger.error(f"Failed to get new connection: {conn_error}")
                         raise
 
-        raise last_error
+        if last_error:
+            raise RuntimeError(f"Query execution failed after {self.max_retries} attempts: {last_error}")
+        raise RuntimeError(f"Query execution failed after {self.max_retries} attempts")
 
     def close(self) -> None:
         """Close all connections in the pool."""
