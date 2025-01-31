@@ -814,7 +814,7 @@ def quick_filter_src20_transaction(tx_hex):
         return True
 
 
-def filter_block_transactions(block_data, stamp_issuances=None):
+def filter_block_transactions(block_data, block_hash, stamp_issuances=None):
     """
     Filter transactions from a block based on genesis status.
     Uses Rust parser for efficient batch processing if available.
@@ -851,22 +851,17 @@ def filter_block_transactions(block_data, stamp_issuances=None):
             # Check if Rust parser is available and properly initialized
             if backend_instance._parser is not None:
                 try:
-                    # Use Rust parser for parallel filtering
-                    tx_hexes = [tx["hex"] for tx in non_issuance_txs]
-                    parsed_txs = backend_instance._parser.batch_parse_transactions(tx_hexes)
-
-                    # Add transactions that passed filtering
-                    for tx, ctx in zip(non_issuance_txs, parsed_txs):
-                        # Use the same filtering logic as quick_filter_src20_transaction
-                        for out in ctx.vout:
-                            script_bytes = bytes(out.scriptPubKey)
-                            # Check for P2WSH pattern (0x00 + 32 bytes)
-                            if len(script_bytes) == 34 and script_bytes[0] == 0x00:
-                                raw_transactions[tx["txid"]] = tx["hex"]
-                                break
-                            # Check for OP_CHECKMULTISIG (0xAE)
-                            if len(script_bytes) > 2 and script_bytes[-1] == 0xAE:
-                                raw_transactions[tx["txid"]] = tx["hex"]
+                    # Use new Rust pre-filter for efficient filtering
+                    block_hex = backend_instance.rpc("getblock", [block_hash, 0])
+                    pre_filter_result = backend_instance._parser.pre_filter_block(block_hex)
+                    
+                    # Add filtered transactions to raw_transactions
+                    for tx_info in pre_filter_result.transactions:
+                        tx_id = tx_info.txid
+                        # Find original transaction hex from non_issuance_txs
+                        for tx in non_issuance_txs:
+                            if tx["txid"] == tx_id:
+                                raw_transactions[tx_id] = tx["hex"]
                                 break
 
                 except Exception as e:
@@ -1272,7 +1267,7 @@ def follow(db):
                     block_data = {
                         "tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]
                     }
-                    txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+                    txhash_list, raw_transactions = filter_block_transactions(block_data, block_hash, stamp_issuances=stamp_issuances)
 
                     util.CURRENT_BLOCK_INDEX = block_index
 
