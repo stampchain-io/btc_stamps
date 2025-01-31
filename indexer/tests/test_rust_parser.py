@@ -84,6 +84,52 @@ class TestRustParser(unittest.TestCase):
         with self.assertRaises(Exception):
             self.parser.deserialize_transaction(empty_hex)
 
+    def test_pre_filter_block(self):
+        """Test pre-filtering of block transactions"""
+        # Get raw block with known stamp transactions
+        block_data = self.backend.rpc("getblock", [self.test_block_hash, 0])
+        
+        # Pre-filter block
+        result = self.parser.pre_filter_block(block_data)
+        
+        # Verify filtering results
+        self.assertIsNotNone(result)
+        self.assertGreater(result.filtered_count, 0)
+        self.assertLess(len(result.transactions), result.filtered_count + len(result.transactions))
+
+        # Verify transaction info objects
+        for tx in result.transactions:
+            self.assertTrue(hasattr(tx, 'txid'))
+            self.assertTrue(hasattr(tx, 'outputs'))
+            
+            # Verify each transaction has at least one qualifying output
+            has_qualifying_output = False
+            for output in tx.outputs:
+                if (output.is_op_return or 
+                    'OP_CHECKMULTISIG' in output.script_pubkey or
+                    len(output.script_pubkey) >= 70):  # P2WSH pattern check
+                    has_qualifying_output = True
+                    break
+            self.assertTrue(has_qualifying_output)
+
+    def test_pre_filter_memory_usage(self):
+        """Test memory usage during pre-filtering"""
+        import psutil
+        process = psutil.Process()
+        
+        # Get initial memory
+        initial_memory = process.memory_percent()
+        
+        # Pre-filter multiple blocks
+        for _ in range(5):
+            block_data = self.backend.rpc("getblock", [self.test_block_hash, 0])
+            self.parser.pre_filter_block(block_data)
+            
+        # Check memory usage hasn't grown too much
+        final_memory = process.memory_percent()
+        self.assertLess(final_memory, 85.0)  # Should stay under 85%
+        self.assertLess(final_memory - initial_memory, 10.0)  # Shouldn't grow more than 10%
+
 
 if __name__ == "__main__":
     unittest.main()

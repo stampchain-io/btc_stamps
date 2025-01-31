@@ -9,6 +9,15 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[pyclass]
+#[derive(Clone)]
+pub struct PreFilterResult {
+    #[pyo3(get)]
+    pub transactions: Vec<TransactionInfo>,
+    #[pyo3(get)]
+    pub filtered_count: usize,
+}
+
+#[pyclass]
 pub struct FastTransactionParser {
     tx_cache: Mutex<HashMap<String, Vec<u8>>>,
     max_cache_size: usize,
@@ -188,6 +197,65 @@ impl FastTransactionParser {
             Ok(0)
         }
     }
+
+    fn pre_filter_block(&self, block_hex: &str) -> PyResult<PreFilterResult> {
+        let block_bytes = hex::decode(block_hex).map_err(|e| {
+            error!("Failed to decode block hex: {}", e);
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid hex: {}", e))
+        })?;
+
+        let block = Block::consensus_decode(&mut &block_bytes[..]).map_err(|e| {
+            error!("Failed to decode block: {}", e);
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid block: {}", e))
+        })?;
+
+        let total_txs = block.txdata.len();
+        let filtered: Vec<_> = block.txdata
+            .par_iter()
+            .filter_map(|tx| {
+                if self.quick_filter_tx(tx) {
+                    Some(TransactionInfo::from_transaction(tx))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(PreFilterResult {
+            transactions: filtered,
+            filtered_count: total_txs - filtered.len(),
+        })
+    }
+
+    #[inline]
+    fn quick_filter_tx(&self, tx: &Transaction) -> bool {
+        if tx.is_coin_base() {
+            return false;
+        }
+
+        tx.output.iter().any(|out| {
+            let script = &out.script_pubkey;
+            
+            // Check for OP_RETURN
+            if script.is_op_return() {
+                return true;
+            }
+
+            // Check for OP_CHECKMULTISIG
+            if let Ok(asm) = script.asm() {
+                if asm.ends_with("OP_CHECKMULTISIG") {
+                    return true;
+                }
+            }
+
+            // Check for P2WSH pattern (witness script hash)
+            if script.is_v0_p2wsh() {
+                return true;
+            }
+
+            false
+        })
+    }
 }
 
 #[pyclass]
@@ -298,5 +366,6 @@ fn btc_stamps_parser(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<InputInfo>()?;
     m.add_class::<OutputInfo>()?;
     m.add_class::<BlockInfo>()?;
+    m.add_class::<PreFilterResult>()?;
     Ok(())
 }
