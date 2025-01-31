@@ -198,7 +198,11 @@ impl FastTransactionParser {
         }
     }
 
-    fn pre_filter_block(&self, block_hex: &str) -> PyResult<PreFilterResult> {
+
+
+    // Public Python-exposed function for block filtering
+    #[pyo3(name = "pre_filter_block")]
+    fn pre_filter_block_py(&self, block_hex: &str) -> PyResult<PreFilterResult> {
         let block_bytes = hex::decode(block_hex).map_err(|e| {
             error!("Failed to decode block hex: {}", e);
             PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid hex: {}", e))
@@ -210,10 +214,20 @@ impl FastTransactionParser {
         })?;
 
         let total_txs = block.txdata.len();
-        let filtered: Vec<_> = block.txdata
+        let filtered: Vec<TransactionInfo> = block.txdata
             .par_iter()
             .filter_map(|tx| {
-                if self.quick_filter_tx(tx) {
+                // Quick filter check without passing tx as PyFunctionArgument
+                let script_matches = tx.output.iter().any(|out| {
+                    let script = &out.script_pubkey;
+                    let script_bytes = script.as_bytes();
+                    
+                    script.is_op_return() ||
+                    (script_bytes.len() == 34 && script_bytes[0] == 0x00) ||
+                    (script_bytes.len() > 2 && script_bytes[script_bytes.len() - 1] == 0xAE)
+                });
+
+                if !tx.is_coinbase() && script_matches {
                     Some(TransactionInfo::from_transaction(tx))
                 } else {
                     None
@@ -221,39 +235,10 @@ impl FastTransactionParser {
             })
             .collect();
 
+        let filtered_len = filtered.len();
         Ok(PreFilterResult {
             transactions: filtered,
-            filtered_count: total_txs - filtered.len(),
-        })
-    }
-
-    #[inline]
-    fn quick_filter_tx(&self, tx: &Transaction) -> bool {
-        if tx.is_coin_base() {
-            return false;
-        }
-
-        tx.output.iter().any(|out| {
-            let script = &out.script_pubkey;
-            
-            // Check for OP_RETURN
-            if script.is_op_return() {
-                return true;
-            }
-
-            // Check for OP_CHECKMULTISIG
-            if let Ok(asm) = script.asm() {
-                if asm.ends_with("OP_CHECKMULTISIG") {
-                    return true;
-                }
-            }
-
-            // Check for P2WSH pattern (witness script hash)
-            if script.is_v0_p2wsh() {
-                return true;
-            }
-
-            false
+            filtered_count: total_txs - filtered_len,
         })
     }
 }
