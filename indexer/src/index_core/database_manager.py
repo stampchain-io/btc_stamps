@@ -162,11 +162,11 @@ class ConnectionPool:
 
 class DatabaseManager:
     def __init__(self):
-        self.max_retries = 3
-        self.retry_delay = 2
-        self.connect_timeout = 10
-        self.read_timeout = 30
-        self.write_timeout = 30
+        self.max_retries = 5
+        self.retry_delay = 5
+        self.connect_timeout = 30
+        self.read_timeout = 3600
+        self.write_timeout = 3600
         self.pool = None
         self._initialize_pool()
 
@@ -196,8 +196,20 @@ class DatabaseManager:
             "charset": "utf8mb4",
             "autocommit": False,
             "client_flag": pymysql.constants.CLIENT.MULTI_STATEMENTS,
-            "init_command": "SET SESSION wait_timeout=28800",
+            "init_command": "SET SESSION wait_timeout=28800, max_execution_time=3600000",
         }
+
+    def get_long_running_connection(self) -> Connection:
+        """Get a dedicated connection with extended timeouts for long operations"""
+        params = self.get_connection_params()
+        params.update(
+            {
+                "read_timeout": 86400,
+                "write_timeout": 86400,
+                "init_command": "SET SESSION wait_timeout=86400, max_execution_time=8640000",
+            }
+        )
+        return pymysql.connect(**params)
 
     def connect(self) -> Connection:
         """Get a connection from the pool with retries."""

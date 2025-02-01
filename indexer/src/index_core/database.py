@@ -29,6 +29,7 @@ from config import (
     TRANSACTIONS_TABLE,
 )
 from index_core.caching import SRC101DeployResult, cache_manager, clear_all_caches
+from index_core.database_manager import DatabaseManager
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
 from index_core.memory_manager import memory_manager
 from index_core.types import NO_DEPLOY, DeployResult
@@ -38,6 +39,8 @@ log.set_logger(logger)
 
 D = decimal.Decimal
 F = TypeVar("F", bound=Callable[..., Any])
+
+db_manager = DatabaseManager()
 
 
 def initialize(db: Connection) -> None:
@@ -882,17 +885,23 @@ def rebuild_balances(db, block_index=None):
         logger.warning("DEBUG MODE: Skipping rebuild_balances due to DEBUG_SKIP_REBUILD_BALANCES flag")
         return
 
-    cursor = db.cursor()
+    # Use dedicated connection for long operation
+    long_db = db_manager.get_long_running_connection()
+    cursor = long_db.cursor()
 
     try:
         logger.info("Starting Balances Table rebuild..")
 
-        # Set longer timeouts for this operation
-        cursor.execute("SET SESSION wait_timeout=600")  # 10 minutes
-        cursor.execute("SET SESSION innodb_lock_wait_timeout=600")  # 10 minutes
-        cursor.execute("SET SESSION net_read_timeout=600")  # 10 minutes
-        cursor.execute("SET SESSION net_write_timeout=600")  # 10 minutes
-        cursor.execute("SET SESSION max_execution_time=600000")  # 10 minutes in milliseconds
+        # Set extended timeouts
+        cursor.execute("SET SESSION wait_timeout=86400")  # 24 hours
+        cursor.execute("SET SESSION max_execution_time=8640000")  # 24 hours in milliseconds
+        cursor.execute("SET SESSION innodb_lock_wait_timeout=600")
+        cursor.execute("SET SESSION net_read_timeout=600")
+        cursor.execute("SET SESSION net_write_timeout=600")
+
+        # Reduced batch size for better timeout handling
+        BATCH_SIZE = 500  # Reduced from 1000
+        COMMIT_INTERVAL = 10  # Commit every 10 batches
 
         # Get all data first to maintain exact same logic
         existing_balances = get_existing_balances(cursor)
@@ -925,21 +934,25 @@ def rebuild_balances(db, block_index=None):
         ]
 
         # Use smaller batch size for inserts to prevent timeouts
-        BATCH_SIZE = 1000
         total_rows = len(values)
 
         for i in range(0, total_rows, BATCH_SIZE):
             batch = values[i : i + BATCH_SIZE]
-            logger.info(
-                f"Processing batch balances update {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)"
-            )
+            logger.info(f"Processing balance rebuild batch {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE}")
 
             cursor.executemany(
-                f"""INSERT INTO {temp_table}(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                f"""
+                INSERT INTO {temp_table}(id, tick, tick_hash, address, amt, last_update, block_time, p)
                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
                 batch,
             )
-            db.commit()  # Commit after each batch to prevent transaction timeouts
+
+            # Commit periodically but not too frequently
+            if (i // BATCH_SIZE) % COMMIT_INTERVAL == 0:
+                long_db.commit()
+
+        # Final commit
+        long_db.commit()
 
         # Atomic swap
         logger.info("Performing atomic table swap")
@@ -955,11 +968,10 @@ def rebuild_balances(db, block_index=None):
         cursor.execute("DROP TABLE IF EXISTS balances_old")
 
         logger.info("Balance rebuild completed successfully")
-        db.commit()
 
     except Exception as e:
         logger.error(f"Error during balance rebuild: {e}")
-        db.rollback()
+        long_db.rollback()
         try:
             cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
         except Exception as drop_error:
@@ -968,10 +980,10 @@ def rebuild_balances(db, block_index=None):
 
     finally:
         try:
-            cursor.execute("UNLOCK TABLES")
+            cursor.close()
+            long_db.close()  # Close dedicated connection
         except Exception as e:
-            logger.error(f"Error unlocking tables: {e}")
-        cursor.close()
+            logger.error(f"Error closing long-running connection: {e}")
 
 
 def insert_batch_to_temp(cursor, temp_table, balances_batch):

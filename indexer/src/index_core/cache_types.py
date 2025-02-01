@@ -26,7 +26,7 @@ class LRUCache(Generic[T]):
         with self._lock:
             if key not in self.cache:
                 self.misses += 1
-                logger.debug(f"Cache miss for key: {key}")
+                # logger.debug(f"Cache miss for key: {key}")
                 return None
             self.hits += 1
             self.cache.move_to_end(key)

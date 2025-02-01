@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 import config
 import index_core.util as util
+from index_core.backend import Backend
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ auth = config.CP_AUTH
 healthy_nodes_lock = Lock()
 healthy_nodes: List[Dict[str, Any]] = []
 
+backend_instance = Backend()
 # Shared headers for general operations
 HEADERS = {
     "content-type": "application/json",
@@ -79,6 +81,28 @@ def fetch_cp_concurrent(block_index, block_tip, indicator=None):
 
         sorted_results = dict(sorted(results_dict.items(), key=lambda x: x[0]))
     return sorted_results
+
+
+def get_cp_block_hash_v2(block_index: int) -> Optional[str]:
+    """Get block hash using XCP V2 API"""
+    try:
+        endpoint = f"/blocks/{block_index}"
+        params = {"verbose": "true", "show_unconfirmed": "false"}
+        response = fetch_xcp_v2(endpoint, params=params)
+
+        if not response or not isinstance(response, dict):
+            logger.error(f"Invalid response format for block {block_index}")
+            return None
+
+        result = response.get("result")
+        if not result or not isinstance(result, dict):
+            logger.error(f"Block {block_index} not found in XCP V2 response")
+            return None
+
+        return result.get("block_hash")
+    except Exception as e:
+        logger.error(f"Error getting block hash via XCP V2: {e}")
+        return None
 
 
 def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
@@ -182,7 +206,7 @@ def get_xcp_block_data(block_index: int, indicator=None):
         if block_data_from_xcp is not None:
             try:
                 parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
-                return parsed_block_data["issuances"]
+                return parsed_block_data
             except (TypeError, IndexError, KeyError) as e:
                 logger.warning(f"Error parsing block data for block {block_index}: {e}")
                 if attempt < max_retries - 1:
@@ -201,9 +225,11 @@ def get_xcp_block_data(block_index: int, indicator=None):
 def _parse_issuances_from_block(block_data):
     if not block_data or not isinstance(block_data, list) or len(block_data) == 0:
         raise ValueError("Invalid block data format")
+
     issuances = []
-    block_data_first = block_data[0]  # Get first element without serializing
-    for tx in block_data_first.get("_messages", []):
+    block_data = block_data[0]
+
+    for tx in block_data.get("_messages", []):
         try:
             tx_data = json.loads(tx.get("bindings", "{}"))
             tx_data["msg_index"] = tx.get("message_index")
@@ -219,8 +245,10 @@ def _parse_issuances_from_block(block_data):
         except Exception as e:
             logger.warning(f"Error processing transaction: {e}")
             continue
+
     return {
-        "block_index": block_data_first.get("block_index"),
+        "block_index": block_data.get("block_index"),
+        "xcp_block_hash": block_data.get("block_hash"),
         "issuances": issuances,
     }
 
@@ -407,3 +435,58 @@ def update_healthy_nodes():
         logger.error("No healthy nodes available.")
     else:
         logger.info(f"Healthy nodes: {[node['name'] for node in healthy_nodes]}")
+
+
+def verify_block_range(start_index: int, end_index: int) -> bool:
+    """Verify a range of blocks have matching hashes between CP and chain"""
+    for block_index in range(start_index, end_index + 1):
+        cp_hash = get_cp_block_hash_v2(block_index)
+        chain_hash = backend_instance.getblockhash(block_index)
+
+        if cp_hash != chain_hash:
+            logger.error(f"Hash mismatch at block {block_index}")
+            return False
+
+        # Rate limit to avoid overwhelming nodes
+        time.sleep(0.1)
+
+    return True
+
+
+def verify_cp_block_hash(block_index: int, expected_hash: str | None = None, max_retries: int = 5) -> bool:
+    """
+    Verify Counterparty node's block hash matches expected hash
+    If expected_hash is provided, it is used for comparison
+    Otherwise, fetches the chain hash from backend.
+    Returns True if hashes match or verification passed.
+    """
+    retry_count = 0
+    base_delay = 2  # seconds
+
+    while retry_count < max_retries:
+        try:
+            # Get CP block hash via XCP V2 API
+            cp_hash = get_cp_block_hash_v2(block_index)
+            if not cp_hash:
+                logger.warning(f"Empty CP hash for block {block_index}, retrying...")
+                raise ValueError("Empty hash from CP node")
+
+            # Use provided expected_hash or fetch chain hash if not provided
+            chain_hash = expected_hash if expected_hash is not None else backend_instance.getblockhash(block_index)
+
+            if cp_hash != chain_hash:
+                logger.error(f"Block hash mismatch at {block_index}")
+                logger.error(f"CP Hash:    {cp_hash}")
+                logger.error(f"Chain Hash: {chain_hash}")
+                return False
+
+            logger.debug(f"Hash verification passed for block {block_index}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Block hash verification failed (attempt {retry_count+1}/{max_retries}): {str(e)}")
+            retry_count += 1
+            time.sleep(base_delay * (2**retry_count))  # Exponential backoff
+
+    logger.error("Max retries reached in block hash verification")
+    return False  # Consider raising exception here for critical failures

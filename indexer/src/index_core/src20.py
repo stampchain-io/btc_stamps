@@ -1191,28 +1191,18 @@ def process_balance_updates(balance_updates):
     Returns:
         str: A string representation of valid src20 entries.
     """
-
     valid_src20_list = []
-    if balance_updates:
-        for src20 in balance_updates:
-            creator = src20.get("address")
-            tick = src20.get("tick", "")
-            if "\\" in tick:
-                tick = decode_unicode_escapes(tick)
+    for src20 in balance_updates:
+        tick = src20["tick"]
+        if "\\" in tick:  # Decode escaped unicode tickers
+            tick = decode_unicode_escapes(tick)
 
-            amt = D(src20.get("net_change", D(0))) + D(src20.get("original_amt", D(0)))
-            amt = amt.normalize()
+        amt = D(src20["final_calculated_balance"])
+        amt_str = format_decimal(amt)
+        valid_src20_list.append(f"{tick},{src20['address']},{amt_str}")
 
-            amt_str = format_decimal(amt)
-            valid_src20_list.append(f"{tick},{creator},{amt_str}")
-
-    valid_src20_list = sorted(
-        valid_src20_list,
-        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
-    )
-
-    valid_src20_str = ";".join(valid_src20_list)
-    return valid_src20_str
+    valid_src20_list = sorted(valid_src20_list, key=lambda x: (x.split(",")[0], x.split(",")[1]))
+    return ";".join(valid_src20_list)
 
 
 def format_decimal(amt):
@@ -1340,11 +1330,15 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
     api_balances = parse_balances(api_ledger_validation)
 
     differences = compare_balances(local_balances, api_balances)
-    print_balance_differences(differences)
+
+    if differences:
+        print_balance_differences(differences)
+    else:
+        print("\nNo differences in balances found, despite hash mismatch.")
 
     compare_string_formats(valid_src20_str, api_ledger_validation)
 
-    return False  # Return False to indicate mismatch
+    return False
 
 
 def parse_balances(balance_str):

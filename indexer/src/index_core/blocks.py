@@ -64,7 +64,13 @@ from index_core.src20 import (
 )
 from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
-from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
+from index_core.xcprequest import (
+    fetch_cp_concurrent,
+    filter_issuances_by_tx_hash,
+    get_cp_block_hash_v2,
+    get_xcp_assets_by_cpids,
+    verify_cp_block_hash,
+)
 from index_core.zmq_utils import ZMQNotifier
 
 D = decimal.Decimal
@@ -948,31 +954,83 @@ def calculate_rollback_depth(block_index: int, reason: str) -> int:
         return 3
 
 
-def rollback_to_block(db, block_index, reason=""):
-    """
-    Perform a clean rollback to a specific block index.
-
-    Args:
-        db: Database connection
-        block_index: Block index to roll back to
-        reason: Optional reason for the rollback for logging
-    """
+def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
+    """Roll back the database to a specific block index with full cleanup."""
+    # Calculate rollback depth based on error type
     rollback_depth = calculate_rollback_depth(block_index, reason)
     target_block = max(block_index - rollback_depth, config.BLOCK_FIRST)
 
-    logger.warning(f"Rolling back {rollback_depth} blocks to {target_block}. Reason: {reason}")
-    purge_block_db(db, target_block)
+    logger.warning(f"ROLLBACK INITIATED: Rolling back {rollback_depth} blocks to {target_block} ({reason})")
 
-    # Clear all caches using the centralized cache manager
-    clear_all_caches()
+    # Verify hashes at target block
+    current_bitcoin_hash = backend_instance.getblockhash(target_block)
+    if not verify_cp_block_hash(target_block, current_bitcoin_hash):
+        logger.error("XCP node hasn't rolled back properly, finding common ancestor...")
+        return find_common_ancestor_with_xcp(db, target_block - 1)
 
-    # Rebuild database state
-    rebuild_balances(db)
-    rebuild_owners(db)
-    update_src20_token_stats(db)
+    try:
+        # Perform the actual database rollback
+        purge_block_db(db, target_block)
 
-    logger.info(f"Reset to block {target_block}, cleared caches and rebuilt state")
+        # Clear all caches
+        clear_all_caches()
+        logger.info("Cleared all caches after rollback")
+
+        # Rebuild critical database state
+        logger.info("Rebuilding database state...")
+        rebuild_balances(db)
+        rebuild_owners(db)
+        update_src20_token_stats(db)
+        logger.info(f"Successfully rolled back to block {target_block}")
+
+    except Exception as e:
+        logger.critical(f"Critical error during rollback cleanup: {e}")
+        if not config.FORCE:
+            sys.exit("Exiting due to failed rollback cleanup")
+
     return target_block
+
+
+def find_common_ancestor_with_xcp(db: Connection, start_index: int) -> int:
+    """Find common ancestor with both Bitcoin chain and XCP node"""
+    logger.info("Starting deep reorg detection with XCP verification...")
+
+    while start_index >= config.BLOCK_FIRST:
+        # Get Bitcoin chain data
+        current_bitcoin_hash = backend_instance.getblockhash(start_index)
+        block_header = backend_instance.getblockheader(current_bitcoin_hash)
+        bitcoin_parent = block_header["previousblockhash"]
+
+        # Get database data
+        with db.cursor() as cursor:
+            cursor.execute("SELECT block_hash FROM blocks WHERE block_index = %s", (start_index,))
+            db_block = cursor.fetchone()
+
+        if not db_block:
+            logger.warning(f"No block found at index {start_index}, continuing...")
+            start_index -= 1
+            continue
+
+        db_hash = db_block[0]
+
+        # Verify Bitcoin chain consistency
+        if db_hash != bitcoin_parent:
+            logger.warning(f"Bitcoin parent mismatch at {start_index}, continuing rollback...")
+            start_index -= 1
+            continue
+
+        # Verify XCP node consistency
+        xcp_hash = get_cp_block_hash_v2(start_index)
+        if xcp_hash != db_hash:
+            logger.warning(f"XCP hash mismatch at {start_index}, continuing rollback...")
+            start_index -= 1
+            continue
+
+        # Full match found
+        logger.info(f"Found common ancestor at block {start_index}")
+        return start_index
+
+    return config.BLOCK_FIRST
 
 
 def cleanup_resources(executor, zmq_notifier, update_cpids_future, db):
@@ -1188,7 +1246,7 @@ def follow(db):
                     # Remove CPID update from here since we do it in the idle block
 
                     if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
-                        stamp_issuances = stamp_issuances_list[block_index]
+                        stamp_issuances = stamp_issuances_list[block_index]["issuances"]
                     else:
                         try:
                             if server.shutdown_flag.is_set():
@@ -1206,7 +1264,7 @@ def follow(db):
                                 logger.info("Shutdown flag detected after CP fetch, breaking...")
                                 break
 
-                            stamp_issuances = stamp_issuances_list[block_index]
+                            stamp_issuances = stamp_issuances_list[block_index]["issuances"]
                         except KeyboardInterrupt:
                             logger.info("Received keyboard interrupt during CP fetch.")
                             server.shutdown_flag.set()
@@ -1267,6 +1325,15 @@ def follow(db):
                     txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = (
                         backend_instance.get_tx_list(block_hash)
                     )
+
+                    xcp_hash = stamp_issuances_list[block_index]["xcp_block_hash"]
+
+                    if xcp_hash != block_hash:
+                        logger.critical(f"Hash mismatch at block {block_index}")
+                        logger.critical(f"XCP: {xcp_hash}")
+                        logger.critical(f"BTC: {block_hash}")
+                        block_index = rollback_to_block(db, block_index - 2, "XCP/Bitcoin hash mismatch")
+                        continue
 
                     # Filter transactions based on genesis status
                     block_data = {
