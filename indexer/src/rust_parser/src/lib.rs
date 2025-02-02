@@ -217,17 +217,30 @@ impl FastTransactionParser {
         let filtered: Vec<TransactionInfo> = block.txdata
             .par_iter()
             .filter_map(|tx| {
-                // Quick filter check without passing tx as PyFunctionArgument
-                let script_matches = tx.output.iter().any(|out| {
+                // Quick filter check for stamp-related patterns
+                if tx.is_coinbase() {
+                    return None;
+                }
+
+                let mut has_op_return = false;
+                let mut has_p2wsh = false;
+                let mut has_multisig = false;
+
+                for out in tx.output.iter() {
                     let script = &out.script_pubkey;
                     let script_bytes = script.as_bytes();
                     
-                    script.is_op_return() ||
-                    (script_bytes.len() == 34 && script_bytes[0] == 0x00) ||
-                    (script_bytes.len() > 2 && script_bytes[script_bytes.len() - 1] == 0xAE)
-                });
+                    if script.is_op_return() {
+                        has_op_return = true;
+                    } else if script_bytes.len() == 34 && script_bytes[0] == 0x00 {
+                        has_p2wsh = true;
+                    } else if script_bytes.len() > 2 && script_bytes[script_bytes.len() - 1] == 0xAE {
+                        has_multisig = true;
+                    }
+                }
 
-                if !tx.is_coinbase() && script_matches {
+                // Keep transaction if it has OP_RETURN and either P2WSH or multisig
+                if has_op_return && (has_p2wsh || has_multisig) {
                     Some(TransactionInfo::from_transaction(tx))
                 } else {
                     None

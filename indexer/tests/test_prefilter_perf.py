@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Suppress insecure request warnings
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
-import config
 from index_core.backend import Backend
 from index_core.blocks import filter_block_transactions
+import config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
