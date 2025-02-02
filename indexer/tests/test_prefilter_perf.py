@@ -1,16 +1,17 @@
 import logging
 import os
-import psutil
 import sys
 import time
 import warnings
 
+import psutil
+
 # Add src directory to Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
+import config
 from index_core.backend import Backend
 from index_core.blocks import filter_block_transactions
-import config
 
 # Suppress insecure request warnings
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -119,33 +120,7 @@ def test_prefilter_performance():
                     logger.error(f"Error processing block {current - i}: {str(e)}")
                     continue
 
-                # Track memory before filtering
-                mem_before = psutil.Process().memory_percent()
-                
-                # Filter transactions
-                _, filtered_txs = filter_block_transactions(block, block_hash)
-                if not filtered_txs:
-                    filtered_txs = {}
-                
-                # Calculate block metrics
-                block_time = time.time() - block_start
-                block_times.append(block_time)
-                total_filtered += len(filtered_txs)
-                total_txs += len(block['tx'])
-                
-                # Track memory after filtering
-                mem_after = psutil.Process().memory_percent()
-                memory_usage.append(mem_after - mem_before)
-                
-                # Log detailed progress
-                filter_rate = ((len(block['tx']) - len(filtered_txs)) / len(block['tx'])) * 100 if len(block['tx']) > 0 else 0
-                logger.info(
-                    f'Block {current - i}: '
-                    f'Time={block_time:.3f}s, '
-                    f'Txs={len(filtered_txs)}/{len(block["tx"])}, '
-                    f'Filter={filter_rate:.1f}%, '
-                    f'Mem={mem_after:.1f}%'
-                )
+
             except Exception as e:
                 logger.error(f"Error processing block {current - i}: {str(e)}")
                 continue
