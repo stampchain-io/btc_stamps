@@ -19,7 +19,27 @@ logger = logging.getLogger(__name__)
 
 class Profiler:
     def __init__(self):
-        # Create profiling output directory if it doesn't exist
+        self.profiling_enabled = config.DEBUG_PROFILING
+        logger.info(f"Profiling initialized. DEBUG_PROFILING={self.profiling_enabled}")
+
+        # Initialize basic attributes
+        self.profile_dir = None
+        self.profiler = None
+        self.blocks_profiled = 0
+        self.blocks_seen = 0
+        self.profiling_active = False
+        self.first_block_skipped = False
+        self.start_block = None
+        self.timestamp = None
+        self.stats_file = None
+        self.profile_data_file = None
+
+        # Only set up profiling if enabled
+        if self.profiling_enabled:
+            self._setup_profiling()
+
+    def _setup_profiling(self):
+        """Set up profiling directory and initialize profiler if profiling is enabled."""
         try:
             # Get absolute path to the project root
             current_file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -45,18 +65,8 @@ class Profiler:
 
         # Initialize profiler
         self.profiler = cProfile.Profile()
-        self.blocks_profiled = 0
-        self.blocks_seen = 0  # Track total blocks seen, including skipped
-        self.profiling_enabled = config.DEBUG_PROFILING
-        logger.info(f"Profiling initialized. DEBUG_PROFILING={self.profiling_enabled}")
-        self.profiling_active = False
-        self.first_block_skipped = False
-        self.start_block = None  # Track starting block number
-
-        # Generate timestamp for unique filenames - we'll set the actual filenames when we start profiling
+        # Generate timestamp for unique filenames
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.stats_file = None
-        self.profile_data_file = None
 
     def start_block_profiling(self):
         """Start profiling for a block if conditions are met."""
