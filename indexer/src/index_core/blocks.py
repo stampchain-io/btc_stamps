@@ -822,7 +822,8 @@ def filter_block_transactions(block_data, block_hash, stamp_issuances=None):
 
         issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
 
-        if util.CURRENT_BLOCK_INDEX < config.BTC_SRC20_GENESIS_BLOCK:
+        current_block = getattr(util, 'CURRENT_BLOCK_INDEX', 0)
+        if current_block < config.BTC_SRC20_GENESIS_BLOCK:
             for tx in all_txs:
                 if isinstance(tx, dict) and tx.get("txid") in issuance_tx_hashes and "hex" in tx:
                     raw_transactions[tx["txid"]] = tx["hex"]
