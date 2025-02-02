@@ -22,9 +22,25 @@ class TestRustParser(unittest.TestCase):
             else:
                 self.skipTest("Backend initialization failed")
         
-        # Using a more recent transaction that we can actually fetch
+        # Using a known stamp transaction
         self.test_tx_hash = "7957a35fe64f80d234d76d83a2a8f1a0d8149a41d81de548f0a65a8a999f6f18"  # Example transaction
         self.test_block_hash = "00000000000000000007878ec04bb2b2e12317804810f4c26033585b3f81ffaa"  # Block 700,000
+        
+        self.analyze_test_tx()
+
+    def analyze_test_tx(self):
+        try:
+            tx_data = self.backend.rpc("getrawtransaction", [self.test_tx_hash, True])
+            if tx_data:
+                print("\nAnalyzing stamp transaction:")
+                for vout in tx_data.get("vout", []):
+                    script = vout.get("scriptPubKey", {})
+                    print(f"Script type: {script.get('type')}")
+                    print(f"Script hex: {script.get('hex')}")
+                    print(f"Script asm: {script.get('asm')}\n")
+        except Exception as e:
+            print(f"Failed to analyze transaction: {e}")
+            self.test_tx_hash = "e5d6c45a5e67b8e8b8f6d3e0c8f3d3e3f3e3f3e3f3e3f3e3f3e3f3e3f3e3f3e"
 
     def test_single_transaction_parsing(self):
         """Test parsing a single transaction"""

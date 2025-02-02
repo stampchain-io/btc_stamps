@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Suppress insecure request warnings
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
+import config
 from index_core.backend import Backend
 from index_core.blocks import filter_block_transactions
-import config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -64,15 +64,15 @@ def test_prefilter_performance():
     memory_usage = []
 
     try:
-        # Get 20 recent blocks
-        current = backend.rpc("getblockcount", [])
-        logger.info(f"Starting from block {current}")
+        # Test with known stamp transaction blocks
+        start_block = 788041  # First SRC-20 token block
+        logger.info(f"Starting from block {start_block}")
 
         for i in range(20):
             block_start = time.time()
             try:
                 try:
-                    block_hash = backend.rpc("getblockhash", [current - i])
+                    block_hash = backend.rpc("getblockhash", [start_block + i])
                     if not block_hash:
                         logger.error(f"Failed to get block hash for height {current - i}")
                         continue
@@ -113,11 +113,11 @@ def test_prefilter_performance():
                         f"Mem={mem_after:.1f}%"
                     )
                 except Exception as e:
-                    logger.error(f"Error processing block {current - i}: {str(e)}")
+                    logger.error(f"Error processing block {start_block + i}: {str(e)}")
                     continue
 
             except Exception as e:
-                logger.error(f"Error processing block {current - i}: {str(e)}")
+                logger.error(f"Error processing block {start_block + i}: {str(e)}")
                 continue
 
         # Calculate final metrics

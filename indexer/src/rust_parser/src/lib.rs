@@ -230,19 +230,55 @@ impl FastTransactionParser {
                     let script = &out.script_pubkey;
                     let script_bytes = script.as_bytes();
                     
-                    if script.is_op_return() {
+                    // Log script details for debugging
+                    println!("Script bytes for tx {}: {:?}", tx.txid(), script_bytes);
+                    
+                    // Check for OP_RETURN (0x6a) - more lenient check
+                    if script_bytes.contains(&0x6a) {
                         has_op_return = true;
-                    } else if script_bytes.len() == 34 && script_bytes[0] == 0x00 {
-                        has_p2wsh = true;
-                    } else if script_bytes.len() > 2 && script_bytes[script_bytes.len() - 1] == 0xAE {
-                        has_multisig = true;
+                        println!("Found OP_RETURN in script");
+                    }
+                    
+                    // Check for P2WSH and witness program patterns
+                    if script_bytes.len() >= 2 {
+                        // Check both 0x00 and 0x51-0x60 (witness v0-v16)
+                        if script_bytes[0] == 0x00 || (script_bytes[0] >= 0x51 && script_bytes[0] <= 0x60) {
+                            has_p2wsh = true;
+                            println!("Found witness program: {:02x}", script_bytes[0]);
+                        }
+                    }
+                    
+                    // Check for potential multisig/stamp patterns
+                    if script_bytes.len() >= 3 {
+                        // Common opcodes used in stamps
+                        let stamp_opcodes = [
+                            0xAE, // OP_CHECKMULTISIG
+                            0xAF, // OP_CHECKMULTISIGVERIFY
+                            0x6A, // OP_RETURN
+                            0xAC, // OP_CHECKSIG
+                            0xAD, // OP_CHECKSIGVERIFY
+                            0x87, // OP_EQUAL
+                            0x88  // OP_EQUALVERIFY
+                        ];
+                        
+                        for (i, &byte) in script_bytes.iter().enumerate() {
+                            if stamp_opcodes.contains(&byte) {
+                                has_multisig = true;
+                                println!("Found stamp opcode 0x{:02x} at position {}", byte, i);
+                                break;
+                            }
+                        }
                     }
                 }
 
-                // Keep transaction if it has OP_RETURN and either P2WSH or multisig
-                if has_op_return && (has_p2wsh || has_multisig) {
+                // Keep transaction if it has any potential stamp pattern
+                // Being very lenient to avoid missing any stamp transactions
+                if has_op_return || has_p2wsh || has_multisig {
+                    println!("Including transaction with patterns: OP_RETURN={}, P2WSH={}, MULTISIG={}", 
+                            has_op_return, has_p2wsh, has_multisig);
                     Some(TransactionInfo::from_transaction(tx))
                 } else {
+                    println!("Excluding transaction - no stamp patterns found");
                     None
                 }
             })
