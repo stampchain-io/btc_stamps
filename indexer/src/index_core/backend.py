@@ -174,7 +174,17 @@ class Backend:
             try:
                 headers = {"content-type": "application/json"}
 
-                # Authentication is handled via API key in URL path
+                # Add QuickNode authentication if configured
+                if hasattr(config, "QUICKNODE_API_KEY") and config.QUICKNODE_API_KEY:
+                    # QuickNode requires API key in URL path
+                    clean_api_key = config.QUICKNODE_API_KEY.strip("'\"")
+                    if hasattr(config, "QUICKNODE_ENDPOINT") and config.QUICKNODE_ENDPOINT:
+                        endpoint = config.QUICKNODE_ENDPOINT.strip().rstrip("/")
+                        if not endpoint.endswith(clean_api_key):
+                            url = f"https://{endpoint}/{clean_api_key}/"
+                        else:
+                            url = f"https://{endpoint}/"
+
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
 
                 response = self._session.post(

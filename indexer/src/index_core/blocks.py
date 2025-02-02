@@ -798,45 +798,61 @@ def filter_block_transactions(block_data, block_hash, stamp_issuances=None):
     Returns:
         tuple: (txhash_list, raw_transactions)
     """
+    if not isinstance(block_data, dict) or "tx" not in block_data:
+        logger.error(f"Invalid block data format for block {block_hash}")
+        return [], {}
+
     raw_transactions = {}
     start_time = time.time()
 
-    # Get all transactions from block
-    all_txs = block_data["tx"]
-    total_txs = len(all_txs)
+    try:
+        all_txs = block_data["tx"]
+        if not isinstance(all_txs, list):
+            logger.error(f"Invalid transaction list format in block {block_hash}")
+            return [], {}
 
-    # Store all tx hashes for message hash calculation (maintain original order)
-    txhash_list = [tx["txid"] for tx in all_txs]
+        total_txs = len(all_txs)
+        txhash_list = []
 
-    # Get set of issuance transactions if any
-    issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
-
-    # Before SRC20 genesis, only get stamp issuance transactions
-    if util.CURRENT_BLOCK_INDEX < config.BTC_SRC20_GENESIS_BLOCK:
-        # Only process issuance transactions (in order)
         for tx in all_txs:
-            if tx["txid"] in issuance_tx_hashes:
+            if not isinstance(tx, dict) or "txid" not in tx:
+                logger.warning(f"Skipping invalid transaction format in block {block_hash}")
+                continue
+            txhash_list.append(tx["txid"])
+
+        issuance_tx_hashes = {issuance["tx_hash"] for issuance in stamp_issuances} if stamp_issuances else set()
+
+        if util.CURRENT_BLOCK_INDEX < config.BTC_SRC20_GENESIS_BLOCK:
+            for tx in all_txs:
+                if isinstance(tx, dict) and tx.get("txid") in issuance_tx_hashes and "hex" in tx:
+                    raw_transactions[tx["txid"]] = tx["hex"]
+            return txhash_list, raw_transactions
+
+        # After genesis block:
+        # 1. First add all stamp issuance transactions
+        for tx in all_txs:
+            if isinstance(tx, dict) and tx.get("txid") in issuance_tx_hashes and "hex" in tx:
                 raw_transactions[tx["txid"]] = tx["hex"]
-        return txhash_list, raw_transactions
 
-    # After genesis block:
-    # 1. First add all stamp issuance transactions
-    for tx in all_txs:
-        if tx["txid"] in issuance_tx_hashes:
-            raw_transactions[tx["txid"]] = tx["hex"]
+        # 2. Quick filter remaining transactions
+        non_issuance_txs = [
+            tx for tx in all_txs if isinstance(tx, dict) and tx.get("txid") not in issuance_tx_hashes and "hex" in tx
+        ]
+        non_issuance_count = len(non_issuance_txs)
 
-    # 2. Quick filter remaining transactions
-    non_issuance_txs = [tx for tx in all_txs if tx["txid"] not in issuance_tx_hashes]
-    non_issuance_count = len(non_issuance_txs)
-
-    if non_issuance_txs:
-        # Try Rust pre-filter if available
-        if backend_instance._parser is not None:
+        if non_issuance_txs and backend_instance._parser is not None:
             try:
                 # Get raw block and apply pre-filter
                 block_hex = backend_instance.rpc("getblock", [block_hash, 0])
+                if not block_hex:
+                    logger.error(f"Failed to get raw block data for {block_hash}")
+                    return txhash_list, raw_transactions
+
                 pre_filter_result = backend_instance._parser.pre_filter_block(block_hex)
-                
+                if not pre_filter_result or not hasattr(pre_filter_result, "transactions"):
+                    logger.error(f"Invalid pre-filter result for block {block_hash}")
+                    return txhash_list, raw_transactions
+
                 # Add filtered transactions
                 filtered_count = 0
                 filtered_txids = {tx_info.txid for tx_info in pre_filter_result.transactions}
@@ -846,32 +862,43 @@ def filter_block_transactions(block_data, block_hash, stamp_issuances=None):
                         filtered_count += 1
 
                 # Log performance metrics
-                filtering_rate = ((non_issuance_count - filtered_count) / non_issuance_count * 100) if non_issuance_count > 0 else 0
+                filtering_rate = (
+                    ((non_issuance_count - filtered_count) / non_issuance_count * 100) if non_issuance_count > 0 else 0
+                )
                 processing_time = time.time() - start_time
+                memory_usage = psutil.Process().memory_percent()
+
                 logger.info(
                     f"Pre-filter stats: Total={total_txs}, Non-issuance={non_issuance_count}, "
                     f"Filtered={filtered_count}, Rate={filtering_rate:.1f}%, "
-                    f"Time={processing_time:.3f}s, Block={block_hash}"
+                    f"Time={processing_time:.3f}s, Mem={memory_usage:.1f}%, Block={block_hash}"
                 )
 
             except Exception as e:
-                logger.warning(f"Rust pre-filter failed: {e}, falling back to Python implementation")
-                # Fall through to Python implementation
+                logger.warning(f"Rust pre-filter failed for block {block_hash}: {e}")
                 backend_instance._parser = None
+                if not config.FORCE:
+                    raise
 
-        # Use Python implementation if Rust parser is not available or failed
-        if backend_instance._parser is None:
-            # If Rust parser fails, include all transactions to be safe
-            filtered_count = len(non_issuance_txs)
-            for tx in non_issuance_txs:
-                raw_transactions[tx["txid"]] = tx["hex"]
+                # Use Python implementation if Rust parser failed
+                filtered_count = len(non_issuance_txs)
+                for tx in non_issuance_txs:
+                    if isinstance(tx, dict) and "txid" in tx and "hex" in tx:
+                        raw_transactions[tx["txid"]] = tx["hex"]
 
-            # Log Python implementation metrics
-            processing_time = time.time() - start_time
-            logger.warning(
-                f"Using fallback mode: Total={total_txs}, Non-issuance={non_issuance_count}, "
-                f"Time={processing_time:.3f}s, Block={block_hash}"
-            )
+                # Log Python implementation metrics
+                processing_time = time.time() - start_time
+                memory_usage = psutil.Process().memory_percent()
+                logger.warning(
+                    f"Using fallback mode: Total={total_txs}, Non-issuance={non_issuance_count}, "
+                    f"Time={processing_time:.3f}s, Mem={memory_usage:.1f}%, Block={block_hash}"
+                )
+
+    except Exception as e:
+        logger.error(f"Error filtering transactions for block {block_hash}: {e}")
+        if not config.FORCE:
+            raise
+        logger.warning("Returning partial results due to FORCE=True")
 
     return txhash_list, raw_transactions
 
@@ -1259,7 +1286,9 @@ def follow(db):
                     block_data = {
                         "tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]
                     }
-                    txhash_list, raw_transactions = filter_block_transactions(block_data, block_hash, stamp_issuances=stamp_issuances)
+                    txhash_list, raw_transactions = filter_block_transactions(
+                        block_data, block_hash, stamp_issuances=stamp_issuances
+                    )
 
                     util.CURRENT_BLOCK_INDEX = block_index
 
