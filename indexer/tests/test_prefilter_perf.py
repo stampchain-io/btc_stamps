@@ -3,18 +3,19 @@ import os
 import sys
 import time
 import warnings
+from pathlib import Path
 
 import psutil
 
 # Add src directory to Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Suppress insecure request warnings
+warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 import config
 from index_core.backend import Backend
 from index_core.blocks import filter_block_transactions
-
-# Suppress insecure request warnings
-warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 # Configure logging
 logging.basicConfig(
@@ -37,15 +38,6 @@ config.QUICKNODE_ENDPOINT = quicknode_url
 config.QUICKNODE_API_KEY = quicknode_key
 
 logger.info(f"Using QuickNode endpoint: {quicknode_url}")
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Set up logger
-logger = logging.getLogger(__name__)
 
 def test_prefilter_performance():
     # Initialize backend and set required globals
