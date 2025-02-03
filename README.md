@@ -102,6 +102,7 @@ as the primary source of funding for this experimental project.
 - Local full BTC Node or an account with [Quicknode.com](https://www.quicknode.com/)
   (free tier is fine) or similar service
 - MySQL Database or Default MySQL installation from the provided Docker installation
+- Python 3.10 or higher
 - RECOMMENDED: Local Counterparty Node (optional)
 
 For a simple Docker based installation of the Bitcoin Node and Counterparty stack see:

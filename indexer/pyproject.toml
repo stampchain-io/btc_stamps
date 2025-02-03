@@ -18,7 +18,6 @@ documentation = "https://stampchain.io/docs"
 license = "AGPL-3.0-or-later"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -27,7 +26,7 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 maturin = "^1.4.0"
 appdirs = "1.4.4"
 bitcoinlib = "0.6.15"
