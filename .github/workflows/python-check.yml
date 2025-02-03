@@ -7,14 +7,12 @@ on:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/setup-python.yml
+    with:
+      python-version: ${{ matrix.python-version }}
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']
-    steps:
-      - uses: ./.github/workflows/setup-python.yml
-        with:
-          python-version: ${{ matrix.python-version }}
 
   python-check:
     needs: quality
