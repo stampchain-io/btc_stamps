@@ -1,0 +1,82 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/workflows/setup-python.yml
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache Poetry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+        env:
+          POETRY_HOME: ${{ github.workspace }}/.poetry
+
+      - name: Add Poetry to PATH
+        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies using Poetry
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install
+        working-directory: ./indexer
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Rust parser
+        working-directory: ./indexer
+        run: |
+          pip install maturin
+          maturin develop --release
+
+      - name: Download Test Blockchain Data
+        run: |
+          mkdir -p ./indexer/tests/data/blockchain
+          # Add commands to download and extract test blockchain data snapshots
+          echo "Using test blockchain data for offline testing"
+
+      - name: Run Block Processing Integration Tests
+        run: |
+          poetry run pytest tests/test_block_rollback.py -v
+          poetry run pytest tests/test_rollback_transactions_stamptable.py -v
+          poetry run pytest tests/test_integration_block_processing.py -v
+        working-directory: ./indexer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+          USE_TEST_BLOCKCHAIN_DATA: "1"
+
+      - name: Run ZMQ Integration Tests
+        run: |
+          poetry run pytest tests/zmq_test.py -v
+        working-directory: ./indexer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+          USE_TEST_BLOCKCHAIN_DATA: "1" 

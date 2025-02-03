@@ -119,10 +119,11 @@ class BlockProcessor:
     def process_transaction_results(self, tx_results):
         """Process transaction results."""
         logger.debug(f"Processing {len(tx_results)} transaction results")
+
         # Then process each transaction for stamps
         for result in tx_results:
             try:
-                logger.debug(f"Processing transaction: {result.tx_hash}")
+
                 stamp_data = StampData(
                     tx_hash=result.tx_hash,
                     source=result.source,
@@ -140,15 +141,11 @@ class BlockProcessor:
                     is_op_return=result.is_op_return,
                     p2wsh_data=result.p2wsh_data,
                 )
-                logger.debug(f"Created StampData for tx: {result.tx_hash}")
 
                 _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
                     stamp_data=stamp_data,
                     db=self.db,
                     valid_stamps_in_block=self.valid_stamps_in_block,
-                )
-                logger.debug(
-                    f"Parsed stamp data for tx: {result.tx_hash}, prevalidated_src exists: {prevalidated_src is not None}"
                 )
 
                 if stamp_data:
@@ -159,16 +156,14 @@ class BlockProcessor:
                 if valid_stamp:
                     with self._lock:
                         self.valid_stamps_in_block.append(valid_stamp)
-                    logger.debug(f"Added valid stamp for tx: {result.tx_hash}")
 
                 if prevalidated_src and stamp_data and stamp_data.pval_src20:
-                    logger.debug(f"Processing SRC20 for tx: {result.tx_hash}")
+                    logger.debug(f"\nProcessing SRC20 for tx: {result.tx_hash}")
                     _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block, self._lock)
                     logger.debug(f"SRC20 dict created: {src20_dict}")
                     with self._lock:
                         self.processed_src20_in_block.append(src20_dict)
                 if prevalidated_src and stamp_data and stamp_data.pval_src101:
-                    logger.debug(f"Processing SRC101 for tx: {result.tx_hash}")
                     _, src101_dict = parse_src101(
                         self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index, self._lock
                     )
@@ -193,53 +188,32 @@ class BlockProcessor:
                         raise
 
     def finalize_block(self, block_index, block_time, txhash_list):
-        try:
-            if self.processed_src20_in_block:
-                logger.debug(f"Finalizing block {block_index} with {len(self.processed_src20_in_block)} SRC20 transactions")
-                logger.debug(f"First SRC20 transaction: {self.processed_src20_in_block[0]}")
+        if self.processed_src20_in_block:
+            balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
+            insert_into_src20_tables(self.db, self.processed_src20_in_block)
+            valid_src20_str = process_balance_updates(balance_updates)
+        else:
+            valid_src20_str = ""
 
-                try:
-                    # First insert the transactions
-                    insert_into_src20_tables(self.db, self.processed_src20_in_block)
-                    logger.debug("Successfully inserted SRC20 transactions")
+        if self.processed_src101_in_block:
+            insert_into_src101_tables(self.db, self.processed_src101_in_block)
+            update_src101_owners(self.db, block_index, self.processed_src101_in_block)
 
-                    # Then update balances
-                    balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
-                    logger.debug(f"Balance updates completed: {balance_updates}")
+        if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
+            clear_zero_balances(self.db)
 
-                    valid_src20_str = process_balance_updates(balance_updates)
-                    logger.debug(f"Processed balance updates: {valid_src20_str[:100]}...")
-                except Exception as e:
-                    logger.error(f"Error in SRC20 processing: {e}", exc_info=True)
-                    raise
-            else:
-                valid_src20_str = ""
+        new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+            self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
+        )
 
-            src101_count = 0
-            if self.processed_src101_in_block:
-                logger.debug(f"Processing {len(self.processed_src101_in_block)} SRC101 transactions")
-                insert_into_src101_tables(self.db, self.processed_src101_in_block)
-                update_src101_owners(self.db, block_index, self.processed_src101_in_block)
-                src101_count = len(self.processed_src101_in_block)
+        if valid_src20_str:
+            if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
+                raise LedgerMismatchError(block_index)
 
-            if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
-                clear_zero_balances(self.db)
-
-            new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-                self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
-            )
-
-            if valid_src20_str:
-                logger.debug("Validate Ledger Hash")
-                if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
-                    raise LedgerMismatchError(block_index)
-
-            stamps_in_block = len(self.valid_stamps_in_block)
-            src20_in_block = len(self.processed_src20_in_block)
-            return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block, src101_count
-        except Exception as e:
-            logger.error(f"Error in finalize_block: {e}", exc_info=True)
-            raise
+        stamps_in_block = len(self.valid_stamps_in_block)
+        src20_in_block = len(self.processed_src20_in_block)
+        src101_in_block = len(self.processed_src101_in_block)
+        return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block, src101_in_block
 
     def insert_transactions(self, tx_results):
         insert_transactions(self.db, tx_results)
@@ -548,37 +522,37 @@ def create_check_hashes(
     db,
     block_index,
     valid_stamps_in_block: list[ValidStamp],
-    processed_src20_in_block,
+    valid_src20_str,
     txhash_list,
     previous_ledger_hash=None,
     previous_txlist_hash=None,
     previous_messages_hash=None,
 ):
     """
-    Calculate and update the hashes for the given block data. This needs to be modified for a reparse.
+    Calculate and update the hashes for the given block data.
 
     Args:
         db (Database): The database object.
         block_index (int): The index of the block.
         valid_stamps_in_block (list): The list of processed transactions in the block.
-        processed_src20_in_block (list): The list of valid SRC20 tokens in the block.
+        valid_src20_str (str): The string representation of valid SRC20 balances.
         txhash_list (list): The list of transaction hashes in the block.
-        previous_ledger_hash (str, optional): The hash of the previous ledger. Defaults to None.
-        previous_txlist_hash (str, optional): The hash of the previous transaction list. Defaults to None.
-        previous_messages_hash (str, optional): The hash of the previous messages. Defaults to None.
+        previous_ledger_hash (str, optional): The hash of the previous ledger.
+        previous_txlist_hash (str, optional): The hash of the previous transaction list.
+        previous_messages_hash (str, optional): The hash of the previous messages.
 
     Returns:
-        tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
+        tuple: A tuple containing the new ledger hash, txlist hash, and messages hash.
     """
-    sorted_valid_stamps = sorted(valid_stamps_in_block, key=lambda x: x.get("stamp_number", ""))
+    # Sort stamps by stamp number
+    sorted_valid_stamps = sorted(valid_stamps_in_block, key=lambda x: int(x.get("stamp_number", 0)))
     txlist_content = str(sorted_valid_stamps)
     new_txlist_hash, found_txlist_hash = check.consensus_hash(
         db, block_index, "txlist_hash", previous_txlist_hash, txlist_content
     )
 
-    ledger_content = str(processed_src20_in_block)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(
-        db, block_index, "ledger_hash", previous_ledger_hash, ledger_content
+        db, block_index, "ledger_hash", previous_ledger_hash, valid_src20_str
     )
 
     messages_content = str(txhash_list)

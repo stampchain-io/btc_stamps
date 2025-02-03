@@ -1143,10 +1143,12 @@ def update_balance_table(db, balance_updates, block_index, block_time):
         for id_field, amt in cursor.fetchall():
             id_to_balance[id_field]["original_amt"] = D(amt)
 
-        # Set zero for any missing balances
+        # Set zero for any missing balances and compute final_calculated_balance
         for balance_dict in balance_updates:
             if "original_amt" not in balance_dict:
                 balance_dict["original_amt"] = D(0)
+            # Compute and attach final_calculated_balance to match production behavior
+            # balance_dict["final_calculated_balance"] = D(balance_dict["original_amt"]) + D(balance_dict["net_change"])
 
         insert_data = [
             (
@@ -1191,18 +1193,28 @@ def process_balance_updates(balance_updates):
     Returns:
         str: A string representation of valid src20 entries.
     """
+
     valid_src20_list = []
-    for src20 in balance_updates:
-        tick = src20["tick"]
-        if "\\" in tick:  # Decode escaped unicode tickers
-            tick = decode_unicode_escapes(tick)
+    if balance_updates:
+        for src20 in balance_updates:
+            creator = src20.get("address")
+            tick = src20.get("tick", "")
+            if "\\" in tick:
+                tick = decode_unicode_escapes(tick)
 
-        amt = D(src20["final_calculated_balance"])
-        amt_str = format_decimal(amt)
-        valid_src20_list.append(f"{tick},{src20['address']},{amt_str}")
+            amt = D(src20.get("net_change", D(0))) + D(src20.get("original_amt", D(0)))
+            amt = amt.normalize()
 
-    valid_src20_list = sorted(valid_src20_list, key=lambda x: (x.split(",")[0], x.split(",")[1]))
-    return ";".join(valid_src20_list)
+            amt_str = format_decimal(amt)
+            valid_src20_list.append(f"{tick},{creator},{amt_str}")
+
+    valid_src20_list = sorted(
+        valid_src20_list,
+        key=lambda src20: (src20.split(",")[0] + "_" + src20.split(",")[1]),
+    )
+
+    valid_src20_str = ";".join(valid_src20_list)
+    return valid_src20_str
 
 
 def format_decimal(amt):
@@ -1326,6 +1338,10 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
     logger.warning("API Hash: %s", api_ledger_hash)
     logger.warning("Local Hash: %s", ledger_hash)
 
+    # Add debug logging for ledger strings
+    logger.debug("Local ledger string content: %s", valid_src20_str)
+    logger.debug("API ledger string content: %s", api_ledger_validation)
+
     local_balances = parse_balances(valid_src20_str)
     api_balances = parse_balances(api_ledger_validation)
 
@@ -1342,10 +1358,34 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
 
 def parse_balances(balance_str):
+    """Parse balance string into a nested defaultdict structure.
+
+    Args:
+        balance_str (str): String containing balance entries
+
+    Returns:
+        defaultdict: Nested dictionary with ticks and addresses mapping to balances
+    """
     balances = defaultdict(lambda: defaultdict(D))
+    if not balance_str:
+        return balances
+
     for entry in balance_str.split(";"):
-        tick, address, balance = entry.split(",")
-        balances[tick][address] = D(balance)
+        if not entry:  # Skip empty entries
+            continue
+
+        try:
+            parts = entry.split(",")
+            if len(parts) != 3:
+                logger.error(f"Invalid balance entry format - expected 3 parts but got {len(parts)}: {entry}")
+                continue
+
+            tick, address, balance = parts
+            balances[tick][address] = D(balance)
+        except Exception as e:
+            logger.error(f"Error parsing balance entry '{entry}': {str(e)}")
+            continue
+
     return balances
 
 
@@ -1402,6 +1442,9 @@ def compare_string_formats(local_str: str, api_str: str):
     local_only = local_entries - api_entries
     api_only = api_entries - local_entries
 
+    print(f"Local entries: {local_entries}")
+    print(f"API entries:   {api_entries}")
+
     if local_only:
         print("\nEntries only in local string:")
         for entry in sorted(local_only):
@@ -1418,6 +1461,9 @@ def compare_string_formats(local_str: str, api_str: str):
     # Check for sorting differences
     local_sorted = sorted(local_entries)
     api_sorted = sorted(api_entries)
+
+    print(f"Local sorted: {local_sorted}")
+    print(f"API sorted:   {api_sorted}")
 
     if local_sorted != api_sorted:
         sys.exit(

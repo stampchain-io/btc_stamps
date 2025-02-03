@@ -1,0 +1,70 @@
+---
+description: Database Connection Handling and Logic
+globs: indexer/src/database.py, indexer/src/database_manager.py
+---
+# Bitcoin Stamps Database Interaction Rules
+
+## Purpose
+This document establishes the rules, guidelines, and best practices for interacting with the database within the Bitcoin Stamps Indexer project. All modifications, data operations, and connection management practices must adhere to these rules to ensure consistency, security, and performance.
+
+## Referenced Files
+- **SQL Operations & Reindex Instructions:** `@docs/dev/database.md`
+- **Core Database Operations:** `@indexer/src/index_core/database.py`
+- **Connection Pool Management:** `@indexer/src/index_core/database_manager.py`
+
+## General Guidelines
+
+### 1. Reindexing and SQL Operations
+- **SQL Queries:** When performing a reindex, always use the SQL queries provided in `@docs/dev/database.md`.  
+  - Replace the placeholder `@block_index` with the appropriate block index value.
+  - Ensure you disable foreign key checks before deletion and re-enable them afterward.
+- **Purging & Cleanup:** Use functions like `purge_block_db(db, block_index)` to remove any partially committed or outdated data.
+
+### 2. Core Database Functions
+- **Data Insertion and Updates:**  
+  - Use the functions in `@indexer/src/index_core/database.py` for all standard database operations (e.g. `insert_transactions()`, `insert_block()`, or updating block hashes).
+  - Always follow the error handling patterns by raising custom exceptions (`BlockAlreadyExistsError`, `BlockUpdateError`, `DatabaseInsertError`) when necessary.
+- **Caching:**  
+  - Leverage the provided caching mechanisms (via `cache_manager`) to check state before running extensive database queries.
+  - Clear caches as needed during block reorganization or after any bulk data updates.
+- **Batch Processing:**  
+  - When handling high volumes of data (e.g. rebuilding balances or owners), process in defined batch sizes and periodically commit the changes.
+  - Monitor memory usage and clear intermediate caches using `memory_manager.clear_caches_if_needed()`.
+
+### 3. Connection and Pool Management
+- **Connection Acquisition:**  
+  - Use the `DatabaseManager.connect()` method from `@indexer/src/index_core/database_manager.py` for acquiring pooled connections.
+  - For long-running operations, use `DatabaseManager.get_long_running_connection()` to ensure proper timeout settings.
+- **Retry Logic:**  
+  - The connection pool incorporates retry logic and timeout settings. Ensure you use the provided methods to access or execute queries (e.g. `execute_with_retry()`).
+- **Returning Connections:**  
+  - Always return connections to the pool by calling the `close()` method on a pooled connection. This avoids connection leaks and exhaustion.
+
+### 4. Commit, Rollback, and Logging
+- **Transaction Handling:**  
+  - Every database transaction should either be fully committed or rolled back in case of errors.
+  - Utilize the patterns in the source code (`db.begin()`, `db.commit()`, `db.rollback()`) to handle transactions properly.
+- **Logging:**  
+  - Log actions and errors at appropriate levels. This is crucial especially when purging data, reindexing, or swapping tables atomically.
+  - Follow the logging setup in the source files so that all database operations are traceable.
+
+### 5. Code Formatting and Security Practices
+- **SQL Safety:**  
+  - Always use parameterized queries (with `%s` placeholders) to prevent SQL injection.
+- **Code Consistency:**  
+  - Adhere to the project’s formatting and linting rules (as specified in the `.cursorrules` configuration) to ensure code consistency across database-related modules.
+
+## Special Considerations
+- **Reindexing Workflow:**  
+  - Before initiating a reindex, compare the existing state (balances, owners, etc.) against the calculated values.  
+  - If discrepancies are found (as checked by functions like `balances_need_update()` or `owners_need_update()`), then purge and rebuild the affected tables.
+- **Long-Running Queries:**  
+  - For operations that might run for an extended period, ensure the proper use of long-running connections and commit intervals to minimize lock contention and timeout issues.
+
+## Conclusion
+Adherence to these rules is critical when modifying database interactions within the Bitcoin Stamps Indexer. Any database-related changes must reference:
+- `@docs/dev/database.md` for SQL instructions.
+- `@indexer/src/index_core/database.py` for core operations.
+- `@indexer/src/index_core/database_manager.py` for connection and pool management.
+
+Regular reviews and testing should be conducted to ensure these guidelines remain effective as the project evolves.

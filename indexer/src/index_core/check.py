@@ -144,7 +144,6 @@ class ConsensusError(Exception):
 def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
-    # block_index = util.CURRENT_BLOCK_INDEX
 
     # initialize previous hash on first block.
     if block_index <= config.BLOCK_FIRST and field != "ledger_hash":
@@ -194,7 +193,9 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     elif field == "ledger_hash" and content == "":
         calculated_hash = ""
     else:
+        # For other hashes (messages, txlist), use the previous consensus hash in calculation
         calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
+
     # Verify hash (if already in database) or save hash (if not).
     cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
     results = cursor.fetchall()
@@ -261,7 +262,7 @@ def check_change(protocol_change, change_name):
     # passed = True # Removing version check for now
 
     if not passed:
-        explanation = "Your version of {} is v{}, but, as of block {}, the minimum version is v{}.{}.{}. Reason: ‘{}’. Please upgrade to the latest version and restart the server.".format(
+        explanation = "Your version of {} is v{}, but, as of block {}, the minimum version is v{}.{}.{}. Reason: '{}'. Please upgrade to the latest version and restart the server.".format(
             config.APP_NAME or "",
             config.VERSION_STRING or "",
             protocol_change["block_index"],

@@ -141,3 +141,25 @@ jobs:
         run: |
           poetry run python3 -m unittest discover -s . -p "test_arc4.py"
         working-directory: ./indexer
+
+      - name: Run Transaction Tests
+        run: |
+          poetry run python3 -m unittest discover -s . -p "test_transactions.py"
+        working-directory: ./indexer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+
+      - name: Run SRC-20 Balance Tests
+        run: |
+          poetry run pytest tests/test_src20_balance.py -v
+          poetry run pytest tests/test_src20_update_valid.py -v
+        working-directory: ./indexer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+
+      - name: Run SRC-20 Validator Tests
+        run: |
+          poetry run pytest tests/test_src20_validator.py -v
+        working-directory: ./indexer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer

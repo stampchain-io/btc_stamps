@@ -168,4 +168,43 @@ Tests across Python versions:
 - All checks must pass for PR approval
 - Some checks (flake8) allow non-zero exit for warnings
 - Security exceptions must be documented 
-- 
+
+## Bump Version Workflow (`bump-version.yml`)
+
+This workflow automates version bumping in the project. It is triggered either manually or based on specific commit patterns that require a version update.
+
+**Key Tasks:**
+ - Analyze commit messages to determine appropriate version increments following semantic versioning principles.
+ - Update version numbers in project configuration files (e.g., pyproject.toml) automatically.
+ - Create a new Git tag corresponding to the updated version.
+
+## Version Check Workflow (`version-check.yml`)
+
+This workflow ensures consistency of version information across the codebase. It is triggered on commits and pull requests to verify that:
+ - Version numbers in configuration files match across the repository.
+ - The declared project version adheres to semantic versioning standards.
+
+Both workflows contribute to robust CI/CD processes by automating version management and enforcing consistency, ensuring reliable deployments and easier maintenance of release cycles. 
+
+## Enhanced Testing Strategies
+
+To ensure the robustness and reliability of the BTC Stamps Indexer, additional tests have been integrated into the CI workflows. These tests complement the standard workflows and provide comprehensive validation of both core functionalities and edge cases.
+
+### 1. Rollback Transaction Tests
+- Validates that rollback operations on the transactions table and StampTableV4 perform as expected.
+- Ensures that database state remains consistent after rollback operations.
+- Utilizes live database connections and specific test cases (e.g., tests/test_rollback_transactions_stamptable.py).
+
+### 2. Balance Calculation and Ledger Integrity Tests
+- Verifies the accuracy of balance computations, especially after optimizations in the Rust parser.
+- Compares ledger states across runs to detect any discrepancies.
+
+### 3. End-to-End Integration Testing
+- Tests the complete block processing pipeline, combining outputs from both Python and Rust parsers.
+- Triggered on pull requests and tag pushes to catch integration issues early.
+
+### 4. Offline Testing with Stored Blockchain Data
+- Uses stored snapshots of blockchain data to simulate production scenarios.
+- Provides enhanced test coverage in CI environments without live database connections.
+
+These testing strategies ensure that every change, especially those affecting critical components like rollback functionality and balance calculations, is thoroughly validated before merging, thereby maintaining the integrity and performance of the indexer. 

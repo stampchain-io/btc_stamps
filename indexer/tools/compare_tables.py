@@ -43,6 +43,15 @@ def print_block_comparison(prod_block, dev_block):
         print(f"├─ Prod: {colored(prod_block[2], 'yellow')}")
         print(f"└─ Dev:  {colored(dev_block[2], 'yellow')}")
 
+    print("\n📊 Ledger Hash:")
+    if prod_block[3] == dev_block[3]:
+        print(f"├─ {colored('✓ Matches', 'green', attrs=['bold'])}")
+        print(f"└─ Hash: {colored(prod_block[3], 'cyan')}")
+    else:
+        print(f"├─ {colored('✗ Mismatch', 'red', attrs=['bold'])}")
+        print(f"├─ Prod: {colored(prod_block[3], 'yellow')}")
+        print(f"└─ Dev:  {colored(dev_block[3], 'yellow')}")
+
     print("\n" + "=" * 50)
 
 
@@ -498,7 +507,7 @@ def main():
 
         prod_cursor.execute(
             """
-            SELECT block_index, messages_hash, txlist_hash
+            SELECT block_index, messages_hash, txlist_hash, ledger_hash
             FROM blocks
             WHERE block_index < %s
             """,
@@ -508,7 +517,7 @@ def main():
 
         dev_cursor.execute(
             """
-            SELECT block_index, messages_hash, txlist_hash
+            SELECT block_index, messages_hash, txlist_hash, ledger_hash
             FROM blocks
             WHERE block_index < %s
             """,
