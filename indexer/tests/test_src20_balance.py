@@ -1,9 +1,11 @@
+import unittest
 from decimal import Decimal
 
 import pytest
 
 # Import the Src20Processor from the index_core module
 from index_core.src20 import Src20Processor
+from tests.test_helpers import mock_database, setup_test_env
 
 
 def test_normalize_valid_amount():
@@ -34,3 +36,15 @@ def test_normalize_invalid_amount():
     # Act and Assert: calling normalize_and_validate_amt should raise a ValueError
     with pytest.raises(ValueError, match="Decimal places exceeds the limit"):
         processor.normalize_and_validate_amt()
+
+
+class TestSrc20Balance(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        setup_test_env()
+        cls._db_patcher = mock_database()
+        cls._db_mock = cls._db_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._db_patcher.stop()

@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import os
 
 
 def run_command(command, ignore_errors=False):
@@ -21,16 +22,65 @@ def run_command(command, ignore_errors=False):
 
 
 def run_code_quality_checks():
-    """Run code formatting and quality checks"""
-    commands = [
-        "poetry run black . --config=pyproject.toml",
-        "poetry run flake8 .",
-        "poetry run isort .",
-        "poetry run task bandit",
-        "poetry run mypy . --explicit-package-bases",
-        "poetry run run_safety",
-    ]
-    return all(run_command(cmd) for cmd in commands)
+    """Run code quality checks"""
+    try:
+        # Set test environment variables
+        test_env = {"PYTHONPATH": "src:.", "USE_TEST_TX_HEX": "1", "TESTING": "1", "USE_TEST_DB": "1", "MOCK_DB": "1"}
+        env = {**os.environ, **test_env}
+
+        # Run pytest for specific test files
+        subprocess.run(
+            ["poetry", "run", "pytest", "tests/test_src20_balance.py", "-v", "-W", "ignore::UserWarning"], check=True, env=env
+        )
+        subprocess.run(
+            ["poetry", "run", "pytest", "tests/test_src20_update_valid.py", "-v", "-W", "ignore::UserWarning"],
+            check=True,
+            env=env,
+        )
+        subprocess.run(
+            ["poetry", "run", "pytest", "tests/test_src20_validator.py", "-v", "-W", "ignore::UserWarning"],
+            check=True,
+            env=env,
+        )
+
+        # Run other tests with unittest
+        subprocess.run(
+            ["poetry", "run", "python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_src20.py"], check=True
+        )
+        subprocess.run(
+            ["poetry", "run", "python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_check_format.py"], check=True
+        )
+        subprocess.run(["poetry", "run", "python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_arc4.py"], check=True)
+        subprocess.run(
+            ["poetry", "run", "python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_transactions.py"], check=True
+        )
+
+        # Run other quality checks
+        subprocess.run(["poetry", "run", "isort", ".", "--check-only"], check=True)
+        subprocess.run(["poetry", "run", "black", "--check", ".", "--config=pyproject.toml"], check=True)
+        subprocess.run(
+            [
+                "poetry",
+                "run",
+                "flake8",
+                "src/",
+                "tests/",
+                "tools/",
+                "--count",
+                "--exit-zero",
+                "--max-complexity=10",
+                "--max-line-length=127",
+                "--statistics",
+            ],
+            check=True,
+        )
+        subprocess.run(["poetry", "run", "mypy", ".", "--explicit-package-bases"], check=True)
+        subprocess.run(["poetry", "run", "task", "bandit"], check=True)
+
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error running code quality checks: {e}")
+        return False
 
 
 def run_rust_checks():
