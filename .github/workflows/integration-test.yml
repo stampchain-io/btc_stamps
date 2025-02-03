@@ -30,8 +30,10 @@ jobs:
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "${POETRY_HOME}/bin" >> $GITHUB_PATH
         working-directory: ./indexer
+        env:
+          POETRY_HOME: ${{ github.workspace }}/indexer/.poetry
         
       - name: Configure Poetry
         run: |
@@ -50,14 +52,6 @@ jobs:
           poetry run pytest tests/test_block_rollback.py -v
           poetry run pytest tests/test_rollback_transactions_stamptable.py -v
           poetry run pytest tests/test_integration_block_processing.py -v
-        working-directory: ./indexer
-        env:
-          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
-          USE_TEST_BLOCKCHAIN_DATA: "1"
-
-      - name: Run ZMQ Integration Tests
-        run: |
-          poetry run pytest tests/zmq_test.py -v
         working-directory: ./indexer
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer

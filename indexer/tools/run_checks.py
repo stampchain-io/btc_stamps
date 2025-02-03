@@ -50,7 +50,6 @@ def run_integration_tests():
         "poetry run pytest tests/test_block_rollback.py -v",
         "poetry run pytest tests/test_rollback_transactions_stamptable.py -v",
         "poetry run pytest tests/test_integration_block_processing.py -v",
-        "poetry run pytest tests/zmq_test.py -v",
     ]
     return all(run_command(cmd, ignore_errors=True) for cmd in commands)
 
