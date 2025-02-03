@@ -1,8 +1,9 @@
 import logging
+import os
 import sys
 import unittest
 from pathlib import Path
-import os
+from unittest.mock import patch
 
 import colorlog
 from colour_runner.runner import ColourTextTestRunner
@@ -13,7 +14,6 @@ from index_core.src20 import parse_src20
 from index_core.stamp import parse_stamp
 from tests.db_simulator import DBSimulator
 from tests.src20_variations_data import src20_variations_data
-from unittest.mock import patch
 
 handler = colorlog.StreamHandler()
 handler.setFormatter(
