@@ -2,6 +2,7 @@ import logging
 import sys
 import unittest
 from pathlib import Path
+import os
 
 import colorlog
 from colour_runner.runner import ColourTextTestRunner
@@ -12,6 +13,7 @@ from index_core.src20 import parse_src20
 from index_core.stamp import parse_stamp
 from tests.db_simulator import DBSimulator
 from tests.src20_variations_data import src20_variations_data
+from unittest.mock import patch
 
 handler = colorlog.StreamHandler()
 handler.setFormatter(
@@ -34,6 +36,10 @@ logger.setLevel(logging.DEBUG)
 class TestSrc20Variations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Set environment variable to use test mode
+        os.environ["USE_TEST_TX_HEX"] = "1"
+        os.environ["TESTING"] = "1"
+
         # Add the project root directory to the sys.path for module importing
         project_root = Path(__file__).resolve().parent.parent
         sys.path.append(str(project_root))
@@ -41,6 +47,14 @@ class TestSrc20Variations(unittest.TestCase):
         # Initialize DB Simulator with the path to dbSimulation.json
         db_simulation_path = project_root / "indexer" / "tests" / "dbSimulation.json"
         cls.db_simulator = DBSimulator(db_simulation_path)
+
+        # Mock any database connections
+        cls._db_patcher = patch("index_core.database_manager.DatabaseManager")
+        cls._db_mock = cls._db_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._db_patcher.stop()
 
     def test_src20_variations(self):
         block_processor = BlockProcessor(self.db_simulator)

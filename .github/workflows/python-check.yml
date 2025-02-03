@@ -72,6 +72,10 @@ jobs:
       # Run all the test suites
       - name: Run Test Suites
         working-directory: ./indexer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+          USE_TEST_TX_HEX: "1"
+          TESTING: "1"
         run: |
           poetry run python3 -m unittest discover -s . -p "test_src20.py"
           poetry run python3 -m unittest discover -s . -p "test_check_format.py"
@@ -80,5 +84,3 @@ jobs:
           poetry run pytest tests/test_src20_balance.py -v
           poetry run pytest tests/test_src20_update_valid.py -v
           poetry run pytest tests/test_src20_validator.py -v
-        env:
-          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
