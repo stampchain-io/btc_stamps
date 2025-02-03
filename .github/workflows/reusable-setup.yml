@@ -14,6 +14,9 @@ jobs:
       cache-hit: ${{ steps.cache-poetry.outputs.cache-hit }}
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up Python ${{ inputs.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -39,7 +42,7 @@ jobs:
         run: |
           poetry config virtualenvs.in-project true
           poetry install
-        working-directory: ./indexer
+        working-directory: indexer
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -48,7 +51,7 @@ jobs:
           override: true
 
       - name: Build Rust parser
-        working-directory: ./indexer
+        working-directory: indexer
         run: |
           pip install maturin
           maturin develop --release 
