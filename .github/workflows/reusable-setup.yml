@@ -61,3 +61,4 @@ jobs:
           poetry run mypy . --explicit-package-bases
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src 
+          working-directory: indexer
