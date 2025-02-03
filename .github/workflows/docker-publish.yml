@@ -16,14 +16,21 @@ on:
         default: false
 
 jobs:
+  setup:
+    if: ${{ !inputs.skip_tests }}
+    uses: ./.github/workflows/reusable-setup.yml
+    with:
+      python-version: '3.9'
+
   test:
     if: ${{ !inputs.skip_tests }}
+    needs: setup
     uses: ./.github/workflows/build-test.yml
     with:
       environment: ${{ inputs.environment }}
 
   push_to_registry:
-    needs: test
+    needs: [setup, test]
     if: ${{ always() && (inputs.skip_tests || success()) }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
