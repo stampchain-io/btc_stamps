@@ -27,7 +27,6 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-maturin = "^1.4.0"
 appdirs = "1.4.4"
 bitcoinlib = "0.6.15"
 colorlog = "6.9.0"
@@ -42,9 +41,8 @@ python-docx = "1.1.2"
 cryptography = "43.0.3"
 pybase64 = "1.4.0"
 python-magic = "0.4.27"
-boto3 = "1.36.0"
+boto3 = "1.37.5"
 msgpack = "1.1.0"
-tqdm = "4.67.1"
 python-dotenv = "1.0.1"
 colour-runner = "0.1.1"
 ecdsa = "0.19.0"
@@ -53,13 +51,15 @@ eth-account = "^0.13.3"
 psutil = ">=6.1.1"
 filelock = ">=3.16.1"
 safety = ">=3.2.14"
+aiohttp = "^3.11.11"
+ratelimit = "^2.2.1"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
 
 [tool.poetry.group.dev.dependencies]
 taskipy = "^1.13.0"
-bandit = "^1.7.9"
+bandit = "^1.8.3"
 flake8 = "^7.1.0"
 pillow = "^11.1.0"
 isort = "^5.10.1"
@@ -68,7 +68,6 @@ black = "^24.4.2"
 termcolor = "^2.5.0"
 types-requests = "^2.31.0"
 types-PyMySQL = "^1.0.0"
-types-tqdm = "^4.66.0.20240417"
 boto3-stubs = "^1.35.68"
 msgpack-types = "^0.3.0"
 types-appdirs = "^1.4.3.5"
@@ -79,6 +78,7 @@ pytest = "^8.3.2"
 pytest-cov = "^5.0.0"
 pre-commit = "^4.1.0"
 types-toml = "^0.10.8"
+maturin = "^1.4.0"
 
 [tool.poetry.scripts]
 indexer = "start:main"
@@ -92,6 +92,9 @@ check = "tools.run_checks:main"
 check-code = "tools.run_checks:run_code_quality_checks"
 check-rust = "tools.run_checks:run_rust_checks"
 check-integration = "tools.run_checks:run_integration_tests"
+reparse = "index_core.reparse.validator:main"
+save-snapshot = "index_core.reparse.snapshot:create_snapshot"
+rollback = "tools.rollback_db:main"
 
 [[tool.poetry.packages]]
 from = "src"
@@ -107,17 +110,22 @@ line_length = 127
 [tool.flake8]
 max-line-length = 127
 exclude = [".tox", "build", ".venv", "venv", ".env"]
-extend-ignore = ["E203", "W503", "E402", "E501"]
+extend-ignore = ["E203", "W503", "E402", "E501", "C901"]
 
 [tool.taskipy.tasks]
 bandit = "bandit -r src/ tests/ tools/ -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
-build = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
+build = "maturin develop --manifest-path src/rust_parser/Cargo.toml --release"
+build-dev = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
 check = "python -m tools.run_checks"
 check-code = "python -m tools.run_checks code"
 check-rust = "python -m tools.run_checks rust"
 check-integration = "python -m tools.run_checks integration"
-
+reparse = "python -m index_core.reparse.validator"
+save-snapshot = "python -m index_core.reparse.snapshot create"
+validate-snapshot = "python -m index_core.reparse.validator --validate-only"
+test = "pytest tests/ -v"
+test-src20 = "pytest tests/test_src20.py -v -s"
 
 [tool.mypy]
 mypy_path = "src"
@@ -143,6 +151,11 @@ ignore_errors = true
 module = "tools_priv.*"
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = "index_core.reparse.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
 [tool.safety]
 ignore = [
     "64396",  # Ecdsa does not protect against side-channel attacks
@@ -152,4 +165,27 @@ ignore = [
     "71891",   # js2py vulnerability CVE-2024-28397 - not using js2py directly
     "70716",   # python-jose DoS vulnerability CVE-2024-33664
     "70715"    # python-jose algorithm confusion vulnerability CVE-2024-33663
+]
+
+[tool.pytest]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Setting environment for tests
+env = [
+    "PYTHONPATH=src:.",
+    "USE_TEST_TX_HEX=1",
+    "TESTING=1",
+    "USE_TEST_DB=1",
+    "MOCK_DB=1"
+]
+
+[tool.pytest.ini_options]
+addopts = "-v -p no:warnings"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::sqlalchemy.exc.MovedIn20Warning",
+    "ignore::UserWarning"
 ] 

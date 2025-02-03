@@ -172,6 +172,11 @@ class DatabaseManager:
 
     def _initialize_pool(self):
         """Initialize the connection pool with parameters from environment."""
+        # Skip pool initialization if we're in test mode with mock DB
+        if os.environ.get("MOCK_DB") == "1" or os.environ.get("USE_TEST_DB") == "1":
+            logger.info("Using mock database for testing")
+            return
+
         pool_params = self.get_connection_params()
         pool_params.update(
             {
@@ -184,10 +189,11 @@ class DatabaseManager:
 
     def get_connection_params(self) -> dict:
         """Get database connection parameters from environment."""
-        return {
-            "host": os.environ.get("RDS_HOSTNAME", "db"),
-            "user": os.environ.get("RDS_USER"),
-            "password": os.environ.get("RDS_PASSWORD"),
+
+        params = {
+            "host": os.environ.get("RDS_HOSTNAME", "localhost"),
+            "user": os.environ.get("RDS_USER") or os.environ.get("MYSQL_USER", "admin"),
+            "password": os.environ.get("RDS_PASSWORD") or os.environ.get("MYSQL_PASSWORD", "password"),
             "database": os.environ.get("RDS_DATABASE", "btc_stamps"),
             "port": int(os.environ.get("RDS_PORT", 3306)),
             "connect_timeout": self.connect_timeout,
@@ -199,8 +205,21 @@ class DatabaseManager:
             "init_command": "SET SESSION wait_timeout=28800, max_execution_time=3600000",
         }
 
+        return params
+
     def get_long_running_connection(self) -> Connection:
         """Get a dedicated connection with extended timeouts for long operations"""
+        # Return a mock connection if we're in test mode
+        if os.environ.get("MOCK_DB") == "1" or os.environ.get("USE_TEST_DB") == "1":
+            from unittest.mock import MagicMock
+
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            logger.info("Returning mock long-running database connection for testing")
+            return mock_conn
+
         params = self.get_connection_params()
         params.update(
             {
@@ -213,18 +232,34 @@ class DatabaseManager:
 
     def connect(self) -> Connection:
         """Get a connection from the pool with retries."""
+        # Return a mock connection if we're in test mode
+        if os.environ.get("MOCK_DB") == "1" or os.environ.get("USE_TEST_DB") == "1":
+            from unittest.mock import MagicMock
+
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            logger.info("Returning mock database connection for testing")
+            return mock_conn
+
         last_error = None
         for attempt in range(self.max_retries):
             try:
+                logger.info(f"Attempting to acquire database connection (attempt {attempt + 1}/{self.max_retries})")
+                start_time = time.time()
                 connection = self.pool.get_connection()
+                elapsed_time = time.time() - start_time
                 if connection:
-                    logger.info("Database connection acquired from pool")
+                    logger.info(f"Database connection acquired from pool in {elapsed_time:.2f}s")
                     return connection
             except Exception as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
                     wait_time = self.retry_delay * (attempt + 1)
-                    logger.warning(f"Database connection attempt {attempt + 1} failed. Retrying in {wait_time} seconds...")
+                    logger.warning(
+                        f"Database connection attempt {attempt + 1} failed: {e}. Retrying in {wait_time} seconds..."
+                    )
                     time.sleep(wait_time)
 
         logger.error(f"Failed to acquire database connection after {self.max_retries} attempts")
@@ -232,20 +267,42 @@ class DatabaseManager:
 
     def get_cursor(self) -> Cursor:
         """Get a cursor from a pooled connection."""
+        # Return a mock cursor if we're in test mode
+        if os.environ.get("MOCK_DB") == "1" or os.environ.get("USE_TEST_DB") == "1":
+            from unittest.mock import MagicMock
+
+            mock_cursor = MagicMock()
+            logger.info("Returning mock database cursor for testing")
+            return mock_cursor
+
+        logger.debug("Getting database cursor")
+        start_time = time.time()
         connection = self.connect()
-        return connection.cursor()
+        cursor = connection.cursor()
+        elapsed_time = time.time() - start_time
+        logger.debug(f"Database cursor acquired in {elapsed_time:.2f}s")
+        return cursor
 
     def execute_with_retry(self, cursor: Cursor, query: str, params=None) -> None:
         """Execute query with retry logic."""
         last_error = None
+        query_preview = query[:100] + "..." if len(query) > 100 else query
+        logger.debug(f"Executing query with retry: {query_preview}")
+        start_time = time.time()
+
         for attempt in range(self.max_retries):
             try:
                 cursor.execute(query, params)
+                elapsed_time = time.time() - start_time
+                logger.debug(f"Query executed successfully in {elapsed_time:.2f}s")
                 return
             except (pymysql.OperationalError, pymysql.InternalError) as e:
                 last_error = e
+                elapsed_time = time.time() - start_time
                 if attempt < self.max_retries - 1:
-                    logger.warning(f"Query execution failed (attempt {attempt + 1}). Retrying...")
+                    logger.warning(
+                        f"Query execution failed (attempt {attempt + 1}) after {elapsed_time:.2f}s: {e}. Retrying..."
+                    )
                     try:
                         # Get a new connection from the pool
                         connection = self.connect()
@@ -254,8 +311,11 @@ class DatabaseManager:
                         logger.error(f"Failed to get new connection: {conn_error}")
                         raise
 
+        elapsed_time = time.time() - start_time
         if last_error:
+            logger.error(f"Query execution failed after {self.max_retries} attempts and {elapsed_time:.2f}s: {last_error}")
             raise RuntimeError(f"Query execution failed after {self.max_retries} attempts: {last_error}")
+        logger.error(f"Query execution failed after {self.max_retries} attempts and {elapsed_time:.2f}s")
         raise RuntimeError(f"Query execution failed after {self.max_retries} attempts")
 
     def close(self) -> None:
@@ -279,7 +339,11 @@ class DatabaseManager:
         """
         try:
             # Try to ping the existing connection
+            logger.debug("Checking database connection with ping")
+            start_time = time.time()
             connection.ping(reconnect=True)
+            elapsed_time = time.time() - start_time
+            logger.debug(f"Connection ping successful in {elapsed_time:.2f}s")
             return connection
         except Exception as e:
             logger.warning(f"Connection check failed: {e}")
@@ -289,6 +353,7 @@ class DatabaseManager:
                     connection.close()
 
                 # Get a fresh connection from the pool
+                logger.info("Getting new connection after ping failure")
                 new_connection = self.connect()
                 logger.info("Successfully established new database connection")
                 return new_connection

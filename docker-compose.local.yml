@@ -49,5 +49,16 @@ indexer:
     - MYSQL_USER=${RDS_USER}
     - MYSQL_PASSWORD=${RDS_PASSWORD}
     - MYSQL_ROOT_HOST=%
+    - REPARSE_MODE=${REPARSE_MODE:-false}
+    - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/app/snapshots/reference_hashes.json}
+    - REPARSE_STAGING_DB=${REPARSE_STAGING_DB:-btc_stamps_staging}
   ports:
-    - "3306:3306" 
+    - "3306:3306"
+  volumes:
+    - ./snapshots:/app/snapshots:ro
+  command: >
+    sh -c "if [ "$REPARSE_MODE" = "true" ]; then
+             poetry run reparse;
+           else
+             /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf;
+           fi" 

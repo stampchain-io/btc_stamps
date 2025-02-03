@@ -1,0 +1,52 @@
+{
+  "blocks": {
+    "795419": {
+      "total_transactions": 2482,
+      "included_transactions": 2482,
+      "inclusion_percentage": 100.0,
+      "rust_filtering_time": 0.03749370574951172,
+      "python_filtering_time": 0.08159565925598145,
+      "speedup_factor": 2.176249523082793
+    },
+    "795420": {
+      "total_transactions": 2209,
+      "included_transactions": 2209,
+      "inclusion_percentage": 100.0,
+      "rust_filtering_time": 0.03734087944030762,
+      "python_filtering_time": 0.08815312385559082,
+      "speedup_factor": 2.3607672121517824
+    },
+    "795421": {
+      "total_transactions": 3074,
+      "included_transactions": 3074,
+      "inclusion_percentage": 100.0,
+      "rust_filtering_time": 0.03964829444885254,
+      "python_filtering_time": 0.11661028861999512,
+      "speedup_factor": 2.941117398389628
+    },
+    "795422": {
+      "total_transactions": 704,
+      "included_transactions": 704,
+      "inclusion_percentage": 100.0,
+      "rust_filtering_time": 0.020000934600830078,
+      "python_filtering_time": 0.049338340759277344,
+      "speedup_factor": 2.4668017642150435
+    },
+    "795423": {
+      "total_transactions": 1000,
+      "included_transactions": 1000,
+      "inclusion_percentage": 100.0,
+      "rust_filtering_time": 0.022553682327270508,
+      "python_filtering_time": 0.06198239326477051,
+      "speedup_factor": 2.748216116790173
+    }
+  },
+  "summary": {
+    "total_transactions": 9469,
+    "included_transactions": 9469,
+    "inclusion_percentage": 100.0,
+    "rust_filtering_time": 0.15703749656677246,
+    "python_filtering_time": 0.39767980575561523,
+    "speedup_factor": 2.5323875790806527
+  }
+}

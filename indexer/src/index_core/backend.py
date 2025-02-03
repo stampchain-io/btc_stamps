@@ -32,8 +32,22 @@ logger = logging.getLogger(__name__)
 class Backend:
     """Backend interface for Bitcoin RPC and transaction parsing."""
 
+    # Singleton instance
+    _instance = None
+
+    def __new__(cls):
+        """Ensure only one instance of Backend exists."""
+        if cls._instance is None:
+            cls._instance = super(Backend, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self):
         """Initialize the backend with caches and parser."""
+        # Only initialize once
+        if hasattr(self, "_initialized") and self._initialized:
+            return
+
         # Initialize caches
         self.raw_transactions_cache = LRUCache[Any](max_size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
         self.deserialized_tx_cache = LRUCache[Any](max_size=config.DESERIALIZED_TX_CACHE_SIZE)
@@ -65,6 +79,8 @@ class Backend:
 
         # Initialize optimized SSL session
         self._session = self._create_optimized_session()
+
+        self._initialized = True
 
     def _should_collect_garbage(self, force_check: bool = False) -> bool:
         """
@@ -363,7 +379,15 @@ class Backend:
         if self._parser is not None:
             try:
                 block_data = self.rpc("getblock", [block_hash, 0])  # Get raw block hex
-                return self._parser.parse_block(block_data)
+                # The Rust parser now returns a tuple directly
+                tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits = self._parser.parse_block(block_data)
+                return (
+                    tx_hash_list,
+                    raw_transactions,
+                    timestamp,
+                    prev_block_hash,
+                    bits,  # This will be None from the Rust parser
+                )
             except Exception as e:
                 logger.warning(f"Rust block parser failed: {e}. Falling back to Python parser")
 

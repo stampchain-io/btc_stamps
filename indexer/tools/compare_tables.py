@@ -376,8 +376,12 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
     if only_in_prod or only_in_dev or mismatched:
         if only_in_prod:
             print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "yellow"))
-            for tx_hash in sorted(list(only_in_prod))[:5]:
-                record = prod_dict[tx_hash]
+            # Create a list of records with their block numbers for sorting
+            prod_records = [(tx_hash, prod_dict[tx_hash]) for tx_hash in only_in_prod]
+            # Sort by block number (index 4 in the record tuple)
+            prod_records.sort(key=lambda x: x[1][4])
+
+            for tx_hash, record in prod_records:
                 print(f"  • TX: {colored(tx_hash, 'cyan')}")
                 print(f"    ├─ Owner: {record[1]}")
                 print(f"    ├─ TokenID: {record[2]}")
@@ -386,8 +390,12 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
 
         if only_in_dev:
             print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "yellow"))
-            for tx_hash in sorted(list(only_in_dev))[:5]:
-                record = dev_dict[tx_hash]
+            # Create a list of records with their block numbers for sorting
+            dev_records = [(tx_hash, dev_dict[tx_hash]) for tx_hash in only_in_dev]
+            # Sort by block number (index 4 in the record tuple)
+            dev_records.sort(key=lambda x: x[1][4])
+
+            for tx_hash, record in dev_records:
                 print(f"  • TX: {colored(tx_hash, 'cyan')}")
                 print(f"    ├─ Owner: {record[1]}")
                 print(f"    ├─ TokenID: {record[2]}")
@@ -396,9 +404,12 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
 
         if mismatched:
             print(colored(f"\n→ Mismatched records ({len(mismatched)} records):", "yellow"))
-            for tx_hash in sorted(mismatched)[:5]:
-                prod_record = prod_dict[tx_hash]
-                dev_record = dev_dict[tx_hash]
+            # Create a list of records with their block numbers for sorting
+            mismatched_records = [(tx_hash, prod_dict[tx_hash], dev_dict[tx_hash]) for tx_hash in mismatched]
+            # Sort by block number from production record
+            mismatched_records.sort(key=lambda x: x[1][4])
+
+            for tx_hash, prod_record, dev_record in mismatched_records:
                 print(f"  • TX: {colored(tx_hash, 'cyan')}")
                 print("    ├─ Production:")
                 print(f"    │   ├─ Block: {prod_record[4]}")

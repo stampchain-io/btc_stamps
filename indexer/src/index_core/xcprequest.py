@@ -1,33 +1,14 @@
-import concurrent.futures
 import json
 import logging
-import sys
-import time
-from threading import Lock
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Dict, Optional, Tuple
 
 import requests
-from tqdm import tqdm
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import config
-import index_core.util as util
-from index_core.backend import Backend
 
 logger = logging.getLogger(__name__)
-
-url = config.CP_RPC_URL
-auth = config.CP_AUTH
-
-healthy_nodes_lock = Lock()
-healthy_nodes: List[Dict[str, Any]] = []
-
-backend_instance = Backend()
-# Shared headers for general operations
-HEADERS = {
-    "content-type": "application/json",
-    "Connection": "keep-alive",
-    "Keep-Alive": "timeout=60, max=1000",
-}
 
 # Headers for quick operations like version checks
 QUICK_HEADERS = {
@@ -37,6 +18,36 @@ QUICK_HEADERS = {
 }
 
 
+def create_session_with_retries(
+    retries: int = 3,
+    backoff_factor: float = 0.3,
+    status_forcelist: tuple = (500, 502, 503, 504),
+) -> requests.Session:
+    """
+    Create a requests Session with retry capabilities.
+
+    Args:
+        retries: Number of retries to attempt
+        backoff_factor: Backoff factor for retry delay calculation
+        status_forcelist: HTTP status codes that should trigger a retry
+
+    Returns:
+        requests.Session: Session object with retry configuration
+    """
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
 def _create_payload(method, params):
     base_payload = {"method": "", "params": {}, "jsonrpc": "2.0", "id": 0}
     base_payload["method"] = method
@@ -44,449 +55,77 @@ def _create_payload(method, params):
     return base_payload
 
 
-def fetch_cp_concurrent(block_index, block_tip, indicator=None):
-    """testing with this method because we were initially getting invalid results
-    when using the get_blocks[xxx,yyyy,zzz] method to the CP API
-    FIXME: now with version 10.x the concurrent method has been fixed so we can pull multiple blocks at once
-            will need to check CP version first to validate this will work, and fallback to this method"""
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-
-        blocks_to_fetch = 1000
-        futures = []
-        results_dict = {}
-
-        if block_tip > block_index + blocks_to_fetch:
-            block_tip = block_index + blocks_to_fetch
-        else:
-            blocks_to_fetch = block_tip - block_index + 1
-
-        pbar = tqdm(
-            total=blocks_to_fetch,
-            desc=f"Fetching CP Trx [{block_index}..{block_tip}]",
-            leave=True,
-        )
-
-        while block_index <= block_tip:
-            future = executor.submit(get_xcp_block_data, block_index, indicator=indicator)
-            future.block_index = block_index
-            futures.append(future)
-            block_index += 1
-
-        for future in concurrent.futures.as_completed(futures):
-            result = future.result()
-            results_dict[future.block_index] = result
-            pbar.update(1)
-
-        pbar.close()
-
-        sorted_results = dict(sorted(results_dict.items(), key=lambda x: x[0]))
-    return sorted_results
-
-
-def get_cp_block_hash_v2(block_index: int) -> Optional[str]:
-    """Get block hash using XCP V2 API"""
-    try:
-        endpoint = f"/blocks/{block_index}"
-        params = {"verbose": "true", "show_unconfirmed": "false"}
-        response = fetch_xcp_v2(endpoint, params=params)
-
-        if not response or not isinstance(response, dict):
-            logger.error(f"Invalid response format for block {block_index}")
-            return None
-
-        result = response.get("result")
-        if not result or not isinstance(result, dict):
-            logger.error(f"Block {block_index} not found in XCP V2 response")
-            return None
-
-        return result.get("block_hash")
-    except Exception as e:
-        logger.error(f"Error getting block hash via XCP V2: {e}")
-        return None
-
-
-def _handle_cp_call_with_retry(func, params, block_index, indicator=None):
-    if indicator is not None:
-        pbar = tqdm(
-            desc="Waiting for CP block {} to be parsed...".format(block_index),
-            leave=True,
-            bar_format="{desc}: {elapsed} {bar} [{postfix}]",
-        )
-
-    while util.CP_BLOCK_COUNT is None or block_index > util.CP_BLOCK_COUNT:
-        try:
-            util.CP_BLOCK_COUNT = _get_cp_block_count()
-            logger.info("Current block count: {}".format(util.CP_BLOCK_COUNT))
-            if util.CP_BLOCK_COUNT is not None and block_index <= util.CP_BLOCK_COUNT:
-                if indicator is not None:
-                    pbar.close()
-                break
-            else:
-                if indicator is not None:
-                    pbar.refresh()
-                time.sleep(config.BACKEND_POLL_INTERVAL)
-        except Exception as e:
-            logger.warning("Error getting CP block count: {}".format(e))
-            time.sleep(config.BACKEND_POLL_INTERVAL)
-
-    try:
-        data = func(params=params)
-        if data is not None and len(data) > 0:
-            return data
-        else:
-            logger.warning("Received empty data from CP.")
-            return None
-    except Exception as e:
-        logger.warning("Error in CP call: {}".format(e))
-        return None
-
-
-def get_cp_version(log_connection=False):
-    try:
-        if log_connection:
-            logger.info(f"""Connecting to Counterparty node: {config.CP_RPC_URL}""")
-        payload = _create_payload("get_running_info", {})
-        response = requests.post(url, data=json.dumps(payload), headers=QUICK_HEADERS, auth=auth, timeout=10)
-        result = json.loads(response.text)["result"]
-        version_major = result["version_major"]
-        version_minor = result["version_minor"]
-        version_revision = result["version_revision"]
-        version = ".".join([str(version_major), str(version_minor), str(version_revision)])
-        return version
-    except Exception as e:
-        logger.warning("Error getting version info: {}".format(e))
-        return None
-
-
-def _get_cp_block_count():
-    try:
-        payload = _create_payload("get_running_info", {})
-        response = requests.post(url, data=json.dumps(payload), headers=HEADERS, auth=auth, timeout=config.REQUESTS_TIMEOUT)
-        result = json.loads(response.text)["result"]
-        if result["last_block"] is None:
-            return None
-        return result["last_block"]["block_index"]
-    except Exception as e:
-        logger.warning("Error getting CP block count: {}".format(e))
-        return None
-
-
-def _get_blocks(params={}):
-    """Internal function to get multiple blocks at once"""
-    try:
-        payload = _create_payload("get_blocks", params)
-        response = requests.post(url, data=json.dumps(payload), headers=HEADERS, auth=auth, timeout=config.REQUESTS_TIMEOUT)
-        return json.loads(response.text)["result"]
-    except Exception as e:
-        logger.warning(f"Error getting blocks with params {params}: {e}")
-        return None
-
-
-def _get_all_tx_by_block(block_index, indicator=None):
-    return _handle_cp_call_with_retry(
-        func=_get_blocks,
-        params={"block_indexes": [block_index]},
-        block_index=block_index,
-        indicator=indicator,
-    )
-
-
-def get_xcp_block_data(block_index: int, indicator=None):
-    max_retries = 25
-    retry_delay = 5  # seconds
-
-    for attempt in range(max_retries):
-        block_data_from_xcp = _handle_cp_call_with_retry(
-            func=_get_blocks,
-            params={"block_indexes": [block_index]},
-            block_index=block_index,
-            indicator=indicator,
-        )
-
-        if block_data_from_xcp is not None:
-            try:
-                parsed_block_data = _parse_issuances_from_block(block_data=block_data_from_xcp)
-                return parsed_block_data
-            except (TypeError, IndexError, KeyError) as e:
-                logger.warning(f"Error parsing block data for block {block_index}: {e}")
-                if attempt < max_retries - 1:
-                    logger.warning(f"Retrying parse attempt {attempt + 1}/{max_retries}")
-                    time.sleep(retry_delay)
-                    continue
-
-        if attempt < max_retries - 1:
-            logger.warning(f"Failed to get block data for block {block_index}, attempt {attempt + 1}/{max_retries}")
-            time.sleep(retry_delay)
-
-    logger.error(f"Failed to get block data for block {block_index} after {max_retries} attempts")
-    sys.exit(1)
-
-
-def _parse_issuances_from_block(block_data):
-    if not block_data or not isinstance(block_data, list) or len(block_data) == 0:
-        raise ValueError("Invalid block data format")
-
-    issuances = []
-    block_data = block_data[0]
-
-    for tx in block_data.get("_messages", []):
-        try:
-            tx_data = json.loads(tx.get("bindings", "{}"))
-            tx_data["msg_index"] = tx.get("message_index")
-            tx_data["block_index"] = tx.get("block_index")
-            if tx.get("command") == "insert" and tx.get("category") == "issuances":
-                if tx_data.get("status", "invalid") == "valid":
-                    stamp_issuance = _check_for_stamp_issuance(issuance=tx_data)
-                    if stamp_issuance is not None:
-                        issuances.append(stamp_issuance)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Error decoding bindings JSON: {e}")
-            continue
-        except Exception as e:
-            logger.warning(f"Error processing transaction: {e}")
-            continue
-
-    return {
-        "block_index": block_data.get("block_index"),
-        "xcp_block_hash": block_data.get("block_hash"),
-        "issuances": issuances,
-    }
-
-
-def parse_base64_from_description(description):
-    if description is not None and description.lower().find("stamp:") != -1:
-        stamp_search = description[description.lower().find("stamp:") + 6 :]
-        stamp_search = stamp_search.strip()
-        if ";" in stamp_search:
-            stamp_mimetype, stamp_base64 = stamp_search.split(";", 1)
-            stamp_mimetype = stamp_mimetype.strip() if len(stamp_mimetype) <= 255 else ""  # db limit
-            stamp_base64 = stamp_base64.strip() if len(stamp_base64) > 1 else None
-        else:
-            stamp_mimetype = ""
-            stamp_base64 = stamp_search.strip() if len(stamp_search) > 1 else None
-
-        return stamp_base64, stamp_mimetype
-    else:
-        return None, None
-
-
-def _check_for_stamp_issuance(issuance):
-    description = issuance["description"]
-
-    if description is not None and description.lower().find("stamp:") != -1:
-        _, stamp_mimetype = parse_base64_from_description(description)
-
-        quantity = issuance["quantity"]  # + prev_qty
-        # logger.warning(f"CPID: {issuance['asset']} qty: {quantity}")
-        if issuance["status"] == "valid":
-            filtered_issuance = {
-                # we are not adding the base64 string to the json string
-                # in issuances, this is parsed when going to StampTable
-                "cpid": issuance["asset"],  # Rename 'asset' to 'cpid'
-                "quantity": quantity,
-                "divisible": issuance["divisible"],
-                "locked": issuance["locked"],
-                "source": issuance["source"],
-                "issuer": issuance["issuer"],
-                "transfer": issuance["transfer"],
-                "description": issuance["description"],
-                "reset": issuance["reset"],
-                "status": issuance["status"],
-                "asset_longname": (issuance["asset_longname"] if "asset_longname" in issuance else ""),  # TODO change to NULL
-                "tx_hash": issuance["tx_hash"],
-                "message_index": issuance["msg_index"],
-                "stamp_mimetype": stamp_mimetype,
-            }
-        return filtered_issuance
-    return None
-
-
-def filter_issuances_by_tx_hash(issuances, tx_hash):
-    filtered_issuances = [issuance for issuance in issuances if issuance["tx_hash"] == tx_hash]
-    return filtered_issuances[0] if filtered_issuances else None
-
-
-def fetch_xcp_v2(
-    endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    global healthy_nodes
-
-    if not healthy_nodes:
-        update_healthy_nodes()
-
-    nodes_to_try = [node] if node else healthy_nodes.copy()
-
-    for node in nodes_to_try:
-        url = f"{node['url']}{endpoint}"
-        try:
-            logger.info(f"Attempting to fetch from URL: {url}")
-            response = requests.get(url, params=params, timeout=10)
-            logger.info(f"Response status from {node['name']}: {response.status_code}")
-
-            if response.ok:
-                data = response.json()
-                logger.info(f"Successful response from {node['name']}")
-                return data
-            else:
-                error_body = response.text
-                logger.warning(f"Error response body from {node['name']}: {error_body}")
-        except Exception as e:
-            logger.error(f"Fetch error for {url}: {e}")
-            # Remove the failed node from healthy_nodes
-            with healthy_nodes_lock:
-                if node in healthy_nodes:
-                    healthy_nodes.remove(node)
-                    logger.warning(f"Node {node['name']} removed from healthy nodes.")
-                    if not healthy_nodes:
-                        update_healthy_nodes()
-        # Continue to the next node if the current one fails
-        continue
-
-    logger.error("Failed to fetch data from available nodes.")
-    return {
-        "result": [],
-        "next_cursor": None,
-        "result_count": 0,
-    }
-
-
-def get_xcp_asset(cpid: str, node: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def get_cp_version(node_url: Optional[str] = None, log_connection: bool = False) -> Tuple[Optional[str], Optional[Dict]]:
     """
-    Get details of a single CP asset by its CPID.
-    """
-    endpoint = f"/assets/{cpid}"
-    logger.info(f"Fetching XCP asset for CPID: {cpid} using node {node['name'] if node else 'default nodes'}")
-    try:
-        response = fetch_xcp_v2(endpoint, node=node)
-        if not response or not isinstance(response, dict) or "result" not in response:
-            logger.error(f"Invalid response for asset {cpid}: {response}")
-            return None
-
-        logger.info(f"Fetched XCP asset for CPID: {cpid}")
-        return response["result"]
-    except Exception as e:
-        logger.error(f"Error fetching asset info for cpid {cpid}: {e}")
-        return None
-
-
-def chunks(lst: List[Any], n: int) -> Iterator[List[Any]]:
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]
-
-
-def get_xcp_assets_by_cpids(
-    cpids: List[str], chunk_size: int = 200, delay_between_chunks: int = 6, max_workers: int = 5
-) -> List[Dict[str, Any]]:
-    assets_details = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for cpid_chunk in chunks(cpids, chunk_size):
-            future = executor.submit(fetch_assets_details, cpid_chunk)
-            futures.append(future)
-            time.sleep(delay_between_chunks)
-
-        for future in concurrent.futures.as_completed(futures):
-            result = future.result()
-            if result:
-                assets_details.extend(result)
-
-    return assets_details
-
-
-def fetch_assets_details(cpid_chunk: List[str]) -> List[Dict[str, Any]]:
-    assets_details = []
-    for cpid in cpid_chunk:
-        logger.info(f"Fetching asset detail for CPID: {cpid}")
-        asset_detail = get_xcp_asset(cpid)
-        if asset_detail:
-            assets_details.append(asset_detail)
-        else:
-            logger.warning(f"No asset detail found for CPID: {cpid}")
-    return assets_details
-
-
-def check_node_health(node: Dict[str, Any]) -> bool:
-    """
-    Check the health of a node by querying its /healthz endpoint.
+    Get Counterparty node version information.
 
     Args:
-        node (Dict[str, Any]): The node to check.
+        node_url: Optional URL to check. If None, uses default CP_RPC_URL.
+                 URL should end with /api/ for v1 endpoint.
+        log_connection: Whether to log connection details
 
     Returns:
-        bool: True if the node is healthy, False otherwise.
+        Tuple of (version_string, version_info_dict)
+        version_string is in format "major.minor.revision"
+        version_info_dict contains detailed version information
     """
-    health_url = f"{node['url']}/healthz"
     try:
-        response = requests.get(health_url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return data.get("result", {}).get("status") == "Healthy"
-    except Exception as e:
-        logger.warning(f"Health check failed for node {node['name']}: {e}")
-    return False
+        # Ensure URL is a valid string
+        if node_url is not None and not isinstance(node_url, str):
+            node_url = None  # Silently fall back to default URL
 
+        # Get base URL and ensure it's a string
+        url_to_use = node_url if node_url else config.CP_RPC_URL
+        if not isinstance(url_to_use, str):
+            return None, None
 
-def update_healthy_nodes():
-    global healthy_nodes
-    with healthy_nodes_lock:
-        healthy_nodes = [node for node in config.XCP_V2_NODES if check_node_health(node)]
-    if not healthy_nodes:
-        logger.error("No healthy nodes available.")
-    else:
-        logger.info(f"Healthy nodes: {[node['name'] for node in healthy_nodes]}")
+        # Clean and format the URL
+        url_to_use = url_to_use.strip().rstrip("/")
 
+        # If URL ends with /v2, replace with /api for version check
+        if url_to_use.endswith("/v2"):
+            url_to_use = url_to_use[:-3] + "/api"
+        elif "/api" not in url_to_use:
+            url_to_use = f"{url_to_use}/api"
 
-def verify_block_range(start_index: int, end_index: int) -> bool:
-    """Verify a range of blocks have matching hashes between CP and chain"""
-    for block_index in range(start_index, end_index + 1):
-        cp_hash = get_cp_block_hash_v2(block_index)
-        chain_hash = backend_instance.getblockhash(block_index)
+        if not url_to_use.endswith("/api/"):
+            url_to_use = f"{url_to_use}/"
 
-        if cp_hash != chain_hash:
-            logger.error(f"Hash mismatch at block {block_index}")
-            return False
+        if log_connection:
+            logger.debug(f"Connecting to Counterparty node: {url_to_use}")
 
-        # Rate limit to avoid overwhelming nodes
-        time.sleep(0.1)
+        payload = _create_payload("get_running_info", {})
+        response = requests.post(url_to_use, data=json.dumps(payload), headers=QUICK_HEADERS, auth=config.CP_AUTH, timeout=10)
 
-    return True
+        if not response.ok:
+            logger.debug(f"Error response from {url_to_use}: {response.status_code} - {response.text}")
+            return None, None
 
-
-def verify_cp_block_hash(block_index: int, expected_hash: str | None = None, max_retries: int = 5) -> bool:
-    """
-    Verify Counterparty node's block hash matches expected hash
-    If expected_hash is provided, it is used for comparison
-    Otherwise, fetches the chain hash from backend.
-    Returns True if hashes match or verification passed.
-    """
-    retry_count = 0
-    base_delay = 2  # seconds
-
-    while retry_count < max_retries:
         try:
-            # Get CP block hash via XCP V2 API
-            cp_hash = get_cp_block_hash_v2(block_index)
-            if not cp_hash:
-                logger.warning(f"Empty CP hash for block {block_index}, retrying...")
-                raise ValueError("Empty hash from CP node")
+            result = response.json()["result"]
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.debug(f"Invalid JSON response from {url_to_use}: {e}")
+            return None, None
 
-            # Use provided expected_hash or fetch chain hash if not provided
-            chain_hash = expected_hash if expected_hash is not None else backend_instance.getblockhash(block_index)
+        version_info = {
+            "version_major": result["version_major"],
+            "version_minor": result["version_minor"],
+            "version_revision": result["version_revision"],
+            "last_block": result.get("last_block", None),
+            "last_message_index": result.get("last_message_index", None),
+            "api_url": url_to_use,
+            "running_mode": result.get("running_mode", "unknown"),
+            "last_block_time": result.get("last_block_time", None),
+            "db_caught_up": result.get("db_caught_up", False),
+            "bitcoin_block_count": result.get("bitcoin_block_count", None),
+        }
 
-            if cp_hash != chain_hash:
-                logger.error(f"Block hash mismatch at {block_index}")
-                logger.error(f"CP Hash:    {cp_hash}")
-                logger.error(f"Chain Hash: {chain_hash}")
-                return False
+        version_string = ".".join(
+            [str(version_info["version_major"]), str(version_info["version_minor"]), str(version_info["version_revision"])]
+        )
 
-            logger.debug(f"Hash verification passed for block {block_index}")
-            return True
+        return version_string, version_info
 
-        except Exception as e:
-            logger.warning(f"Block hash verification failed (attempt {retry_count+1}/{max_retries}): {str(e)}")
-            retry_count += 1
-            time.sleep(base_delay * (2**retry_count))  # Exponential backoff
-
-    logger.error("Max retries reached in block hash verification")
-    return False  # Consider raising exception here for critical failures
+    except Exception as e:
+        logger.debug(f"Error getting version info: {e}")
+        return None, None

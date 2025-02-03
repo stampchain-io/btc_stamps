@@ -72,7 +72,14 @@ ZMQ_TX_PORT: int = ZMQ_PORT_MAINNET_TX
 ZMQ_BLOCK_PORT: int = ZMQ_PORT_MAINNET_BLOCK
 
 
-CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://api.counterparty.io:4000")  # 'http://127.0.0.1:4000/api/'
+# CP RPC Configuration
+CP_RPC_URL = os.environ.get("CP_RPC_URL")
+if not CP_RPC_URL:
+    logger.warning("CP_RPC_URL not set in environment, using default counterparty.io endpoint")
+    CP_RPC_URL = "https://api.counterparty.io:4000/"
+else:
+    logger.info(f"Using configured CP_RPC_URL: {CP_RPC_URL}")
+
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "rpc")
 CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
@@ -186,15 +193,19 @@ RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 
 # Add new constants for the V2 CP API endpoints
 XCP_V2_NODES = [
-    # {
-    #     "name": "stampchain.io",
-    #     "url": "https://k6e0ufzq8h.execute-api.us-east-1.amazonaws.com/beta/counterpartyproxy/v2",
-    # },
+    {
+        "name": "CP_RPC_URL",
+        "url": f"{CP_RPC_URL.rstrip('/').replace('/api/', '/')}/v2",  # Remove 'api' path if present
+    },
     {
         "name": "counterparty.io",
         "url": "https://api.counterparty.io:4000/v2",
     },
-]
+]  # TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
+
+logger.info("XCP V2 Node Configuration:")
+for node in XCP_V2_NODES:
+    logger.info(f"  - {node['name']}: {node['url']}")
 
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
@@ -266,6 +277,16 @@ BLOCK_FIRST_TESTNET: int = 0
 BLOCK_FIRST_REGTEST: int = 0
 STAMPS_NAME: str = "stamps"
 APP_NAME: str = "app"
+
+# Load retry and rate limit settings from environment with validation
+CP_RPC_RETRY_COUNT = int(os.environ.get("CP_RPC_RETRY_COUNT", "3"))
+CP_RPC_RETRY_DELAY = int(os.environ.get("CP_RPC_RETRY_DELAY", "2"))
+CP_RPC_TIMEOUT = int(os.environ.get("CP_RPC_TIMEOUT", "30"))
+CP_RATE_LIMIT = int(os.environ.get("CP_RATE_LIMIT", "2"))
+CP_MAX_RETRIES = int(os.environ.get("CP_MAX_RETRIES", "5"))
+CP_BASE_DELAY = int(os.environ.get("CP_BASE_DELAY", "1"))
+CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "50"))
+
 
 SRC_VALIDATION_API1 = "https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconciliation/balances_hash?block_height="
 SRC_VALIDATION_API2 = (

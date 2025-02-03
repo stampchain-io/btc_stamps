@@ -221,6 +221,36 @@ Execute Indexer:
 poetry run indexer
 ```
 
+## Development Workflow
+
+For development, we recommend the following workflow:
+
+1. **Install Development Dependencies**:
+```shell
+poetry install  # Installs all dependencies including dev dependencies
+```
+
+2. **Run Code Quality Checks**:
+```shell
+poetry run run_checks  # Runs all checks including Rust parser checks
+# Or run specific checks:
+poetry run check-code  # Run only code quality checks
+poetry run check-rust  # Run only Rust checks
+poetry run check-integration  # Run only integration tests
+```
+
+3. **Build Rust Parser During Development**:
+```shell
+cd src/rust_parser
+./build.sh  # Builds and verifies the Rust parser
+```
+
+4. **Run Tests**:
+```shell
+poetry run test  # Run all tests
+poetry run test-src20  # Run SRC-20 specific tests
+```
+
 ## Performance Optimization
 
 The indexer includes a high-performance Rust-based transaction parser that significantly improves parsing speed. Key features:
@@ -239,4 +269,8 @@ poetry run task build
 
 For development builds (with debug symbols):
 
+```shell
+cd indexer/src/rust_parser
+cargo build
 ```
+

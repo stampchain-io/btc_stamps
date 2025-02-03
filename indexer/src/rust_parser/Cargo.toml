@@ -14,6 +14,8 @@ bitcoin = { version = "0.31", features = ["rand"] }
 hex = "0.4"
 rayon = "1.8"
 log = "0.4"
+rust-crypto = "0.2.36"
+lazy_static = "1.4.0"
 
 [profile.release]
 opt-level = 3

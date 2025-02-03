@@ -77,7 +77,6 @@
         "shash",
         "stampchain",
         "subasset",
-        "tqdm",
         "transactinos",
         "tvzm",
         "undolog",
@@ -87,5 +86,10 @@
         "vouts",
         "witver"
     ],
-    "makefile.configureOnOpen": false
+    "makefile.configureOnOpen": false,
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "indexer/tests"
+    ]
 }

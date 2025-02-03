@@ -63,6 +63,15 @@ def initialize(db: Connection) -> None:
     cursor.close()
 
 
+def check_db_connection(db):
+    """Check database connection and reconnect if necessary."""
+    try:
+        return db_manager.ensure_connection(db)
+    except Exception as e:
+        logger.error(f"Database connection check failed: {e}")
+        raise
+
+
 def reset_all_caches() -> None:
     """Clear all caches in the system."""
     cache_manager.clear_all()

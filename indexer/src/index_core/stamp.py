@@ -9,12 +9,12 @@ import pybase64
 
 import index_core.log as log
 from config import CP_P2WSH_FEAT_BLOCK_START, STOP_BASE64_REPAIR
+from index_core.base64_utils import parse_base64_from_description
 from index_core.database import check_reissue, get_next_stamp_number
 from index_core.exceptions import DataConversionError, InvalidInputDataError
 from index_core.files import store_files
 from index_core.models import StampData, ValidStamp
 from index_core.util import check_valid_base64_string, convert_to_dict_or_string
-from index_core.xcprequest import parse_base64_from_description
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)

@@ -1,3 +1,5 @@
+"""Server initialization and configuration."""
+
 import concurrent.futures
 import csv
 import decimal
@@ -31,8 +33,8 @@ D = decimal.Decimal
 # Global flag for graceful shutdown
 shutdown_flag = threading.Event()
 
-# Global backend instance
-backend_instance = None
+# Global backend instance - use the singleton
+backend_instance = Backend()
 
 
 def sigterm_handler(_signo, _stack_frame):
@@ -335,40 +337,51 @@ def initialize_db():
     if config.FORCE:
         logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
 
-    # Get connection from database manager
-    db = db_manager.connect()
+    max_retries = 5
+    retry_delay = 5
+    attempt = 0
 
-    try:
-        with db.cursor() as cursor:
-            # Create database if it doesn't exist
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{os.environ.get('RDS_DATABASE', 'btc_stamps')}`")
-            cursor.execute(f"USE `{os.environ.get('RDS_DATABASE', 'btc_stamps')}`")
-            db.commit()
-    except Exception as e:
-        logger.error(f"Error creating database: {e}")
-        raise
+    while attempt < max_retries:
+        try:
+            # Get connection from database manager
+            db = db_manager.connect()
 
-    util.CURRENT_BLOCK_INDEX = last_db_index(db)
+            # Test connection first
+            with db.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                logger.info("Successfully connected to database server")
 
-    # Initialize tables from schema
-    initialize_tables(db)
+            # Now try to create and use the database
+            with db.cursor() as cursor:
+                database_name = os.environ.get("RDS_DATABASE", "btc_stamps")
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
+                cursor.execute(f"USE `{database_name}`")
+                db.commit()
+                logger.info(f"Successfully initialized database: {database_name}")
 
-    return db
+            util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+            # Initialize tables from schema
+            initialize_tables(db)
+
+            return db
+
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_retries:
+                logger.error(f"Failed to initialize database after {max_retries} attempts: {e}")
+                raise
+            else:
+                logger.warning(f"Database initialization attempt {attempt} failed: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
 
 
 def connect_to_backend():
-    """Connect to Bitcoin backend."""
-    global backend_instance
-    if not config.FORCE:
-        logger.info("Connecting to Bitcoin Node")
-        try:
-            backend_instance = Backend()
-            # Test connection
-            backend_instance.getblockcount()
-            return backend_instance
-        except Exception as e:
-            logger.error(f"Failed to connect to backend: {e}")
-            raise
+    """Connect to the backend."""
+    # Use the singleton instance
+    return Backend()
 
 
 def start_all(db: Connection) -> None:

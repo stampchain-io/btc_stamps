@@ -24,6 +24,18 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "indexer/src/rust_parser -> target"
+
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
@@ -37,11 +49,8 @@ jobs:
           # Add commands to download and extract test blockchain data snapshots
           echo "Using test blockchain data for offline testing"
 
-      - name: Run Block Processing Integration Tests
-        run: |
-          poetry run pytest tests/test_block_rollback.py -v
-          poetry run pytest tests/test_rollback_transactions_stamptable.py -v
-          poetry run pytest tests/test_integration_block_processing.py -v
+      - name: Run Integration Tests
+        run: poetry run check-integration
         working-directory: ./indexer
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer

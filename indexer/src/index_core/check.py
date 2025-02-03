@@ -282,7 +282,8 @@ def cp_version(log_connection=False):
 
     version = get_cp_version(log_connection)
     if version:
-        logger.info(f"Connected to Counterparty node version: {version}")
+        version_number = version[0] if isinstance(version, tuple) and len(version) > 0 else str(version)
+        logger.info(f"Connected to Counterparty node version: {version_number}")
     else:
         logger.warning("Could not determine Counterparty version")
     return version

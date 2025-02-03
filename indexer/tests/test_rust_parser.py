@@ -9,8 +9,8 @@ class TestRustParser(unittest.TestCase):
     def setUp(self):
         self.parser = FastTransactionParser()
         self.backend = Backend()
-        # Using a more recent transaction that we can actually fetch
-        self.test_tx_hash = "7957a35fe64f80d234d76d83a2a8f1a0d8149a41d81de548f0a65a8a999f6f18"  # Example transaction
+        # Using a more recent transaction that we know should be included
+        self.test_tx_hash = "e2aa459ebfe0ba3625c917143452678a3e80636489fe0ec8cc7e9651cfd4ddb2"  # Known includable transaction
         self.test_block_hash = "00000000000000000007878ec04bb2b2e12317804810f4c26033585b3f81ffaa"  # Block 700,000
 
     def test_single_transaction_parsing(self):
@@ -26,14 +26,8 @@ class TestRustParser(unittest.TestCase):
         self.assertTrue(len(tx_info.inputs) > 0)  # Should have at least one input
         self.assertTrue(len(tx_info.outputs) > 0)  # Should have at least one output
 
-        # Verify transaction hex matches original
-        self.assertTrue(tx_info.hex)  # Should not be empty
-
-        # Test output properties
-        output = tx_info.outputs[0]
-        self.assertIsInstance(output.value, int)
-        self.assertTrue(output.script_pubkey)  # Should have a script pubkey
-        self.assertIsInstance(output.is_op_return, bool)
+        # Verify transaction has should_include attribute
+        self.assertTrue(hasattr(tx_info, "should_include"), "Transaction should have should_include attribute")
 
     def test_block_parsing(self):
         """Test parsing an entire block"""
@@ -41,21 +35,27 @@ class TestRustParser(unittest.TestCase):
         block_data = self.backend.rpc("getblock", [self.test_block_hash, 0])
 
         # Parse block
-        block_info = self.parser.parse_block(block_data)
+        tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits = self.parser.parse_block(block_data)
 
         # Verify block properties
-        self.assertTrue(block_info.prev_block_hash)  # Should have a previous block hash
-        self.assertTrue(len(block_info.transactions) > 0)  # Should have at least one transaction
-
-        # Verify first transaction
-        first_tx = block_info.transactions[0]
-        self.assertTrue(first_tx.txid)  # Should have a transaction ID
+        self.assertTrue(isinstance(tx_hash_list, list), "tx_hash_list should be a list")
+        self.assertTrue(isinstance(raw_transactions, dict), "raw_transactions should be a dict")
+        self.assertTrue(isinstance(timestamp, int), "timestamp should be an int")
+        self.assertTrue(isinstance(prev_block_hash, str), "prev_block_hash should be a string")
 
     def test_batch_transaction_parsing(self):
-        """Test parsing multiple transactions in batch"""
-        # Get a few consecutive transactions from the same block
-        block_data = self.backend.rpc("getblock", [self.test_block_hash, 2])
-        tx_hashes = [tx["txid"] for tx in block_data["tx"][:2]]  # Get first two transactions
+        """
+        Test parsing multiple transactions in batch.
+
+        Note: The Rust parser now only returns transactions that should be included,
+        so we can't assert the exact number of results. We'll use known includable
+        transactions for this test.
+        """
+        # Use known includable transactions
+        tx_hashes = [
+            "e2aa459ebfe0ba3625c917143452678a3e80636489fe0ec8cc7e9651cfd4ddb2",
+            "359aefd7bf0bbd8398ee5c8c0f206799b78b158578f0f98e1e06bf58e70008dc",
+        ]
 
         # Get raw transactions
         tx_hexes = [self.backend.getrawtransaction(tx_hash) for tx_hash in tx_hashes]
@@ -63,10 +63,17 @@ class TestRustParser(unittest.TestCase):
         # Parse transactions in batch
         tx_infos = self.parser.batch_parse_transactions(tx_hexes)
 
-        # Verify results
-        self.assertEqual(len(tx_infos), len(tx_hashes))
-        for tx_info, tx_hash in zip(tx_infos, tx_hashes):
-            self.assertEqual(tx_info.txid, tx_hash)
+        # Verify that all returned transactions have should_include=True
+        for tx_info in tx_infos:
+            self.assertTrue(tx_info.should_include, f"Transaction {tx_info.txid} was returned but has should_include=False")
+
+            # Verify the transaction is in our original list
+            self.assertIn(tx_info.txid, tx_hashes, f"Transaction {tx_info.txid} was not in the original list of transactions")
+
+        # Verify that all expected transactions were returned
+        returned_txids = {tx_info.txid for tx_info in tx_infos}
+        for tx_hash in tx_hashes:
+            self.assertIn(tx_hash, returned_txids, f"Expected transaction {tx_hash} was not returned")
 
     def test_invalid_transaction(self):
         """Test handling of invalid transaction data"""

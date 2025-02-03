@@ -52,22 +52,12 @@ class FastParser:
             - Dict mapping transaction hash to raw hex
             - Block timestamp
             - Previous block hash
-            - Block difficulty
+            - Block bits (difficulty)
         """
-        block_info = self._parser.parse_block(block_hex)
-
-        tx_hash_list = []
-        raw_transactions = {}
-
-        for tx in block_info.transactions:
-            tx_hash_list.append(tx.txid)
-            # We don't have raw hex in BlockInfo currently, would need to add if needed
-            raw_transactions[tx.txid] = ""
-
-        return (
-            tx_hash_list,
-            raw_transactions,
-            block_info.timestamp,
-            block_info.prev_block_hash,
-            None,  # Difficulty not included in current implementation
-        )
+        try:
+            # The Rust parser now returns a tuple directly
+            tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits = self._parser.parse_block(block_hex)
+            return tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits
+        except Exception as e:
+            logger.error(f"Error parsing block: {e}")
+            raise

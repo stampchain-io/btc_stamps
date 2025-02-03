@@ -67,3 +67,11 @@ class BlockUpdateError(Exception):
     """Exception for errors that occur during block update operations."""
 
     pass
+
+
+class LedgerMismatchError(Exception):
+    """Raised when there is a mismatch in the ledger hash validation."""
+
+    def __init__(self, block_index):
+        self.block_index = block_index
+        super().__init__(f"Ledger hash mismatch at block {block_index}")

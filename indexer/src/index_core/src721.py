@@ -281,7 +281,6 @@ def fetch_collection_details(collection_cpid: str, db: Any) -> str:
                 (collection_cpid,),
             )  # nosec
             result = cursor.fetchone()
-            logger.info(f"asset:{collection_cpid}\nresult: {result}")
             if result is not None and result[0]:
                 collection_asset_item = result[0]
                 logger.debug("got collection asset item from db: %s", collection_asset_item)

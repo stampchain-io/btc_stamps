@@ -22,6 +22,57 @@ gc.set_threshold(25000, 10, 10)  # Adjust primary threshold for less frequent co
 logger = logging.getLogger(__name__)
 
 
+class EnhancedCTransaction:
+    """
+    Enhanced CTransaction wrapper that can store additional attributes.
+    This is a wrapper around CTransaction that allows storing additional attributes
+    while maintaining compatibility with the original CTransaction class.
+    """
+
+    def __init__(self, ctx, **kwargs):
+        """
+        Create a new EnhancedCTransaction instance.
+
+        Args:
+            ctx: A CTransaction instance
+            **kwargs: Additional attributes to store
+
+        Returns:
+            An EnhancedCTransaction instance
+        """
+        if not isinstance(ctx, CTransaction):
+            raise TypeError("EnhancedCTransaction must be created with a CTransaction instance")
+
+        # Store the CTransaction instance
+        self._ctx = ctx
+
+        # Store additional attributes
+        self._extra_attrs = kwargs
+
+    def __getattr__(self, name):
+        """
+        Get an attribute from the CTransaction instance or _extra_attrs dictionary.
+
+        Args:
+            name: The name of the attribute
+
+        Returns:
+            The attribute value
+
+        Raises:
+            AttributeError: If the attribute doesn't exist
+        """
+        # First check in extra attributes
+        if name in self._extra_attrs:
+            return self._extra_attrs[name]
+
+        # Then check in the CTransaction instance
+        if hasattr(self._ctx, name):
+            return getattr(self._ctx, name)
+
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+
 class ParserError(Exception):
     """Base exception for parser errors."""
 
@@ -31,8 +82,22 @@ class ParserError(Exception):
 class Parser:
     """Fast Bitcoin transaction parser using Rust."""
 
+    # Singleton instance
+    _instance = None
+
+    def __new__(cls):
+        """Ensure only one instance of Parser exists."""
+        if cls._instance is None:
+            cls._instance = super(Parser, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self):
         """Initialize the parser with Rust backend."""
+        # Only initialize once
+        if self._initialized:
+            return
+
         if not RUST_PARSER_AVAILABLE:
             raise ParserError("Rust parser not available. Run 'poetry run maturin develop' in the indexer directory")
 
@@ -44,6 +109,7 @@ class Parser:
             self._chunk_size = 1000
             self._gc_chunk_interval = 5  # Number of chunks before GC
             logger.info("Initialized Rust parser backend with optimized GC settings")
+            self._initialized = True
         except Exception as e:
             logger.error(f"Failed to initialize Rust parser: {e}")
             raise ParserError(f"Parser initialization failed: {e}")
@@ -107,22 +173,50 @@ class Parser:
         """Parse multiple transactions in parallel with optimized memory management."""
         try:
             total_txs = len(tx_hexes)
-            # Pre-allocate list with final size to avoid resizing overhead
-            results: List[CTransaction] = [None] * total_txs  # type: ignore
+            logger.debug(f"Starting batch parsing of {total_txs} transactions")
 
-            for i in range(0, total_txs, self._chunk_size):
-                chunk = tx_hexes[i : i + self._chunk_size]
-                end_idx = i + len(chunk)
+            # Use a smaller chunk size for very large batches
+            adaptive_chunk_size = min(self._chunk_size, max(100, 10000 // (1 + (total_txs // 5000))))
+            logger.debug(f"Using adaptive chunk size of {adaptive_chunk_size} for {total_txs} transactions")
 
-                # Process chunk and assign directly to pre-allocated slice
-                tx_infos = self._parser.batch_parse_transactions(chunk)
-                # Use list comprehension instead of generator for faster execution
-                results[i:end_idx] = [self._convert_to_ctransaction(tx_info) for tx_info in tx_infos]
+            # Results will now be a list of transactions that should be included
+            results = []
+
+            for i in range(0, total_txs, adaptive_chunk_size):
+                chunk = tx_hexes[i : i + adaptive_chunk_size]
+
+                logger.debug(
+                    f"Processing chunk {i//adaptive_chunk_size + 1}/{(total_txs + adaptive_chunk_size - 1)//adaptive_chunk_size} with {len(chunk)} transactions"
+                )
+
+                # Process chunk
+                try:
+                    # The Rust parser now only returns transactions that should be included
+                    tx_infos = self._parser.batch_parse_transactions(chunk)
+                    logger.debug(f"Rust parser returned {len(tx_infos)} filtered results for {len(chunk)} inputs in chunk")
+
+                    # Convert TransactionInfo objects to CTransaction objects
+                    for tx_info in tx_infos:
+                        try:
+                            # Convert to EnhancedCTransaction
+                            ctx = self._convert_to_ctransaction(tx_info)
+                            # Verify that txid attribute is accessible
+                            _ = ctx.txid  # This should not raise an AttributeError
+                            results.append(ctx)
+                        except Exception as e:
+                            logger.error(f"Error converting transaction: {e}")
+                            # Continue with next transaction instead of failing the entire batch
+
+                except Exception as e:
+                    logger.error(f"Error processing chunk {i//adaptive_chunk_size + 1}: {e}")
+                    # Continue with next chunk instead of failing the entire batch
 
                 # Check if garbage collection is needed
-                if i > 0 and (i % (self._chunk_size * self._gc_chunk_interval) == 0):
+                if i > 0 and (i % (adaptive_chunk_size * self._gc_chunk_interval) == 0):
                     if self._should_collect_garbage(force_check=(i / total_txs > 0.5)):
                         self._perform_garbage_collection()
+
+            logger.debug(f"Completed batch parsing: {len(results)} transactions included out of {total_txs} processed")
 
             return results
         except Exception as e:
@@ -132,28 +226,14 @@ class Parser:
     def parse_block(self, block_hex: str) -> Tuple[List[str], Dict[str, str], int, Optional[str], Optional[float]]:
         """Parse a block with optimized memory management."""
         try:
-            block_info = self._parser.parse_block(block_hex)
-            tx_hash_list = []
-            raw_transactions = {}
-
-            total_txs = len(block_info.transactions)
-            for i in range(0, total_txs, self._chunk_size):
-                chunk = block_info.transactions[i : i + self._chunk_size]
-                for tx in chunk:
-                    tx_hash_list.append(tx.txid)
-                    raw_transactions[tx.txid] = tx.hex
-
-                # Check if garbage collection is needed
-                if i > 0 and (i % (self._chunk_size * self._gc_chunk_interval) == 0):
-                    if self._should_collect_garbage(force_check=(i / total_txs > 0.5)):
-                        self._perform_garbage_collection()
-
+            # The Rust parser now returns a tuple directly
+            tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits = self._parser.parse_block(block_hex)
             return (
                 tx_hash_list,
                 raw_transactions,
-                block_info.timestamp,
-                block_info.prev_block_hash,
-                None,
+                timestamp,
+                prev_block_hash,
+                bits,  # This will be converted to float by the caller if needed
             )
         except Exception as e:
             logger.error(f"Failed to parse block: {e}")
@@ -178,9 +258,20 @@ class Parser:
                 for output_info in tx_info.outputs
             ]
 
-            # Create CTransaction
+            # Create CTransaction with only the parameters it accepts
             ctx = CTransaction(vin, vout, nVersion=tx_info.version)
-            return ctx
+
+            # Now create the enhanced transaction with the original CTransaction
+            # and add the extra attributes separately
+            enhanced_ctx = EnhancedCTransaction(ctx)
+
+            # Set extra attributes through the _extra_attrs dictionary
+            enhanced_ctx._extra_attrs["txid"] = tx_info.txid
+            enhanced_ctx._extra_attrs["should_include"] = tx_info.should_include
+            enhanced_ctx._extra_attrs["has_valid_data"] = tx_info.has_valid_data
+            enhanced_ctx._extra_attrs["keyburn"] = tx_info.keyburn
+
+            return enhanced_ctx
         except Exception as e:
             logger.error(f"Failed to convert transaction info: {e}")
             raise ParserError(f"Transaction conversion failed: {e}")

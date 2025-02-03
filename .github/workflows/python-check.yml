@@ -25,6 +25,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "indexer/src/rust_parser -> target"
+
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
@@ -53,16 +65,12 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          poetry run flake8 src/ tests/ tools/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          poetry run flake8 src/ --count --statistics --exit-zero
         working-directory: ./indexer
 
-      - name: Check Rust formatting
-        working-directory: ./indexer/src/rust_parser
-        run: cargo fmt -- --check
-
-      - name: Run Rust clippy
-        working-directory: ./indexer/src/rust_parser
-        run: cargo clippy -- -D warnings
+      - name: Check Rust code
+        working-directory: ./indexer
+        run: poetry run check-rust
 
       - name: Security check with Bandit
         run: poetry run task bandit
@@ -72,18 +80,12 @@ jobs:
         run: poetry run mypy . --explicit-package-bases 
         working-directory: ./indexer
 
-      # Run all the test suites
-      - name: Run Test Suites
+      - name: Run Tests
         working-directory: ./indexer
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
           USE_TEST_TX_HEX: "1"
           TESTING: "1"
         run: |
-          poetry run python3 -m unittest discover -s . -p "test_src20.py"
-          poetry run python3 -m unittest discover -s . -p "test_check_format.py"
-          poetry run python3 -m unittest discover -s . -p "test_arc4.py"
-          # poetry run python3 -m unittest discover -s . -p "test_transactions.py"
-          # poetry run pytest tests/test_src20_balance.py -v
-          # poetry run pytest tests/test_src20_update_valid.py -v
-          # poetry run pytest tests/test_src20_validator.py -v
+          # Run all tests using Poetry scripts
+          poetry run check-code

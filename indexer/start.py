@@ -4,6 +4,16 @@ import sys
 
 from dotenv import load_dotenv
 
+# Load environment variables first, before any other imports
+if not os.environ.get("DOCKER_CONTAINER"):
+    load_dotenv()
+    # Verify environment variables are loaded
+    required_vars = ["RDS_USER", "RDS_PASSWORD", "RDS_HOSTNAME", "RDS_DATABASE"]
+    missing_vars = [var for var in required_vars if not os.environ.get(var)]
+    if missing_vars:
+        print(f"Error: Missing required environment variables: {', '.join(missing_vars)}", file=sys.stderr)
+        sys.exit(1)
+
 
 def setup_logging():
     is_docker = os.environ.get("DOCKER_CONTAINER") == "1"
@@ -115,16 +125,20 @@ import index_core.log as log
 
 
 def main():
-    # Load .env file only if not in Docker
-    if not os.environ.get("DOCKER_CONTAINER"):
-        load_dotenv()
-
     # Setup logging before importing server
     log_file, debug_mode = setup_logging()
 
     root_logger = logging.getLogger()
     verbose = os.environ.get("DEBUG", "false").lower() == "true"
     log.set_up(root_logger, verbose=verbose)
+
+    # Log environment variables for debugging (excluding sensitive info)
+    logger = logging.getLogger(__name__)
+    logger.info("Environment configuration:")
+    logger.info(f"  RDS_HOSTNAME: {os.environ.get('RDS_HOSTNAME', 'localhost')}")
+    logger.info(f"  RDS_DATABASE: {os.environ.get('RDS_DATABASE', 'btc_stamps')}")
+    logger.info(f"  RDS_USER: {os.environ.get('RDS_USER')}")
+    logger.info(f"  DEBUG: {os.environ.get('DEBUG', 'false')}")
 
     import index_core.server as server
 
