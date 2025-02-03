@@ -30,13 +30,6 @@ jobs:
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
-          echo "${POETRY_HOME}/bin" >> $GITHUB_PATH
-        working-directory: ./indexer
-        env:
-          POETRY_HOME: ${{ github.workspace }}/indexer/.poetry
-        
-      - name: Configure Poetry
-        run: |
           poetry config virtualenvs.in-project true
           poetry install
         working-directory: ./indexer
