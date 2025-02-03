@@ -34,15 +34,16 @@ jobs:
           curl -sSL https://install.python-poetry.org | python3 -
         env:
           POETRY_HOME: ${{ github.workspace }}/.poetry
+        working-directory: ./indexer
 
       - name: Add Poetry to PATH
-        run: echo "${{ github.workspace }}/.poetry/bin" >> $GITHUB_PATH
+        run: echo "${{ github.workspace }}/indexer/.poetry/bin" >> $GITHUB_PATH
 
       - name: Install dependencies using Poetry
         run: |
           poetry config virtualenvs.in-project true
           poetry install
-        working-directory: indexer
+        working-directory: ./indexer
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -51,7 +52,7 @@ jobs:
           override: true
 
       - name: Build Rust parser
-        working-directory: indexer
+        working-directory: ./indexer
         run: |
           pip install maturin
           maturin develop --release 
@@ -61,4 +62,4 @@ jobs:
           poetry run mypy . --explicit-package-bases
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src 
-          working-directory: indexer
+          working-directory: ./indexer
