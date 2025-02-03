@@ -6,16 +6,17 @@ on:
   workflow_dispatch:
 
 jobs:
-  setup:
+  quality:
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']
-    uses: ./.github/workflows/reusable-setup.yml
-    with:
-      python-version: ${{ matrix.python-version }}
+    steps:
+      - uses: ./.github/workflows/setup-python.yml
+      with:
+        python-version: ${{ matrix.python-version }}
 
   python-check:
-    needs: setup
+    needs: quality
     runs-on: ubuntu-latest
     env:
       USE_TEST_TX_HEX: '1'

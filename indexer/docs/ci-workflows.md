@@ -13,7 +13,7 @@ A reusable workflow that provides build and test verification.
 - Matrix testing across Python versions (3.9, 3.10, 3.11, 3.12)
 
 **Process:**
-1. Sets up Python environment using reusable-setup.yml
+1. Sets up Python environment using setup-python.yml
 2. Creates Python module structure
 3. Runs build tests
 4. Executes Rust parser tests
@@ -121,11 +121,12 @@ Handles end-to-end integration testing.
 
 ## Support Workflows
 
-### 1. Reusable Setup (`reusable-setup.yml`)
+### 1. Setup Python (`setup-python.yml`)
 A reusable workflow for consistent Python environment setup across other workflows.
-
-### 2. Setup Python (`setup-python.yml`)
-Handles Python-specific setup requirements.
+- Sets up Python environment
+- Configures Poetry and dependencies
+- Builds Rust parser
+- Caches dependencies for faster builds
 
 ## Environment Variables
 

@@ -24,10 +24,13 @@ jobs:
 
   test:
     if: ${{ !inputs.skip_tests }}
-    needs: setup
-    uses: ./.github/workflows/build-test.yml
-    with:
-      environment: ${{ inputs.environment }}
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    steps:
+      - uses: ./.github/workflows/setup-python.yml
+      with:
+        python-version: ${{ matrix.python-version }}
 
   push_to_registry:
     needs: [setup, test]

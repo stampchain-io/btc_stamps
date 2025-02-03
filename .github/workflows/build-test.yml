@@ -13,16 +13,15 @@ on:
         value: ${{ jobs.test-build.outputs.status }}
 
 jobs:
-  setup:
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
-    uses: ./.github/workflows/reusable-setup.yml
-    with:
-      python-version: ${{ matrix.python-version }}
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/setup-python.yml
+      with:
+        python-version: ${{ matrix.python-version }}
 
   test-build:
-    needs: setup
+    needs: build
     runs-on: ubuntu-latest
     outputs:
       status: ${{ steps.test.outputs.test_status }}
