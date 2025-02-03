@@ -11,6 +11,9 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -39,4 +42,4 @@ jobs:
         working-directory: ./indexer
         run: |
           pip install maturin
-          maturin develop --release 
+          maturin develop --release
