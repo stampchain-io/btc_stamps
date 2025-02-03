@@ -1,6 +1,7 @@
 import time
-import pytest
 from decimal import Decimal
+
+import pytest
 
 from index_core.src20 import update_src20_balances
 
@@ -86,9 +87,7 @@ def block_transactions():
 
 def test_block_rollback(dummy_db, block_transactions):
     # Process all transactions (simulate block index 11)
-    balances_before = update_src20_balances(
-        dummy_db, 11, int(time.time()), block_transactions
-    )
+    balances_before = update_src20_balances(dummy_db, 11, int(time.time()), block_transactions)
     total_before = sum(
         item.get("credit", Decimal("0")) - item.get("debit", Decimal("0"))
         for item in balances_before
@@ -96,9 +95,7 @@ def test_block_rollback(dummy_db, block_transactions):
     )
 
     # Simulate a rollback: remove the second transaction and process only up to block index 10
-    balances_after = update_src20_balances(
-        dummy_db, 10, int(time.time()), block_transactions[:-1]
-    )
+    balances_after = update_src20_balances(dummy_db, 10, int(time.time()), block_transactions[:-1])
     total_after = sum(
         item.get("credit", Decimal("0")) - item.get("debit", Decimal("0"))
         for item in balances_after
@@ -106,6 +103,4 @@ def test_block_rollback(dummy_db, block_transactions):
     )
 
     # Assert that after rollback, the total minted balance is lower
-    assert (
-        total_after < total_before
-    ), "After rollback, total balance should be reduced."
+    assert total_after < total_before, "After rollback, total balance should be reduced."

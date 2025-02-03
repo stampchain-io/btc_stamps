@@ -21,6 +21,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Add these steps to ensure Poetry is available
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install
+        working-directory: indexer
+
       - name: Download Test Blockchain Data
         run: |
           mkdir -p ./indexer/tests/data/blockchain
@@ -32,7 +49,7 @@ jobs:
           poetry run pytest tests/test_block_rollback.py -v
           poetry run pytest tests/test_rollback_transactions_stamptable.py -v
           poetry run pytest tests/test_integration_block_processing.py -v
-        working-directory: ./indexer
+        working-directory: indexer
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
           USE_TEST_BLOCKCHAIN_DATA: "1"
@@ -40,7 +57,7 @@ jobs:
       - name: Run ZMQ Integration Tests
         run: |
           poetry run pytest tests/zmq_test.py -v
-        working-directory: ./indexer
+        working-directory: indexer
         env:
           PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
           USE_TEST_BLOCKCHAIN_DATA: "1" 

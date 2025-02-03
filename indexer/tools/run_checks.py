@@ -37,9 +37,9 @@ def run_rust_checks():
     """Run Rust-specific checks"""
     commands = [
         "cargo fmt --version",
-        "cargo fmt -- --check --manifest-path src/rust_parser/Cargo.toml",
+        "cd src/rust_parser && cargo fmt -- --check",
         "rustup show",
-        "cargo clippy --manifest-path src/rust_parser/Cargo.toml -- -D warnings",
+        "cd src/rust_parser && cargo clippy -- -D warnings",
     ]
     return all(run_command(cmd) for cmd in commands)
 
@@ -47,11 +47,9 @@ def run_rust_checks():
 def run_integration_tests():
     """Run integration tests"""
     commands = [
-        # Block processing tests
         "poetry run pytest tests/test_block_rollback.py -v",
         "poetry run pytest tests/test_rollback_transactions_stamptable.py -v",
         "poetry run pytest tests/test_integration_block_processing.py -v",
-        # ZMQ tests
         "poetry run pytest tests/zmq_test.py -v",
     ]
     return all(run_command(cmd, ignore_errors=True) for cmd in commands)

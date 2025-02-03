@@ -1,5 +1,4 @@
 import time
-from decimal import Decimal
 
 import pytest
 
@@ -69,10 +68,6 @@ def test_parse_src20_deploy(dummy_db, deploy_src20_dict):
     is_valid, updated_dict = parse_src20(dummy_db, deploy_src20_dict, processed_list)
 
     # Assert: the updated dictionary should have a tick_hash and our dummy db should have recorded an execute call
-    assert (
-        updated_dict.get("tick_hash") is not None
-    ), "tick_hash should be generated for a deploy operation."
+    assert updated_dict.get("tick_hash") is not None, "tick_hash should be generated for a deploy operation."
     # Check that at least one query was executed (the metadata insertion)
-    assert (
-        len(dummy_db.queries) > 0
-    ), "Expected at least one database query for metadata insertion."
+    assert len(dummy_db.queries) > 0, "Expected at least one database query for metadata insertion."

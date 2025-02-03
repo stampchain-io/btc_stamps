@@ -1,8 +1,7 @@
-import pytest
 from decimal import Decimal
 
-from index_core.src20 import Src20Processor
 from index_core.caching import cache_manager
+from index_core.src20 import Src20Processor
 
 
 def test_update_valid_transfer():
@@ -36,9 +35,7 @@ def test_update_valid_mint():
     processor = Src20Processor(None, src20_dict, processed_list)
 
     # Act: Call update_valid_src20_list for a MINT operation with running user balance
-    processor.update_valid_src20_list(
-        running_user_balance_creator="150", operation="MINT", total_minted="0"
-    )
+    processor.update_valid_src20_list(running_user_balance_creator="150", operation="MINT", total_minted="0")
 
     # Assert: Validate that the total minted and destination balance are updated as expected
     assert processor.src20_dict.get("total_minted") == Decimal(
@@ -50,6 +47,4 @@ def test_update_valid_mint():
 
     # Also assert the cache is updated for the given tick
     cached_total = cache_manager.get_cache_value("total_minted", tick)
-    assert cached_total == Decimal(
-        "50.00"
-    ), f"Expected cached total minted to be 50.00, got {cached_total}"
+    assert cached_total == Decimal("50.00"), f"Expected cached total minted to be 50.00, got {cached_total}"

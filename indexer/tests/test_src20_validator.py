@@ -1,4 +1,3 @@
-import pytest
 from decimal import Decimal
 
 from index_core.src20 import Src20Validator
@@ -21,12 +20,8 @@ def test_process_values_valid():
 
     # Assert: Check tick normalization and numeric conversion
     assert output_dict.get("tick") == "abc", "Tick should be converted to lowercase."
-    assert isinstance(
-        output_dict.get("max"), Decimal
-    ), "max should be converted to Decimal."
-    assert isinstance(
-        output_dict.get("lim"), Decimal
-    ), "lim should be converted to Decimal."
+    assert isinstance(output_dict.get("max"), Decimal), "max should be converted to Decimal."
+    assert isinstance(output_dict.get("lim"), Decimal), "lim should be converted to Decimal."
     assert output_dict.get("dec") == 2, "dec should be converted to int 2."
     assert "tick_hash" in output_dict, "tick_hash should be added to the output dict."
     assert validator.is_valid, "Validator should mark input as valid."
@@ -51,6 +46,4 @@ def test_process_values_invalid_numeric():
     assert output_dict.get("max") is None, "Invalid max value should be set to None."
     assert output_dict.get("lim") is None, "Invalid lim value should be set to None."
     error_messages = validator.errors
-    assert any(
-        "INVALID NUM" in msg for msg in error_messages
-    ), "Validator errors should mention invalid numeric values."
+    assert any("INVALID NUM" in msg for msg in error_messages), "Validator errors should mention invalid numeric values."

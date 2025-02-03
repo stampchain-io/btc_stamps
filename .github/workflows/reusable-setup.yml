@@ -55,3 +55,9 @@ jobs:
         run: |
           pip install maturin
           maturin develop --release 
+
+      - name: Run mypy
+        run: |
+          poetry run mypy . --explicit-package-bases
+        env:
+          PYTHONPATH: ${{ github.workspace }}/indexer/src 

@@ -67,12 +67,8 @@ def update_stamptable_v4(db, block_index, stamps):
     cursor = db.cursor()
     for stamp in stamps:
         processed.append(stamp["stamp"])
-        query = (
-            "INSERT INTO StampTableV4 (stamp, block_index, creator) VALUES (%s, %s, %s)"
-        )
-        cursor.execute(
-            query, (stamp["stamp"], stamp["block_index"], stamp.get("creator", ""))
-        )
+        query = "INSERT INTO StampTableV4 (stamp, block_index, creator) VALUES (%s, %s, %s)"
+        cursor.execute(query, (stamp["stamp"], stamp["block_index"], stamp.get("creator", "")))
     cursor.close()
     return processed
 
@@ -89,9 +85,7 @@ def test_rollback_transactions(dummy_db):
     processed_rollback = update_transactions_table(dummy_db, 10, rollback_list)
 
     # Check that rollback results in fewer transactions processed
-    assert len(processed_rollback) < len(
-        processed_full
-    ), "After rollback, transactions processed should be reduced"
+    assert len(processed_rollback) < len(processed_full), "After rollback, transactions processed should be reduced"
 
 
 def test_rollback_stamptable(dummy_db):
@@ -106,6 +100,4 @@ def test_rollback_stamptable(dummy_db):
     processed_rollback = update_stamptable_v4(dummy_db, 10, rollback_list)
 
     # Check that rollback results in fewer stamps processed
-    assert len(processed_rollback) < len(
-        processed_full
-    ), "After rollback, stamps processed should be reduced"
+    assert len(processed_rollback) < len(processed_full), "After rollback, stamps processed should be reduced"

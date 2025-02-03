@@ -1,5 +1,6 @@
-import pytest
 from decimal import Decimal
+
+import pytest
 
 # Import the Src20Processor from the index_core module
 from index_core.src20 import Src20Processor
