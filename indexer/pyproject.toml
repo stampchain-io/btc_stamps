@@ -89,6 +89,10 @@ install-hooks = "tools.install_hooks:main"
 postinstall = "tools.install_hooks:main"
 compare_tables = "tools.compare_tables:main"
 test-setup = "start:test_setup"
+check = "tools.run_checks:main"
+check-code = "tools.run_checks:run_code_quality_checks"
+check-rust = "tools.run_checks:run_rust_checks"
+check-integration = "tools.run_checks:run_integration_tests"
 
 [[tool.poetry.packages]]
 from = "src"
@@ -110,6 +114,10 @@ extend-ignore = ["E203", "W503", "E402", "E501"]
 bandit = "bandit -r . -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
 build = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
+check = "python -m tools.run_checks"
+check-code = "python -m tools.run_checks code"
+check-rust = "python -m tools.run_checks rust"
+check-integration = "python -m tools.run_checks integration"
 
 [tool.mypy]
 mypy_path = "src"
