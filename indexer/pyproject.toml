@@ -107,11 +107,11 @@ line_length = 127
 
 [tool.flake8]
 max-line-length = 127
-exclude = [".tox", "build"]
+exclude = [".tox", "build", ".venv", "venv", ".env"]
 extend-ignore = ["E203", "W503", "E402", "E501"]
 
 [tool.taskipy.tasks]
-bandit = "bandit -r . -s B608 -lll"
+bandit = "bandit -r src/ tests/ tools/ -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
 build = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
 check = "python -m tools.run_checks"
