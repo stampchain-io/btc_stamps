@@ -96,6 +96,7 @@ def run_command(command, ignore_errors=False):
         print(colored(f"Duration: {duration:.2f}s", "yellow"))
         logger.error(f"Command failed with return code: {result.returncode}")
         if not ignore_errors:
+            logger.error(f"Exiting with code {result.returncode} due to command failure")
             raise SystemExit(result.returncode)
         return False
 
@@ -256,6 +257,15 @@ def run_integration_tests():
     return all_passed
 
 
+def run_integration_tests_standalone():
+    """Entry point for running integration tests as a standalone command.
+    This function is called by 'poetry run check-integration' and should
+    exit with code 0 if tests pass, and code 1 if tests fail."""
+    result = run_integration_tests()
+    # Exit with appropriate code based on test results
+    sys.exit(0 if result else 1)
+
+
 def main():
     """Main entry point for running all checks with improved output"""
     print_header("main")
@@ -308,8 +318,11 @@ def main():
         print(colored("\nRequired checks passed successfully!", "green", attrs=["bold"]))
         if not integration_ok:
             print(colored("\nWarning: Integration tests failed but CI will continue.", "yellow", attrs=["bold"]))
+        logger.info("Exiting with code 0 (success)")
+        sys.exit(0)  # Always exit with 0 if code quality and Rust checks pass
     else:
         print(colored("\nSome required checks failed. Please review the output above for details.", "red", attrs=["bold"]))
+        logger.error("Exiting with code 1 (failure)")
         sys.exit(1)
 
 
