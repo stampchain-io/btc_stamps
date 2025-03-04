@@ -218,7 +218,8 @@ def run_rust_checks():
     for i, cmd in enumerate(commands):
         progress = f"[{i+1}/{len(commands)}]"
         logger.info(f"{progress} {colored('Running Rust check:', 'cyan')} {colored(cmd, 'yellow')}")
-        if not run_command(cmd):
+        cmd_result = run_command(cmd)
+        if not cmd_result:
             all_passed = False
             break
 
@@ -226,6 +227,19 @@ def run_rust_checks():
         logger.info(colored("All Rust checks passed!", "green", attrs=["bold"]))
 
     return all_passed
+
+
+def run_rust_checks_standalone():
+    """Entry point for running Rust checks as a standalone command.
+    This function is called by 'poetry run check-rust' and should
+    exit with code 0 if checks pass, and code 1 if checks fail."""
+    result = run_rust_checks()
+    # Exit with appropriate code based on check results
+    if not result:
+        logger.error("Rust checks failed. Exiting with code 1.")
+        sys.exit(1)
+    logger.info("All Rust checks passed. Exiting with code 0.")
+    sys.exit(0)
 
 
 def run_integration_tests():
@@ -312,16 +326,20 @@ def main():
     # Print total duration
     print(colored(f"\nTotal execution time: {total_duration:.2f} seconds", "yellow"))
 
-    # Final result - Only fail CI if code quality or Rust checks fail
+    # Final result - Fail CI if code quality or Rust checks fail
     # Integration tests are treated as warnings, not errors
-    if all([code_quality_ok, rust_ok]):
+    if code_quality_ok and rust_ok:
         print(colored("\nRequired checks passed successfully!", "green", attrs=["bold"]))
         if not integration_ok:
             print(colored("\nWarning: Integration tests failed but CI will continue.", "yellow", attrs=["bold"]))
         logger.info("Exiting with code 0 (success)")
-        sys.exit(0)  # Always exit with 0 if code quality and Rust checks pass
+        sys.exit(0)
     else:
         print(colored("\nSome required checks failed. Please review the output above for details.", "red", attrs=["bold"]))
+        if not code_quality_ok:
+            logger.error("Code quality checks failed.")
+        if not rust_ok:
+            logger.error("Rust checks failed.")
         logger.error("Exiting with code 1 (failure)")
         sys.exit(1)
 
