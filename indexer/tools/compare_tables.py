@@ -347,6 +347,105 @@ def compare_cursed_stamps(prod_cursor, dev_cursor, block_index):
         print(colored("\n✓ All cursed stamps match perfectly!", "green", attrs=["bold"]))
 
 
+def compare_ownerstable(prod_cursor, dev_cursor, block_index):
+    print_comparison_header("Owners Table")
+
+    # Fetch all owner records
+    prod_cursor.execute(
+        """
+        SELECT owners.index, deploy_hash, tokenid, owner, prim, address_btc, address_eth, txt_data, expire_timestamp
+        FROM owners
+        WHERE last_update < %s
+        ORDER BY deploy_hash ASC, owners.index ASC
+        """,
+        (block_index,),
+    )
+    prod_records = prod_cursor.fetchall()
+
+    dev_cursor.execute(
+        """
+        SELECT owners.index, deploy_hash, tokenid, owner, prim, address_btc, address_eth, txt_data, expire_timestamp
+        FROM owners
+        WHERE last_update < %s
+        ORDER BY deploy_hash ASC, owners.index ASC
+        """,
+        (block_index,),
+    )
+    dev_records = dev_cursor.fetchall()
+
+    # Create dictionaries for easier comparison using deploy_hash and tokenid as composite key
+    prod_dict = {(record[1], record[2]): record for record in prod_records}
+    dev_dict = {(record[1], record[2]): record for record in dev_records}
+
+    # Categorize differences
+    only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
+    only_in_dev = set(dev_dict.keys()) - set(prod_dict.keys())
+    common_tokens = set(prod_dict.keys()) & set(dev_dict.keys())
+
+    # Find mismatched owners in common tokens
+    mismatched = [
+        token
+        for token in common_tokens
+        if prod_dict[token][3] != dev_dict[token][3]  # owner
+        or prod_dict[token][4] != dev_dict[token][4]  # prim
+        or prod_dict[token][5] != dev_dict[token][5]  # address_btc
+        or prod_dict[token][6] != dev_dict[token][6]  # address_eth
+    ]
+
+    print("\nOwners Table Summary:")
+    print(f"├─ Production records up to block {colored(block_index, 'cyan')}: {colored(len(prod_records), 'cyan')}")
+    print(f"└─ Development records up to block {colored(block_index, 'cyan')}: {colored(len(dev_records), 'cyan')}")
+
+    if len(prod_records) != len(dev_records):
+        print(colored(f"\n⚠️  WARNING: Record count mismatch!", "red", attrs=["bold"]))
+        print(colored(f"    Difference: {abs(len(prod_records) - len(dev_records))} records", "red", attrs=["bold"]))
+
+    if only_in_prod or only_in_dev or mismatched:
+        print(colored("\n✗ Differences found in owners table", "red", attrs=["bold"]))
+
+        if mismatched:
+            print(colored(f"\n→ Matching tokens but different ownership details ({len(mismatched)} records):", "yellow"))
+            for token in sorted(mismatched)[:5]:
+                prod_record = prod_dict[token]
+                dev_record = dev_dict[token]
+                print(f"\n  • Deploy Hash: {colored(token[0], 'cyan')}")
+                print(f"    Token ID: {colored(token[1], 'cyan')}")
+                print("    Production:")
+                print(f"    ├─ Owner: {colored(prod_record[3], 'yellow')}")
+                print(f"    ├─ Primary: {colored(prod_record[4], 'yellow')}")
+                print(f"    ├─ BTC Address: {colored(prod_record[5], 'yellow')}")
+                print(f"    └─ ETH Address: {colored(prod_record[6], 'yellow')}")
+                print("    Development:")
+                print(f"    ├─ Owner: {colored(dev_record[3], 'yellow')}")
+                print(f"    ├─ Primary: {colored(dev_record[4], 'yellow')}")
+                print(f"    ├─ BTC Address: {colored(dev_record[5], 'yellow')}")
+                print(f"    └─ ETH Address: {colored(dev_record[6], 'yellow')}")
+
+        if only_in_prod:
+            print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "red"))
+            for token in sorted(list(only_in_prod))[:5]:
+                record = prod_dict[token]
+                print(f"\n  • Deploy Hash: {colored(record[1], 'cyan')}")
+                print(f"    ├─ Token ID: {record[2]}")
+                print(f"    ├─ Owner: {record[3]}")
+                print(f"    ├─ Primary: {record[4]}")
+                print(f"    ├─ BTC Address: {record[5]}")
+                print(f"    └─ ETH Address: {record[6]}")
+
+        if only_in_dev:
+            print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "red"))
+            for token in sorted(list(only_in_dev))[:5]:
+                record = dev_dict[token]
+                print(f"\n  • Deploy Hash: {colored(record[1], 'cyan')}")
+                print(f"    ├─ Token ID: {record[2]}")
+                print(f"    ├─ Owner: {record[3]}")
+                print(f"    ├─ Primary: {record[4]}")
+                print(f"    ├─ BTC Address: {record[5]}")
+                print(f"    └─ ETH Address: {record[6]}")
+    else:
+        print(colored("\n✓ All ownership records match perfectly!", "green", attrs=["bold"]))
+
+
 def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101):
     print_comparison_header("SRC101Valid")
 
@@ -698,6 +797,9 @@ def main():
                 print(f"└─ Development: {colored('✓ No missing records', 'green', attrs=['bold'])}")
             else:
                 print(f"└─ Development: {colored(f'✗ Missing {len(not_in_dev_list_src20)} records', 'red', attrs=['bold'])}")
+
+        # Owners Table Comparison
+        compare_ownerstable(prod_cursor, dev_cursor, block_index)
 
     finally:
         prod_cursor.close()
