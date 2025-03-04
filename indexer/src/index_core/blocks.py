@@ -378,6 +378,9 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                         p2wsh_data = None
                         destination_pubkey = ctx.vout[0].scriptPubKey
                         destinations = util.decode_address(destination_pubkey)
+                        src_destination_nvalue = 0
+                        if config.BTC_SRC101_OLGA_BLOCK != 0 and block_index >= config.BTC_SRC101_OLGA_BLOCK:
+                            src_destination_nvalue = ctx.vout[0].nValue
                     else:
                         p2wsh_data = None
                 else:
