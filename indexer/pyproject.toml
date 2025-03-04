@@ -59,7 +59,7 @@ arweave-python-client = "1.0.19"
 
 [tool.poetry.group.dev.dependencies]
 taskipy = "^1.13.0"
-bandit = "^1.7.9"
+bandit = "^1.8.3"
 flake8 = "^7.1.0"
 pillow = "^11.1.0"
 isort = "^5.10.1"

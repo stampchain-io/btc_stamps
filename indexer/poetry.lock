@@ -82,14 +82,14 @@ cryptography = "*"
 
 [[package]]
 name = "bandit"
-version = "1.8.0"
+version = "1.8.3"
 description = "Security oriented static analyser for python code."
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "bandit-1.8.0-py3-none-any.whl", hash = "sha256:b1a61d829c0968aed625381e426aa378904b996529d048f8d908fa28f6b13e38"},
-    {file = "bandit-1.8.0.tar.gz", hash = "sha256:b5bfe55a095abd9fe20099178a7c6c060f844bfd4fe4c76d28e35e4c52b9d31e"},
+    {file = "bandit-1.8.3-py3-none-any.whl", hash = "sha256:28f04dc0d258e1dd0f99dee8eefa13d1cb5e3fde1a5ab0c523971f97b289bcd8"},
+    {file = "bandit-1.8.3.tar.gz", hash = "sha256:f5847beb654d309422985c36644649924e0ea4425c76dec2e89110b87506193a"},
 ]
 
 [package.dependencies]
@@ -4298,4 +4298,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "eff2532eccea021f7ce79dc4469ced0e8c21fb3d895d1f97829d6bdc2a2db248"
+content-hash = "2c0cd14e4d6180179906a70d0e848daafad693c88e9eb251fe6779c06717dd99"
