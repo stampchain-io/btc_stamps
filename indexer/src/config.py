@@ -13,9 +13,12 @@ logger = logging.getLogger(__name__)
 # Cache size configurations
 BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = int(os.environ.get("BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", "200000"))
 DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "150000"))  # Increased from 100000
+DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "150000"))  # Increased from 100000
 RUST_PARSER_MAX_CACHE_MB = int(os.environ.get("RUST_PARSER_MAX_CACHE_MB", "250"))  # 250MB for raw transaction data
 RUST_PARSER_ENTRIES = int(os.environ.get("RUST_PARSER_ENTRIES", "20000"))  # Match Python cache size
 
+# Cache sizes with memory usage estimates
+BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "1000"))  # Reduced from 10000, Active balance tracking
 # Cache sizes with memory usage estimates
 BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "1000"))  # Reduced from 10000, Active balance tracking
 DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "1000"))  # Deployment info (~0.5MB memory)
@@ -25,7 +28,7 @@ ADDRESS_CACHE_SIZE = int(os.environ.get("ADDRESS_CACHE_SIZE", "15000"))
 SRC721_SUBASSET_CACHE_SIZE = int(os.environ.get("SRC721_SUBASSET_CACHE_SIZE", "256"))  # SRC-721 specific subasset cache
 
 # Block and stamp cache sizes
-BLOCK_CACHE_SIZE = int(os.environ.get("BLOCK_CACHE_SIZE", "2"))mance
+BLOCK_CACHE_SIZE = int(os.environ.get("BLOCK_CACHE_SIZE", "2"))
 STAMP_CACHE_SIZE = int(os.environ.get("STAMP_CACHE_SIZE", "2"))
 COLLECTION_CACHE_SIZE = int(
     os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET_CACHE_SIZE))
