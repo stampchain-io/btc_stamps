@@ -622,7 +622,7 @@ def calculate_owners(db, src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, 
             else:
                 _, _, _, _, _, _, imglp, imgf, _ = get_src101_deploy(db, deploy_hash, {})
                 for i in range(len(tokenid_utf8_split)):
-                    img_split.append(imglp + tokenid_utf8_split[i] + "." + imgf)
+                    img_split.append(str(imglp or "") + tokenid_utf8_split[i] + "." + str(imgf or ""))
 
             max_length = max(len(tokenid_split), len(tokenid_utf8_split), len(img_split))
             tokenid_split = tokenid_split + [""] * (max_length - len(tokenid_split))
