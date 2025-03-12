@@ -217,7 +217,11 @@ class BlockProcessor:
         # Only validate ledger hash if both valid_src20_str and new_ledger_hash are non-empty
         if valid_src20_str and new_ledger_hash:
             if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
-                raise LedgerMismatchError(block_index)
+                # Only raise LedgerMismatchError if FORCE is not enabled
+                if not config.FORCE:
+                    raise LedgerMismatchError(block_index)
+                else:
+                    logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
 
         stamps_in_block = len(self.valid_stamps_in_block)
         src20_in_block = len(self.processed_src20_in_block)

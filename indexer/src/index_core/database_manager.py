@@ -246,12 +246,12 @@ class DatabaseManager:
         last_error = None
         for attempt in range(self.max_retries):
             try:
-                logger.info(f"Attempting to acquire database connection (attempt {attempt + 1}/{self.max_retries})")
+                logger.debug(f"Attempting to acquire database connection (attempt {attempt + 1}/{self.max_retries})")
                 start_time = time.time()
                 connection = self.pool.get_connection()
                 elapsed_time = time.time() - start_time
                 if connection:
-                    logger.info(f"Database connection acquired from pool in {elapsed_time:.2f}s")
+                    logger.debug(f"Database connection acquired from pool in {elapsed_time:.2f}s")
                     return connection
             except Exception as e:
                 last_error = e

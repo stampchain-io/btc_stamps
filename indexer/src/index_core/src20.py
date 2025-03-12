@@ -12,6 +12,7 @@ from typing import List, Optional, TypedDict, Union
 import requests
 from requests.exceptions import JSONDecodeError
 
+import config
 import index_core.log as log
 from config import (  # SRC_VALIDATION_API1,
     CP_P2WSH_FEAT_BLOCK_START,
@@ -1365,10 +1366,17 @@ def fetch_api_ledger_data(block_index: int):
         time.sleep(backoff_time)
         backoff_time *= 2
 
-    raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
+    # Set FORCE to True when API retrieval fails after max retries
+    config.FORCE = True
+    logger.warning(f"Failed to retrieve from the API after {max_retries} retries. Setting FORCE=True to continue processing.")
+    return None, None
 
 
 def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
+    # Reset FORCE to False at the beginning of each validation
+    was_force_enabled = config.FORCE
+    config.FORCE = False
+    
     try:
         logger.debug(f"\n{'='*50}")
         logger.debug(f"Validating ledger hash for block {block_index}")
@@ -1376,6 +1384,13 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         logger.debug(f"Local ledger string: {valid_src20_str}")
 
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
+        
+        # If fetch_api_ledger_data failed and set FORCE to True, we should return True
+        # to allow processing to continue
+        if config.FORCE and not was_force_enabled:
+            logger.warning(f"FORCE was enabled due to API retrieval failure for block {block_index}. Continuing with processing.")
+            return True
+            
         if api_ledger_validation is None:
             logger.error(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
             raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
