@@ -76,7 +76,9 @@ ZMQ_NOTIFICATION_DELAY = float(os.environ.get("ZMQ_NOTIFICATION_DELAY", "5.0")) 
 # CP RPC Configuration
 CP_RPC_URL = os.environ.get("CP_RPC_URL")
 if not CP_RPC_URL:
-    logger.warning("CP_RPC_URL not set in environment, using default counterparty.io endpoint")
+    # Only show warning if not in test mode
+    if os.environ.get("TESTING") != "1":
+        logger.warning("CP_RPC_URL not set in environment, using default counterparty.io endpoint")
     CP_RPC_URL = "https://api.counterparty.io:4000/"
 else:
     logger.info(f"Using configured CP_RPC_URL: {CP_RPC_URL}")

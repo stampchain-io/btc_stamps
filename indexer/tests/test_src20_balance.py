@@ -1,7 +1,12 @@
+import os
+import sys
 import unittest
 from decimal import Decimal
 
 import pytest
+
+# Add the parent directory to sys.path to allow relative imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Import the Src20Processor from the index_core module
 from index_core.src20 import Src20Processor
@@ -41,10 +46,27 @@ def test_normalize_invalid_amount():
 class TestSrc20Balance(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Set up the test environment
         setup_test_env()
-        cls._db_patcher = mock_database()
-        cls._db_mock = cls._db_patcher.start()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls._db_patcher.stop()
+    def setUp(self):
+        # Create a mock database for this test
+        self.db_mock = mock_database()
+        # Enter the context manager
+        self.mock_conn = self.db_mock.__enter__()
+
+    def tearDown(self):
+        # Exit the context manager
+        self.db_mock.__exit__(None, None, None)
+
+    def test_db_mocking_works(self):
+        """Simple test to verify the database mocking is working properly."""
+        # We can access the mocked database connection
+        self.assertIsNotNone(self.mock_conn)
+
+        # Make sure it has a cursor method
+        self.assertTrue(hasattr(self.mock_conn, "cursor"))
+
+        # And we can call the cursor method
+        cursor = self.mock_conn.cursor()
+        self.assertIsNotNone(cursor)
