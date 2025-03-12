@@ -202,7 +202,7 @@ sudo apt-get install libgmp-dev
 Install Poetry:
 
 ```shell
-curl -sSL https://install.python-poetry.org | python3 -
+curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
 ```
 
 Install Dependencies and Build Rust Parser:
@@ -273,7 +273,6 @@ For development builds (with debug symbols):
 cd indexer/src/rust_parser
 cargo build
 ```
-
 ## ZMQ Configuration
 
 The indexer can use ZeroMQ (ZMQ) notifications from Bitcoin Core to receive immediate notification of new blocks. This is more efficient than polling for new blocks.
@@ -288,4 +287,5 @@ export ZMQ_NOTIFICATION_DELAY=10.0
 ```
 
 This delay helps prevent 404 errors when fetching new blocks from the Counterparty API, as it gives Counterparty time to process the new block before the indexer tries to fetch it.
+
 

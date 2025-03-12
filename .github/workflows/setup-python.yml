@@ -23,7 +23,7 @@ jobs:
 
       - name: Install Poetry
         run: |
-          curl -sSL https://install.python-poetry.org | python3 -
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
         working-directory: ./indexer
 
       - name: Cache Poetry
