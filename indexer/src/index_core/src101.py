@@ -173,8 +173,8 @@ class Src101Validator:
             if isinstance(value, dict):
                 for k, v in value.items():
                     try:
-                        int_key = int(k)
-                    except:
+                        _ = int(k)
+                    except ValueError:
                         valid = False
                     if k in seen_keys:
                         valid = False
@@ -252,7 +252,7 @@ class Src101Validator:
             self.src101_dict[key] = None
 
     def _process_tokenid_value(self, key, value):
-        if type(value) == list:
+        if isinstance(value, list):
             self.src101_dict[key + "_origin"] = value
             valid = True
             utf8valuelist = []
@@ -280,7 +280,7 @@ class Src101Validator:
                 self._update_status(key, f"IT: INVALID TOKENID VAL {value}")
                 self.src101_dict[key] = None
                 self.src101_dict[key + "_utf8"] = None
-        elif type(value) == str:
+        elif isinstance(value, str):
             self.src101_dict[key + "_origin"] = value
             valid = check_valid_base64_string(value)
             if len(value) > 128:
@@ -450,9 +450,9 @@ class Src101Processor:
 
             if (
                 not self.src101_dict.get("tokenid")
-                or not type(self.src101_dict.get("tokenid")) == list
+                or not isinstance(self.src101_dict.get("tokenid"), list)
                 or not self.src101_dict.get("tokenid_utf8")
-                or not type(self.src101_dict.get("tokenid_utf8")) == list
+                or not isinstance(self.src101_dict.get("tokenid_utf8"), list)
             ):
                 self.set_status_and_log(
                     "ITT", deploy_hash=self.src101_dict.get("deploy_hash"), tokenid=self.src101_dict.get("tokenid")
@@ -460,7 +460,7 @@ class Src101Processor:
                 return
 
             if (
-                not type(self.src101_dict.get("coef")) == int
+                not isinstance(self.src101_dict.get("coef"), int)
                 or self.src101_dict.get("coef", 1001) > 1000
                 or self.src101_dict.get("coef", -1) < 0
             ):
@@ -483,7 +483,11 @@ class Src101Processor:
                         "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
                     )
                     return
-            if not self.src101_dict.get("dua") or type(self.src101_dict.get("dua")) != int or self.src101_dict.get("dua") <= 0:
+            if (
+                not self.src101_dict.get("dua")
+                or not isinstance(self.src101_dict.get("dua"), int)
+                or self.src101_dict.get("dua") <= 0
+            ):
                 self.set_status_and_log(
                     "ITD", deploy_hash=self.src101_dict.get("deploy_hash"), dua=self.src101_dict.get("dua")
                 )
@@ -642,7 +646,7 @@ class Src101Processor:
                 self.src101_dict.get("deploy_hash"),
                 self.src101_dict.get("tokenid_utf8"),
             )
-            src101_preowner = result[0]
+            # src101_preowner = result[0]
             src101_owner = result[1]
             expire_timestamp = result[2]
             address_btc = result[3]

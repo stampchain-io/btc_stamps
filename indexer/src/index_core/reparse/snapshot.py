@@ -229,12 +229,12 @@ def main() -> None:
 
             try:
                 # Create metadata for documentation purposes
-                local_metadata = {
-                    "genesis_block": config.CP_STAMP_GENESIS_BLOCK,
-                    "description": "Local snapshot for reparse validation",
-                    "version": "1.0.0",
-                    "database": os.getenv("RDS_HOSTNAME"),
-                }
+                # local_metadata = {
+                #     "genesis_block": config.CP_STAMP_GENESIS_BLOCK,
+                #     "description": "Local snapshot for reparse validation",
+                #     "version": "1.0.0",
+                #     "database": os.getenv("RDS_HOSTNAME"),
+                # }
 
                 # Create and save snapshot
                 snapshot_manager.save_current_state(db)

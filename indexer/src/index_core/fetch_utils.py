@@ -1326,6 +1326,8 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
         # If we've tried all nodes and still failed, log the error
         if tried_nodes:
             logger.error(f"All nodes failed for endpoint {endpoint}: {', '.join(tried_nodes)}")
+            if last_error:
+                logger.error(f"Last error encountered: {last_error}")
 
         elapsed_time = time.time() - start_time
         logger.error(f"fetch_xcp_async for {endpoint} failed after {elapsed_time:.2f}s")

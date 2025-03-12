@@ -65,7 +65,7 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          poetry run flake8 src/ --count --statistics --exit-zero
+          poetry run flake8 src/ --count --statistics
         working-directory: ./indexer
 
       - name: Check Rust code

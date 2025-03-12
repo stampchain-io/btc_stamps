@@ -173,7 +173,6 @@ def run_code_quality_checks():
                 "src/",
                 "--count",
                 "--statistics",
-                "--exit-zero",
             ],
             check=True,
         )

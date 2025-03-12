@@ -24,9 +24,6 @@ logger = logging.getLogger(__name__)
 # Maximum number of concurrent uploads
 MAX_CONCURRENT_UPLOADS = int(os.environ.get("MAX_CONCURRENT_UPLOADS", "5"))
 
-# Queue for pending uploads
-upload_queue = queue.Queue()
-
 # Thread pool for handling uploads
 upload_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_UPLOADS)
 
@@ -56,6 +53,10 @@ class UploadTask:
         self.file_obj = file_obj
         self.file_obj_md5 = file_obj_md5
         self.s3_file_path = f"{config.AWS_S3_IMAGE_DIR}{filename}"
+
+
+# Queue for pending uploads
+upload_queue: queue.Queue = queue.Queue()
 
 
 def _process_upload_task(task: UploadTask) -> None:
