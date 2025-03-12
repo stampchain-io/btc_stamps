@@ -257,7 +257,7 @@ BACKEND_PORT: int = 8332
 BACKEND_SSL: bool = True
 BACKEND_SSL_NO_VERIFY: bool = False
 BACKEND_POLL_INTERVAL: float = 2.0
-FORCE: bool = False
+FORCE: bool = os.environ.get("FORCE", "false").lower() == "true"
 PREFIX: bytes = b"stamp:"
 CP_PREFIX: bytes = b"CNTRPRTY"
 BLOCK_FIRST: int = 0
