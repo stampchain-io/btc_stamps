@@ -88,3 +88,9 @@ class ZMQNotifier:
             self.context.term()
             self.context = None
         self._is_active = False
+
+    def stop(self) -> None:
+        """Stop the ZMQ notifier and clean up resources"""
+        logger.info("Stopping ZMQ notifier...")
+        self.cleanup()
+        logger.info("ZMQ notifier stopped")

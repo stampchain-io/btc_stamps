@@ -30,13 +30,9 @@ SRC721_SUBASSET_CACHE_SIZE = int(os.environ.get("SRC721_SUBASSET_CACHE_SIZE", "2
 # Block and stamp cache sizes
 BLOCK_CACHE_SIZE = int(os.environ.get("BLOCK_CACHE_SIZE", "2"))
 STAMP_CACHE_SIZE = int(os.environ.get("STAMP_CACHE_SIZE", "2"))
-COLLECTION_CACHE_SIZE = int(
-    os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET_CACHE_SIZE))
-)
-PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))  
-SRC101_DEPLOY_CACHE_SIZE = int(
-    os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE))
-)
+COLLECTION_CACHE_SIZE = int(os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET_CACHE_SIZE)))
+PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
+SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
 
 # Batch processing configurations
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
@@ -75,7 +71,7 @@ ZMQ_PORT_REGTEST_BLOCK = 29333
 # These will be set based on network type
 ZMQ_TX_PORT: int = ZMQ_PORT_MAINNET_TX
 ZMQ_BLOCK_PORT: int = ZMQ_PORT_MAINNET_BLOCK
-
+ZMQ_NOTIFICATION_DELAY = float(os.environ.get("ZMQ_NOTIFICATION_DELAY", "5.0"))  # Delay in seconds after ZMQ notification
 
 # CP RPC Configuration
 CP_RPC_URL = os.environ.get("CP_RPC_URL")
@@ -103,6 +99,7 @@ AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)
 S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
+USE_ASYNC_UPLOADS = os.environ.get("USE_ASYNC_UPLOADS", "1") == "1"
 
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_URL", None)  # Fallback to old URL for compatibility
@@ -202,10 +199,10 @@ XCP_V2_NODES = [
         "name": "CP_RPC_URL",
         "url": f"{CP_RPC_URL.rstrip('/').replace('/api/', '/')}/v2",  # Remove 'api' path if present
     },
-    {
-        "name": "counterparty.io",
-        "url": "https://api.counterparty.io:4000/v2",
-    },
+    # {
+    #     "name": "counterparty.io",
+    #     "url": "https://api.counterparty.io:4000/v2",
+    # },
 ]  # TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
 
 logger.info("XCP V2 Node Configuration:")

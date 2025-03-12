@@ -20,6 +20,7 @@ import index_core.blocks as blocks
 import index_core.log as log
 import index_core.util as util
 from exceptions import ConfigurationError
+from index_core.async_upload import start_upload_worker, stop_upload_worker, wait_for_uploads
 from index_core.aws import get_s3_objects
 from index_core.backend import Backend
 from index_core.check import cp_version, software_version
@@ -49,13 +50,24 @@ def sigterm_handler(_signo, _stack_frame):
         exit_code = 1
         signal_name = f"SIGNAL_{_signo}"
 
-    logger.info(f"Received {signal_name}.")
-    logger.info("Initiating graceful shutdown...")
+    logger.info(f"Received {signal_name}, shutting down...")
 
+    # Set the shutdown flag to stop the main loop
     shutdown_flag.set()
 
-    # Allow time for cleanup
-    time.sleep(2)
+    # Wait for pending uploads to complete with a timeout
+    if config.USE_ASYNC_UPLOADS and config.STORE_FILES:
+        logger.info("Waiting for pending uploads to complete...")
+        if wait_for_uploads(timeout=10.0):
+            logger.info("All pending uploads completed successfully.")
+        else:
+            logger.warning("Timed out waiting for uploads to complete. Some uploads may be lost.")
+
+        # Stop the async upload worker
+        logger.info("Stopping async upload worker...")
+        stop_upload_worker()
+
+    # Exit with the appropriate code
     sys.exit(exit_code)
 
 
@@ -398,6 +410,11 @@ def start_all(db: Connection) -> None:
             if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
                 config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
+                # Start the async upload worker if async uploads are enabled
+                if config.USE_ASYNC_UPLOADS:
+                    logger.info("Starting async upload worker...")
+                    start_upload_worker()
+
         # Start the main indexing process
         blocks.follow(db)
     except Exception as e:
@@ -406,6 +423,19 @@ def start_all(db: Connection) -> None:
         if not shutdown_flag.is_set():
             shutdown_flag.set()
         logger.info("Server shutdown initiated.")
+
+        # Wait for pending uploads to complete with a timeout
+        if config.USE_ASYNC_UPLOADS and config.STORE_FILES:
+            logger.info("Waiting for pending uploads to complete...")
+            if wait_for_uploads(timeout=30.0):
+                logger.info("All pending uploads completed successfully.")
+            else:
+                logger.warning("Timed out waiting for uploads to complete. Some uploads may be lost.")
+
+            # Stop the async upload worker
+            logger.info("Stopping async upload worker...")
+            stop_upload_worker()
+
         # Ensure proper cleanup
         if executor:
             executor.shutdown(wait=True)

@@ -214,7 +214,8 @@ class BlockProcessor:
             self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
         )
 
-        if valid_src20_str:
+        # Only validate ledger hash if both valid_src20_str and new_ledger_hash are non-empty
+        if valid_src20_str and new_ledger_hash:
             if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
                 raise LedgerMismatchError(block_index)
 
@@ -1488,7 +1489,18 @@ def follow(
                         backend_instance.get_tx_list(block_hash)
                     )
 
-                    xcp_hash = stamp_issuances_list[block_index]["xcp_block_hash"]
+                    try:
+                        # Try to get xcp_block_hash, fall back to block_hash if needed
+                        if "xcp_block_hash" in stamp_issuances_list[block_index]:
+                            xcp_hash = stamp_issuances_list[block_index]["xcp_block_hash"]
+                        elif "block_hash" in stamp_issuances_list[block_index]:
+                            xcp_hash = stamp_issuances_list[block_index]["block_hash"]
+                            logger.debug(f"Using block_hash as xcp_block_hash for block {block_index}")
+                        else:
+                            raise KeyError("Neither xcp_block_hash nor block_hash found in block data")
+                    except (KeyError, TypeError) as e:
+                        logger.error(f"Error accessing block hash for block {block_index}: {e}")
+                        # Handle the error appropriately
 
                     if xcp_hash != block_hash and not reparse_mode:
                         logger.critical(f"Hash mismatch at block {block_index}")
@@ -1579,7 +1591,6 @@ def follow(
                         block_processor.insert_transactions(tx_results)
                         block_processor.process_transaction_results(tx_results)
 
-                        logger.debug("Finalizing block")
                         (
                             new_ledger_hash,
                             new_txlist_hash,
@@ -1688,6 +1699,13 @@ def follow(
                                     if topic_str in ["hashblock", "rawblock"]:
                                         logger.info(f"Processing new block notification via ZMQ: {topic_str}")
                                         block_tip = backend_instance.getblockcount()
+
+                                        # Add delay to allow Counterparty to catch up with Bitcoin
+                                        delay_seconds = config.ZMQ_NOTIFICATION_DELAY
+                                        logger.info(
+                                            f"Delaying for {delay_seconds} seconds to allow Counterparty to process the new block"
+                                        )
+                                        time.sleep(delay_seconds)
                                         break
                                 continue
                         except Exception as e:

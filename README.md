@@ -274,3 +274,18 @@ cd indexer/src/rust_parser
 cargo build
 ```
 
+## ZMQ Configuration
+
+The indexer can use ZeroMQ (ZMQ) notifications from Bitcoin Core to receive immediate notification of new blocks. This is more efficient than polling for new blocks.
+
+### ZMQ Notification Delay
+
+When a new block is received via ZMQ, the indexer will delay processing it to allow Counterparty to catch up. This delay can be configured with the `ZMQ_NOTIFICATION_DELAY` environment variable (default: 5 seconds).
+
+```bash
+# Example: Set ZMQ notification delay to 10 seconds
+export ZMQ_NOTIFICATION_DELAY=10.0
+```
+
+This delay helps prevent 404 errors when fetching new blocks from the Counterparty API, as it gives Counterparty time to process the new block before the indexer tries to fetch it.
+

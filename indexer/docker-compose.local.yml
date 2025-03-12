@@ -5,9 +5,7 @@ services:
     profiles: ["with-db"]
     image: mysql:8.4.0
     command: >
-      --default-authentication-plugin=mysql_native_password
       --bind-address=0.0.0.0
-      --skip-grant-tables
     volumes:
       - ./db_data:/var/lib/mysql
       - ./table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql
