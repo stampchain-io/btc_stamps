@@ -122,7 +122,7 @@ def run_code_quality_checks():
         logger.info(colored("Building Rust parser...", "cyan"))
         if not run_rust_checks():
             logger.error("Rust parser checks failed")
-            return False
+            sys.exit(1)
 
         # Run pytest for specific test files
         logger.info(colored("Running pytest tests...", "cyan"))
@@ -189,10 +189,13 @@ def run_code_quality_checks():
         logger.info(colored("PASS: bandit check", "green"))
 
         logger.info(colored("All code quality checks passed!", "green", attrs=["bold"]))
-        return True
+        sys.exit(0)
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running code quality checks: {e}")
-        return False
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error running code quality checks: {e}")
+        sys.exit(1)
 
 
 def run_rust_checks():
