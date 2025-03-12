@@ -584,7 +584,7 @@ def get_src101_valid_list(cursor: Cursor, block_index: Optional[int] = None) -> 
     return list(results)
 
 
-def calculate_owners(src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, Any]]:
+def calculate_owners(db, src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, Any]]:
     """Calculate owners from SRC-101 valid list.
 
     Args:
@@ -617,7 +617,12 @@ def calculate_owners(src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict
         if op == "MINT":
             tokenid_split = (tokenid or "").split(";")
             tokenid_utf8_split = (tokenid_utf8 or "").split(";")
-            img_split = (img or "").split(";")
+            if img is not None:
+                img_split = img.split(";")
+            else:
+                _, _, _, _, _, _, imglp, imgf, _ = get_src101_deploy(db, deploy_hash, {})
+                for i in range(len(tokenid_utf8_split)):
+                    img_split.append(str(imglp or "") + tokenid_utf8_split[i] + "." + str(imgf or ""))
 
             max_length = max(len(tokenid_split), len(tokenid_utf8_split), len(img_split))
             tokenid_split = tokenid_split + [""] * (max_length - len(tokenid_split))
@@ -869,7 +874,7 @@ def rebuild_owners(db, block_index=None):
 
         existing_owners = get_existing_owners(cursor)
         src101_valid_list = get_src101_valid_list(cursor, block_index)
-        all_owners = calculate_owners(src101_valid_list)
+        all_owners = calculate_owners(db, src101_valid_list)
 
         if not owners_need_update(existing_owners, all_owners):
             logger.info("No changes in owners. Skipping deletion and insertion.")
