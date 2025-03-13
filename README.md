@@ -17,15 +17,15 @@
 
 ## 📋 Overview
 
-`btc_stamps` is the official indexer, API, and explorer for Bitcoin Stamps, an
-experimental meta-protocol built on Bitcoin that prioritizes immutability and permanence.
-This experimental protocol is provided without warranty. For more
-details, please refer to the [LICENSE](LICENSE) file.
+`btc_stamps` is the official indexer for Bitcoin Stamps, a cutting-edge meta-protocol 
+built on Bitcoin dedicated to immutability and permanent data storage on the Bitcoin blockchain. 
+This protocol is experimental and provided without warranty. For full details, please refer 
+to the [LICENSE](LICENSE) file.
 
-This project originated from a meta-protocol design created by Mikeinspace
+This project evolved from a meta-protocol design created by Mikeinspace
 ([Bitcoin Stamps Github](https://github.com/mikeinspace/stamps)) in February 2023.
 Reinamora137 developed this implementation, which has since become the foundation for the
-Bitcoin Stamps ecosystem. You can view the [initial commit here](https://github.com/mikeinspace/stamps/commit/a04461c541cd3eb3c0fcc59eff0f16c24911c014).
+entire Bitcoin Stamps ecosystem. You can view the [initial commit here](https://github.com/mikeinspace/stamps/commit/a04461c541cd3eb3c0fcc59eff0f16c24911c014).
 
 - 💬 Join the community in the [Bitcoin Stamps Telegram chat](https://t.me/BitcoinStamps)
 - 🌐 Explore the protocol at [stampchain.io](https://stampchain.io/)
