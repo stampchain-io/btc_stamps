@@ -415,26 +415,26 @@ files = [
 
 [[package]]
 name = "bitcoinlib"
-version = "0.6.15"
+version = "0.7.2"
 description = "Bitcoin cryptocurrency Library"
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "bitcoinlib-0.6.15-py3-none-any.whl", hash = "sha256:6176e9ba8116f84aa28bdba2155dbf6e63188d449c9f5f0bfa16ce18f0dbac1d"},
-    {file = "bitcoinlib-0.6.15.tar.gz", hash = "sha256:a7f281a0f2c950455a7edcaabce93de405748e8f1cfa490e827cd14d75e081c4"},
+    {file = "bitcoinlib-0.7.2-py3-none-any.whl", hash = "sha256:8cb6d16f5fe4832f181899b9eaecc095fae7046a41d6a46326dd6c7f40b2814d"},
+    {file = "bitcoinlib-0.7.2.tar.gz", hash = "sha256:bad50074e0027476251e31e5cedec206c6cea0febaafb8546251c66edba60f55"},
 ]
 
 [package.dependencies]
-ecdsa = ">=0.17"
-fastecdsa = {version = ">=2.2.1", markers = "platform_system != \"Windows\""}
+ecdsa = {version = ">=0.18", markers = "platform_system == \"Windows\""}
+fastecdsa = {version = ">=2.3.0", markers = "platform_system != \"Windows\""}
 numpy = {version = ">=1.22.0", markers = "python_version >= \"3.9\""}
-pycryptodome = ">=3.14.1"
+pycryptodome = ">=3.19.0"
 requests = ">=2.25.0"
-SQLAlchemy = ">=2.0.0"
+SQLAlchemy = ">=2.0.20"
 
 [package.extras]
-dev = ["Cython (>=3.0.0)", "coveralls (>=3.0.1)", "mysql-connector-python (>=8.0.27)", "mysqlclient (>=2.1.0)", "parameterized (>=0.8.1)", "psycopg2 (>=2.9.2)", "scrypt (>=0.8.18) ; platform_system != \"Windows\"", "sphinx (>=6.0.0)", "sphinx-rtd-theme (>=1.0.0)", "win-unicode-console ; platform_system == \"Windows\""]
+dev = ["Cython (>=3.0.8)", "coveralls (>=4.0.1)", "mysql-connector-python (>=8.4.0)", "mysqlclient (>=2.2.0)", "psycopg (>=3.1.16)", "scrypt (>=0.8.20) ; platform_system != \"Windows\"", "sphinx (>=7.1.0)", "sphinx_rtd_theme (>=2.0.0)", "win-unicode-console ; platform_system == \"Windows\""]
 
 [[package]]
 name = "black"
@@ -4910,4 +4910,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "9aa301f2278aef8187bade9975fac238957ee5bf08b9c03239a65b40cf151e02"
+content-hash = "227ef51155eb963d2a5a00bad54502fd66aeb63e6857869a1e7b8c90c2bad138"

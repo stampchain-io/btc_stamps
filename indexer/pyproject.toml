@@ -28,7 +28,7 @@ classifiers = [
 [tool.poetry.dependencies]
 python = "^3.10"
 appdirs = "1.4.4"
-bitcoinlib = "0.6.15"
+bitcoinlib = "0.7.2"
 colorlog = "6.9.0"
 pyzmq = "^26.2.0"
 python-bitcoinlib = "0.12.2"
