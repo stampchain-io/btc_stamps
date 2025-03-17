@@ -2721,4 +2721,36 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
+    {
+        "name": "tick_with_dot_notation",
+        "description": "Tick with period/dot notation should be valid",
+        "src20JsonString": """{
+          "p": "SRC-20",
+          "op": "DEPLOY",
+          "tick": "10.10",
+          "lim": "1000",
+          "max": "21000000",
+          "deci": 18
+        }""",
+        "expectedOutcome": {
+            "stamp_success": True,
+            "src20_success": True,
+            "message": "Tick with period/dot notation should be valid",
+        },
+        "source": "1SourceAddr",
+        "destination": "1DestAddr",
+        "btc_amount": 0.0,
+        "fee": 0.0,
+        "decoded_tx": "{}",
+        "keyburn": 1,
+        "tx_index": 0,
+        "block_index": 865002,
+        "block_time": 1679616000,
+        "is_op_return": True,
+        "valid_stamps_in_block": [],
+        "processed_src20_in_block": [],
+        "p2wsh_data": None,
+        "tx_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    },
+   
 ]

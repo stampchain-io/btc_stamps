@@ -150,7 +150,7 @@ class Src20Processor:
         self.block_index = block_index
         self.block_time = block_time
         self.operation = src20_dict.get("op", "").upper()
-        self._lock = lock
+        self.lock = lock
 
     def normalize_and_validate_amt(self):
         amt = D(self.src20_dict["amt"]).normalize()
@@ -234,41 +234,29 @@ class Src20Processor:
             logger.debug(message)
 
     def handle_deploy(self):
-        if self.operation != "DEPLOY":
+        if self.operation.upper() != "DEPLOY":
             logger.warning(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
             return
 
-        # Check if token is already deployed
-        deploy_exists = bool(self.deploy_lim or self.deploy_max)
-        if deploy_exists:
+        if not self.deploy_lim and not self.deploy_max:
+            self.update_valid_src20_list(operation=self.operation)
+
+            # Extract metadata from the SRC20 DEPLOY json string
+            metadata = {
+                "tick": self.src20_dict["tick"],
+                "tick_hash": self.src20_dict["tick_hash"],
+                "description": self.src20_dict.get("desc"),
+                "x": self.src20_dict.get("x"),
+                "tg": self.src20_dict.get("tg"),
+                "web": self.src20_dict.get("web"),
+                "email": self.src20_dict.get("email"),
+                "deploy_block_index": self.src20_dict["block_index"],
+                "deploy_tx_hash": self.src20_dict["tx_hash"],
+            }
+
+            self.insert_src20_metadata(metadata)
+        else:
             self.set_status_and_log("DE", tick=self.src20_dict["tick"])
-            return
-
-        # Validate required fields for deployment
-        if not self.src20_dict.get("lim") or not self.src20_dict.get("max"):
-            logger.debug(
-                f"Missing required fields for DEPLOY: lim={self.src20_dict.get('lim')}, max={self.src20_dict.get('max')}"
-            )
-            self.is_valid = False
-            return
-
-        # Process valid deployment
-        self.update_valid_src20_list(operation=self.operation)
-
-        # Extract metadata from the SRC20 DEPLOY json string
-        metadata = {
-            "tick": self.src20_dict["tick"],
-            "tick_hash": self.src20_dict["tick_hash"],
-            "description": self.src20_dict.get("desc"),
-            "x": self.src20_dict.get("x"),
-            "tg": self.src20_dict.get("tg"),
-            "web": self.src20_dict.get("web"),
-            "email": self.src20_dict.get("email"),
-            "deploy_block_index": self.src20_dict["block_index"],
-            "deploy_tx_hash": self.src20_dict["tx_hash"],
-        }
-
-        self.insert_src20_metadata(metadata)
 
     def insert_src20_metadata(self, metadata):
         with self.db.cursor() as cursor:
@@ -288,12 +276,7 @@ class Src20Processor:
             )
 
     def handle_mint(self):
-        # Ensure deploy_lim and deploy_max are not None before using them
-        if self.deploy_lim is None or self.deploy_max is None:
-            logger.debug(f"Invalid MINT: Deploy values contain None for tick {self.src20_dict['tick']}")
-            self.set_status_and_log("ND", op=self.operation, tick=self.src20_dict["tick"])
-            return
-
+ 
         self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)
 
         try:
@@ -309,13 +292,6 @@ class Src20Processor:
                 )
                 return
 
-            # Ensure amt is not None before comparison
-            if self.src20_dict.get("amt") is None:
-                logger.error(f"Error: amt is None for tick {self.src20_dict.get('tick')}")
-                self.set_status_and_log("NA", op=self.operation, tick=self.src20_dict["tick"])
-                return
-
-            # Ensure mint_available is not None before comparison
             if mint_available is not None and self.src20_dict["amt"] > mint_available:
                 self.set_status_and_log(
                     "OMA",
@@ -325,7 +301,6 @@ class Src20Processor:
                 )
                 self.src20_dict["amt"] = mint_available
 
-            # Ensure deploy_lim is not None before comparison
             if self.deploy_lim is not None and self.src20_dict["amt"] > self.deploy_lim:
                 self.set_status_and_log(
                     "ODL",
@@ -380,12 +355,6 @@ class Src20Processor:
             running_user_balance_creator = D(running_user_balance_dict.get(self.src20_dict["creator"], 0))
             running_user_balance_destination = D(running_user_balance_dict.get(self.src20_dict["destination"], 0))
 
-            # Ensure amt is not None before comparison
-            if self.src20_dict.get("amt") is None:
-                logger.error(f"Error: amt is None for tick {self.src20_dict.get('tick')}")
-                self.set_status_and_log("NA", op=self.operation, tick=self.src20_dict["tick"])
-                return
-
             # Check if the creator has enough balance to transfer
             if running_user_balance_creator < D(self.src20_dict["amt"]):
                 self.set_status_and_log(
@@ -428,12 +397,6 @@ class Src20Processor:
             logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
             return
 
-        # Ensure amt is not None before using it
-        if self.src20_dict.get("amt") is None:
-            logger.error(f"Error: amt is None for tick {self.src20_dict.get('tick')}")
-            self.set_status_and_log("NA", op=self.operation, tick=self.src20_dict["tick"])
-            return
-
         addresses = [self.src20_dict["creator"]]
         if self.src20_dict["creator"] != self.src20_dict["destination"]:
             addresses.append(self.src20_dict["destination"])
@@ -468,6 +431,7 @@ class Src20Processor:
             return
 
         # Prepare transactions for each tick holder
+        new_dicts = []
         running_dest_balances_tuple = get_running_user_balances(
             self.db,
             self.src20_dict["tick"],
@@ -487,8 +451,8 @@ class Src20Processor:
             for th in tick_holders
         ]
 
-        if self._lock:
-            with self._lock:
+        if self.lock:
+            with self.lock:
                 self.processed_src20_in_block.extend(new_dicts)
         else:
             self.processed_src20_in_block.extend(new_dicts)
@@ -525,12 +489,12 @@ class Src20Processor:
         self.tick_value = self.src20_dict.get("tick")
 
         if not validator.is_valid:
-            if self._lock:
-                with self._lock:
+            if self.lock:
+                with self.lock:
                     self.processed_src20_in_block.append(self.src20_dict)
             else:
                 self.processed_src20_in_block.append(self.src20_dict)
-            logger.debug(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
+            logger.warning(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
             self.is_valid = False
             return
 
@@ -540,8 +504,8 @@ class Src20Processor:
 def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
     """
     Process all SRC-20 tokens that pass check_format.
+    Thread-safe processing of SRC-20 transactions with proper transaction tracking.
     """
-
     try:
         processor = Src20Processor(db, src20_dict, processed_src20_in_block, lock)
         processor.process()
@@ -555,6 +519,7 @@ def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
         logger.error(f"Error processing SRC-20 transaction: {e}")
         src20_dict["status"] = f"Error: {str(e)}"
         src20_dict["valid"] = 0
+                
         return False, src20_dict
 
 
@@ -1380,8 +1345,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         logger.debug(f"\n{'='*50}")
         logger.debug(f"Validating ledger hash for block {block_index}")
         logger.debug(f"Local ledger hash: {ledger_hash}")
-        logger.debug(f"Local ledger string: {valid_src20_str}")
-
+        
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
 
         # If fetch_api_ledger_data failed and set FORCE to True, we should return True
@@ -1397,6 +1361,16 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
             raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
 
         logger.debug(f"API ledger hash: {api_ledger_hash}")
+        
+        # Quick comparison of hashes - if they match, we can return immediately
+        if api_ledger_hash == ledger_hash:
+            logger.debug(f"Ledger hashes match for block {block_index}. Skipping detailed comparison.")
+            logger.debug(f"{'='*50}\n")
+            return True
+            
+        # If we get here, hashes don't match - perform detailed comparison for debugging
+        logger.debug(f"Ledger hashes DON'T match for block {block_index}. Performing detailed comparison.")
+        logger.debug(f"Local ledger string: {valid_src20_str}")
         logger.debug(f"API ledger string: {api_ledger_validation}")
 
         # Parse and compare balances
@@ -1430,7 +1404,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
                 logger.debug(f"  {diff}")
 
         logger.debug(f"{'='*50}\n")
-        return api_ledger_hash == ledger_hash
+        return False  # Return False as hashes don't match
 
     except Exception as e:
         logger.error(f"Error validating ledger hash: {e}")

@@ -1,6 +1,7 @@
 ---
 description: Database Connection Handling and Logic
-globs: indexer/src/database.py, indexer/src/database_manager.py
+globs: database.py,database_manager.py
+alwaysApply: false
 ---
 # Bitcoin Stamps Database Interaction Rules
 

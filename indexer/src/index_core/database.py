@@ -620,6 +620,7 @@ def calculate_owners(db, src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, 
             if img is not None:
                 img_split = img.split(";")
             else:
+                img_split = []
                 _, _, _, _, _, _, imglp, imgf, _ = get_src101_deploy(db, deploy_hash, {})
                 for i in range(len(tokenid_utf8_split)):
                     img_split.append(str(imglp or "") + tokenid_utf8_split[i] + "." + str(imgf or ""))
@@ -1129,6 +1130,8 @@ def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
         Returns (None, None, None) if no valid deployment exists in the DB.
         Note: If a deployment exists in the DB, all values will be non-None.
     """
+    normalized_tick = tick.lower()
+    
     with db.cursor() as src20_cursor:
         src20_cursor.execute(
             f"""
@@ -1146,12 +1149,14 @@ def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
             ORDER BY
                 block_index ASC
             LIMIT 1
-        """,
-            (tick,),
+            """,
+            (normalized_tick,),
         )  # nosec
+        
         result = src20_cursor.fetchone()
         if result:
             # We know these are all non-None due to the SQL WHERE clause
+            logger.debug(f"Found deployment for tick {tick}: lim={result[0]}, max={result[1]}, dec={result[2]}")
             return result
     return NO_DEPLOY
 

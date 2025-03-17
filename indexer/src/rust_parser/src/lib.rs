@@ -826,6 +826,7 @@ impl TransactionInfo {
         let mut keyburn = 0;
         let mut outputs = Vec::new();
         let mut inputs = Vec::new();
+        let mut p2wsh_data_chunks = Vec::new();
 
         // Populate inputs
         for input in &tx.input {
@@ -835,17 +836,18 @@ impl TransactionInfo {
         for (i, output) in tx.output.iter().enumerate() {
             let output_info = OutputInfo::from_tx_out(output, i as u32);
 
-            // Check for P2WSH pattern (0x00 + exactly 32 bytes)
+            // Check for P2WSH pattern (0x00 + 0x20 + at least 32 bytes)
             let script_bytes = output.script_pubkey.as_bytes();
-            if script_bytes.len() == 34 && script_bytes[0] == 0x00 && script_bytes[1..].len() == 32
-            {
-                // P2WSH can be at any output position - removing the i > 0 restriction
-                // This matches the Python implementation's behavior
-                has_valid_pattern = true;
-                debug!(
-                    "Transaction {} has valid P2WSH pattern at output {}",
-                    txid, i
-                );
+            
+            // Check for P2WSH format - only for outputs after the first one (i > 0)
+            if i > 0 && script_bytes.len() >= 2 && script_bytes[0] == 0x00 && script_bytes[1] == 0x20 {
+                // P2WSH must have exactly 34 bytes (0x00 + 0x20 + 32 bytes)
+                if script_bytes.len() == 34 {
+                    has_valid_pattern = true;
+                    // Extract the 32 bytes of data (skip the first two bytes)
+                    let data_bytes = &script_bytes[2..34];
+                    p2wsh_data_chunks.push(data_bytes.to_vec());
+                }
             }
 
             if output_info.has_op_checkmultisig && output_info.keyburn > 0 {
@@ -877,72 +879,22 @@ impl TransactionInfo {
                         }
                     }
 
-                    let chunk_hex = hex::encode(&chunk_bytes);
-                    debug!("Transaction {} output {}: chunk={}", txid, i, chunk_hex);
-
                     // Extract input hash for ARC4 decryption
                     if let Some(input) = tx.input.first() {
                         // Get the raw bytes of the previous transaction hash
                         let prev_tx_hash = input.previous_output.txid.to_string();
                         let seed_bytes = hex::decode(&prev_tx_hash).unwrap_or_default();
 
-                        // In Python, the hash is reversed with [::-1]
-                        // We need to use the raw bytes directly without reversing
-
-                        // Log the hash for debugging
-                        debug!(
-                            "Transaction {} output {}: prev_tx_hash={}",
-                            txid,
-                            i,
-                            hex::encode(&seed_bytes)
-                        );
-
                         // Decrypt the chunk using ARC4
                         let mut key = init_arc4(&seed_bytes);
                         let decrypted_chunk = arc4_decrypt_chunk(&chunk_bytes, &mut key);
-
-                        debug!(
-                            "Transaction {} output {}: decrypted chunk={}",
-                            txid,
-                            i,
-                            hex::encode(&decrypted_chunk)
-                        );
 
                         // Check for PREFIX at position 2 - exactly matching Python implementation
                         if decrypted_chunk.len() >= 2 + PREFIX.len()
                             && &decrypted_chunk[2..2 + PREFIX.len()] == PREFIX
                         {
-                            debug!(
-                                "Transaction {} output {}: Found valid PREFIX at position 2",
-                                txid, i
-                            );
                             has_valid_data = true;
-                        } else {
-                            // Also check for PREFIX at position 4 (some transactions have it there)
-                            if decrypted_chunk.len() >= 4 + PREFIX.len()
-                                && &decrypted_chunk[4..4 + PREFIX.len()] == PREFIX
-                            {
-                                debug!(
-                                    "Transaction {} output {}: Found valid PREFIX at position 4",
-                                    txid, i
-                                );
-                                has_valid_data = true;
-                            } else {
-                                debug!(
-                                    "Transaction {} output {}: PREFIX not found. Expected: {}, Found: {}",
-                                    txid,
-                                    i,
-                                    hex::encode(PREFIX),
-                                    if decrypted_chunk.len() >= 2 + PREFIX.len() {
-                                        hex::encode(&decrypted_chunk[2..2 + PREFIX.len()])
-                                    } else {
-                                        "too short".to_string()
-                                    }
-                                );
-                            }
                         }
-                    } else {
-                        debug!("Transaction {} has no inputs, cannot decrypt", txid);
                     }
                 }
             }
@@ -950,13 +902,36 @@ impl TransactionInfo {
             outputs.push(output_info);
         }
 
-        // Match the Python implementation logic: include a transaction if it has either:
-        // 1. A valid P2WSH pattern (OLGA format)
-        // 2. A valid OP_CHECKMULTISIG with keyburn and valid data
-        let should_include = has_valid_pattern || (has_valid_data && keyburn == 1);
+        // Process combined P2WSH data chunks if any
+        if !p2wsh_data_chunks.is_empty() {
+            // Combine all P2WSH data chunks and remove trailing zeros
+            let mut combined_data = Vec::new();
+            for chunk in &p2wsh_data_chunks {
+                combined_data.extend_from_slice(chunk);
+            }
+            
+            // Remove trailing zeros
+            while combined_data.last() == Some(&0) {
+                combined_data.pop();
+            }
+            
+            // Standard processing with length prefix
+            if combined_data.len() >= 2 + PREFIX.len() {
+                let chunk_length = ((combined_data[0] as usize) << 8) | (combined_data[1] as usize);
+                if combined_data.len() >= 2 + chunk_length {
+                    let data_chunk = &combined_data[2..2 + chunk_length];
+                    if data_chunk.len() >= PREFIX.len() && &data_chunk[0..PREFIX.len()] == PREFIX {
+                        has_valid_data = true;
+                        keyburn = 1;
+                    }
+                }
+            }
+        }
 
-        debug!("Rust: Final decision - has_valid_pattern={}, has_valid_data={}, keyburn={}, should_include={}", 
-               has_valid_pattern, has_valid_data, keyburn, should_include);
+        // Match the Python implementation logic: include a transaction if it has either:
+        // 1. A valid P2WSH pattern (OLGA format) with valid data
+        // 2. A valid OP_CHECKMULTISIG with keyburn and valid data
+        let should_include = (has_valid_pattern && has_valid_data) || (has_valid_data && keyburn == 1);
 
         TransactionInfo {
             version: tx.version.0,
