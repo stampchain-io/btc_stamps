@@ -1,5 +1,5 @@
 """
-Debug script to find the missing transaction for token "10.10" 
+Debug script to find the missing transaction for token "10.10"
 sent to address "bc1q8hyz22x03y9hv2xty8x0sh0njh92adujg3fva3" in block 865003.
 
 This script searches for transactions in block 865003 and analyzes why a specific

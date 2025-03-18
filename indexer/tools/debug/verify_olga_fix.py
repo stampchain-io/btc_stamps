@@ -1,5 +1,5 @@
 """
-Verification script to test that both multisig and P2WSH transactions 
+Verification script to test that both multisig and P2WSH transactions
 are correctly processed after the BTC_SRC20_OLGA_BLOCK cutoff.
 
 This script processes transactions from block 865003 and verifies they are

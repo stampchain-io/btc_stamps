@@ -2,13 +2,13 @@
 """
 Consolidated test script to verify SRC-20 transactions in specific blocks.
 
-This script provides a framework for testing SRC-20 transaction processing within 
+This script provides a framework for testing SRC-20 transaction processing within
 specific Bitcoin blocks. It contains predefined test cases for blocks 865002 and 867315,
 which are important reference points for Bitcoin Stamps development.
 
 Usage:
     python test_block_transactions.py [--block=BLOCK_NUMBER] [--verbose]
-    
+
 Examples:
     python test_block_transactions.py --block=865002  # Test 10.10 token deployment block
     python test_block_transactions.py --block=867315  # Test pi. token transactions block

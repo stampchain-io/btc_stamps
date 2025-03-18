@@ -1,7 +1,7 @@
 """
 Test thread safety of SRC-20 processing functions.
 
-These tests verify that the SRC-20 processor correctly handles 
+These tests verify that the SRC-20 processor correctly handles
 concurrent processing of transactions using thread locks.
 """
 
