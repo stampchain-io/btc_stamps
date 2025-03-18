@@ -157,10 +157,35 @@ class CPBlocksPipeline:
 
     def stop(self):
         """Stop the background worker thread"""
+        logger.info("Stopping CP blocks pipeline...")
+        self.shutdown_flag.set()
+        
         if self.worker_thread and self.worker_thread.is_alive():
-            self.shutdown_flag.set()
-            self.worker_thread.join(timeout=10)
-            logger.info("Stopped CP blocks pipeline")
+            try:
+                logger.debug("Waiting for worker thread to complete (max 10s)...")
+                self.worker_thread.join(timeout=10)
+                if self.worker_thread.is_alive():
+                    logger.warning("CP blocks pipeline worker thread did not exit within timeout")
+                else:
+                    logger.info("CP blocks pipeline worker thread exited cleanly")
+            except Exception as e:
+                logger.error(f"Error joining CP blocks pipeline worker thread: {e}")
+        else:
+            logger.debug("CP blocks pipeline worker thread not running")
+            
+        # Clean up any pending futures
+        if self.fetch_future and not self.fetch_future.done():
+            try:
+                logger.debug("Cancelling pending fetch future...")
+                self.fetch_future.cancel()
+            except Exception as e:
+                logger.error(f"Error cancelling fetch future: {e}")
+                
+        # Clear the queue to free up memory
+        with self._lock:
+            self.queue.clear()
+            
+        logger.info("CP blocks pipeline stopped")
 
     def reset(self, new_start_block):
         """Reset the pipeline to start from a new block after reorg"""
@@ -220,7 +245,7 @@ class CPBlocksPipeline:
             self.initial_blocks_ready.set()  # Set this to prevent hanging
             return
 
-        while not self.shutdown_flag.is_set():
+        while not self.shutdown_flag.is_set() and not server.shutdown_flag.is_set():
             try:
                 current_time = time.time()
 
@@ -228,6 +253,11 @@ class CPBlocksPipeline:
                 if not initial_fetch and current_time - self.last_fetch_time < self.fetch_interval:
                     time.sleep(0.1)
                     continue
+
+                # Check shutdown flag more frequently
+                if self.shutdown_flag.is_set() or server.shutdown_flag.is_set():
+                    logger.info("Shutdown flag detected in CP blocks pipeline, stopping worker")
+                    break
 
                 # Get current blockchain tip
                 block_tip = backend_instance.getblockcount()
@@ -622,11 +652,11 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
         try:
             logger.debug(f"Attempting to fetch from {node['name']} at URL: {url}")
             response = requests.get(url, params=params, timeout=10)
-            logger.error(f"Response status from {node['name']}: {response.status_code}")
+            logger.debug(f"Response status from {node['name']}: {response.status_code}")
 
             if response.ok:
                 data = response.json()
-                logger.info(f"Successful response from {node['name']}")
+                logger.debug(f"Successful response from {node['name']}")
                 return data
             else:
                 error_body = response.text
@@ -670,14 +700,14 @@ def split_into_chunks(lst: List[Any], n: int) -> Iterator[List[Any]]:
 def get_xcp_asset(cpid: str, node: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Get details of a single CP asset by its CPID."""
     endpoint = f"/assets/{cpid}"
-    logger.info(f"Fetching XCP asset for CPID: {cpid} using node {node['name'] if node else 'default nodes'}")
+    logger.debug(f"Fetching XCP asset for CPID: {cpid} using node {node['name'] if node else 'default nodes'}")
     try:
         response = fetch_xcp(endpoint, node=node)
         if not response or not isinstance(response, dict) or "result" not in response:
             logger.error(f"Invalid response for asset {cpid}: {response}")
             return None
 
-        logger.info(f"Fetched XCP asset for CPID: {cpid}")
+        logger.debug(f"Fetched XCP asset for CPID: {cpid}")
         return response["result"]
     except Exception as e:
         logger.error(f"Error fetching asset info for cpid {cpid}: {e}")

@@ -1236,6 +1236,7 @@ def signal_handler(sig, frame):
     This handler is designed to be thread-safe and idempotent.
     """
     global profiler  # Add global reference to access profiler
+    global cp_pipeline_instance  # Add global reference to access CP pipeline instance
 
     if server.shutdown_flag.is_set():
         # If flag is already set, force exit
@@ -1247,7 +1248,14 @@ def signal_handler(sig, frame):
     logger.info("Received interrupt signal, initiating graceful shutdown...")
     if "profiler" in globals():
         profiler.end_block_profiling()  # End profiling on first interrupt
+    
+    # Set both shutdown flags
     server.shutdown_flag.set()
+    
+    # Also set CP pipeline shutdown flag if it exists
+    if "cp_pipeline_instance" in globals() and cp_pipeline_instance is not None:
+        logger.info("Setting CP pipeline shutdown flag...")
+        cp_pipeline_instance.shutdown_flag.set()
 
 
 def follow(
@@ -1280,6 +1288,7 @@ def follow(
     executor = executor or concurrent.futures.ThreadPoolExecutor()
     zmq_notifier = None
     update_cpids_future = None
+    global cp_pipeline_instance
     cp_pipeline_instance = None
 
     try:
@@ -1680,26 +1689,32 @@ def follow(
 
                     # Update CPIDs if needed (every 50 blocks)
                     if update_cpids and (block_index % 50 == 0) and (block_index != update_cpids_last_run_block):
-                        if update_cpids_future is None or update_cpids_future.done():
-                            if update_cpids_future is not None and update_cpids_future.done():
-                                try:
-                                    # Check if the previous update had any errors
-                                    update_cpids_future.result()
-                                except Exception as e:
-                                    logger.error(f"Previous CPID update failed: {e}")
-                                    if not config.FORCE:
-                                        raise
+                        # Only run CPID updates when close to the block tip
+                        if block_tip - block_index <= 100:
+                            if update_cpids_future is None or update_cpids_future.done():
+                                if update_cpids_future is not None and update_cpids_future.done():
+                                    try:
+                                        # Check if the previous update had any errors
+                                        update_cpids_future.result()
+                                    except Exception as e:
+                                        logger.error(f"Previous CPID update failed: {e}")
+                                        if not config.FORCE:
+                                            raise
 
-                            update_cpids_future = executor.submit(update_cpids_async, db)
-                            update_cpids_last_run_block = block_index
-                            logger.info(f"Submitted update_cpids_async task at block {block_index}.")
+                                update_cpids_future = executor.submit(update_cpids_async, db)
+                                update_cpids_last_run_block = block_index
+                                logger.info(f"Submitted update_cpids_async task at block {block_index}.")
+                            else:
+                                logger.info("update_cpids_async is already running. Skipping submission.")
                         else:
-                            logger.info("update_cpids_async is already running. Skipping submission.")
+                            logger.debug(f"Skipping CPID updates at block {block_index} (too far from tip: {block_tip - block_index} blocks behind)")
 
                     # Use ZMQ if enabled
                     if zmq_enabled:
                         try:
                             logger.info(f"Waiting for new blocks via ZMQ after block {block_index}")
+                            zmq_wait_time = 5  # seconds, shorter timeout for more frequent shutdown checks
+                            
                             while not server.shutdown_flag.is_set():
                                 # Send keepalive if needed
                                 if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
@@ -1707,7 +1722,13 @@ def follow(
                                         db = check_db_connection(db)
                                     last_keepalive = time.time()
 
-                                notification = zmq_notifier.wait_for_notification(min(5000, KEEPALIVE_INTERVAL * 1000))
+                                # Use a shorter timeout to check shutdown flag more frequently
+                                notification = zmq_notifier.wait_for_notification(zmq_wait_time * 1000)  # in milliseconds
+                                
+                                if server.shutdown_flag.is_set():
+                                    logger.info("Shutdown flag detected during ZMQ wait, breaking...")
+                                    break
+                                    
                                 if notification:
                                     topic, body, seq = notification
                                     topic_str = topic.decode("utf-8")
@@ -1722,7 +1743,7 @@ def follow(
                                         )
                                         time.sleep(delay_seconds)
                                         break
-                                continue
+                                # No continue here - let the loop check the shutdown flag again
                         except Exception as e:
                             logger.warning(f"ZMQ notification failed, falling back to polling: {e}")
                             zmq_enabled = False
@@ -1737,10 +1758,23 @@ def follow(
                             if not send_keepalive(db):
                                 db = check_db_connection(db)
                             last_keepalive = time.time()
-
-                        time.sleep(config.BACKEND_POLL_INTERVAL)
+                        
+                        # Use shorter sleep intervals to check shutdown flag more frequently
+                        poll_sleep_interval = min(2.0, config.BACKEND_POLL_INTERVAL)
+                        slept_time = 0
+                        while slept_time < config.BACKEND_POLL_INTERVAL and not server.shutdown_flag.is_set():
+                            time.sleep(poll_sleep_interval)
+                            slept_time += poll_sleep_interval
+                            if server.shutdown_flag.is_set():
+                                logger.info("Shutdown flag detected during poll sleep, breaking...")
+                                break
+                        
+                        # Check if we should continue after sleep
+                        if server.shutdown_flag.is_set():
+                            break
+                            
                         block_tip = backend_instance.getblockcount()
-
+                        
                         # Try to re-enable ZMQ periodically
                         if block_index % 10 == 0:
                             try:
