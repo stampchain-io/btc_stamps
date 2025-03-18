@@ -159,7 +159,7 @@ class CPBlocksPipeline:
         """Stop the background worker thread"""
         logger.info("Stopping CP blocks pipeline...")
         self.shutdown_flag.set()
-        
+
         if self.worker_thread and self.worker_thread.is_alive():
             try:
                 logger.debug("Waiting for worker thread to complete (max 10s)...")
@@ -172,7 +172,7 @@ class CPBlocksPipeline:
                 logger.error(f"Error joining CP blocks pipeline worker thread: {e}")
         else:
             logger.debug("CP blocks pipeline worker thread not running")
-            
+
         # Clean up any pending futures
         if self.fetch_future and not self.fetch_future.done():
             try:
@@ -180,11 +180,11 @@ class CPBlocksPipeline:
                 self.fetch_future.cancel()
             except Exception as e:
                 logger.error(f"Error cancelling fetch future: {e}")
-                
+
         # Clear the queue to free up memory
         with self._lock:
             self.queue.clear()
-            
+
         logger.info("CP blocks pipeline stopped")
 
     def reset(self, new_start_block):

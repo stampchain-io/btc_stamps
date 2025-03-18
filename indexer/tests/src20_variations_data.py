@@ -2752,5 +2752,4 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
     },
-   
 ]

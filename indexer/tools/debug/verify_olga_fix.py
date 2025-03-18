@@ -37,7 +37,7 @@ def main():
     # Block 865003 is after the OLGA cutoff
     block_index = 865003
     logger.info(f"Testing transactions from block {block_index} (OLGA block: {BTC_SRC20_OLGA_BLOCK})")
-    
+
     # Set the current block index for the test
     util.CURRENT_BLOCK_INDEX = block_index
 
@@ -57,32 +57,32 @@ def main():
         "b7fc8ca93c23d2b0ef4c210147ec56df426139f85c6496db575ffe3c41beedea",
         "0fea78019487990814cfaba4c9b3fd861f70b3190886a659eaedc0bdc221d0ed",
         "3368bd06d79cc3a66a01d55cf81112e92affcb64022d7f1c78fafcad824ea426",
-        "8730c7f8940706be7de6c28466b348703c8ddd48bf9a409a483265b7ded07d8e", # This is a P2WSH transaction
+        "8730c7f8940706be7de6c28466b348703c8ddd48bf9a409a483265b7ded07d8e",  # This is a P2WSH transaction
     ]
-    
+
     success_count = 0
     failure_count = 0
-    
+
     # Test each transaction
     for tx_hash in tx_hashes:
         logger.info(f"\n===== Testing transaction {tx_hash} =====")
-        
+
         # Get the transaction hex
         tx_hex = bitcoin_backend.getrawtransaction(tx_hash)
-        
+
         # Test the quick filter function
         tx = bitcoin_backend.deserialize(tx_hex)
         should_include = blocks.quick_filter_src20_transaction(tx)
         logger.info(f"Quick filter result: should_include={should_include}")
-        
+
         if not should_include:
             logger.error(f"Transaction {tx_hash} failed the quick filter test")
             failure_count += 1
             continue
-        
+
         # Test the process_tx function
         result = blocks.process_tx(None, tx_hash, block_index, None, {tx_hash: tx_hex})
-        
+
         if result and result.data:
             logger.info(f"process_tx returned data: {result.data}")
             logger.info(f"source: {result.source}")
@@ -100,17 +100,18 @@ def main():
             else:
                 logger.error("process_tx returned None")
             failure_count += 1
-    
+
     # Summary
     logger.info("\n===== SUMMARY =====")
     logger.info(f"Tested {len(tx_hashes)} transactions")
     logger.info(f"Successful: {success_count}")
     logger.info(f"Failed: {failure_count}")
-    
+
     if failure_count == 0:
         logger.info("All tests passed! The fix is working correctly.")
     else:
         logger.warning(f"{failure_count} tests failed. The fix may not be complete.")
 
+
 if __name__ == "__main__":
-    main() 
+    main()

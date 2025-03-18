@@ -1131,7 +1131,7 @@ def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
         Note: If a deployment exists in the DB, all values will be non-None.
     """
     normalized_tick = tick.lower()
-    
+
     with db.cursor() as src20_cursor:
         src20_cursor.execute(
             f"""
@@ -1152,7 +1152,7 @@ def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
             """,
             (normalized_tick,),
         )  # nosec
-        
+
         result = src20_cursor.fetchone()
         if result:
             # We know these are all non-None due to the SQL WHERE clause

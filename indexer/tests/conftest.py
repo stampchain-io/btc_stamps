@@ -16,24 +16,25 @@ os.environ["MOCK_DB"] = "1"
 
 class MockDB:
     """Mock database connection for testing."""
+
     def cursor(self):
         return self
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args):
         pass
-    
+
     def execute(self, *args, **kwargs):
         return self
-    
+
     def fetchone(self):
         return None
-    
+
     def fetchall(self):
         return []
-    
+
     def close(self):
         """Mock close method."""
         pass
@@ -67,7 +68,7 @@ def sample_src20_deploy():
         "destination": "test_address",
         "creator": "test_address",
         "block_time": 1712745958,
-        "tx_index": 769794
+        "tx_index": 769794,
     }
 
 
@@ -85,7 +86,7 @@ def sample_src20_mint():
         "destination": "test_address",
         "creator": "test_address",
         "block_time": 1712745959,
-        "tx_index": 769795
+        "tx_index": 769795,
     }
 
 
@@ -103,5 +104,5 @@ def sample_src20_transfer():
         "destination": "recipient_address",
         "creator": "test_address",
         "block_time": 1712745960,
-        "tx_index": 769796
-    } 
+        "tx_index": 769796,
+    }

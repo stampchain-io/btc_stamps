@@ -43,17 +43,18 @@ EXPECTED_TX_HASHES = [
     "71aa8481fd179b56cbc125a95dad1c24e3146895f3d2dbe60875f549c1359fe7",
     "e70cfa82f5979405e715420af5533bfb8f8a99ec66177b4d6fc1ea790875c99c",
     "1e20a653c0824c10ed9401953927bef16cfaf43411f7d45165b88e252d8a9f48",
-    "b7fc8ca93c23d2b0ef4c210147ec56df426139f85c6496db575ffe3c41beedea", 
+    "b7fc8ca93c23d2b0ef4c210147ec56df426139f85c6496db575ffe3c41beedea",
     "0fea78019487990814cfaba4c9b3fd861f70b3190886a659eaedc0bdc221d0ed",
     "3368bd06d79cc3a66a01d55cf81112e92affcb64022d7f1c78fafcad824ea426",
-    "8730c7f8940706be7de6c28466b348703c8ddd48bf9a409a483265b7ded07d8e"
+    "8730c7f8940706be7de6c28466b348703c8ddd48bf9a409a483265b7ded07d8e",
 ]
+
 
 def analyze_with_rust_parser(tx_hash, tx_hex):
     """Analyze transaction with Rust parser."""
     parser = FastTransactionParser()
     tx_info = parser.deserialize_transaction(tx_hex)
-    
+
     logger.info(f"=== RUST PARSER ANALYSIS for {tx_hash} ===")
     logger.info(f"Should include: {tx_info.should_include}")
     logger.info(f"Has valid pattern: {tx_info.has_valid_pattern}")
@@ -61,7 +62,7 @@ def analyze_with_rust_parser(tx_hash, tx_hex):
     logger.info(f"Keyburn: {tx_info.keyburn}")
     logger.info(f"Number of inputs: {len(tx_info.inputs)}")
     logger.info(f"Number of outputs: {len(tx_info.outputs)}")
-    
+
     # Analyze each output
     for i, output in enumerate(tx_info.outputs):
         logger.info(f"Output {i}:")
@@ -69,33 +70,34 @@ def analyze_with_rust_parser(tx_hash, tx_hex):
         logger.info(f"  - Script hex: {output.script_hex[:20]}...")
         logger.info(f"  - Has OP_CHECKMULTISIG: {output.has_op_checkmultisig}")
         logger.info(f"  - Keyburn: {output.keyburn}")
-    
+
     return tx_info
+
 
 def analyze_with_python(tx_hash, tx_hex, block_index):
     """Analyze transaction with Python implementation."""
     backend = Backend()
     ctx = backend.deserialize(tx_hex)
-    
+
     logger.info(f"=== PYTHON ANALYSIS for {tx_hash} ===")
     logger.info(f"Transaction has {len(ctx.vout)} outputs")
-    
+
     # Log details about each output
     for idx, vout in enumerate(ctx.vout):
         script_bytes = bytes(vout.scriptPubKey)
         logger.info(f"Output {idx}:")
         logger.info(f"  - Script bytes length: {len(script_bytes)}")
         logger.info(f"  - Script bytes prefix: {script_bytes[:5].hex()}")
-        
+
         try:
             asm = script.get_asm(vout.scriptPubKey)
             logger.info(f"  - ASM: {asm}")
-            
+
             # Check for P2WSH pattern
             if isinstance(asm[0], int) and asm[0] == 0 and len(asm[1]) == 32:
                 logger.info(f"  - FOUND P2WSH PATTERN at output {idx}")
                 logger.info(f"  - Witness data: {asm[1].hex()}")
-            
+
             # Check for CHECKMULTISIG
             if asm[-1] == "OP_CHECKMULTISIG":
                 logger.info(f"  - FOUND OP_CHECKMULTISIG at output {idx}")
@@ -103,24 +105,24 @@ def analyze_with_python(tx_hash, tx_hex, block_index):
                     pubkeys, sigs_req, kb = script.get_checkmultisig(asm)
                     logger.info(f"  - Pubkeys: {len(pubkeys)}")
                     logger.info(f"  - Keyburn: {kb}")
-                    
+
                     # Try to decode data (for diagnostic purposes)
                     if kb == 1:
                         chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys)
                         logger.info(f"  - Chunk: {chunk.hex()[:20]}...")
-                        
+
                         if len(ctx.vin) > 0:
                             key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
                             decrypted = arc4.arc4_decrypt_chunk(chunk, key)
                             logger.info(f"  - Decrypted chunk: {decrypted.hex()[:20]}...")
-                            
+
                             if len(decrypted) >= 2 + len(PREFIX):
                                 expected_prefix = PREFIX.hex()
-                                actual_prefix = decrypted[2:2+len(PREFIX)].hex()
+                                actual_prefix = decrypted[2 : 2 + len(PREFIX)].hex()
                                 logger.info(f"  - Expected PREFIX: {expected_prefix}")
                                 logger.info(f"  - Actual prefix: {actual_prefix}")
-                                
-                                if decrypted[2:2+len(PREFIX)] == PREFIX:
+
+                                if decrypted[2 : 2 + len(PREFIX)] == PREFIX:
                                     logger.info(f"  - PREFIX MATCH!")
                                 else:
                                     logger.info(f"  - PREFIX MISMATCH")
@@ -128,7 +130,7 @@ def analyze_with_python(tx_hash, tx_hex, block_index):
                     logger.error(f"  - Error decoding CHECKMULTISIG: {e}")
         except Exception as e:
             logger.error(f"  - Error processing script: {e}")
-    
+
     # Process with process_vout
     try:
         vout_info = blocks.process_vout(ctx, block_index)
@@ -136,13 +138,13 @@ def analyze_with_python(tx_hash, tx_hex, block_index):
         logger.info(f"  - is_olga: {vout_info.is_olga}")
         logger.info(f"  - keyburn: {vout_info.keyburn}")
         logger.info(f"  - p2wsh_data_chunks: {len(vout_info.p2wsh_data_chunks)} chunks")
-        
+
         if vout_info.p2wsh_data_chunks:
             for i, chunk in enumerate(vout_info.p2wsh_data_chunks):
                 logger.info(f"  - Chunk {i}: {chunk.hex()[:20]}...")
     except Exception as e:
         logger.error(f"Error in process_vout: {e}")
-    
+
     # Finally, try the complete process_tx function
     try:
         tx_result = blocks.process_tx(None, tx_hash, block_index, None, {tx_hash: tx_hex})
@@ -159,10 +161,11 @@ def analyze_with_python(tx_hash, tx_hex, block_index):
     except Exception as e:
         logger.error(f"Error in process_tx: {e}")
 
+
 def compare_tx_analysis(tx_hash, tx_hex, block_index):
     """Compare analysis from both Rust and Python implementations."""
     logger.info(f"\n\n========= ANALYZING TRANSACTION {tx_hash} =========\n")
-    
+
     # Check if we modified blocks.py correctly
     # Check quick_filter_src20_transaction function in Python
     try:
@@ -171,38 +174,39 @@ def compare_tx_analysis(tx_hash, tx_hex, block_index):
         logger.info(f"Python quick_filter result: {python_include}")
     except Exception as e:
         logger.error(f"Error in Python quick_filter: {e}")
-    
+
     # Analyze with Rust parser
     rust_info = analyze_with_rust_parser(tx_hash, tx_hex)
-    
+
     # Analyze with Python
     analyze_with_python(tx_hash, tx_hex, block_index)
-    
+
     # Compare results
     logger.info("\n=== COMPARISON ===")
     logger.info(f"Rust should_include: {rust_info.should_include}")
     logger.info(f"Python quick_filter: {python_include}")
-    
+
     return rust_info.should_include == python_include
+
 
 def analyze_all_expected_txs():
     """Analyze all expected transactions from block 865003."""
     backend = Backend()
     block_index = 865003  # The block with the expected transactions
-    
+
     # Get block data
     block_hash = backend.getblockhash(block_index)
     if not block_hash:
         logger.error(f"Could not get block hash for {block_index}")
         return
-    
+
     logger.info(f"Analyzing block {block_index} with hash {block_hash}")
     logger.info(f"OLGA block: {BTC_SRC20_OLGA_BLOCK}")
     logger.info(f"PREFIX: {PREFIX.hex()}")
-    
+
     # Get all transactions
     mismatched = []
-    
+
     # Focus on just the expected transactions
     for tx_hash in EXPECTED_TX_HASHES:
         try:
@@ -210,13 +214,13 @@ def analyze_all_expected_txs():
             if not tx_hex:
                 logger.error(f"Could not get transaction {tx_hash}")
                 continue
-                
+
             result_match = compare_tx_analysis(tx_hash, tx_hex, block_index)
             if not result_match:
                 mismatched.append(tx_hash)
         except Exception as e:
             logger.error(f"Error processing {tx_hash}: {e}")
-    
+
     # Summary
     logger.info("\n\n=== SUMMARY ===")
     logger.info(f"Analyzed {len(EXPECTED_TX_HASHES)} expected transactions")
@@ -225,5 +229,6 @@ def analyze_all_expected_txs():
     else:
         logger.info("All transactions have matching results between Rust and Python implementations")
 
+
 if __name__ == "__main__":
-    analyze_all_expected_txs() 
+    analyze_all_expected_txs()

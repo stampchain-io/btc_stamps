@@ -280,7 +280,7 @@ def process_vout(ctx, block_index, stamp_issuance=None):
                 p2wsh_data_chunks.append(data_bytes)
                 is_olga = True
                 logger.debug(f"Found P2WSH output at index {idx} with bytes: {data_bytes.hex()[:20]}...")
-    
+
     vOutInfo = namedtuple(
         "vOutInfo",
         ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
@@ -363,12 +363,12 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             if p2wsh_data and len(p2wsh_data) >= 2 + len(config.PREFIX):
                 # Extract the length prefix (first 2 bytes)
                 chunk_length = int.from_bytes(p2wsh_data[:2], byteorder="big")
-                
+
                 # Ensure that p2wsh_data has enough bytes
                 if len(p2wsh_data) >= 2 + chunk_length:
                     # Extract the data chunk
                     data_chunk = p2wsh_data[2 : 2 + chunk_length]
-                    
+
                     # Check for config.PREFIX at the start of data_chunk
                     if data_chunk.startswith(config.PREFIX):
                         data_chunk_without_prefix = data_chunk[len(config.PREFIX) :]
@@ -830,10 +830,10 @@ def quick_filter_src20_transaction(ctx):
             vout_list = ctx["vout"]
 
         logger.debug(f"Transaction {tx_hash_str} has {len(vout_list)} outputs")
-        
+
         # Collect all P2WSH data chunks across all outputs
         all_p2wsh_data_chunks = []
-        
+
         for idx, vout in enumerate(vout_list):
             # Handle different vout types
             script_bytes = None
@@ -856,7 +856,7 @@ def quick_filter_src20_transaction(ctx):
                     all_p2wsh_data_chunks.append(data_bytes)
                     logger.debug(f"Transaction {tx_hash_str} has P2WSH data in output {idx}: {data_bytes.hex()[:20]}...")
                     has_valid_pattern = True
-        
+
         # Additionally check for multisig pattern in all outputs
         for idx, vout in enumerate(vout_list):
             script_bytes = None
@@ -867,7 +867,7 @@ def quick_filter_src20_transaction(ctx):
                     script_bytes = bytes.fromhex(vout["scriptPubKey"]["hex"])
                 elif hasattr(vout["scriptPubKey"], "hex"):
                     script_bytes = bytes.fromhex(vout["scriptPubKey"].hex())
-                    
+
             # Check for multisig pattern and keyburn
             if script_bytes and len(script_bytes) > 2 and script_bytes[-1] == 0xAE:
                 logger.debug(f"Transaction {tx_hash_str} has potential multisig pattern at output {idx}")
@@ -884,7 +884,7 @@ def quick_filter_src20_transaction(ctx):
                     if asm is None:
                         logger.debug(f"Could not get ASM for output {idx} in tx {tx_hash_str}")
                         continue
-                    
+
                     if asm[-1] == "OP_CHECKMULTISIG":
                         logger.debug(f"Transaction {tx_hash_str} has OP_CHECKMULTISIG at output {idx}")
                         pubkeys, _, kb = script.get_checkmultisig(asm)
@@ -908,14 +908,14 @@ def quick_filter_src20_transaction(ctx):
                                 )
                 except Exception as e:
                     logger.debug(f"Error processing multisig at output {idx} in tx {tx_hash_str}: {e}")
-        
+
         # Process combined P2WSH data if we have any chunks
         if all_p2wsh_data_chunks and has_valid_pattern and not has_valid_data:
             try:
                 # Combine all P2WSH data chunks and check for valid SRC-20 data
                 combined_data = b"".join(all_p2wsh_data_chunks).rstrip(b"\x00")  # Remove padding zeros
                 logger.debug(f"Combined {len(all_p2wsh_data_chunks)} P2WSH chunks: {combined_data.hex()[:100]}...")
-                
+
                 # Check if combined data contains the STAMP: prefix
                 if config.PREFIX in combined_data:
                     # Set keyburn to 1 since this was a requirement for P2WSH
@@ -932,7 +932,7 @@ def quick_filter_src20_transaction(ctx):
                             break
             except Exception as e:
                 logger.debug(f"Error processing combined P2WSH data for tx {tx_hash_str}: {e}")
-                
+
     except Exception as e:
         logger.debug(f"Error in output processing for tx {tx_hash_str}: {e}")
 
@@ -1060,9 +1060,6 @@ def filter_block_transactions(block_data, stamp_issuances=None):
 
     logger.debug(f"Final transaction count: {len(raw_transactions)} filtered, {len(tx_hash_list)} total for hash")
     return tx_hash_list, raw_transactions
-
-
-
 
 
 def calculate_rollback_depth(block_index: int, reason: str) -> int:
@@ -1248,10 +1245,10 @@ def signal_handler(sig, frame):
     logger.info("Received interrupt signal, initiating graceful shutdown...")
     if "profiler" in globals():
         profiler.end_block_profiling()  # End profiling on first interrupt
-    
+
     # Set both shutdown flags
     server.shutdown_flag.set()
-    
+
     # Also set CP pipeline shutdown flag if it exists
     if "cp_pipeline_instance" in globals() and cp_pipeline_instance is not None:
         logger.info("Setting CP pipeline shutdown flag...")
@@ -1707,14 +1704,16 @@ def follow(
                             else:
                                 logger.info("update_cpids_async is already running. Skipping submission.")
                         else:
-                            logger.debug(f"Skipping CPID updates at block {block_index} (too far from tip: {block_tip - block_index} blocks behind)")
+                            logger.debug(
+                                f"Skipping CPID updates at block {block_index} (too far from tip: {block_tip - block_index} blocks behind)"
+                            )
 
                     # Use ZMQ if enabled
                     if zmq_enabled:
                         try:
                             logger.info(f"Waiting for new blocks via ZMQ after block {block_index}")
                             zmq_wait_time = 5  # seconds, shorter timeout for more frequent shutdown checks
-                            
+
                             while not server.shutdown_flag.is_set():
                                 # Send keepalive if needed
                                 if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
@@ -1724,11 +1723,11 @@ def follow(
 
                                 # Use a shorter timeout to check shutdown flag more frequently
                                 notification = zmq_notifier.wait_for_notification(zmq_wait_time * 1000)  # in milliseconds
-                                
+
                                 if server.shutdown_flag.is_set():
                                     logger.info("Shutdown flag detected during ZMQ wait, breaking...")
                                     break
-                                    
+
                                 if notification:
                                     topic, body, seq = notification
                                     topic_str = topic.decode("utf-8")
@@ -1758,7 +1757,7 @@ def follow(
                             if not send_keepalive(db):
                                 db = check_db_connection(db)
                             last_keepalive = time.time()
-                        
+
                         # Use shorter sleep intervals to check shutdown flag more frequently
                         poll_sleep_interval = min(2.0, config.BACKEND_POLL_INTERVAL)
                         slept_time = 0
@@ -1768,13 +1767,13 @@ def follow(
                             if server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected during poll sleep, breaking...")
                                 break
-                        
+
                         # Check if we should continue after sleep
                         if server.shutdown_flag.is_set():
                             break
-                            
+
                         block_tip = backend_instance.getblockcount()
-                        
+
                         # Try to re-enable ZMQ periodically
                         if block_index % 10 == 0:
                             try:
@@ -1916,6 +1915,7 @@ def validate_block_against_production(block_index: int) -> bool:
     except Exception as e:
         logger.error(f"Error running validation: {str(e)}")
         return True
+
 
 def update_cpids_async(db):
     try:

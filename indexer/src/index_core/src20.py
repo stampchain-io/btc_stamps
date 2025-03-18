@@ -238,7 +238,7 @@ class Src20Processor:
             logger.warning(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
             return
 
-        if not self.deploy_lim and not self.deploy_max:
+        if not self.deploy_lim and not self.deploy_max and self.src20_dict.get("lim") and self.src20_dict.get("max"):
             self.update_valid_src20_list(operation=self.operation)
 
             # Extract metadata from the SRC20 DEPLOY json string
@@ -276,7 +276,7 @@ class Src20Processor:
             )
 
     def handle_mint(self):
- 
+
         self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)
 
         try:
@@ -519,7 +519,7 @@ def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
         logger.error(f"Error processing SRC-20 transaction: {e}")
         src20_dict["status"] = f"Error: {str(e)}"
         src20_dict["valid"] = 0
-                
+
         return False, src20_dict
 
 
@@ -1345,7 +1345,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         logger.debug(f"\n{'='*50}")
         logger.debug(f"Validating ledger hash for block {block_index}")
         logger.debug(f"Local ledger hash: {ledger_hash}")
-        
+
         api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
 
         # If fetch_api_ledger_data failed and set FORCE to True, we should return True
@@ -1361,13 +1361,13 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
             raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
 
         logger.debug(f"API ledger hash: {api_ledger_hash}")
-        
+
         # Quick comparison of hashes - if they match, we can return immediately
         if api_ledger_hash == ledger_hash:
             logger.debug(f"Ledger hashes match for block {block_index}. Skipping detailed comparison.")
             logger.debug(f"{'='*50}\n")
             return True
-            
+
         # If we get here, hashes don't match - perform detailed comparison for debugging
         logger.debug(f"Ledger hashes DON'T match for block {block_index}. Performing detailed comparison.")
         logger.debug(f"Local ledger string: {valid_src20_str}")
