@@ -11,17 +11,8 @@ from index_core.aws import check_existing_and_upload_to_s3
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
 
-# Start the async upload worker if async uploads are enabled
-if (
-    config.USE_ASYNC_UPLOADS
-    and config.STORE_FILES
-    and config.AWS_SECRET_ACCESS_KEY
-    and config.AWS_ACCESS_KEY_ID
-    and config.AWS_S3_BUCKETNAME
-    and config.AWS_S3_IMAGE_DIR
-):
-    start_upload_worker()
-
+# Remove the automatic initialization to prevent double-initialization
+# The worker will be started from server.py instead
 
 def get_fileobj_and_md5(decoded_base64):
     """
