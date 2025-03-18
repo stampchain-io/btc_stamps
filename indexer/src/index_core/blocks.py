@@ -690,17 +690,22 @@ def log_block_info(
             if len(state["times"]) > state["window_size"]:
                 state["times"].pop(0)
 
+        # Calculate average block time
+        avg_time = "N/A"
+        if len(state["times"]) > 0:
+            avg_time = "{:.2f}s".format(sum(state["times"]) / len(state["times"]))
+
         # Calculate ETA using simple moving average
         if len(state["times"]) >= 5:  # Reduced minimum samples needed
             # Calculate average excluding highest 10% of times to handle outliers
             sorted_times = sorted(state["times"])
             cutoff = int(len(sorted_times) * 0.9)
-            avg_time = sum(sorted_times[:cutoff]) / cutoff
+            avg_time_calc = sum(sorted_times[:cutoff]) / cutoff
 
             blocks_remaining = block_tip - block_index
             # Add time for remaining CP fetch blocks
             cp_fetches_remaining = blocks_remaining // 100  # CP fetch every 100 blocks
-            est_seconds_remaining = (blocks_remaining * avg_time) + (cp_fetches_remaining * 5)  # Assume 5s per CP fetch
+            est_seconds_remaining = (blocks_remaining * avg_time_calc) + (cp_fetches_remaining * 5)  # Assume 5s per CP fetch
 
             # Convert to hours and minutes
             hours = int(est_seconds_remaining // 3600)
@@ -725,11 +730,12 @@ def log_block_info(
             eta = "calculating..."
 
         logger.block_status(  # type: ignore[attr-defined]
-            "Block: %s/%s │ %ss │ ETA: %s │ Prog: %s%% │ [S:%s|20:%s|101:%s]"
+            "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]"
             % (
                 str(block_index),
                 str(block_tip),
                 "{:.2f}".format(current_time),
+                avg_time,
                 eta,
                 "{:.1f}".format(current_progress * 100),
                 stamps_in_block,
@@ -741,7 +747,7 @@ def log_block_info(
     except Exception as e:
         logger.error(f"Error in log_block_info: {e}")
         logger.block_status(  # type: ignore[attr-defined]
-            "Block: %s/%s │ %ss │ [S:%s|20:%s|101:%s]"
+            "%s/%s │ %ss │ [S:%s|20:%s|101:%s]"
             % (
                 str(block_index),
                 str(block_tip),
