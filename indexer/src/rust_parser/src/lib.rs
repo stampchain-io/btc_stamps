@@ -838,9 +838,13 @@ impl TransactionInfo {
 
             // Check for P2WSH pattern (0x00 + 0x20 + at least 32 bytes)
             let script_bytes = output.script_pubkey.as_bytes();
-            
+
             // Check for P2WSH format - only for outputs after the first one (i > 0)
-            if i > 0 && script_bytes.len() >= 2 && script_bytes[0] == 0x00 && script_bytes[1] == 0x20 {
+            if i > 0
+                && script_bytes.len() >= 2
+                && script_bytes[0] == 0x00
+                && script_bytes[1] == 0x20
+            {
                 // P2WSH must have exactly 34 bytes (0x00 + 0x20 + 32 bytes)
                 if script_bytes.len() == 34 {
                     has_valid_pattern = true;
@@ -909,12 +913,12 @@ impl TransactionInfo {
             for chunk in &p2wsh_data_chunks {
                 combined_data.extend_from_slice(chunk);
             }
-            
+
             // Remove trailing zeros
             while combined_data.last() == Some(&0) {
                 combined_data.pop();
             }
-            
+
             // Standard processing with length prefix
             if combined_data.len() >= 2 + PREFIX.len() {
                 let chunk_length = ((combined_data[0] as usize) << 8) | (combined_data[1] as usize);
@@ -931,7 +935,7 @@ impl TransactionInfo {
         // Match the Python implementation logic: include a transaction if it has either:
         // 1. A valid P2WSH pattern (OLGA format) with valid data
         // 2. A valid OP_CHECKMULTISIG with keyburn and valid data
-        let should_include = (has_valid_pattern && has_valid_data) || (has_valid_data && keyburn == 1);
+        let should_include = (keyburn == 1 || has_valid_pattern) && has_valid_data;
 
         TransactionInfo {
             version: tx.version.0,
