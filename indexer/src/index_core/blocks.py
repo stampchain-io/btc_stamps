@@ -18,7 +18,6 @@ from collections import namedtuple
 from typing import List
 
 import pymysql as mysql
-from bitcoin.core.script import CScriptInvalidError
 from pymysql.connections import Connection
 
 import config
