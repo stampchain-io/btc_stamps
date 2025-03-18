@@ -14,6 +14,7 @@ log.set_logger(logger)  # set root logger
 # Remove the automatic initialization to prevent double-initialization
 # The worker will be started from server.py instead
 
+
 def get_fileobj_and_md5(decoded_base64):
     """
     Get the file object and MD5 hash of a decoded base64 string.
