@@ -93,34 +93,14 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
         "ledger_hash": "68e0621468999995719b13a974ed53047c88b63bb4c211f30c63d7afd0a52159",
         "txlist_hash": "61f275aa6b571276f735a2dd1c083b4ff65291e25af54ca3c3a9f26d2a3f4702",
     },
-    # 830000: {
-    #     "ledger_hash": "e3bb684fba10cedf0dc5778a85aab66a42e500fad5405fe245a5bf80f313523b",
-    #     "txlist_hash": "2e85610013ae8d4dc17d7e964728b4b8f853c58c0d4414ed0914f43010aebe98",
-    # },
-    # 835000: {
-    #     "ledger_hash": "78e5d16e8802ea0d751bee5d9df2411b71f64032ae5ad7b98aec1617ecb082a3",
-    #     "txlist_hash": "8a5d2baddcaabc1240818f537ca646e3ca9070a601d43a4bff4d2c56aee32d6e",
-    # },
-    # 840000: {
-    #     "ledger_hash": "",
-    #     "txlist_hash": "7f20fc83836a65547c54710229fea90f3200f859adc5fd30c297f96b17cb31e5",
-    # },
-    # 845000: {
-    #     "ledger_hash": "d74c8f1ff0a99c4f361b9616a57f442aa19a19a5808753c4ee464a9a60289f0e",
-    #     "txlist_hash": "7f4bff436f15cf45ceaea7cd66dac0f02e9f8d293efcfb847238d7a8c522bf30",
-    # },
-    # 850000: {
-    #     "ledger_hash": "35ddde0f2f791c14fe295017713372fa5f92a6980f9f54710068c99b4284939b",
-    #     "txlist_hash": "bf5ad20f038cff311999e7d16c2165de12efb0663a8e42f0d077621f7e3b1f17",
-    # },
-    # 855000: {
-    #     "ledger_hash": "8e9c0ca34351ce59a0d5ee744f4115021c62a3dd5cbf791b063e4251d3cf4f42",
-    #     "txlist_hash": "4316b45083f4e74e6acf43efce255d1bff023a5ebcdb0999c63adb33d036dc80",
-    # },
-    # 860000: {
-    #     "ledger_hash": "dc257e7b5e06460bab3485ad1a845ac7ab6e2937ff04df11f3aaa55e653e5e17",
-    #     "txlist_hash": "45aead95538e500966450718323728331b41ab8af5d6b80174a148ad8e780b60",
-    # },
+    830000: {
+        "ledger_hash": "e3bb684fba10cedf0dc5778a85aab66a42e500fad5405fe245a5bf80f313523b",
+        "txlist_hash": "9f7191e5a59e56b5a7165a14e98af9d4c1f7107f4c5dcc8a871d330afe9975b4",
+    },
+    835000: {
+        "ledger_hash": "78e5d16e8802ea0d751bee5d9df2411b71f64032ae5ad7b98aec1617ecb082a3",
+        "txlist_hash": "49ed6c6c7fc2a7281727c2690abfc264a2c11f6b311929b69691372f8b7e46dd",
+    },
 }
 
 CONSENSUS_HASH_VERSION_TESTNET = 7

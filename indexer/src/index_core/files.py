@@ -5,7 +5,7 @@ import os
 
 import config
 import index_core.log as log
-from index_core.async_upload import async_check_existing_and_upload_to_s3, start_upload_worker
+from index_core.async_upload import async_check_existing_and_upload_to_s3
 from index_core.aws import check_existing_and_upload_to_s3
 
 logger = logging.getLogger(__name__)
