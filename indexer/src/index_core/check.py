@@ -101,7 +101,48 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
         "ledger_hash": "78e5d16e8802ea0d751bee5d9df2411b71f64032ae5ad7b98aec1617ecb082a3",
         "txlist_hash": "49ed6c6c7fc2a7281727c2690abfc264a2c11f6b311929b69691372f8b7e46dd",
     },
+    840000: {
+        "ledger_hash": "",
+        "txlist_hash": "901310b2b76b19bcdf56e36e3d871eb36aac11fbfe0cc11570e71378d6e65e59",
+    },
+    845000: {
+        "ledger_hash": "d74c8f1ff0a99c4f361b9616a57f442aa19a19a5808753c4ee464a9a60289f0e",
+        "txlist_hash": "6ae37614f9e78045984ccfa6113922cac5cde2bfa15d710050242a36e6a40741",
+    },
+    850000: {
+        "ledger_hash": "35ddde0f2f791c14fe295017713372fa5f92a6980f9f54710068c99b4284939b",
+        "txlist_hash": "d56c8259750b84e964f287b9e228a94138aab153089a762279e35b33fecb46d9",
+    },
+    855000: {
+        "ledger_hash": "8e9c0ca34351ce59a0d5ee744f4115021c62a3dd5cbf791b063e4251d3cf4f42",
+        "txlist_hash": "32a29f1f67a9a604d4dd2f25e980aac1ae2a30bf568ba8d21a8d1b96d54a7b84",
+    },
+    860000: {
+        "ledger_hash": "dc257e7b5e06460bab3485ad1a845ac7ab6e2937ff04df11f3aaa55e653e5e17",
+        "txlist_hash": "437b92262d9036173807a269b45f5d5b2b05ffc64e7109f0d1d37de02bede246",
+    },
+    865000: {
+        "ledger_hash": "0cfab60c2426ec4007cc607099ada5808b6ef46374093bb93d2ed922e20c9b3c",
+        "txlist_hash": "0653447013b5def1b13dab502d1a13ed4d67445abfbafe9a29b06366553107c0",
+    },
+    870000: {
+        "ledger_hash": "d3316ac4ecbf022eb7656f58ca5fa6073d5f3a3fb899ee17084b0b4ede83d072",
+        "txlist_hash": "a2087a247c2e62d5442f0e9f6fd0ef0f47c04ec0e4c921cdd5340368ecca1ba8",
+    },
+    875000: {
+        "ledger_hash": "0994fdf27c5ee1c0ca42988a9aea2041b60ab0a6c0aa33409ae47abb0cde31a0",
+        "txlist_hash": "009ead98f3f6e8dc17ba89dba42b5fc1a761a80e51a3d2221f375f8f820940a2",
+    },
+    880000: {
+        "ledger_hash": "874fb734fa2ec72e0846457c1f5f0f8e754a284afb3a0101901c66fa21fa0e97",
+        "txlist_hash": "9c616915cac2168cbcb7a42e601f95d452e281c7fba6ccac1a04f853bc7b905b",
+    },
+    885000: {
+        "ledger_hash": "6f80bd0cc8b7a9a49cd49d7e1d371a80c11566e9800f3f601ff4793274109f96",
+        "txlist_hash": "c13b5b98e47b4449b2a8fdf3221a7b905447e0820b658734ba8e8f87986d7e4a",
+    },
 }
+
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {

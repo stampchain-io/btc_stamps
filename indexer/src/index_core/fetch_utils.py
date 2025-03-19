@@ -143,13 +143,37 @@ class CPBlocksPipeline:
             start_block = config.CP_STAMP_GENESIS_BLOCK
 
         self.current_block = start_block
+
+        # Check if we're at or near the blockchain tip before starting
+        try:
+            block_tip = backend_instance.getblockcount()
+            blocks_available = max(0, block_tip - start_block + 1)
+
+            if blocks_available <= 0:
+                logger.info(f"No blocks available to fetch (current block {start_block} is beyond tip {block_tip})")
+                # Set initial blocks ready flag since there's nothing to fetch
+                self.initial_blocks_ready.set()
+            elif blocks_available < self.initial_batch_size:
+                logger.info(
+                    f"Only {blocks_available} blocks available (fewer than requested initial batch size {self.initial_batch_size})"
+                )
+                # Adjust initial batch size expectations
+                self.initial_batch_size = blocks_available
+        except Exception as e:
+            logger.warning(f"Could not check block tip before starting pipeline: {e}")
+
+        # Start the worker thread
         self.worker_thread = threading.Thread(target=self._fetch_blocks_worker, daemon=True)
         self.worker_thread.start()
         logger.debug(f"Started CP blocks pipeline from block {start_block}")
 
-        # Wait for initial batch of blocks
-        if not self.wait_for_initial_blocks(timeout=30):
-            logger.warning("Timeout waiting for initial blocks, continuing anyway")
+        # Wait for initial batch of blocks with appropriate timeout
+        timeout = min(45, max(10, self.initial_batch_size * 1.5))  # Adjust timeout based on batch size
+        if not self.wait_for_initial_blocks(timeout=timeout):
+            if self.initial_batch_size > 0:
+                logger.warning(f"Timeout waiting for initial blocks after {timeout}s, continuing anyway")
+            else:
+                logger.info("No initial blocks needed, continuing")
 
     def wait_for_initial_blocks(self, timeout=30):
         """Wait for the initial batch of blocks to be ready"""
@@ -195,6 +219,10 @@ class CPBlocksPipeline:
             self.queue.clear()
             self.current_block = new_start_block
             self.last_fetch_time = 0
+
+        # Invalidate blockcount cache to ensure fresh data after reorg
+        backend_instance.invalidate_blockcount_cache()
+
         self.shutdown_flag.clear()
         self.initial_blocks_ready.clear()
         self.worker_thread = threading.Thread(target=self._fetch_blocks_worker, daemon=True)
@@ -266,7 +294,6 @@ class CPBlocksPipeline:
                     time.sleep(5)
                     continue
 
-                # Calculate how many blocks to fetch
                 with self._lock:
                     queue_size = len(self.queue)
                     next_block = self.current_block
@@ -274,6 +301,13 @@ class CPBlocksPipeline:
                     # For initial fetch, always get the first batch
                     if initial_fetch:
                         blocks_to_fetch = min(self.initial_batch_size, block_tip - next_block + 1)
+                        if blocks_to_fetch <= 0:
+                            # No blocks to fetch for initial batch - we're at tip
+                            logger.info(f"No blocks to fetch for initial batch (at tip). Marking as ready.")
+                            initial_fetch = False
+                            self.initial_blocks_ready.set()
+                            time.sleep(self.fetch_interval * 2)
+                            continue
                     else:
                         # For subsequent fetches, maintain the target queue size
                         blocks_needed = max(1, self.target_queue_size - queue_size)  # Always fetch at least 1 block
@@ -292,8 +326,17 @@ class CPBlocksPipeline:
                         continue
 
                 if blocks_to_fetch <= 0:
-                    logger.info(f"No blocks to fetch (current: {next_block}, tip: {block_tip})")
-                    time.sleep(self.fetch_interval)
+                    # Use debug level when at tip to reduce log noise
+                    logger.debug(f"No blocks to fetch (current: {next_block}, tip: {block_tip})")
+
+                    # If this is still the initial fetch, set ready flag to avoid timeout
+                    if initial_fetch:
+                        logger.info("At blockchain tip during initial fetch, marking as ready")
+                        initial_fetch = False
+                        self.initial_blocks_ready.set()
+
+                    # Increase sleep time when caught up to blockchain tip
+                    time.sleep(self.fetch_interval * 2)
                     continue
 
                 # Submit a background fetch if none is pending
@@ -1298,7 +1341,21 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
         last_error = None
         retry_count = 0
         max_retries = int(config.CP_MAX_RETRIES)  # Ensure integer
-        base_timeout = float(config.CP_RPC_TIMEOUT)  # Ensure float
+        base_timeout = float(config.CP_RPC_TIMEOUT)
+
+        # Special handling for blocks endpoints when at blockchain tip
+        if "/blocks/" in endpoint and endpoint.split("/")[-1].isdigit():
+            # Extract block number from endpoint
+            requested_block = int(endpoint.split("/")[-1])
+            # Get current blockchain height
+            try:
+                current_tip = backend_instance.getblockcount()
+                # If requested block is beyond current tip, return a specific structure instead of error
+                if requested_block > current_tip:
+                    logger.info(f"Requested block {requested_block} is beyond current tip {current_tip}, skipping fetch")
+                    return {"result": None, "error": "Block not yet mined"}
+            except Exception as e:
+                logger.debug(f"Could not check block tip: {e}")
 
         for node in healthy_nodes:
             if node["name"] not in node_health_tracker:
@@ -1321,6 +1378,22 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                         request_time = time.time() - request_start
                         logger.debug(f"Request to {url} completed in {request_time:.2f}s with status {response.status}")
 
+                        # Handle 404 for blocks specially when we're at the tip
+                        if response.status == 404 and "/blocks/" in endpoint and endpoint.split("/")[-1].isdigit():
+                            try:
+                                requested_block = int(endpoint.split("/")[-1])
+                                current_tip = backend_instance.getblockcount()
+
+                                if requested_block > current_tip:
+                                    # This is expected behavior - don't count as a failure
+                                    logger.debug(
+                                        f"Block {requested_block} not found (current tip: {current_tip}), this is expected"
+                                    )
+                                    return {"result": None, "error": "Block not yet mined"}
+                            except Exception as e:
+                                # If we couldn't check the tip, proceed with normal error handling
+                                logger.debug(f"Could not check block tip during 404 handling: {e}")
+
                         if response.status == 200:
                             try:
                                 json_response = await response.json()
@@ -1334,7 +1407,11 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                                 last_error = e
                         else:
                             error_text = await response.text()
-                            logger.error(f"Error response from {url}: {response.status} - {error_text}")
+                            # Downgrade 404 log level for blocks endpoints to debug for blocks beyond current tip
+                            if response.status == 404 and "/blocks/" in endpoint:
+                                logger.debug(f"Not found response from {url}: {response.status} - {error_text}")
+                            else:
+                                logger.error(f"Error response from {url}: {response.status} - {error_text}")
                             node_health.mark_failure()
                             last_error = RuntimeError(f"HTTP {response.status}: {error_text}")
             except asyncio.TimeoutError:
@@ -1355,6 +1432,19 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
 
         # If we've tried all nodes and still failed, log the error
         if tried_nodes:
+            # Downgrade log level for blocks beyond tip
+            if "/blocks/" in endpoint and endpoint.split("/")[-1].isdigit():
+                try:
+                    requested_block = int(endpoint.split("/")[-1])
+                    current_tip = backend_instance.getblockcount()
+                    if requested_block > current_tip:
+                        logger.debug(f"All nodes failed for endpoint {endpoint} (block beyond tip): {', '.join(tried_nodes)}")
+                        if last_error:
+                            logger.debug(f"Last error encountered: {last_error}")
+                        return {"result": None, "error": "Block not yet mined"}
+                except Exception:
+                    pass
+
             logger.error(f"All nodes failed for endpoint {endpoint}: {', '.join(tried_nodes)}")
             if last_error:
                 logger.error(f"Last error encountered: {last_error}")
@@ -1378,6 +1468,15 @@ async def fetch_single_block(idx):
             logger.debug(f"Skipping block {idx} due to shutdown signal")
             return None
 
+        # Check if block is beyond current tip
+        try:
+            current_tip = backend_instance.getblockcount()
+            if idx > current_tip:
+                logger.debug(f"Block {idx} is beyond current tip {current_tip}, skipping fetch")
+                return None
+        except Exception as e:
+            logger.debug(f"Could not check block tip: {e}")
+
         # Fetch block metadata and transactions concurrently
         async def fetch_block_data():
             logger.debug(f"Fetching block data for block {idx}")
@@ -1387,6 +1486,12 @@ async def fetch_single_block(idx):
             result = await fetch_xcp_async(endpoint, params=params)
             elapsed_time = time.time() - start_time
             logger.debug(f"Block data fetch for block {idx} completed in {elapsed_time:.2f} seconds")
+
+            # Check if we got a special "block not yet mined" response
+            if result and isinstance(result, dict) and result.get("error") == "Block not yet mined":
+                logger.debug(f"Block {idx} not yet mined")
+                return None
+
             return result
 
         async def fetch_block_transactions():
@@ -1403,8 +1508,22 @@ async def fetch_single_block(idx):
 
                 logger.debug(f"Fetching transactions page for block {idx} with cursor: {next_cursor}")
                 response = await fetch_xcp_async(tx_endpoint, params=params)
+
+                # Check if we got a special "block not yet mined" response
+                if response and isinstance(response, dict) and response.get("error") == "Block not yet mined":
+                    logger.debug(f"Block {idx} transactions not yet mined")
+                    return []
+
                 if not response or not isinstance(response, dict):
-                    logger.warning(f"Invalid response format for transactions in block {idx}")
+                    # Use debug level instead of warning for transactions in blocks that might be at tip
+                    try:
+                        current_tip = backend_instance.getblockcount()
+                        if idx >= current_tip:
+                            logger.debug(f"Invalid response format for transactions in block {idx} (at or beyond tip)")
+                        else:
+                            logger.warning(f"Invalid response format for transactions in block {idx}")
+                    except Exception:
+                        logger.warning(f"Invalid response format for transactions in block {idx}")
                     break
 
                 transactions = response.get("result", [])

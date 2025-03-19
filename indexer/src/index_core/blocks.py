@@ -1097,6 +1097,9 @@ def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
 
     logger.warning(f"ROLLBACK INITIATED: Rolling back {rollback_depth} blocks to {target_block} ({reason})")
 
+    # Invalidate the block count cache to ensure fresh data after rollback
+    backend_instance.invalidate_blockcount_cache()
+
     # Verify hashes at target block
     current_bitcoin_hash = backend_instance.getblockhash(target_block)
     if not verify_cp_block_hash(target_block, current_bitcoin_hash):
@@ -1408,6 +1411,25 @@ def follow(
 
                 if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
                     block_index -= 1
+                    logger.warning(f"Previous block not parsed, rolling back to {block_index}")
+                    db.rollback()
+                    continue
+
+                # Already caught up check - use debug level and slow down polling if caught up
+                if block_index > block_tip:
+                    logger.debug(f"Current block_index {block_index} is ahead of chain tip {block_tip}, waiting...")
+                    db.rollback()
+                    time.sleep(config.BACKEND_POLL_INTERVAL * 2)  # Longer interval when caught up
+                    continue
+
+                # Check if we've just caught up to the blockchain tip
+                if block_index == block_tip:
+                    logger.debug(f"Processing the latest block {block_index} at the chain tip")
+
+                # If we're close to the tip, increase the sleep interval to reduce load
+                pause_interval = config.BACKEND_POLL_INTERVAL
+                if block_tip - block_index <= 3:
+                    pause_interval = config.BACKEND_POLL_INTERVAL * 2
 
                 if block_index <= block_tip:
                     logger.debug("Starting block processing after notification")
@@ -1425,6 +1447,7 @@ def follow(
                     block_data = cp_pipeline_instance.get_block(block_index) if cp_pipeline_instance else None
 
                     if block_data:
+                        logger.debug(f"Got block {block_index} from CP pipeline")
                         stamp_issuances = block_data["issuances"]
                         stamp_issuances_list = {block_index: block_data}
                     else:
@@ -1433,6 +1456,16 @@ def follow(
                             if server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected before CP fetch, breaking...")
                                 break
+
+                            # Check if the block is beyond the current tip - can happen rarely due to race conditions
+                            current_tip = backend_instance.getblockcount()
+                            if block_index > current_tip:
+                                logger.info(
+                                    f"Attempted to process block {block_index} which is beyond current tip {current_tip}"
+                                )
+                                db.rollback()
+                                time.sleep(pause_interval)
+                                continue
 
                             if block_index + 1 == block_tip:
                                 indicator = True
@@ -1444,6 +1477,13 @@ def follow(
                             max_fetch_blocks = 100
                             end_block = min(block_index + max_fetch_blocks - 1, block_tip)
                             stamp_issuances_list = fetch_xcp_blocks_concurrent(block_index, end_block, indicator=indicator)
+
+                            if not stamp_issuances_list:
+                                logger.warning(f"No data returned for block {block_index} - it may not exist yet")
+                                db.rollback()
+                                time.sleep(pause_interval)
+                                continue
+
                             logger.info(f"Successfully fetched {len(stamp_issuances_list)} blocks directly from XCP API")
 
                             if server.shutdown_flag.is_set():
@@ -1466,6 +1506,8 @@ def follow(
                             if block_index == config.BLOCK_FIRST:
                                 break
                             logger.info(f"Checking that block {block_index} is not orphan.")
+                            # Invalidate blockcount cache to ensure we have latest chain data for orphan check
+                            backend_instance.invalidate_blockcount_cache()
                             current_hash = backend_instance.getblockhash(block_index)
                             block_header = backend_instance.getblockheader(current_hash)
                             backend_parent = block_header["previousblockhash"]
@@ -1738,6 +1780,8 @@ def follow(
                                     topic_str = topic.decode("utf-8")
                                     if topic_str in ["hashblock", "rawblock"]:
                                         logger.info(f"Processing new block notification via ZMQ: {topic_str}")
+                                        # Invalidate the blockcount cache first to ensure fresh block height
+                                        backend_instance.invalidate_blockcount_cache()
                                         block_tip = backend_instance.getblockcount()
 
                                         # Add delay to allow Counterparty to catch up with Bitcoin
@@ -1776,6 +1820,13 @@ def follow(
                         # Check if we should continue after sleep
                         if server.shutdown_flag.is_set():
                             break
+
+                        # Periodically invalidate the blockcount cache when polling
+                        # This ensures we don't miss new blocks while also limiting RPC calls
+                        current_time = time.time()
+                        if current_time - backend_instance.last_blockcount_time > config.BACKEND_POLL_INTERVAL * 2:
+                            logger.debug("Invalidating blockcount cache for polling check")
+                            backend_instance.invalidate_blockcount_cache()
 
                         block_tip = backend_instance.getblockcount()
 

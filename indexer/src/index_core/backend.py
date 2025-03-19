@@ -51,6 +51,12 @@ class Backend:
         # Initialize caches
         self.raw_transactions_cache = LRUCache[Any](max_size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
         self.deserialized_tx_cache = LRUCache[Any](max_size=config.DESERIALIZED_TX_CACHE_SIZE)
+
+        # Block count cache with small size (we only need the latest)
+        self.blockcount_cache = LRUCache[Any](max_size=1)
+        self.blockcount_cache_ttl = 5.0  # 5 seconds TTL
+        self.last_blockcount_time = 0.0
+
         self.monotonic_call_id = 0
 
         # Memory management settings
@@ -64,6 +70,7 @@ class Backend:
         # Register caches with cache manager
         cache_manager.register_cache("raw_transactions", self.raw_transactions_cache)
         cache_manager.register_cache("deserialized_tx", self.deserialized_tx_cache)
+        cache_manager.register_cache("blockcount", self.blockcount_cache)
 
         # Initialize parser
         self._parser = None
@@ -325,7 +332,28 @@ class Backend:
         return list(responses)
 
     def getblockcount(self):
-        return self.rpc("getblockcount", [])
+        """Get current block count with caching to reduce RPC calls"""
+        current_time = time.time()
+
+        # Check cache freshness
+        if current_time - self.last_blockcount_time < self.blockcount_cache_ttl:
+            cached_count = self.blockcount_cache.get("current")
+            if cached_count is not None:
+                return cached_count
+
+        # Cache expired or not set, make actual RPC call
+        block_count = self.rpc("getblockcount", [])
+
+        # Update cache and timestamp
+        self.blockcount_cache.set("current", block_count)
+        self.last_blockcount_time = current_time
+
+        return block_count
+
+    def invalidate_blockcount_cache(self):
+        """Force invalidation of the blockcount cache"""
+        self.blockcount_cache.invalidate("current")
+        self.last_blockcount_time = 0
 
     def getblockhash(self, blockcount):
         return self.rpc("getblockhash", [blockcount])
