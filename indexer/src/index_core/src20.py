@@ -1312,7 +1312,7 @@ def fetch_api_ledger_data(block_index: int):
                     logger.error(f"Unexpected error parsing JSON: {e}")
                     return None, None
             else:
-                logger.error(f"Non-200 response code: {response.status_code} from URL: {url}")
+                logger.warning(f"Non-200 response code: {response.status_code} from URL: {url}")
                 return None, None
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed for URL {url}: {e}")

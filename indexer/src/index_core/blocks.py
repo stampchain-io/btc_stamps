@@ -1711,7 +1711,7 @@ def follow(
                         while True:
                             if block_index == config.BLOCK_FIRST:
                                 break
-                            logger.info(f"Checking that block {block_index} is not orphan.")
+                            logger.debug(f"Checking that block {block_index} is not orphan.")
                             # Invalidate blockcount cache to ensure we have latest chain data for orphan check
                             backend_instance.invalidate_blockcount_cache()
                             current_hash = backend_instance.getblockhash(block_index)
