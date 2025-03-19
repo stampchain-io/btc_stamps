@@ -631,10 +631,22 @@ def log_block_info(
     stamps_in_block: int,
     src20_in_block: int,
     src101_in_block: int = 0,
+    is_zmq: bool = False,
 ) -> None:
     """
     Logs block information with highly stable ETA using weighted EMA and complexity factors.
     Skips first block of each batch in calculations due to CP overhead.
+    
+    Args:
+        block_index: Current block index
+        start_time: When block processing started
+        new_ledger_hash: New ledger hash
+        new_txlist_hash: New transaction list hash
+        new_messages_hash: New messages hash
+        stamps_in_block: Number of stamps in the block
+        src20_in_block: Number of SRC-20 tokens in the block
+        src101_in_block: Number of SRC-101 tokens in the block
+        is_zmq: Whether the block was processed via ZMQ
     """
     try:
         # Get current tip of the blockchain
@@ -671,7 +683,13 @@ def log_block_info(
             )
 
         state = getattr(log_block_info, "_state")
-        current_time = time.time() - state.get("last_time", start_time)  # Time since last block
+        
+        # Calculate the time for this block's processing
+        # Use start_time directly instead of state["last_time"] to avoid
+        # including ZMQ wait time or polling time between blocks
+        current_time = time.time() - start_time
+        
+        # Update last_time for the next block
         state["last_time"] = time.time()  # Update for next block
 
         # Detect if block tip has changed
@@ -730,7 +748,7 @@ def log_block_info(
             eta = "calculating..."
 
         logger.block_status(  # type: ignore[attr-defined]
-            "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]"
+            "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]%s"
             % (
                 str(block_index),
                 str(block_tip),
@@ -741,13 +759,14 @@ def log_block_info(
                 stamps_in_block,
                 src20_in_block,
                 src101_in_block,
+                " (ZMQ)" if is_zmq else "",
             )
         )
 
     except Exception as e:
         logger.error(f"Error in log_block_info: {e}")
         logger.block_status(  # type: ignore[attr-defined]
-            "%s/%s │ %ss │ [S:%s|20:%s|101:%s]"
+            "%s/%s │ %ss │ [S:%s|20:%s|101:%s]%s"
             % (
                 str(block_index),
                 str(block_tip),
@@ -755,6 +774,7 @@ def log_block_info(
                 stamps_in_block,
                 src20_in_block,
                 src101_in_block,
+                " (ZMQ)" if is_zmq else "",
             )
         )
 
@@ -1242,6 +1262,7 @@ def signal_handler(sig, frame):
     """
     global profiler  # Add global reference to access profiler
     global cp_pipeline_instance  # Add global reference to access CP pipeline instance
+    global shutdown_start_time  # Track when shutdown started
 
     if server.shutdown_flag.is_set():
         # If flag is already set, force exit
@@ -1256,6 +1277,18 @@ def signal_handler(sig, frame):
 
     # Set both shutdown flags
     server.shutdown_flag.set()
+    
+    # Record the time when shutdown was initiated
+    globals()['shutdown_start_time'] = time.time()
+    
+    # Set a timeout for the shutdown process - force exit after 10 seconds
+    def force_exit():
+        if time.time() - globals().get('shutdown_start_time', 0) > 10:
+            logger.warning("Shutdown timeout reached after 10 seconds, forcing exit...")
+            os._exit(1)  # Use os._exit for a hard exit that can't be caught
+    
+    # Start a new thread to force exit after timeout
+    threading.Timer(12.0, force_exit).start()
 
     # Also set CP pipeline shutdown flag if it exists
     if "cp_pipeline_instance" in globals() and cp_pipeline_instance is not None:
@@ -1343,6 +1376,7 @@ def follow(
         last_keepalive = time.time()
         KEEPALIVE_INTERVAL = 60  # Send keepalive every minute
         update_cpids_last_run_block = 0
+        is_zmq_notification = False  # Track if the current block came via ZMQ
 
         # Track rollbacks to detect loops
         rollback_history = []
@@ -1453,6 +1487,9 @@ def follow(
                     # Check database connection before operations
                     db = check_db_connection(db)
 
+                    # Reset start_time to ensure accurate timing for each block
+                    start_time = time.time()
+                    
                     # Start profiling for this block
                     profiler.start_block_profiling()
 
@@ -1735,7 +1772,7 @@ def follow(
                         )
 
                         stamp_issuances_list.pop(block_index, None)
-                        log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0, 0, 0)
+                        log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0, 0, 0, is_zmq_notification)
                         block_index = commit_and_update_block(db, block_index, block_tip, 0)
                         profiler.end_block_profiling()  # End profiling for this block
                         if single_block:
@@ -1797,6 +1834,7 @@ def follow(
                             stamps_in_block,
                             src20_in_block,
                             src101_in_block,
+                            is_zmq_notification
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
                         profiler.end_block_profiling()  # End profiling for this block
@@ -1909,6 +1947,15 @@ def follow(
                                             f"Delaying for {delay_seconds} seconds to allow Counterparty to process the new block"
                                         )
                                         time.sleep(delay_seconds)
+                                        
+                                        # Reset start_time to measure only the actual block processing time
+                                        # This ensures ZMQ-triggered blocks don't include wait time in their timing
+                                        start_time = time.time()
+                                        logger.debug("Reset start_time for ZMQ block processing")
+                                        
+                                        # Set a flag to indicate this block came from ZMQ
+                                        is_zmq_notification = True
+                                        
                                         break
                                 # No continue here - let the loop check the shutdown flag again
                         except Exception as e:
@@ -1958,6 +2005,12 @@ def follow(
                                     logger.info("Successfully re-enabled ZMQ notifications")
                             except Exception as e:
                                 logger.warning(f"Failed to re-initialize ZMQ: {e}")
+                                
+                        # If we detect a new block via polling, reset the start time to avoid including wait time
+                        if block_tip > block_index:
+                            start_time = time.time()
+                            logger.debug("Reset start_time for block processing after polling")
+                            is_zmq_notification = False  # This is a polling block
 
                 consecutive_errors = 0  # Reset error counter on successful iteration
 
