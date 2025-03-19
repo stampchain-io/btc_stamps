@@ -1,6 +1,47 @@
-use crypto::rc4::Rc4;
-use crypto::symmetriccipher::SynchronousStreamCipher;
 use log::debug;
+
+/// A custom implementation of RC4 that exactly matches the behavior of the rust-crypto library
+pub struct Rc4 {
+    state: [u8; 256],
+    i: u8,
+    j: u8,
+}
+
+impl Rc4 {
+    /// Initialize a new RC4 cipher with the given key
+    pub fn new(key: &[u8]) -> Self {
+        // Standard RC4 key scheduling algorithm (KSA)
+        let mut state = [0u8; 256];
+        for (i, val) in state.iter_mut().enumerate() {
+            *val = i as u8;
+        }
+
+        let mut j: u8 = 0;
+        for i in 0..256 {
+            j = j.wrapping_add(state[i]).wrapping_add(key[i % key.len()]);
+            state.swap(i, j as usize);
+        }
+
+        Rc4 { state, i: 0, j: 0 }
+    }
+
+    /// Process a chunk of data using the RC4 cipher
+    pub fn process(&mut self, input: &[u8], output: &mut [u8]) {
+        debug_assert_eq!(input.len(), output.len());
+
+        for (src, dst) in input.iter().zip(output.iter_mut()) {
+            // Update internal state
+            self.i = self.i.wrapping_add(1);
+            self.j = self.j.wrapping_add(self.state[self.i as usize]);
+            self.state.swap(self.i as usize, self.j as usize);
+
+            // XOR with generated keystream byte
+            let k = self.state
+                [(self.state[self.i as usize].wrapping_add(self.state[self.j as usize])) as usize];
+            *dst = src ^ k;
+        }
+    }
+}
 
 /// Initialize an ARC4 cipher with the given seed
 pub fn init_arc4(seed: &[u8]) -> Rc4 {

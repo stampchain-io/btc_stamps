@@ -564,3 +564,17 @@ LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[boo
         "stamps": [8, 9, 10, 11, 31, 32, 33, 34, 35, 36, 38, 39, 40, 329, 330, 330, 16690, 16691, 16692],
     },
 ]
+
+# Bootstrap file GitHub URLs - allows loading bootstrap data directly from GitHub
+BOOTSTRAP_GITHUB_BASE_URL = os.environ.get(
+    "BOOTSTRAP_GITHUB_BASE_URL", 
+    "https://raw.githubusercontent.com/stampchain-io/btc_stamps/dev/indexer/bootstrap"
+)
+BOOTSTRAP_CREATOR_CSV_URL = os.environ.get(
+    "BOOTSTRAP_CREATOR_CSV_URL", 
+    f"{BOOTSTRAP_GITHUB_BASE_URL}/creator.csv"
+)
+BOOTSTRAP_SRCBACKGROUND_CSV_URL = os.environ.get(
+    "BOOTSTRAP_SRCBACKGROUND_CSV_URL", 
+    f"{BOOTSTRAP_GITHUB_BASE_URL}/srcbackground.csv"
+)

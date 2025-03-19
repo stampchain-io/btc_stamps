@@ -21,12 +21,8 @@ debug_info() {
 
 # Wait for MySQL
 if [ "$DOCKER_CONTAINER" = "1" ]; then
-    echo "🔄 Waiting for MySQL..."
-    echo "  • Host: ${RDS_HOSTNAME:-localhost}"
-    echo "  • Database: ${RDS_DATABASE:-btc_stamps}"
-    echo "  • User: ${RDS_USER:-btc_stamps}"
-    dockerize -wait "tcp://${RDS_HOSTNAME:-localhost}:3306" -timeout 60s
-    echo "✅ MySQL is ready"
+    # Using our custom wait-for-mysql script instead of dockerize
+    /app/wait-for-mysql.sh "${RDS_HOSTNAME:-localhost}" "3306" "60"
 fi
 
 # Create logs directory if not using Docker container logging

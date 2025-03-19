@@ -51,19 +51,15 @@ trap cleanup EXIT
 
 echo "🚀 Starting local test simulation..."
 
-# Build Rust parser first
-echo -e "${YELLOW}Building Rust parser...${NC}"
-(cd src/rust_parser && ./build.sh) || {
-    echo -e "${RED}Failed to build Rust parser${NC}"
-    exit 1
-}
-
 # Ensure we're in the correct directory and set up paths
 cd "$(dirname "$0")"
 SCRIPT_DIR="$(pwd)"
 export PWD="${SCRIPT_DIR}"
 LOGS_DIR="${SCRIPT_DIR}/logs"
 FILES_DIR="${SCRIPT_DIR}/../files"
+
+# Create logs directory if it doesn't exist
+mkdir -p "${LOGS_DIR}"
 
 # Create environment file for Docker Compose
 echo "Creating Docker environment file..."
@@ -97,12 +93,9 @@ services:
     volumes:
       - ${LOGS_DIR}:/app/logs
       - ${FILES_DIR}:/usr/src/app/files
-      - ./src/rust_parser:/app/src/rust_parser  # Mount Rust parser source
     user: root
     command: >
-      sh -c "poetry install &&
-             cd src/rust_parser && ./build.sh &&
-             chown -R indexer:indexer /usr/local/lib/python3.12/site-packages &&
+      sh -c "chown -R indexer:indexer /usr/local/lib/python3.12/site-packages &&
              su indexer -c 'poetry run python -c \"import start; start.test_setup()\"'"
 EOL
 

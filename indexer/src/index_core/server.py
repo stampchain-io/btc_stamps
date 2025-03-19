@@ -12,6 +12,7 @@ import threading
 import time
 
 import appdirs
+import requests
 from bitcoin import SelectParams
 from pymysql.connections import Connection
 
@@ -302,16 +303,17 @@ def initialize_tables(db):
 
         import_csv_data(
             cursor,
-            "bootstrap/creator.csv",
+            config.BOOTSTRAP_CREATOR_CSV_URL,
             """
             INSERT INTO creator (address, creator)
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE creator = VALUES(creator)
             """,
+            is_url=True
         )
         import_csv_data(
             cursor,
-            "bootstrap/srcbackground.csv",
+            config.BOOTSTRAP_SRCBACKGROUND_CSV_URL,
             """INSERT INTO srcbackground
             (tick, tick_hash, base64, font_size, text_color, unicode, p)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -321,6 +323,7 @@ def initialize_tables(db):
             text_color = VALUES(text_color),
             unicode = VALUES(unicode),
             p = VALUES(p)""",
+            is_url=True
         )
         db.commit()
         cursor.close()
@@ -329,7 +332,7 @@ def initialize_tables(db):
         raise e
 
 
-def import_csv_data(cursor, csv_file, insert_query):
+def import_csv_data(cursor, csv_file, insert_query, is_url=False):
     max_int = sys.maxsize
     while True:
         try:
@@ -337,10 +340,28 @@ def import_csv_data(cursor, csv_file, insert_query):
             break
         except OverflowError:
             max_int = int(max_int / 10)
-    with open(csv_file, "r") as file:
-        csv_reader = csv.reader(file)
-        for row in csv_reader:
-            cursor.execute(insert_query, tuple(row))
+    
+    if is_url:
+        try:
+            logger.info(f"Downloading bootstrap data from {csv_file}")
+            response = requests.get(csv_file, timeout=config.REQUESTS_TIMEOUT)
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            
+            # Process the CSV data directly from the response text
+            csv_reader = csv.reader(response.text.splitlines())
+            for row in csv_reader:
+                cursor.execute(insert_query, tuple(row))
+            
+            logger.info(f"Successfully loaded bootstrap data from {csv_file}")
+        except requests.RequestException as e:
+            logger.error(f"Error downloading bootstrap data from {csv_file}: {e}")
+            raise
+    else:
+        # Fall back to local file if needed
+        with open(csv_file, "r") as file:
+            csv_reader = csv.reader(file)
+            for row in csv_reader:
+                cursor.execute(insert_query, tuple(row))
 
 
 def initialize_db():

@@ -1,7 +1,7 @@
 # Build stage
 ARG PYTHON_VERSION=3.12
 ARG INSTALL_DEV=false
-FROM python:${PYTHON_VERSION}-slim AS builder
+FROM python:${PYTHON_VERSION}-alpine AS builder
 
 # Build arguments
 ARG POETRY_VERSION=2.1.1
@@ -17,13 +17,27 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     POETRY_VIRTUALENVS_CREATE=false
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    libgmp-dev \
-    libmpfr-dev \
-    libmpc-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    build-base \
+    gcc \
+    g++ \
+    libffi-dev \
+    openssl-dev \
+    git \
+    libc-dev \
+    musl-dev \
+    mariadb-dev \
+    curl \
+    gmp-dev \
+    mpfr-dev \
+    mpc1-dev \
+    file \
+    linux-headers \
+    patchelf
+
+# Install Rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install Poetry and Maturin
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}" "maturin==1.4.0"
@@ -43,8 +57,12 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
 # Copy project files (will respect .dockerignore)
 COPY . .
 
-# Build Rust parser
-RUN poetry run maturin develop --release
+# Build Rust parser (using maturin directly instead of the script)
+RUN cd src/rust_parser && \
+    cargo fmt -- --check && \
+    cargo clippy -- -D warnings && \
+    maturin build --release && \
+    pip install target/wheels/*.whl
 
 # Install project with all dependencies
 RUN if [ "$INSTALL_DEV" = "true" ]; then \
@@ -54,7 +72,7 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
     fi
 
 # Runtime stage
-FROM python:${PYTHON_VERSION}-slim
+FROM python:${PYTHON_VERSION}-alpine
 
 # Build arguments for runtime
 ARG POETRY_VERSION=2.1.1
@@ -68,36 +86,23 @@ ENV PYTHONPATH=/app:/app/src \
 WORKDIR /app
 
 # Install system dependencies first (as root)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        wget \
-        libmagic1 \
-        default-libmysqlclient-dev \
-        default-mysql-client \
-        libgmp-dev \
-        libmpfr-dev \
-        libmpc-dev \
-        netcat-traditional \
-        supervisor \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install dockerize (as root)
-ARG TARGETARCH
-ENV ARCH=${TARGETARCH:-amd64} \
-    DOCKERIZE_VERSION=v0.7.0
-
-RUN case "${ARCH}" in \
-        "amd64")  DOCKERIZE_ARCH=amd64  ;; \
-        "arm64")  DOCKERIZE_ARCH=arm64  ;; \
-        "arm")    DOCKERIZE_ARCH=armhf  ;; \
-        *)        echo "Unsupported architecture: ${ARCH}" && exit 1  ;; \
-    esac && \
-    wget "https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz" && \
-    tar -C /usr/local/bin -xzvf "dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz" && \
-    rm "dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz"
+RUN apk add --no-cache \
+    libpq \
+    mariadb-connector-c \
+    wget \
+    bash \
+    tzdata \
+    file \
+    mysql-client \
+    gmp-dev \
+    mpfr-dev \
+    mpc1-dev \
+    netcat-openbsd \
+    supervisor && \
+    mkdir -p /etc/supervisor/conf.d /var/log /var/run
 
 # Create user and set up directories (as root)
-RUN useradd -m indexer && \
+RUN adduser -D -h /home/indexer indexer && \
     mkdir -p /app && \
     chown -R indexer:indexer /app
 
@@ -111,10 +116,11 @@ COPY --from=builder /usr/local/bin/poetry /usr/local/bin/poetry
 # Copy application files and set permissions (as root)
 COPY --from=builder --chown=indexer:indexer /app /app
 
-# Copy and set up entrypoint script (as root)
+# Copy and set up entrypoint and wait scripts (as root)
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chown indexer:indexer /docker-entrypoint.sh && \
-    chmod +x /docker-entrypoint.sh
+COPY wait-for-mysql.sh /app/wait-for-mysql.sh
+RUN chown indexer:indexer /docker-entrypoint.sh /app/wait-for-mysql.sh && \
+    chmod +x /docker-entrypoint.sh /app/wait-for-mysql.sh
 
 # Copy supervisor config
 COPY supervisor.conf /etc/supervisor/conf.d/indexer.conf

@@ -13,6 +13,9 @@ __pycache__
 .pytest_cache
 .coverage
 htmlcov/
+.mypy_cache/
+.vscode/
+.cursor/
 
 # Environment
 .env
@@ -22,7 +25,6 @@ env/
 venv/
 ENV/
 tools_priv/
-
 
 # IDE
 .idea
@@ -41,11 +43,28 @@ build/
 *.egg-info/
 
 # Docker
-Dockerfile
 .dockerignore
 docker-compose*.yml
+.docker/
 
 # Project specific
 .cache/
 .poetry/
-poetry.toml 
+poetry.toml
+.github/
+
+# Additional test files
+tests/
+test_*
+
+# Bootstrap files - fetch from GitHub instead
+bootstrap/
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Developer scripts (keep tools/ for build scripts)
+scripts/
+# NOT ignoring tools/ directory as it contains required build scripts 

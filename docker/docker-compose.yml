@@ -14,23 +14,12 @@ services:
     command: --bind-address=0.0.0.0 --innodb_data_file_path=ibdata1:10M:autoextend
     ports:
       - "3306:3306"
-
-  # adminer:
-  #   image: adminer:4.8.1
-  #   restart: always
-  #   ports:
-  #     - "3030:8080"
-
-  # grafana:
-  #   image: grafana/grafana:10.2.3
-  #   depends_on:
-  #     - db
-  #   ports:
-  #     - "3333:3000"
-  #   volumes:
-  #     - grafana_data:/var/lib/grafana
-  #   env_file:
-  #     - .env.grafana
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   indexer:
     build: 
@@ -38,13 +27,16 @@ services:
       dockerfile: Dockerfile
       args:
          PYTHON_VERSION: 3.12
-    command: sh -c "dockerize -wait tcp://db:3306 -timeout 5m && /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf"
+         # Set to true if you need development dependencies
+         INSTALL_DEV: ${INSTALL_DEV:-false}
+    command: /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf
     volumes:
       - ../indexer:/usr/src/app
       - ../files:/usr/src/app/files
       - /var/log/supervisor:/var/log/supervisor
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - ../indexer/.env
     healthcheck:
@@ -69,5 +61,4 @@ services:
 
 volumes:
   db_data:
-  grafana_data:
   files:
