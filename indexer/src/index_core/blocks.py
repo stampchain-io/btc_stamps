@@ -1195,61 +1195,100 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
     """Helper function to clean up resources safely."""
     logger.info("Starting cleanup...")
 
-    # Stop CP pipeline
+    # Set timeouts for each cleanup phase
+    PIPELINE_TIMEOUT = 3  # seconds
+    ZMQ_TIMEOUT = 2  # seconds
+    EXECUTOR_TIMEOUT = 3  # seconds
+    DB_TIMEOUT = 2  # seconds
+
+    # Helper function to run a task with timeout
+    def run_with_timeout(task, timeout, task_name):
+        """Run a task with timeout, force continue if it takes too long"""
+        logger.info(f"Starting {task_name} cleanup (timeout: {timeout}s)...")
+        
+        # Create event for timeout tracking
+        completed = threading.Event()
+        
+        def target():
+            try:
+                task()
+                completed.set()
+            except Exception as e:
+                logger.error(f"Error in {task_name} cleanup: {e}")
+                completed.set()
+
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+        
+        # Wait with timeout
+        result = completed.wait(timeout)
+        if not result:
+            logger.warning(f"{task_name} cleanup timed out after {timeout}s, continuing with next phase")
+        return result
+
+    # Stop CP pipeline with timeout
     if cp_pipeline:
-        logger.info("Stopping CP blocks pipeline...")
-        try:
-            cp_pipeline.stop()
-        except Exception as e:
-            logger.error(f"Error stopping CP pipeline: {e}")
+        def stop_pipeline():
+            try:
+                cp_pipeline.stop()
+            except Exception as e:
+                logger.error(f"Error stopping CP pipeline: {e}")
+        
+        run_with_timeout(stop_pipeline, PIPELINE_TIMEOUT, "CP pipeline")
 
     # Cancel any pending CPID updates
     if update_cpids_future and not update_cpids_future.done():
         logger.info("Cancelling pending CPID updates...")
         update_cpids_future.cancel()
 
-    # Clean up ZMQ
+    # Clean up ZMQ with timeout
     if zmq_notifier:
-        logger.info("Cleaning up ZMQ resources...")
-        try:
-            zmq_notifier.cleanup()
-        except Exception as e:
-            logger.error(f"Error cleaning up ZMQ: {e}")
-
-    # Clean up thread pool
-    if executor:
-        logger.info("Shutting down executor...")
-        try:
-            # Give threads a chance to complete
-            executor.shutdown(wait=True)
-        except (TypeError, Exception) as e:
-            logger.error(f"Error shutting down executor: {e}")
+        def cleanup_zmq():
             try:
-                executor.shutdown(wait=False)
-            except Exception:
-                pass
-
-    # Commit any pending transactions and close DB
-    try:
-        logger.info("Finalizing database operations...")
-        if not db._closed:
-            try:
-                db.commit()
-                logger.info("Final commit successful")
+                zmq_notifier.cleanup()
             except Exception as e:
-                logger.error(f"Error during final commit: {e}")
+                logger.error(f"Error cleaning up ZMQ: {e}")
+        
+        run_with_timeout(cleanup_zmq, ZMQ_TIMEOUT, "ZMQ")
+
+    # Clean up thread pool with timeout
+    if executor:
+        def cleanup_executor():
+            try:
+                # Attempt a graceful shutdown with our own timeout
+                # Use shutdown(wait=False) instead of wait=True to avoid getting stuck
+                executor.shutdown(wait=False)
+                logger.info("Executor shutdown initiated")
+            except Exception as e:
+                logger.error(f"Error shutting down executor: {e}")
+        
+        run_with_timeout(cleanup_executor, EXECUTOR_TIMEOUT, "executor")
+
+    # Commit any pending transactions and close DB with timeout
+    def cleanup_db():
+        try:
+            logger.info("Finalizing database operations...")
+            if db and not getattr(db, '_closed', True):
                 try:
-                    db.rollback()
-                except Exception:
-                    pass
-            finally:
-                try:
-                    db.close()
-                    logger.info("Database connection closed")
+                    db.commit()
+                    logger.info("Final commit successful")
                 except Exception as e:
-                    logger.error(f"Error closing database: {e}")
-    except Exception as e:
-        logger.error(f"Error during database cleanup: {e}")
+                    logger.error(f"Error during final commit: {e}")
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                finally:
+                    try:
+                        db.close()
+                        logger.info("Database connection closed")
+                    except Exception as e:
+                        logger.error(f"Error closing database: {e}")
+        except Exception as e:
+            logger.error(f"Error during database cleanup: {e}")
+    
+    run_with_timeout(cleanup_db, DB_TIMEOUT, "database")
 
     logger.info("Cleanup complete")
     logging.shutdown()
@@ -1260,40 +1299,51 @@ def signal_handler(sig, frame):
     Handle SIGINT (Ctrl+C) gracefully.
     This handler is designed to be thread-safe and idempotent.
     """
-    global profiler  # Add global reference to access profiler
-    global cp_pipeline_instance  # Add global reference to access CP pipeline instance
-    global shutdown_start_time  # Track when shutdown started
+    global profiler
+    global cp_pipeline_instance
 
-    if server.shutdown_flag.is_set():
-        # If flag is already set, force exit
-        logger.warning("Received second interrupt, forcing exit...")
+    # Track how many times the handler has been called
+    if not hasattr(signal_handler, 'call_count'):
+        signal_handler.call_count = 0
+    signal_handler.call_count += 1
+    
+    # If this is the second or later call, force immediate exit
+    if signal_handler.call_count >= 2:
+        logger.warning("Received second interrupt, forcing immediate exit...")
         if "profiler" in globals():
-            profiler.end_block_profiling()  # End profiling before force exit
-        sys.exit(1)
+            try:
+                profiler.end_block_profiling()
+            except:
+                pass
+        os._exit(1)  # Use os._exit for immediate termination
 
     logger.info("Received interrupt signal, initiating graceful shutdown...")
     if "profiler" in globals():
-        profiler.end_block_profiling()  # End profiling on first interrupt
+        try:
+            profiler.end_block_profiling()
+        except Exception as e:
+            logger.error(f"Error ending profiling: {e}")
 
     # Set both shutdown flags
     server.shutdown_flag.set()
     
-    # Record the time when shutdown was initiated
-    globals()['shutdown_start_time'] = time.time()
-    
-    # Set a timeout for the shutdown process - force exit after 10 seconds
-    def force_exit():
-        if time.time() - globals().get('shutdown_start_time', 0) > 10:
-            logger.warning("Shutdown timeout reached after 10 seconds, forcing exit...")
-            os._exit(1)  # Use os._exit for a hard exit that can't be caught
-    
-    # Start a new thread to force exit after timeout
-    threading.Timer(12.0, force_exit).start()
-
     # Also set CP pipeline shutdown flag if it exists
     if "cp_pipeline_instance" in globals() and cp_pipeline_instance is not None:
         logger.info("Setting CP pipeline shutdown flag...")
-        cp_pipeline_instance.shutdown_flag.set()
+        try:
+            cp_pipeline_instance.shutdown_flag.set()
+        except Exception as e:
+            logger.error(f"Error setting CP pipeline shutdown flag: {e}")
+    
+    # Create a timer that forces exit if shutdown takes too long
+    def force_exit_after_timeout():
+        logger.warning("Shutdown timeout reached (10 seconds), forcing exit...")
+        os._exit(1)  # Use os._exit for a hard exit that bypasses Python's cleanup
+    
+    # Schedule forced exit after 10 seconds
+    shutdown_timer = threading.Timer(10.0, force_exit_after_timeout)
+    shutdown_timer.daemon = True  # Make timer daemon so it doesn't block process exit
+    shutdown_timer.start()
 
 
 def follow(
@@ -2087,13 +2137,10 @@ def follow(
         raise
     finally:
         # End profiling before cleanup
-        if "profiler" in locals():
+        if "profiler" in globals():
             profiler.end_block_profiling()
 
-        # Stop CP pipeline
-        if cp_pipeline_instance:
-            cp_pipeline_instance.stop()
-
+        # Cleanup all resources
         cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance)
 
 
