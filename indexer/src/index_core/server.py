@@ -309,7 +309,7 @@ def initialize_tables(db):
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE creator = VALUES(creator)
             """,
-            is_url=True
+            is_url=True,
         )
         import_csv_data(
             cursor,
@@ -323,7 +323,7 @@ def initialize_tables(db):
             text_color = VALUES(text_color),
             unicode = VALUES(unicode),
             p = VALUES(p)""",
-            is_url=True
+            is_url=True,
         )
         db.commit()
         cursor.close()
@@ -340,18 +340,18 @@ def import_csv_data(cursor, csv_file, insert_query, is_url=False):
             break
         except OverflowError:
             max_int = int(max_int / 10)
-    
+
     if is_url:
         try:
             logger.info(f"Downloading bootstrap data from {csv_file}")
             response = requests.get(csv_file, timeout=config.REQUESTS_TIMEOUT)
             response.raise_for_status()  # Raise an exception for HTTP errors
-            
+
             # Process the CSV data directly from the response text
             csv_reader = csv.reader(response.text.splitlines())
             for row in csv_reader:
                 cursor.execute(insert_query, tuple(row))
-            
+
             logger.info(f"Successfully loaded bootstrap data from {csv_file}")
         except requests.RequestException as e:
             logger.error(f"Error downloading bootstrap data from {csv_file}: {e}")
