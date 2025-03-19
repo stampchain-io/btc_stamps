@@ -28,8 +28,8 @@ class NodeHealth:
         self.url = url
         self.failures = 0
         self.consecutive_failures = 0
-        self.last_failure_time = 0
-        self.backoff_until = 0
+        self.last_failure_time = 0.0  # Changed from int to float
+        self.backoff_until = 0.0  # Changed from int to float
         self.version: Optional[str] = None
         self.version_info: Optional[Dict] = None
         self._lock = threading.Lock()
@@ -49,7 +49,7 @@ class NodeHealth:
         # If the error is a 404 for a block at/near the chain tip, don't count it as severe
         if "404" in error_info and "Block not yet processed by XCP" in error_info:
             return False
-        
+
         # If it's a 404 for a block somewhat near the tip (within 5 blocks), treat as minor
         if "404" in error_info and "despite being " in error_info:
             try:
@@ -60,20 +60,20 @@ class NodeHealth:
             except Exception:
                 # If parsing fails, default to treating it as severe
                 pass
-                
+
         return True
 
     def mark_failure(self, error_info: str = ""):
         """
         Mark a node failure and calculate backoff time.
-        
+
         Args:
             error_info: Information about the error to help determine severity
         """
         with self._lock:
             current_time = time.time()
             self.failures += 1
-            
+
             # Determine if this is a severe failure or a minor one
             if self.is_severe_failure(error_info):
                 self.consecutive_failures += 1
@@ -93,7 +93,9 @@ class NodeHealth:
                 self.minor_failures += 1
                 # Only apply very short backoff after multiple minor failures
                 if self.minor_failures > 5:
-                    self.backoff_until = current_time + 2  # Just 2 seconds backoff for minor failures
+                    self.backoff_until = (
+                        current_time + 2.0
+                    )  # Changed from int to float - Just 2 seconds backoff for minor failures
                     logger.debug(
                         f"Node {self.name} has {self.minor_failures} minor failures. "
                         f"Short backoff until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
@@ -349,7 +351,7 @@ class CPBlocksPipeline:
                         blocks_to_fetch = min(self.initial_batch_size, block_tip - next_block + 1)
                         if blocks_to_fetch <= 0:
                             # No blocks to fetch for initial batch - we're at tip
-                            logger.info(f"No blocks to fetch for initial batch (at tip). Marking as ready.")
+                            logger.info("No blocks to fetch for initial batch (at tip). Marking as ready.")
                             initial_fetch = False
                             self.initial_blocks_ready.set()
                             time.sleep(self.fetch_interval * 2)
@@ -560,7 +562,7 @@ def check_node_health(node: Dict[str, Any]) -> bool:
         if health.consecutive_failures == 0 or time_remaining < 3:
             logger.debug(f"Allowing early retry for node {node_name} (minor failures or short backoff remaining)")
             health.backoff_until = 0  # Clear backoff to allow retry
-    
+
     if not health.can_retry():
         logger.info(
             f"Node {node_name} is in cooldown period until {datetime.fromtimestamp(health.backoff_until).strftime('%H:%M:%S')}"
@@ -722,8 +724,8 @@ def update_healthy_nodes():
                     else:
                         health.consecutive_failures = max(1, health.consecutive_failures - 1)
                     # Use a very short backoff period (5-10 seconds) to allow quick retry
-                    health.backoff_until = time.time() + min(10, exponential_backoff(health.consecutive_failures)/3)
-            
+                    health.backoff_until = time.time() + min(10, exponential_backoff(health.consecutive_failures) / 3)
+
             # After resetting cooldowns, check again for any now-available nodes
             healthy_nodes = [node for node in config.XCP_V2_NODES if check_node_health(node)]
 
@@ -923,12 +925,12 @@ def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_
 
                     if blocks_data:
                         logger.debug(f"Received {len(blocks_data)} blocks from get_all_xcp_transactions")
-                        
+
                         # Verify all expected blocks are in the results
                         expected_blocks = set(range(current_block_index, end_block + 1))
                         received_blocks = {block["block_index"] for block in blocks_data if block}
                         missing_blocks = expected_blocks - received_blocks
-                        
+
                         # Check if any blocks are missing
                         current_bitcoin_tip = backend_instance.getblockcount()
                         for missing_block in missing_blocks:
@@ -937,15 +939,23 @@ def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_
                                 logger.debug(f"Block {missing_block} missing from XCP results - normal for recent blocks")
                             elif missing_block >= current_bitcoin_tip - 5:
                                 # For blocks somewhat near the tip, just log a warning
-                                logger.warning(f"Block {missing_block} missing from XCP results despite being only {current_bitcoin_tip - missing_block} blocks from tip")
-                            elif missing_block <= current_bitcoin_tip - 5:  # Blocks at least 5 behind tip should definitely exist
-                                logger.error(f"Critical: Block {missing_block} is missing from XCP results despite being well below tip")
+                                logger.warning(
+                                    f"Block {missing_block} missing from XCP results despite being only {current_bitcoin_tip - missing_block} blocks from tip"
+                                )
+                            elif (
+                                missing_block <= current_bitcoin_tip - 5
+                            ):  # Blocks at least 5 behind tip should definitely exist
+                                logger.error(
+                                    f"Critical: Block {missing_block} is missing from XCP results despite being well below tip"
+                                )
                                 missing_critical_blocks.append(missing_block)
-                        
+
                         if missing_critical_blocks:
-                            logger.error(f"Missing {len(missing_critical_blocks)} critical blocks (at least 5 blocks below tip): {missing_critical_blocks}")
+                            logger.error(
+                                f"Missing {len(missing_critical_blocks)} critical blocks (at least 5 blocks below tip): {missing_critical_blocks}"
+                            )
                             # We don't return here but will handle this later
-                        
+
                         for block in blocks_data:
                             if block:
                                 block_idx = block["block_index"]
@@ -982,21 +992,21 @@ def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_
             # Run the async processing with proper task cleanup
             main_task = loop.create_task(process_blocks(results_dict, current_block_index, block_tip, process_callback))
             loop.run_until_complete(main_task)
-            
+
             # Check if we're missing any critical blocks
             if missing_critical_blocks:
                 logger.error(f"Critical blocks missing from XCP API: {missing_critical_blocks}")
                 logger.error("This could lead to missing transactions. Consider checking node health and rolling back.")
-                
+
                 # Mark these blocks specially in the results
                 for block_idx in missing_critical_blocks:
                     results_dict[block_idx] = {
                         "block_index": block_idx,
                         "xcp_block_hash": None,
                         "issuances": [],
-                        "error": "Critical block missing from XCP API"
+                        "error": "Critical block missing from XCP API",
                     }
-            
+
             return dict(sorted(results_dict.items()))
 
         except asyncio.CancelledError:
@@ -1292,7 +1302,7 @@ async def get_all_xcp_transactions(start_block: int, limit: int = 100) -> Option
                         # Check if this is an empty block (no issuances)
                         if len(result.get("issuances", [])) == 0:
                             empty_results_count += 1
-                        
+
                         successful_results.append(result)
 
                 # Check for API stability issues - if we're getting lots of empty blocks
@@ -1300,9 +1310,13 @@ async def get_all_xcp_transactions(start_block: int, limit: int = 100) -> Option
                 if empty_results_count == len(chunk_results) and len(chunk_results) >= 5:
                     empty_blocks_count += empty_results_count
                     if empty_blocks_count > 50:  # Only log warning for extreme cases
-                        logger.warning(f"All {empty_results_count} blocks in chunk are empty (no issuances). This is normal for many blocks but could indicate a connectivity issue if it persists across too many blocks.")
-                
-                logger.debug(f"Chunk processed: {len(successful_results)} successful, {failed_count} failed, {empty_results_count} empty")
+                        logger.warning(
+                            f"All {empty_results_count} blocks in chunk are empty (no issuances). This is normal for many blocks but could indicate a connectivity issue if it persists across too many blocks."
+                        )
+
+                logger.debug(
+                    f"Chunk processed: {len(successful_results)} successful, {failed_count} failed, {empty_results_count} empty"
+                )
 
                 # Check if we need to retry due to too many failures
                 if failed_count > len(chunk_results) / 2 and attempt < max_retries:
@@ -1410,7 +1424,7 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
             return None
 
         tried_nodes = []
-        last_error = None
+        last_error: Optional[Exception] = None  # Changed from ValueError | None to Optional[Exception]
         retry_count = 0
         max_retries = int(config.CP_MAX_RETRIES)  # Ensure integer
         base_timeout = float(config.CP_RPC_TIMEOUT)
@@ -1426,7 +1440,7 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                 if requested_block > current_tip:
                     logger.info(f"Requested block {requested_block} is beyond current tip {current_tip}, skipping fetch")
                     return {"result": None, "error": "Block not yet mined"}
-                
+
                 # Be more lenient about blocks at or very near the tip (they might not be in XCP yet)
                 if requested_block >= current_tip - 1:
                     logger.debug(f"Block {requested_block} is at or near chain tip {current_tip}")
@@ -1492,15 +1506,17 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                         if response.status == 200:
                             try:
                                 json_response = await response.json()
-                                
+
                                 # Enhanced validation of successful responses
                                 is_valid = True
-                                
+
                                 # For block endpoints, check for expected fields
-                                if "/blocks/" in endpoint and not "/transactions" in endpoint:
+                                if "/blocks/" in endpoint and "/transactions" not in endpoint:
                                     # For block queries, we expect a 'result' field
                                     if "result" not in json_response:
-                                        logger.warning(f"XCP node {node['name']} returned 200 OK but malformed data (missing 'result' field) for {endpoint}")
+                                        logger.warning(
+                                            f"XCP node {node['name']} returned 200 OK but malformed data (missing 'result' field) for {endpoint}"
+                                        )
                                         is_valid = False
                                     elif json_response.get("result") is None:
                                         # This is a special case - could be a valid empty response for non-existent block
@@ -1509,24 +1525,32 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                                             requested_block = int(endpoint.split("/")[-1])
                                             current_tip = backend_instance.getblockcount()
                                             if requested_block <= current_tip - 5:  # Increased buffer from 3 to 5
-                                                logger.warning(f"XCP node {node['name']} returned null result for block {requested_block} which should exist (≤ tip-5)")
+                                                logger.warning(
+                                                    f"XCP node {node['name']} returned null result for block {requested_block} which should exist (≤ tip-5)"
+                                                )
                                                 is_valid = False
                                         except Exception:
                                             pass
-                                
+
                                 # For transaction endpoints, check for expected fields
                                 if "/transactions" in endpoint:
                                     if "result" not in json_response:
-                                        logger.warning(f"XCP node {node['name']} returned 200 OK but malformed transaction data (missing 'result' field)")
+                                        logger.warning(
+                                            f"XCP node {node['name']} returned 200 OK but malformed transaction data (missing 'result' field)"
+                                        )
                                         is_valid = False
-                                
+
                                 if is_valid:
                                     node_health.mark_success()
                                     elapsed_time = time.time() - start_time
-                                    logger.debug(f"fetch_xcp_async for {endpoint} completed successfully in {elapsed_time:.2f}s")
+                                    logger.debug(
+                                        f"fetch_xcp_async for {endpoint} completed successfully in {elapsed_time:.2f}s"
+                                    )
                                     return json_response
                                 else:
-                                    logger.warning(f"XCP node {node['name']} returned invalid response structure: {json_response}")
+                                    logger.warning(
+                                        f"XCP node {node['name']} returned invalid response structure: {json_response}"
+                                    )
                                     node_health.mark_failure("Invalid response structure")
                                     last_error = ValueError(f"Invalid response structure from {node['name']}")
                             except Exception as e:
@@ -1540,7 +1564,7 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                                 logger.debug(f"Not found response from {url}: {response.status} - {error_text}")
                             else:
                                 logger.error(f"Error response from {url}: {response.status} - {error_text}")
-                            
+
                             # Pass error info to mark_failure for severity determination
                             error_info = f"HTTP {response.status}: {error_text}"
                             node_health.mark_failure(error_info)
@@ -1606,7 +1630,7 @@ async def fetch_single_block(idx):
             if idx > current_tip:
                 logger.debug(f"Block {idx} is beyond current tip {current_tip}, skipping fetch")
                 return None
-                
+
             # Set a flag for blocks at or very near the tip
             near_tip = idx >= current_tip - 1
             if near_tip:
@@ -1636,7 +1660,9 @@ async def fetch_single_block(idx):
             if result and isinstance(result, dict):
                 if "result" not in result:
                     if near_tip:
-                        logger.debug(f"XCP node returned 200 OK for block {idx} but response missing 'result' field - expected for new blocks")
+                        logger.debug(
+                            f"XCP node returned 200 OK for block {idx} but response missing 'result' field - expected for new blocks"
+                        )
                         return None
                     else:
                         logger.error(f"XCP node returned 200 OK for block {idx} but response missing 'result' field: {result}")
@@ -1646,10 +1672,12 @@ async def fetch_single_block(idx):
                             for node_name, health in node_health_tracker.items():
                                 health.mark_failure()
                         return None
-                
+
                 if result.get("result") is None or (isinstance(result.get("result"), dict) and not result.get("result")):
                     if near_tip:
-                        logger.debug(f"XCP node returned 200 OK for block {idx} but empty result data - expected for new blocks")
+                        logger.debug(
+                            f"XCP node returned 200 OK for block {idx} but empty result data - expected for new blocks"
+                        )
                         return None
                     else:
                         logger.error(f"XCP node returned 200 OK for block {idx} but empty result data: {result}")
@@ -1667,15 +1695,19 @@ async def fetch_single_block(idx):
                     logger.debug(f"Block {idx} not found in XCP node - expected for blocks at or near tip {current_tip}")
                 elif idx >= current_tip - 5:
                     # For blocks somewhat near the tip, warn but don't treat as critical
-                    logger.warning(f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}")
+                    logger.warning(
+                        f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}"
+                    )
                 else:
                     # For blocks well behind the tip, this is a real issue
-                    logger.error(f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}")
+                    logger.error(
+                        f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}"
+                    )
                     logger.error("This could indicate a missing block in the XCP node or connectivity issues.")
                     # Mark all nodes as unhealthy to force reset
                     for node_name, health in node_health_tracker.items():
                         health.mark_failure()
-                
+
             return result
 
         async def fetch_block_transactions():
@@ -1694,7 +1726,11 @@ async def fetch_single_block(idx):
                 response = await fetch_xcp_async(tx_endpoint, params=params)
 
                 # Special case handling for blocks near the tip
-                if response and isinstance(response, dict) and response.get("error") in ["Block not yet mined", "Block not yet processed by XCP"]:
+                if (
+                    response
+                    and isinstance(response, dict)
+                    and response.get("error") in ["Block not yet mined", "Block not yet processed by XCP"]
+                ):
                     logger.debug(f"Block {idx} transactions not yet processed by XCP")
                     return []
 
@@ -1705,7 +1741,9 @@ async def fetch_single_block(idx):
                             logger.debug(f"Transaction API returned response without 'result' field for block {idx} near tip")
                             break
                         elif current_tip is not None and idx <= current_tip - 5:  # Increased buffer
-                            logger.error(f"Transaction API returned 200 OK but malformed data (missing 'result' field) for block {idx}")
+                            logger.error(
+                                f"Transaction API returned 200 OK but malformed data (missing 'result' field) for block {idx}"
+                            )
                             # Mark nodes as unhealthy if this is not at the tip
                             for node_name, health in node_health_tracker.items():
                                 health.mark_failure()
@@ -1718,7 +1756,9 @@ async def fetch_single_block(idx):
                     if near_tip:
                         logger.debug(f"No transaction data yet for block {idx} (at or near tip)")
                     elif current_tip is not None and idx <= current_tip - 5:
-                        logger.error(f"Failed to fetch transactions for block {idx} which should exist (≤ tip-5 {current_tip-5})")
+                        logger.error(
+                            f"Failed to fetch transactions for block {idx} which should exist (≤ tip-5 {current_tip-5})"
+                        )
                     else:
                         logger.debug(f"Invalid response format for transactions in block {idx}")
                     break
@@ -1739,9 +1779,14 @@ async def fetch_single_block(idx):
                 await asyncio.sleep(0.1)
 
             # Only log at debug level - empty transactions are normal for most blocks
-            if not all_transactions and current_tip is not None and idx <= current_tip - 10 and idx >= config.CP_STAMP_GENESIS_BLOCK:
+            if (
+                not all_transactions
+                and current_tip is not None
+                and idx <= current_tip - 10
+                and idx >= config.CP_STAMP_GENESIS_BLOCK
+            ):
                 logger.debug(f"Block {idx} has no transactions (empty response from XCP API)")
-            
+
             elapsed_time = time.time() - start_time
             logger.debug(
                 f"Transaction fetch for block {idx} completed in {elapsed_time:.2f} seconds with {len(all_transactions)} transactions"
@@ -1773,16 +1818,20 @@ async def fetch_single_block(idx):
             if near_tip:
                 logger.debug(f"Error fetching block {idx} metadata (near tip): {block_response}")
             elif current_tip is not None and idx <= current_tip - 5:
-                logger.error(f"Error fetching block {idx} metadata which should exist (≤ tip-5 {current_tip-5}): {block_response}")
+                logger.error(
+                    f"Error fetching block {idx} metadata which should exist (≤ tip-5 {current_tip-5}): {block_response}"
+                )
             else:
                 logger.debug(f"Error fetching block {idx} metadata: {block_response}")
             return None
-            
+
         if isinstance(transactions, Exception):
             if near_tip:
                 logger.debug(f"Error fetching block {idx} transactions (near tip): {transactions}")
             elif current_tip is not None and idx <= current_tip - 5:
-                logger.error(f"Error fetching block {idx} transactions which should exist (≤ tip-5 {current_tip-5}): {transactions}")
+                logger.error(
+                    f"Error fetching block {idx} transactions which should exist (≤ tip-5 {current_tip-5}): {transactions}"
+                )
             else:
                 logger.debug(f"Error fetching block {idx} transactions: {transactions}")
             return None

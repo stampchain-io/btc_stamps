@@ -636,7 +636,7 @@ def log_block_info(
     """
     Logs block information with highly stable ETA using weighted EMA and complexity factors.
     Skips first block of each batch in calculations due to CP overhead.
-    
+
     Args:
         block_index: Current block index
         start_time: When block processing started
@@ -683,12 +683,12 @@ def log_block_info(
             )
 
         state = getattr(log_block_info, "_state")
-        
+
         # Calculate the time for this block's processing
         # Use start_time directly instead of state["last_time"] to avoid
         # including ZMQ wait time or polling time between blocks
         current_time = time.time() - start_time
-        
+
         # Update last_time for the next block
         state["last_time"] = time.time()  # Update for next block
 
@@ -1205,10 +1205,10 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
     def run_with_timeout(task, timeout, task_name):
         """Run a task with timeout, force continue if it takes too long"""
         logger.info(f"Starting {task_name} cleanup (timeout: {timeout}s)...")
-        
+
         # Create event for timeout tracking
         completed = threading.Event()
-        
+
         def target():
             try:
                 task()
@@ -1220,7 +1220,7 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
         thread = threading.Thread(target=target)
         thread.daemon = True
         thread.start()
-        
+
         # Wait with timeout
         result = completed.wait(timeout)
         if not result:
@@ -1229,12 +1229,13 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
     # Stop CP pipeline with timeout
     if cp_pipeline:
+
         def stop_pipeline():
             try:
                 cp_pipeline.stop()
             except Exception as e:
                 logger.error(f"Error stopping CP pipeline: {e}")
-        
+
         run_with_timeout(stop_pipeline, PIPELINE_TIMEOUT, "CP pipeline")
 
     # Cancel any pending CPID updates
@@ -1244,16 +1245,18 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
     # Clean up ZMQ with timeout
     if zmq_notifier:
+
         def cleanup_zmq():
             try:
                 zmq_notifier.cleanup()
             except Exception as e:
                 logger.error(f"Error cleaning up ZMQ: {e}")
-        
+
         run_with_timeout(cleanup_zmq, ZMQ_TIMEOUT, "ZMQ")
 
     # Clean up thread pool with timeout
     if executor:
+
         def cleanup_executor():
             try:
                 # Attempt a graceful shutdown with our own timeout
@@ -1262,14 +1265,14 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
                 logger.info("Executor shutdown initiated")
             except Exception as e:
                 logger.error(f"Error shutting down executor: {e}")
-        
+
         run_with_timeout(cleanup_executor, EXECUTOR_TIMEOUT, "executor")
 
     # Commit any pending transactions and close DB with timeout
     def cleanup_db():
         try:
             logger.info("Finalizing database operations...")
-            if db and not getattr(db, '_closed', True):
+            if db and not getattr(db, "_closed", True):
                 try:
                     db.commit()
                     logger.info("Final commit successful")
@@ -1287,7 +1290,7 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
                         logger.error(f"Error closing database: {e}")
         except Exception as e:
             logger.error(f"Error during database cleanup: {e}")
-    
+
     run_with_timeout(cleanup_db, DB_TIMEOUT, "database")
 
     logger.info("Cleanup complete")
@@ -1303,17 +1306,17 @@ def signal_handler(sig, frame):
     global cp_pipeline_instance
 
     # Track how many times the handler has been called
-    if not hasattr(signal_handler, 'call_count'):
+    if not hasattr(signal_handler, "call_count"):
         signal_handler.call_count = 0
     signal_handler.call_count += 1
-    
+
     # If this is the second or later call, force immediate exit
     if signal_handler.call_count >= 2:
         logger.warning("Received second interrupt, forcing immediate exit...")
         if "profiler" in globals():
             try:
                 profiler.end_block_profiling()
-            except:
+            except Exception:
                 pass
         os._exit(1)  # Use os._exit for immediate termination
 
@@ -1326,7 +1329,7 @@ def signal_handler(sig, frame):
 
     # Set both shutdown flags
     server.shutdown_flag.set()
-    
+
     # Also set CP pipeline shutdown flag if it exists
     if "cp_pipeline_instance" in globals() and cp_pipeline_instance is not None:
         logger.info("Setting CP pipeline shutdown flag...")
@@ -1334,12 +1337,12 @@ def signal_handler(sig, frame):
             cp_pipeline_instance.shutdown_flag.set()
         except Exception as e:
             logger.error(f"Error setting CP pipeline shutdown flag: {e}")
-    
+
     # Create a timer that forces exit if shutdown takes too long
     def force_exit_after_timeout():
         logger.warning("Shutdown timeout reached (10 seconds), forcing exit...")
         os._exit(1)  # Use os._exit for a hard exit that bypasses Python's cleanup
-    
+
     # Schedule forced exit after 10 seconds
     shutdown_timer = threading.Timer(10.0, force_exit_after_timeout)
     shutdown_timer.daemon = True  # Make timer daemon so it doesn't block process exit
@@ -1441,19 +1444,19 @@ def follow(
 
             # Count occurrences of this block index in recent history
             count = rollback_history.count(block_index)
-            
+
             # Get current tip to check if we're at or near the tip
             try:
                 current_tip = backend_instance.getblockcount()
                 near_tip = block_index >= current_tip - 1
             except Exception:
                 near_tip = False  # Default to false if we can't get tip
-                
+
             # Be more tolerant of rollbacks near the tip where reorgs are common
             max_allowed = MAX_ROLLBACKS
             if near_tip:
                 max_allowed = MAX_ROLLBACKS * 2  # Double the tolerance for blocks at/near tip
-                
+
             if count > max_allowed:
                 logger.error(f"Detected rollback loop at block {block_index} ({count} rollbacks)")
                 return True
@@ -1539,13 +1542,13 @@ def follow(
 
                     # Reset start_time to ensure accurate timing for each block
                     start_time = time.time()
-                    
+
                     # Start profiling for this block
                     profiler.start_block_profiling()
 
                     # Define at_chain_tip here to ensure it's always available
                     at_chain_tip = block_index == block_tip
-                    
+
                     # Find the section where the block is fetched from the pipeline
                     # Try to get block from pipeline first
                     block_data = cp_pipeline_instance.get_block(block_index) if cp_pipeline_instance else None
@@ -1558,7 +1561,9 @@ def follow(
                         # Check if we're at or near the chain tip - expected behavior
                         near_tip = block_index >= block_tip - 1
                         if at_chain_tip or near_tip:
-                            logger.debug(f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip}")
+                            logger.debug(
+                                f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip}"
+                            )
                             # Add delay to allow XCP to catch up
                             xcp_sync_delay = 5  # seconds
                             logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
@@ -1630,19 +1635,23 @@ def follow(
                             if block_index not in stamp_issuances_list and not at_chain_tip:
                                 # For blocks near tip (but not at tip), be more lenient
                                 if block_tip - block_index <= 1:
-                                    logger.warning(f"Block {block_index} not found in XCP results but it's near the tip ({block_tip}). This is likely normal.")
+                                    logger.warning(
+                                        f"Block {block_index} not found in XCP results but it's near the tip ({block_tip}). This is likely normal."
+                                    )
                                     db.rollback()
                                     time.sleep(pause_interval)
                                     continue
                                 # Only treat as critical error for blocks further from tip
                                 else:
-                                    logger.error(f"Critical: XCP node failed to return data for block {block_index} (returned {len(stamp_issuances_list)} other blocks)")
+                                    logger.error(
+                                        f"Critical: XCP node failed to return data for block {block_index} (returned {len(stamp_issuances_list)} other blocks)"
+                                    )
                                     logger.error("Stopping processing to prevent data loss. Check XCP node connectivity.")
-                                    if zmq_notifier and hasattr(zmq_notifier, 'send_status_update'):
+                                    if zmq_notifier and hasattr(zmq_notifier, "send_status_update"):
                                         try:
                                             zmq_notifier.send_status_update(
-                                                "critical_error", 
-                                                f"Failed to fetch block {block_index} from XCP node. Processing halted to preserve data integrity."
+                                                "critical_error",
+                                                f"Failed to fetch block {block_index} from XCP node. Processing halted to preserve data integrity.",
                                             )
                                         except Exception as e:
                                             logger.warning(f"Failed to send ZMQ notification: {e}")
@@ -1668,14 +1677,17 @@ def follow(
                                 raise
 
                     # Check for critical block error marker
-                    if block_index in stamp_issuances_list and "error" in stamp_issuances_list[block_index] and stamp_issuances_list[block_index]["error"] == "Critical block missing from XCP API":
+                    if (
+                        block_index in stamp_issuances_list
+                        and "error" in stamp_issuances_list[block_index]
+                        and stamp_issuances_list[block_index]["error"] == "Critical block missing from XCP API"
+                    ):
                         logger.error(f"Critical error: Block {block_index} was marked as missing from XCP API")
                         logger.error("Stopping processing to prevent data loss. Check XCP node connectivity.")
-                        if zmq_notifier and hasattr(zmq_notifier, 'send_status_update'):
+                        if zmq_notifier and hasattr(zmq_notifier, "send_status_update"):
                             try:
                                 zmq_notifier.send_status_update(
-                                    "critical_error", 
-                                    f"Critical block {block_index} missing from XCP API. Processing halted."
+                                    "critical_error", f"Critical block {block_index} missing from XCP API. Processing halted."
                                 )
                             except Exception as e:
                                 logger.warning(f"Failed to send ZMQ notification: {e}")
@@ -1683,12 +1695,12 @@ def follow(
                         # Sleep to prevent rapid retries
                         time.sleep(60)
                         continue
-                        
+
                     # Initialize stamp_issuances to empty list if not present
                     if stamp_issuances is None:
                         stamp_issuances = []
                         logger.debug(f"Initialized empty stamp_issuances for block {block_index}")
-                    
+
                     # Empty stamp issuances are normal - continue processing
                     # Only log at debug level if not at chain tip
                     if not stamp_issuances and not at_chain_tip and block_index >= config.CP_STAMP_GENESIS_BLOCK:
@@ -1767,7 +1779,7 @@ def follow(
 
                     # Check if we're at or near the chain tip (where hash mismatches are more likely during sync)
                     near_tip = block_index >= block_tip - 2
-                    
+
                     if xcp_hash and xcp_hash != block_hash and not reparse_mode:
                         if near_tip:
                             # For blocks near the tip, log as warning but continue - this is likely due to XCP lag
@@ -1822,7 +1834,17 @@ def follow(
                         )
 
                         stamp_issuances_list.pop(block_index, None)
-                        log_block_info(block_index, start_time, new_ledger_hash, new_txlist_hash, new_messages_hash, 0, 0, 0, is_zmq_notification)
+                        log_block_info(
+                            block_index,
+                            start_time,
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            0,
+                            0,
+                            0,
+                            is_zmq_notification,
+                        )
                         block_index = commit_and_update_block(db, block_index, block_tip, 0)
                         profiler.end_block_profiling()  # End profiling for this block
                         if single_block:
@@ -1884,7 +1906,7 @@ def follow(
                             stamps_in_block,
                             src20_in_block,
                             src101_in_block,
-                            is_zmq_notification
+                            is_zmq_notification,
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
                         profiler.end_block_profiling()  # End profiling for this block
@@ -1997,15 +2019,15 @@ def follow(
                                             f"Delaying for {delay_seconds} seconds to allow Counterparty to process the new block"
                                         )
                                         time.sleep(delay_seconds)
-                                        
+
                                         # Reset start_time to measure only the actual block processing time
                                         # This ensures ZMQ-triggered blocks don't include wait time in their timing
                                         start_time = time.time()
                                         logger.debug("Reset start_time for ZMQ block processing")
-                                        
+
                                         # Set a flag to indicate this block came from ZMQ
                                         is_zmq_notification = True
-                                        
+
                                         break
                                 # No continue here - let the loop check the shutdown flag again
                         except Exception as e:
@@ -2055,7 +2077,7 @@ def follow(
                                     logger.info("Successfully re-enabled ZMQ notifications")
                             except Exception as e:
                                 logger.warning(f"Failed to re-initialize ZMQ: {e}")
-                                
+
                         # If we detect a new block via polling, reset the start time to avoid including wait time
                         if block_tip > block_index:
                             start_time = time.time()

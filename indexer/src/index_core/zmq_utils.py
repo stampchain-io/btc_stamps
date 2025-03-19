@@ -61,10 +61,10 @@ class ZMQNotifier:
 
         try:
             logger.debug(f"Polling ZMQ socket for new blocks with {timeout}ms timeout...")
-            
+
             # Use a shorter timeout to ensure we check for shutdown frequently
             actual_timeout = min(timeout, 1000)  # Max 1 second (1000ms)
-            
+
             events: int = self.socket.poll(actual_timeout)
             logger.debug(f"ZMQ poll returned {events} events")
 
