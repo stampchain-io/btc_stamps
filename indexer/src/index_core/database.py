@@ -914,9 +914,8 @@ def rebuild_balances(db, block_index=None):
         cursor.execute("SET SESSION net_read_timeout=600")
         cursor.execute("SET SESSION net_write_timeout=600")
 
-        # Reduced batch size for better timeout handling
-        BATCH_SIZE = 500  # Reduced from 1000
-        COMMIT_INTERVAL = 10  # Commit every 10 batches
+        BATCH_SIZE = 2000
+        COMMIT_INTERVAL = 25
 
         # Get all data first to maintain exact same logic
         existing_balances = get_existing_balances(cursor)

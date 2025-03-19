@@ -33,6 +33,7 @@ class NodeHealth:
         self.version: Optional[str] = None
         self.version_info: Optional[Dict] = None
         self._lock = threading.Lock()
+        self.minor_failures = 0  # Track less severe failures separately
 
     @property
     def healthy(self) -> bool:
@@ -40,23 +41,63 @@ class NodeHealth:
         with self._lock:
             return self.consecutive_failures == 0 and self.can_retry()
 
-    def mark_failure(self):
-        """Mark a node failure and calculate backoff time."""
+    def is_severe_failure(self, error_info: str) -> bool:
+        """
+        Determine if an error should be counted as a severe failure.
+        Some errors like 404 for recent blocks are expected and shouldn't trigger backoff.
+        """
+        # If the error is a 404 for a block at/near the chain tip, don't count it as severe
+        if "404" in error_info and "Block not yet processed by XCP" in error_info:
+            return False
+        
+        # If it's a 404 for a block somewhat near the tip (within 5 blocks), treat as minor
+        if "404" in error_info and "despite being " in error_info:
+            try:
+                # Extract the number of blocks from tip from the error message
+                blocks_from_tip = int(error_info.split("despite being ")[1].split(" blocks from tip")[0])
+                if blocks_from_tip <= 5:
+                    return False
+            except Exception:
+                # If parsing fails, default to treating it as severe
+                pass
+                
+        return True
+
+    def mark_failure(self, error_info: str = ""):
+        """
+        Mark a node failure and calculate backoff time.
+        
+        Args:
+            error_info: Information about the error to help determine severity
+        """
         with self._lock:
             current_time = time.time()
             self.failures += 1
-            self.consecutive_failures += 1
-            self.last_failure_time = current_time
+            
+            # Determine if this is a severe failure or a minor one
+            if self.is_severe_failure(error_info):
+                self.consecutive_failures += 1
+                self.last_failure_time = current_time
 
-            # Calculate backoff time using exponential backoff
-            backoff = exponential_backoff(self.consecutive_failures)
-            self.backoff_until = current_time + backoff
+                # Calculate backoff time using exponential backoff
+                backoff = exponential_backoff(self.consecutive_failures)
+                self.backoff_until = current_time + backoff
 
-            logger.warning(
-                f"Node {self.name} marked as failed. "
-                f"Consecutive failures: {self.consecutive_failures}, "
-                f"Backoff until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
-            )
+                logger.warning(
+                    f"Node {self.name} marked as failed. "
+                    f"Consecutive failures: {self.consecutive_failures}, "
+                    f"Backoff until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
+                )
+            else:
+                # For minor failures, just increment a counter but don't trigger backoff
+                self.minor_failures += 1
+                # Only apply very short backoff after multiple minor failures
+                if self.minor_failures > 5:
+                    self.backoff_until = current_time + 2  # Just 2 seconds backoff for minor failures
+                    logger.debug(
+                        f"Node {self.name} has {self.minor_failures} minor failures. "
+                        f"Short backoff until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
+                    )
 
     def mark_success(self):
         """Mark a successful node operation."""
@@ -64,6 +105,7 @@ class NodeHealth:
             if self.consecutive_failures > 0:
                 logger.info(f"Node {self.name} recovered after {self.consecutive_failures} failures")
             self.consecutive_failures = 0
+            self.minor_failures = 0  # Reset minor failures too
             self.backoff_until = 0
 
     def can_retry(self) -> bool:
@@ -259,6 +301,10 @@ class CPBlocksPipeline:
                     logger.debug(
                         f"Queue contains blocks: {queue_keys[:5]}{'...' if len(queue_keys) > 5 else ''} (showing first 5 of {len(queue_keys)})"
                     )
+            if block_index == backend_instance.getblockcount():
+                logger.debug(f"Block {block_index} is at chain tip, might not be available in XCP yet")
+                # Return None but don't log as error - expected behavior
+                return None
             return block_data
 
     def _fetch_blocks_worker(self):
@@ -477,7 +523,8 @@ def rate_limited_request(url: str, method: str = "GET", **kwargs) -> requests.Re
 
 def exponential_backoff(attempt: int) -> float:
     """Calculate exponential backoff time"""
-    return min(300, config.CP_BASE_DELAY * (2**attempt))  # Cap at 5 minutes
+    # Cap at 2 minutes instead of 5 - shorter backoff times
+    return min(120, config.CP_BASE_DELAY * (2**attempt))  # Cap at 2 minutes
 
 
 def initialize_node_health():
@@ -503,6 +550,17 @@ def check_node_health(node: Dict[str, Any]) -> bool:
 
     health = node_health_tracker[node_name]
 
+    # If the node is in backoff but it's due to minor failures or a short cooldown,
+    # consider resetting to allow another try
+    current_time = time.time()
+    if not health.can_retry() and health.backoff_until > 0:
+        time_remaining = health.backoff_until - current_time
+        # If node has minor failures only or backoff is almost over (< 3s remaining),
+        # reset and allow retry
+        if health.consecutive_failures == 0 or time_remaining < 3:
+            logger.debug(f"Allowing early retry for node {node_name} (minor failures or short backoff remaining)")
+            health.backoff_until = 0  # Clear backoff to allow retry
+    
     if not health.can_retry():
         logger.info(
             f"Node {node_name} is in cooldown period until {datetime.fromtimestamp(health.backoff_until).strftime('%H:%M:%S')}"
@@ -528,12 +586,13 @@ def check_node_health(node: Dict[str, Any]) -> bool:
             return True
         else:
             logger.warning(f"Node {node_name} reported unhealthy status")
-            health.mark_failure()
+            health.mark_failure("Node self-reported as unhealthy")
             return False
 
     except (requests.exceptions.RequestException, ValueError) as e:
         logger.warning(f"Health check failed for node {node_name}: {str(e)}")
-        health.mark_failure()
+        # Treat health check failures as moderate severity
+        health.mark_failure(f"Health check error: {str(e)}")
         return False
 
 
@@ -655,10 +714,18 @@ def update_healthy_nodes():
             logger.warning("No healthy nodes available! Will retry nodes after their cooldown periods.")
             # Force reset cooldown on all nodes if none are available
             for node_name, health in node_health_tracker.items():
-                if health.consecutive_failures > 3:
+                if health.consecutive_failures > 0:
                     logger.info(f"Resetting cooldown for node {node_name} due to no healthy nodes")
-                    health.consecutive_failures = 3  # Reset to shorter backoff
-                    health.backoff_until = time.time() + exponential_backoff(3)
+                    # Reset failures to a smaller value to allow retry but with shorter backoff
+                    if health.consecutive_failures > 3:
+                        health.consecutive_failures = 2
+                    else:
+                        health.consecutive_failures = max(1, health.consecutive_failures - 1)
+                    # Use a very short backoff period (5-10 seconds) to allow quick retry
+                    health.backoff_until = time.time() + min(10, exponential_backoff(health.consecutive_failures)/3)
+            
+            # After resetting cooldowns, check again for any now-available nodes
+            healthy_nodes = [node for node in config.XCP_V2_NODES if check_node_health(node)]
 
     # Log healthy nodes status
     if not healthy_nodes:
@@ -816,56 +883,6 @@ def calculate_batch_size(current_index: int, tip: int, min_size: int = 3, max_si
         return min(distance, max_size)
 
 
-async def process_blocks(results_dict, current_block_index, block_tip, process_callback):
-    """Process blocks in chunks with proper error handling and retries."""
-    while current_block_index <= block_tip:
-        if server.shutdown_flag.is_set():
-            logger.info("Shutdown flag detected, stopping block processing")
-            break
-
-        blocks_to_fetch = calculate_batch_size(current_block_index, block_tip)
-        end_block = min(current_block_index + blocks_to_fetch - 1, block_tip)
-
-        try:
-            start_time = time.time()
-            blocks_data = await asyncio.wait_for(
-                get_all_xcp_transactions(current_block_index, end_block - current_block_index + 1), timeout=30.0
-            )
-            elapsed_time = time.time() - start_time
-            logger.debug(f"get_all_xcp_transactions completed in {elapsed_time:.2f} seconds")
-
-            if blocks_data:
-                for block in blocks_data:
-                    if block:
-                        block_idx = block["block_index"]
-                        results_dict[block_idx] = block
-                        if process_callback:
-                            logger.debug(f"Running process_callback for block {block_idx}")
-                            process_callback(block)
-                            await asyncio.sleep(0)
-
-            current_block_index = end_block + 1
-            logger.debug(f"Advanced current_block_index to {current_block_index}")
-
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout fetching blocks {current_block_index} to {end_block}, retrying with smaller batch")
-            # Reduce batch size more aggressively
-            blocks_to_fetch = max(1, blocks_to_fetch // 4)
-            # Don't advance block_index on timeout
-            await asyncio.sleep(2)  # Longer delay before retry
-            continue
-        except asyncio.CancelledError:
-            logger.info("Block processing cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Error processing blocks {current_block_index} to {end_block}: {e}")
-            # On error, advance by 1 block instead of the whole batch
-            current_block_index += 1
-            await asyncio.sleep(1)
-            continue
-    return current_block_index
-
-
 def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_callback=None):
     """
     Fetch XCP blocks using the V2 API with asynchronous concurrency using asyncio.
@@ -883,9 +900,11 @@ def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_
 
         results_dict = {}
         current_block_index = block_index  # Create a mutable reference
+        missing_critical_blocks = []  # Track blocks that should exist but weren't found
 
         async def process_blocks(results_dict, current_block_index, block_tip, process_callback):
             """Process blocks in chunks with proper error handling and retries."""
+            nonlocal missing_critical_blocks
             while current_block_index <= block_tip:
                 if server.shutdown_flag.is_set():
                     logger.info("Shutdown flag detected, stopping block processing")
@@ -904,6 +923,29 @@ def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_
 
                     if blocks_data:
                         logger.debug(f"Received {len(blocks_data)} blocks from get_all_xcp_transactions")
+                        
+                        # Verify all expected blocks are in the results
+                        expected_blocks = set(range(current_block_index, end_block + 1))
+                        received_blocks = {block["block_index"] for block in blocks_data if block}
+                        missing_blocks = expected_blocks - received_blocks
+                        
+                        # Check if any blocks are missing
+                        current_bitcoin_tip = backend_instance.getblockcount()
+                        for missing_block in missing_blocks:
+                            # Be more lenient with blocks at or near the tip
+                            if missing_block >= current_bitcoin_tip - 1:
+                                logger.debug(f"Block {missing_block} missing from XCP results - normal for recent blocks")
+                            elif missing_block >= current_bitcoin_tip - 5:
+                                # For blocks somewhat near the tip, just log a warning
+                                logger.warning(f"Block {missing_block} missing from XCP results despite being only {current_bitcoin_tip - missing_block} blocks from tip")
+                            elif missing_block <= current_bitcoin_tip - 5:  # Blocks at least 5 behind tip should definitely exist
+                                logger.error(f"Critical: Block {missing_block} is missing from XCP results despite being well below tip")
+                                missing_critical_blocks.append(missing_block)
+                        
+                        if missing_critical_blocks:
+                            logger.error(f"Missing {len(missing_critical_blocks)} critical blocks (at least 5 blocks below tip): {missing_critical_blocks}")
+                            # We don't return here but will handle this later
+                        
                         for block in blocks_data:
                             if block:
                                 block_idx = block["block_index"]
@@ -940,6 +982,21 @@ def fetch_xcp_blocks_concurrent(block_index, block_tip, indicator=None, process_
             # Run the async processing with proper task cleanup
             main_task = loop.create_task(process_blocks(results_dict, current_block_index, block_tip, process_callback))
             loop.run_until_complete(main_task)
+            
+            # Check if we're missing any critical blocks
+            if missing_critical_blocks:
+                logger.error(f"Critical blocks missing from XCP API: {missing_critical_blocks}")
+                logger.error("This could lead to missing transactions. Consider checking node health and rolling back.")
+                
+                # Mark these blocks specially in the results
+                for block_idx in missing_critical_blocks:
+                    results_dict[block_idx] = {
+                        "block_index": block_idx,
+                        "xcp_block_hash": None,
+                        "issuances": [],
+                        "error": "Critical block missing from XCP API"
+                    }
+            
             return dict(sorted(results_dict.items()))
 
         except asyncio.CancelledError:
@@ -1205,9 +1262,11 @@ async def get_all_xcp_transactions(start_block: int, limit: int = 100) -> Option
         tasks = []
         max_retries = 3
         base_chunk_timeout = 15  # Increased base timeout
+        empty_blocks_count = 0  # Track empty blocks to detect potential API issues
 
         async def process_chunk(chunk_tasks, attempt=0):
             """Process a chunk of tasks with retry logic"""
+            nonlocal empty_blocks_count
             logger.debug(f"Processing chunk of {len(chunk_tasks)} tasks, attempt {attempt + 1}")
             chunk_timeout = base_chunk_timeout * (2**attempt)  # Exponential backoff for timeouts
             try:
@@ -1222,15 +1281,28 @@ async def get_all_xcp_transactions(start_block: int, limit: int = 100) -> Option
                 # Process results immediately
                 successful_results = []
                 failed_count = 0
+                empty_results_count = 0
+
                 for result in chunk_results:
                     if isinstance(result, Exception):
                         if not isinstance(result, asyncio.CancelledError):
                             logger.error(f"Error in block fetch: {result}")
                         failed_count += 1
                     elif result is not None:
+                        # Check if this is an empty block (no issuances)
+                        if len(result.get("issuances", [])) == 0:
+                            empty_results_count += 1
+                        
                         successful_results.append(result)
 
-                logger.debug(f"Chunk processed: {len(successful_results)} successful, {failed_count} failed")
+                # Check for API stability issues - if we're getting lots of empty blocks
+                # Only log at warning level if we get a very large number of consecutive empty blocks
+                if empty_results_count == len(chunk_results) and len(chunk_results) >= 5:
+                    empty_blocks_count += empty_results_count
+                    if empty_blocks_count > 50:  # Only log warning for extreme cases
+                        logger.warning(f"All {empty_results_count} blocks in chunk are empty (no issuances). This is normal for many blocks but could indicate a connectivity issue if it persists across too many blocks.")
+                
+                logger.debug(f"Chunk processed: {len(successful_results)} successful, {failed_count} failed, {empty_results_count} empty")
 
                 # Check if we need to retry due to too many failures
                 if failed_count > len(chunk_results) / 2 and attempt < max_retries:
@@ -1354,6 +1426,10 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                 if requested_block > current_tip:
                     logger.info(f"Requested block {requested_block} is beyond current tip {current_tip}, skipping fetch")
                     return {"result": None, "error": "Block not yet mined"}
+                
+                # Be more lenient about blocks at or very near the tip (they might not be in XCP yet)
+                if requested_block >= current_tip - 1:
+                    logger.debug(f"Block {requested_block} is at or near chain tip {current_tip}")
             except Exception as e:
                 logger.debug(f"Could not check block tip: {e}")
 
@@ -1378,18 +1454,37 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                         request_time = time.time() - request_start
                         logger.debug(f"Request to {url} completed in {request_time:.2f}s with status {response.status}")
 
-                        # Handle 404 for blocks specially when we're at the tip
+                        # Enhanced handling for 404 errors, especially for blocks at/near tip
                         if response.status == 404 and "/blocks/" in endpoint and endpoint.split("/")[-1].isdigit():
                             try:
                                 requested_block = int(endpoint.split("/")[-1])
                                 current_tip = backend_instance.getblockcount()
 
-                                if requested_block > current_tip:
-                                    # This is expected behavior - don't count as a failure
+                                # Blocks at or very near tip (0-1 blocks away) might not be in XCP yet - normal behavior
+                                if requested_block >= current_tip - 1:
                                     logger.debug(
-                                        f"Block {requested_block} not found (current tip: {current_tip}), this is expected"
+                                        f"Block {requested_block} not found in XCP (current tip: {current_tip}), likely still processing"
                                     )
-                                    return {"result": None, "error": "Block not yet mined"}
+                                    # This is expected behavior, don't penalize the node
+                                    node_health.mark_success()
+                                    return {"result": None, "error": "Block not yet processed by XCP"}
+                                elif requested_block > current_tip - 5:
+                                    # Block might be delayed but not critically so - log but don't mark node unhealthy
+                                    logger.warning(
+                                        f"Block {requested_block} not found in XCP despite being {current_tip - requested_block} blocks from tip"
+                                    )
+                                    # Use the minor failure tracking
+                                    error_info = f"404: Block {requested_block} not found in XCP despite being {current_tip - requested_block} blocks from tip"
+                                    node_health.mark_failure(error_info)
+                                    return {"result": None, "error": "Block not yet processed by XCP"}
+                                else:
+                                    # Block is well behind tip and should definitely exist - this is a real issue
+                                    logger.error(
+                                        f"Block {requested_block} not found in XCP despite being {current_tip - requested_block} blocks from tip"
+                                    )
+                                    error_info = f"404: Block {requested_block} not found in XCP despite being {current_tip - requested_block} blocks from tip"
+                                    node_health.mark_failure(error_info)
+                                    return {"result": None, "error": "Block missing from XCP node"}
                             except Exception as e:
                                 # If we couldn't check the tip, proceed with normal error handling
                                 logger.debug(f"Could not check block tip during 404 handling: {e}")
@@ -1397,13 +1492,46 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                         if response.status == 200:
                             try:
                                 json_response = await response.json()
-                                node_health.mark_success()
-                                elapsed_time = time.time() - start_time
-                                logger.debug(f"fetch_xcp_async for {endpoint} completed successfully in {elapsed_time:.2f}s")
-                                return json_response
+                                
+                                # Enhanced validation of successful responses
+                                is_valid = True
+                                
+                                # For block endpoints, check for expected fields
+                                if "/blocks/" in endpoint and not "/transactions" in endpoint:
+                                    # For block queries, we expect a 'result' field
+                                    if "result" not in json_response:
+                                        logger.warning(f"XCP node {node['name']} returned 200 OK but malformed data (missing 'result' field) for {endpoint}")
+                                        is_valid = False
+                                    elif json_response.get("result") is None:
+                                        # This is a special case - could be a valid empty response for non-existent block
+                                        # Only treat as error for blocks well below the tip
+                                        try:
+                                            requested_block = int(endpoint.split("/")[-1])
+                                            current_tip = backend_instance.getblockcount()
+                                            if requested_block <= current_tip - 5:  # Increased buffer from 3 to 5
+                                                logger.warning(f"XCP node {node['name']} returned null result for block {requested_block} which should exist (≤ tip-5)")
+                                                is_valid = False
+                                        except Exception:
+                                            pass
+                                
+                                # For transaction endpoints, check for expected fields
+                                if "/transactions" in endpoint:
+                                    if "result" not in json_response:
+                                        logger.warning(f"XCP node {node['name']} returned 200 OK but malformed transaction data (missing 'result' field)")
+                                        is_valid = False
+                                
+                                if is_valid:
+                                    node_health.mark_success()
+                                    elapsed_time = time.time() - start_time
+                                    logger.debug(f"fetch_xcp_async for {endpoint} completed successfully in {elapsed_time:.2f}s")
+                                    return json_response
+                                else:
+                                    logger.warning(f"XCP node {node['name']} returned invalid response structure: {json_response}")
+                                    node_health.mark_failure("Invalid response structure")
+                                    last_error = ValueError(f"Invalid response structure from {node['name']}")
                             except Exception as e:
                                 logger.error(f"Error parsing JSON from {url}: {e}")
-                                node_health.mark_failure()
+                                node_health.mark_failure(str(e))
                                 last_error = e
                         else:
                             error_text = await response.text()
@@ -1412,7 +1540,10 @@ async def fetch_xcp_async(endpoint: str, params: Optional[Dict[str, Any]] = None
                                 logger.debug(f"Not found response from {url}: {response.status} - {error_text}")
                             else:
                                 logger.error(f"Error response from {url}: {response.status} - {error_text}")
-                            node_health.mark_failure()
+                            
+                            # Pass error info to mark_failure for severity determination
+                            error_info = f"HTTP {response.status}: {error_text}"
+                            node_health.mark_failure(error_info)
                             last_error = RuntimeError(f"HTTP {response.status}: {error_text}")
             except asyncio.TimeoutError:
                 logger.error(f"Timeout connecting to {url} after {current_timeout}s")
@@ -1469,13 +1600,20 @@ async def fetch_single_block(idx):
             return None
 
         # Check if block is beyond current tip
+        current_tip = None
         try:
             current_tip = backend_instance.getblockcount()
             if idx > current_tip:
                 logger.debug(f"Block {idx} is beyond current tip {current_tip}, skipping fetch")
                 return None
+                
+            # Set a flag for blocks at or very near the tip
+            near_tip = idx >= current_tip - 1
+            if near_tip:
+                logger.debug(f"Block {idx} is at or near chain tip {current_tip}")
         except Exception as e:
             logger.debug(f"Could not check block tip: {e}")
+            near_tip = False  # Default value if we can't check
 
         # Fetch block metadata and transactions concurrently
         async def fetch_block_data():
@@ -1487,11 +1625,57 @@ async def fetch_single_block(idx):
             elapsed_time = time.time() - start_time
             logger.debug(f"Block data fetch for block {idx} completed in {elapsed_time:.2f} seconds")
 
-            # Check if we got a special "block not yet mined" response
-            if result and isinstance(result, dict) and result.get("error") == "Block not yet mined":
-                logger.debug(f"Block {idx} not yet mined")
-                return None
+            # Gracefully handle special case responses for recent blocks
+            if result and isinstance(result, dict):
+                error = result.get("error")
+                if error in ["Block not yet mined", "Block not yet processed by XCP"]:
+                    logger.debug(f"Block {idx} - {error}")
+                    return None
 
+            # Enhanced error detection: Check for empty response structure (200 OK but no data)
+            if result and isinstance(result, dict):
+                if "result" not in result:
+                    if near_tip:
+                        logger.debug(f"XCP node returned 200 OK for block {idx} but response missing 'result' field - expected for new blocks")
+                        return None
+                    else:
+                        logger.error(f"XCP node returned 200 OK for block {idx} but response missing 'result' field: {result}")
+                        if current_tip is not None and idx <= current_tip - 5:  # Increased buffer from 3 to 5
+                            logger.error(f"Block {idx} should exist (≤ tip-5 {current_tip-5}) - treating as critical error")
+                            # Mark all nodes as unhealthy to force reset
+                            for node_name, health in node_health_tracker.items():
+                                health.mark_failure()
+                        return None
+                
+                if result.get("result") is None or (isinstance(result.get("result"), dict) and not result.get("result")):
+                    if near_tip:
+                        logger.debug(f"XCP node returned 200 OK for block {idx} but empty result data - expected for new blocks")
+                        return None
+                    else:
+                        logger.error(f"XCP node returned 200 OK for block {idx} but empty result data: {result}")
+                        if current_tip is not None and idx <= current_tip - 5:  # Increased from 3 to 5
+                            logger.error(f"Block {idx} should exist (≤ tip-5 {current_tip-5}) - treating as critical error")
+                            # Mark all nodes as unhealthy to force reset
+                            for node_name, health in node_health_tracker.items():
+                                health.mark_failure()
+                        return None
+
+            # Handle 404 errors specially for blocks that should exist
+            if result is None and current_tip is not None:
+                if idx >= current_tip - 1:
+                    # For blocks at or very near the tip, this is normal - XCP might be behind
+                    logger.debug(f"Block {idx} not found in XCP node - expected for blocks at or near tip {current_tip}")
+                elif idx >= current_tip - 5:
+                    # For blocks somewhat near the tip, warn but don't treat as critical
+                    logger.warning(f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}")
+                else:
+                    # For blocks well behind the tip, this is a real issue
+                    logger.error(f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}")
+                    logger.error("This could indicate a missing block in the XCP node or connectivity issues.")
+                    # Mark all nodes as unhealthy to force reset
+                    for node_name, health in node_health_tracker.items():
+                        health.mark_failure()
+                
             return result
 
         async def fetch_block_transactions():
@@ -1509,21 +1693,34 @@ async def fetch_single_block(idx):
                 logger.debug(f"Fetching transactions page for block {idx} with cursor: {next_cursor}")
                 response = await fetch_xcp_async(tx_endpoint, params=params)
 
-                # Check if we got a special "block not yet mined" response
-                if response and isinstance(response, dict) and response.get("error") == "Block not yet mined":
-                    logger.debug(f"Block {idx} transactions not yet mined")
+                # Special case handling for blocks near the tip
+                if response and isinstance(response, dict) and response.get("error") in ["Block not yet mined", "Block not yet processed by XCP"]:
+                    logger.debug(f"Block {idx} transactions not yet processed by XCP")
                     return []
 
-                if not response or not isinstance(response, dict):
-                    # Use debug level instead of warning for transactions in blocks that might be at tip
-                    try:
-                        current_tip = backend_instance.getblockcount()
-                        if idx >= current_tip:
-                            logger.debug(f"Invalid response format for transactions in block {idx} (at or beyond tip)")
+                # Enhanced error detection: Check for malformed but successful responses
+                if response and isinstance(response, dict):
+                    if "result" not in response:
+                        if near_tip:
+                            logger.debug(f"Transaction API returned response without 'result' field for block {idx} near tip")
+                            break
+                        elif current_tip is not None and idx <= current_tip - 5:  # Increased buffer
+                            logger.error(f"Transaction API returned 200 OK but malformed data (missing 'result' field) for block {idx}")
+                            # Mark nodes as unhealthy if this is not at the tip
+                            for node_name, health in node_health_tracker.items():
+                                health.mark_failure()
                         else:
-                            logger.warning(f"Invalid response format for transactions in block {idx}")
-                    except Exception:
-                        logger.warning(f"Invalid response format for transactions in block {idx}")
+                            logger.debug(f"Transaction API returned data without 'result' field for block {idx}")
+                        break
+
+                if not response or not isinstance(response, dict):
+                    # Handle 404 errors specially for blocks that should exist
+                    if near_tip:
+                        logger.debug(f"No transaction data yet for block {idx} (at or near tip)")
+                    elif current_tip is not None and idx <= current_tip - 5:
+                        logger.error(f"Failed to fetch transactions for block {idx} which should exist (≤ tip-5 {current_tip-5})")
+                    else:
+                        logger.debug(f"Invalid response format for transactions in block {idx}")
                     break
 
                 transactions = response.get("result", [])
@@ -1541,6 +1738,10 @@ async def fetch_single_block(idx):
                 # Small delay between pagination requests
                 await asyncio.sleep(0.1)
 
+            # Only log at debug level - empty transactions are normal for most blocks
+            if not all_transactions and current_tip is not None and idx <= current_tip - 10 and idx >= config.CP_STAMP_GENESIS_BLOCK:
+                logger.debug(f"Block {idx} has no transactions (empty response from XCP API)")
+            
             elapsed_time = time.time() - start_time
             logger.debug(
                 f"Transaction fetch for block {idx} completed in {elapsed_time:.2f} seconds with {len(all_transactions)} transactions"
@@ -1569,19 +1770,40 @@ async def fetch_single_block(idx):
 
         # Check for exceptions in results
         if isinstance(block_response, Exception):
-            logger.error(f"Error fetching block {idx} metadata: {block_response}")
+            if near_tip:
+                logger.debug(f"Error fetching block {idx} metadata (near tip): {block_response}")
+            elif current_tip is not None and idx <= current_tip - 5:
+                logger.error(f"Error fetching block {idx} metadata which should exist (≤ tip-5 {current_tip-5}): {block_response}")
+            else:
+                logger.debug(f"Error fetching block {idx} metadata: {block_response}")
             return None
+            
         if isinstance(transactions, Exception):
-            logger.error(f"Error fetching block {idx} transactions: {transactions}")
+            if near_tip:
+                logger.debug(f"Error fetching block {idx} transactions (near tip): {transactions}")
+            elif current_tip is not None and idx <= current_tip - 5:
+                logger.error(f"Error fetching block {idx} transactions which should exist (≤ tip-5 {current_tip-5}): {transactions}")
+            else:
+                logger.debug(f"Error fetching block {idx} transactions: {transactions}")
             return None
 
         if not block_response or not isinstance(block_response, dict):
-            logger.error(f"Invalid response format for block {idx}")
+            if near_tip:
+                logger.debug(f"Invalid response format for block {idx} (near tip)")
+            elif current_tip is not None and idx <= current_tip - 5:
+                logger.error(f"Invalid response format for block {idx} which should exist (≤ tip-5 {current_tip-5})")
+            else:
+                logger.debug(f"Invalid response format for block {idx}")
             return None
 
         block_data = block_response.get("result")
         if not block_data:
-            logger.error(f"No data found for block {idx}")
+            if near_tip:
+                logger.debug(f"No data found for block {idx} (near tip)")
+            elif current_tip is not None and idx <= current_tip - 5:
+                logger.error(f"No data found for block {idx} which should exist (≤ tip-5 {current_tip-5})")
+            else:
+                logger.debug(f"No data found for block {idx}")
             return None
 
         if server.shutdown_flag.is_set():

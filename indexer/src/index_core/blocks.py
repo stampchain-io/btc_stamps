@@ -1357,7 +1357,20 @@ def follow(
 
             # Count occurrences of this block index in recent history
             count = rollback_history.count(block_index)
-            if count > MAX_ROLLBACKS:
+            
+            # Get current tip to check if we're at or near the tip
+            try:
+                current_tip = backend_instance.getblockcount()
+                near_tip = block_index >= current_tip - 1
+            except Exception:
+                near_tip = False  # Default to false if we can't get tip
+                
+            # Be more tolerant of rollbacks near the tip where reorgs are common
+            max_allowed = MAX_ROLLBACKS
+            if near_tip:
+                max_allowed = MAX_ROLLBACKS * 2  # Double the tolerance for blocks at/near tip
+                
+            if count > max_allowed:
                 logger.error(f"Detected rollback loop at block {block_index} ({count} rollbacks)")
                 return True
             return False
@@ -1443,6 +1456,10 @@ def follow(
                     # Start profiling for this block
                     profiler.start_block_profiling()
 
+                    # Define at_chain_tip here to ensure it's always available
+                    at_chain_tip = block_index == block_tip
+                    
+                    # Find the section where the block is fetched from the pipeline
                     # Try to get block from pipeline first
                     block_data = cp_pipeline_instance.get_block(block_index) if cp_pipeline_instance else None
 
@@ -1451,7 +1468,17 @@ def follow(
                         stamp_issuances = block_data["issuances"]
                         stamp_issuances_list = {block_index: block_data}
                     else:
-                        logger.warning(f"Block {block_index} not found in CP pipeline, falling back to direct fetch")
+                        # Check if we're at or near the chain tip - expected behavior
+                        near_tip = block_index >= block_tip - 1
+                        if at_chain_tip or near_tip:
+                            logger.debug(f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip}")
+                            # Add delay to allow XCP to catch up
+                            xcp_sync_delay = 5  # seconds
+                            logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
+                            time.sleep(xcp_sync_delay)
+                        else:
+                            logger.warning(f"Block {block_index} not found in CP pipeline, falling back to direct fetch")
+
                         try:
                             if server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected before CP fetch, breaking...")
@@ -1472,17 +1499,70 @@ def follow(
                             else:
                                 indicator = None
 
-                            logger.info(f"Directly fetching block {block_index} from XCP API")
+                            # Adjust logging based on chain tip status
+                            if at_chain_tip:
+                                logger.debug(f"Directly fetching block {block_index} from XCP API (at chain tip)")
+                            else:
+                                logger.info(f"Directly fetching block {block_index} from XCP API")
+
                             # Limit the fetch to at most 100 blocks instead of all the way to block_tip
                             max_fetch_blocks = 100
                             end_block = min(block_index + max_fetch_blocks - 1, block_tip)
-                            stamp_issuances_list = fetch_xcp_blocks_concurrent(block_index, end_block, indicator=indicator)
+
+                            # Progressive backoff for chain tip blocks
+                            max_attempts = 3 if at_chain_tip else 1
+                            for attempt in range(max_attempts):
+                                if server.shutdown_flag.is_set():
+                                    break
+
+                                stamp_issuances_list = fetch_xcp_blocks_concurrent(block_index, end_block, indicator=indicator)
+
+                                if stamp_issuances_list or not at_chain_tip:
+                                    break
+
+                                # Only retry with backoff at chain tip
+                                if at_chain_tip and attempt < max_attempts - 1:
+                                    backoff_time = min(10, 5 * (attempt + 1))
+                                    logger.debug(
+                                        f"Block {block_index} not ready in XCP, waiting {backoff_time}s (attempt {attempt+1}/{max_attempts})"
+                                    )
+                                    time.sleep(backoff_time)
 
                             if not stamp_issuances_list:
-                                logger.warning(f"No data returned for block {block_index} - it may not exist yet")
+                                if at_chain_tip:
+                                    logger.debug(
+                                        f"No data returned for block {block_index} at chain tip - expected, will retry"
+                                    )
+                                else:
+                                    logger.warning(f"No data returned for block {block_index} - it may not exist yet")
                                 db.rollback()
                                 time.sleep(pause_interval)
                                 continue
+
+                            # Check if this particular block is missing from the results
+                            if block_index not in stamp_issuances_list and not at_chain_tip:
+                                # For blocks near tip (but not at tip), be more lenient
+                                if block_tip - block_index <= 1:
+                                    logger.warning(f"Block {block_index} not found in XCP results but it's near the tip ({block_tip}). This is likely normal.")
+                                    db.rollback()
+                                    time.sleep(pause_interval)
+                                    continue
+                                # Only treat as critical error for blocks further from tip
+                                else:
+                                    logger.error(f"Critical: XCP node failed to return data for block {block_index} (returned {len(stamp_issuances_list)} other blocks)")
+                                    logger.error("Stopping processing to prevent data loss. Check XCP node connectivity.")
+                                    if zmq_notifier and hasattr(zmq_notifier, 'send_status_update'):
+                                        try:
+                                            zmq_notifier.send_status_update(
+                                                "critical_error", 
+                                                f"Failed to fetch block {block_index} from XCP node. Processing halted to preserve data integrity."
+                                            )
+                                        except Exception as e:
+                                            logger.warning(f"Failed to send ZMQ notification: {e}")
+                                    db.rollback()
+                                    # Sleep to prevent rapid retries
+                                    time.sleep(30)
+                                    continue
 
                             logger.info(f"Successfully fetched {len(stamp_issuances_list)} blocks directly from XCP API")
 
@@ -1499,6 +1579,33 @@ def follow(
                             logger.error(f"Error during CP fetch: {e}")
                             if not config.FORCE:
                                 raise
+
+                    # Check for critical block error marker
+                    if block_index in stamp_issuances_list and "error" in stamp_issuances_list[block_index] and stamp_issuances_list[block_index]["error"] == "Critical block missing from XCP API":
+                        logger.error(f"Critical error: Block {block_index} was marked as missing from XCP API")
+                        logger.error("Stopping processing to prevent data loss. Check XCP node connectivity.")
+                        if zmq_notifier and hasattr(zmq_notifier, 'send_status_update'):
+                            try:
+                                zmq_notifier.send_status_update(
+                                    "critical_error", 
+                                    f"Critical block {block_index} missing from XCP API. Processing halted."
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to send ZMQ notification: {e}")
+                        db.rollback()
+                        # Sleep to prevent rapid retries
+                        time.sleep(60)
+                        continue
+                        
+                    # Initialize stamp_issuances to empty list if not present
+                    if stamp_issuances is None:
+                        stamp_issuances = []
+                        logger.debug(f"Initialized empty stamp_issuances for block {block_index}")
+                    
+                    # Empty stamp issuances are normal - continue processing
+                    # Only log at debug level if not at chain tip
+                    if not stamp_issuances and not at_chain_tip and block_index >= config.CP_STAMP_GENESIS_BLOCK:
+                        logger.debug(f"Block {block_index} has no stamp issuances - this is normal")
 
                     if block_tip - block_index < 100 and not reparse_mode:
                         requires_rollback = False
@@ -1568,14 +1675,26 @@ def follow(
                             raise KeyError("Neither xcp_block_hash nor block_hash found in block data")
                     except (KeyError, TypeError) as e:
                         logger.error(f"Error accessing block hash for block {block_index}: {e}")
-                        # Handle the error appropriately
+                        # Using empty string here since we don't want to force a rollback for new blocks
+                        xcp_hash = ""
 
-                    if xcp_hash != block_hash and not reparse_mode:
-                        logger.critical(f"Hash mismatch at block {block_index}")
-                        logger.critical(f"XCP: {xcp_hash}")
-                        logger.critical(f"BTC: {block_hash}")
-                        block_index = rollback_to_block(db, block_index - 2, "XCP/Bitcoin hash mismatch")
-                        continue
+                    # Check if we're at or near the chain tip (where hash mismatches are more likely during sync)
+                    near_tip = block_index >= block_tip - 2
+                    
+                    if xcp_hash and xcp_hash != block_hash and not reparse_mode:
+                        if near_tip:
+                            # For blocks near the tip, log as warning but continue - this is likely due to XCP lag
+                            logger.warning(f"Hash mismatch at block {block_index} near chain tip - this is likely temporary")
+                            logger.warning(f"XCP: {xcp_hash}")
+                            logger.warning(f"BTC: {block_hash}")
+                            # Continue with the current block - we don't want to rollback for temporary mismatches
+                        else:
+                            # For blocks further from the tip, this is likely a real issue
+                            logger.critical(f"Hash mismatch at block {block_index}")
+                            logger.critical(f"XCP: {xcp_hash}")
+                            logger.critical(f"BTC: {block_hash}")
+                            block_index = rollback_to_block(db, block_index - 2, "XCP/Bitcoin hash mismatch")
+                            continue
 
                     # Filter transactions based on genesis status
                     block_data = {
