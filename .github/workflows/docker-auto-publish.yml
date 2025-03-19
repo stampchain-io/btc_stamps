@@ -24,6 +24,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Extract version from pyproject.toml
+        id: get-version
+        run: |
+          if [ -f "indexer/pyproject.toml" ]; then
+            VERSION=$(grep -m 1 'version = ' indexer/pyproject.toml | sed -E 's/version = "([^"]+)"/\1/')
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "Found version: $VERSION"
+          else
+            echo "VERSION=unknown" >> $GITHUB_OUTPUT
+            echo "pyproject.toml not found"
+          fi
+
       - name: Set Docker tag
         id: set-tag
         run: |
@@ -33,6 +45,14 @@ jobs:
             echo "TAG=dev" >> $GITHUB_OUTPUT
           fi
           echo "SHA_TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          # Set branch name for tag
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          if [[ "$BRANCH_NAME" != "main" ]]; then
+            # For non-main branches, add branch name to version
+            echo "VERSION_TAG=${{ steps.get-version.outputs.VERSION }}-$BRANCH_NAME" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION_TAG=${{ steps.get-version.outputs.VERSION }}" >> $GITHUB_OUTPUT
+          fi
       
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -83,6 +103,7 @@ jobs:
           tags: |
             btcstamps/indexer:${{ steps.set-tag.outputs.TAG }}
             btcstamps/indexer:${{ steps.set-tag.outputs.SHA_TAG }}
+            btcstamps/indexer:${{ steps.set-tag.outputs.VERSION_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
