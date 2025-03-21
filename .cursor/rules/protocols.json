@@ -1,0 +1,111 @@
+{
+  "title": "Bitcoin Stamps Protocols",
+  "description": "Rules for understanding and working with Bitcoin Stamps protocols specifications.",
+  "patterns": [
+    {
+      "pattern": "docs/PROTOCOLS.md",
+      "description": "Comprehensive protocol specifications for all supported formats",
+      "instructions": [
+        "This is the authoritative source for protocol specifications.",
+        "Includes specifications for Classic Stamps, SRC-20, SRC-721, SRC-721r, SRC-101, and OLGA.",
+        "Details transaction sources (direct Bitcoin and Counterparty) and their handling.",
+        "Refer to this document when implementing protocol validation or making changes."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/stamp.py",
+      "description": "Implementation of stamp validation and processing",
+      "instructions": [
+        "Handles stamp data extraction and validation.",
+        "Implements dual-source architecture (direct Bitcoin and Counterparty).",
+        "Base64 decoding and repair functions for stamp images.",
+        "Follow existing patterns when adding new features."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/src20.py",
+      "description": "Implementation of SRC-20 token standard",
+      "instructions": [
+        "Implements deploy, mint, and transfer operations.",
+        "Balance tracking and validation rules.",
+        "Only direct Bitcoin SRC-20 transactions are processed after block 796000.",
+        "Follows the specifications in docs/PROTOCOLS.md."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/src101.py",
+      "description": "Implementation of SRC-101 domain standard",
+      "instructions": [
+        "Implements domain registration, transfer, and renewal.",
+        "Validates domain names according to protocol rules.",
+        "Tracks domain ownership and expiration."
+      ]
+    },
+    {
+      "pattern": "indexer/src/rust_parser/src/lib.rs",
+      "description": "Rust implementation for efficient transaction parsing",
+      "instructions": [
+        "High-performance pattern matching for stamp protocols.",
+        "Used by the Transaction Filter for efficient filtering.",
+        "Detects PREFIX and validates transaction structure.",
+        "Memory-efficient processing with LRU caching."
+      ]
+    }
+  ],
+  "conceptDefinitions": [
+    {
+      "concept": "Classic Stamps",
+      "definition": "Original Bitcoin Stamps format for immutable image storage on the Bitcoin blockchain."
+    },
+    {
+      "concept": "SRC-20",
+      "definition": "Fungible token protocol inspired by BRC-20 but with the immutability guarantees of Stamps."
+    },
+    {
+      "concept": "SRC-721",
+      "definition": "Non-fungible token protocol using JSON manifests to construct complex, layered images."
+    },
+    {
+      "concept": "SRC-721r",
+      "definition": "Recursive NFT protocol extending SRC-721 with JavaScript and other libraries for complex compositions."
+    },
+    {
+      "concept": "SRC-101",
+      "definition": "Domain name system native to Bitcoin Stamps."
+    },
+    {
+      "concept": "OLGA",
+      "definition": "On-chain Lightweight Graphics Array format that eliminates Base64 encoding overhead, using P2WSH outputs."
+    },
+    {
+      "concept": "Dual-Source Architecture",
+      "definition": "Architecture supporting both direct Bitcoin transactions and Counterparty-based transactions."
+    },
+    {
+      "concept": "Transaction Sources",
+      "definition": "Bitcoin Stamps can originate from direct Bitcoin transactions or Counterparty transactions."
+    },
+    {
+      "concept": "PREFIX",
+      "definition": "The 'stamp:' prefix used to identify protocol-relevant data in transactions."
+    }
+  ],
+  "relatedDocumentation": [
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "System architecture including transaction processing pipeline"
+    },
+    {
+      "path": "docs/DATABASE.md",
+      "description": "Database schema for storing protocol data"
+    },
+    {
+      "path": "indexer/src/rust_parser/README.md",
+      "description": "Documentation for the Rust parser component"
+    },
+    {
+      "path": "https://github.com/stampchain-io/stamps_sdk/blob/main/docs/src20specs.md",
+      "description": "External reference for SRC-20 specifications"
+    }
+  ]
+}

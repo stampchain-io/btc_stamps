@@ -1,0 +1,88 @@
+{
+  "title": "Bitcoin Stamps Database",
+  "description": "Rules for understanding and working with the Bitcoin Stamps database schema and operations.",
+  "patterns": [
+    {
+      "pattern": "docs/DATABASE.md",
+      "description": "Comprehensive database schema and operation guidelines",
+      "instructions": [
+        "This is the authoritative source for database structure and usage.",
+        "Includes table definitions, relationships, and common operations.",
+        "Reference this document before making any database changes."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/database.py",
+      "description": "Database operations implementation",
+      "instructions": [
+        "Contains core database operation functions.",
+        "Use parameterized queries with %s placeholders to prevent SQL injection.",
+        "Follow connection patterns to ensure proper connection management.",
+        "Always use transactions for consistency.",
+        "Always close connections to return them to the pool."
+      ]
+    },
+    {
+      "pattern": "indexer/table_schema.sql",
+      "description": "SQL schema definition for all tables",
+      "instructions": [
+        "Complete SQL schema definition for the database.",
+        "Reference for table structure and indexes.",
+        "Make sure to update this file when modifying database schema."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/database/\\w+\\.py",
+      "description": "Specialized database operation modules",
+      "instructions": [
+        "Domain-specific database operations.",
+        "Follow the same connection management patterns as in database.py.",
+        "Ensure consistent error handling and transaction management."
+      ]
+    }
+  ],
+  "conceptDefinitions": [
+    {
+      "concept": "Connection Pooling",
+      "definition": "Technique for efficient database connection management where connections are reused rather than created for each operation."
+    },
+    {
+      "concept": "Parameterized Queries",
+      "definition": "Using placeholders (%s) in SQL queries and passing parameters separately to prevent SQL injection."
+    },
+    {
+      "concept": "Transactions",
+      "definition": "Group of database operations that are treated as a single unit, ensuring consistency through commit or rollback."
+    },
+    {
+      "concept": "StampTableV4",
+      "definition": "Main table for storing stamp data including transaction hash, creator, and metadata."
+    },
+    {
+      "concept": "SRC20",
+      "definition": "Table for storing SRC-20 token operations (deploy, mint, transfer)."
+    },
+    {
+      "concept": "SRC20Valid",
+      "definition": "Table for storing validated SRC-20 token operations."
+    },
+    {
+      "concept": "balances",
+      "definition": "Table for tracking current SRC-20 token balances by address."
+    },
+    {
+      "concept": "SRC101",
+      "definition": "Table for storing SRC-101 domain operations."
+    }
+  ],
+  "relatedDocumentation": [
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "System architecture including database component relationships"
+    },
+    {
+      "path": "docs/PROTOCOLS.md",
+      "description": "Protocol specifications that inform database structure"
+    }
+  ]
+}

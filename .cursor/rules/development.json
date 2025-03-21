@@ -1,0 +1,105 @@
+{
+  "title": "Bitcoin Stamps Development",
+  "description": "Rules for development workflow, testing, and best practices for the Bitcoin Stamps project.",
+  "patterns": [
+    {
+      "pattern": "docs/DEVELOPMENT.md",
+      "description": "Comprehensive development guide",
+      "instructions": [
+        "This is the authoritative source for development workflow and standards.",
+        "Includes setup instructions, workflow, and best practices.",
+        "Reference this document when onboarding new developers."
+      ]
+    },
+    {
+      "pattern": "indexer/tests/.*\\.py",
+      "description": "Test suite for the indexer",
+      "instructions": [
+        "Tests for the indexer components.",
+        "Follow test patterns for new features.",
+        "Run with: cd indexer && poetry run pytest tests/",
+        "Add thorough tests for any new functionality."
+      ]
+    },
+    {
+      "pattern": "indexer/tools/.*\\.py",
+      "description": "Development and debugging tools",
+      "instructions": [
+        "Utilities for development and debugging.",
+        "Useful for investigating specific transactions or blocks.",
+        "Reference CLAUDE.md for common debug commands."
+      ]
+    },
+    {
+      "pattern": "CLAUDE.md",
+      "description": "Guide for Claude and other AI assistants",
+      "instructions": [
+        "Contains common commands, code style guidelines, and development notes.",
+        "Reference for AI tools working with the codebase.",
+        "Points to detailed documentation for various components."
+      ]
+    }
+  ],
+  "conceptDefinitions": [
+    {
+      "concept": "Poetry",
+      "definition": "Dependency management tool used for Python dependencies in the indexer."
+    },
+    {
+      "concept": "Testing Strategy",
+      "definition": "Approach to validating code changes through unit, integration, and functional tests."
+    },
+    {
+      "concept": "Code Style",
+      "definition": "Formatting and style guidelines including black for formatting, flake8 for linting, and mypy for type checking."
+    },
+    {
+      "concept": "Development Workflow",
+      "definition": "Process for making and testing changes, including setting up the development environment, running tests, and submitting pull requests."
+    },
+    {
+      "concept": "Debug Tools",
+      "definition": "Utilities for debugging and troubleshooting issues in the codebase."
+    }
+  ],
+  "relatedDocumentation": [
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "System architecture to understand component relationships"
+    },
+    {
+      "path": "docs/PROTOCOLS.md",
+      "description": "Protocol specifications that guide implementation"
+    },
+    {
+      "path": "docs/DATABASE.md",
+      "description": "Database schema and operations for development work"
+    },
+    {
+      "path": "indexer/src/rust_parser/README.md",
+      "description": "Documentation for working with the Rust parser"
+    }
+  ],
+  "developmentCommands": [
+    {
+      "command": "cd indexer && poetry install",
+      "description": "Install indexer dependencies"
+    },
+    {
+      "command": "cd indexer && poetry run task build",
+      "description": "Build Rust parser"
+    },
+    {
+      "command": "cd indexer && poetry run pytest tests/",
+      "description": "Run test suite"
+    },
+    {
+      "command": "cd indexer && poetry run check-code",
+      "description": "Run code quality checks"
+    },
+    {
+      "command": "cd indexer && poetry run indexer",
+      "description": "Run the indexer"
+    }
+  ]
+}

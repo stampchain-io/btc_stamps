@@ -1,0 +1,76 @@
+{
+  "title": "Bitcoin Stamps Project Rules",
+  "description": "Master rule file for the Bitcoin Stamps project, pointing to component-specific rules.",
+  "rules": [
+    {
+      "name": "Indexer Rules",
+      "path": ".cursor/rules/indexer.json",
+      "description": "Rules for understanding and working with the indexer component"
+    },
+    {
+      "name": "Protocol Rules",
+      "path": ".cursor/rules/protocols.json",
+      "description": "Rules for protocol specifications and implementations"
+    },
+    {
+      "name": "Database Rules",
+      "path": ".cursor/rules/database.json",
+      "description": "Rules for database schema and operations"
+    },
+    {
+      "name": "Architecture Rules",
+      "path": ".cursor/rules/architecture.json",
+      "description": "Rules for understanding system architecture"
+    },
+    {
+      "name": "Rust Parser Rules",
+      "path": ".cursor/rules/rust-parser.json",
+      "description": "Rules specifically for the Rust parser component"
+    },
+    {
+      "name": "Development Rules",
+      "path": ".cursor/rules/development.json",
+      "description": "Rules for development workflow and best practices"
+    }
+  ],
+  "importantConcepts": [
+    {
+      "concept": "Bitcoin Stamps",
+      "definition": "A meta-protocol for immutable data storage on the Bitcoin blockchain."
+    },
+    {
+      "concept": "Dual-Source Architecture",
+      "definition": "Architecture supporting both direct Bitcoin and Counterparty-based transactions, with only Counterparty SRC-20 tokens discontinued after block 796000."
+    },
+    {
+      "concept": "Transaction Filter and Rust Parser Relationship",
+      "definition": "The Python Transaction Filter orchestrates the process, using the Rust parser for efficient transaction filtering."
+    },
+    {
+      "concept": "Protocol Processing Pipeline",
+      "definition": "The sequence from block acquisition through transaction filtering, protocol validation, to database storage."
+    }
+  ],
+  "keyDocumentation": [
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "System architecture and component relationships"
+    },
+    {
+      "path": "docs/PROTOCOLS.md",
+      "description": "Protocol specifications and transaction sources"
+    },
+    {
+      "path": "docs/DATABASE.md",
+      "description": "Database schema and operations"
+    },
+    {
+      "path": "docs/DEVELOPMENT.md",
+      "description": "Development workflow and standards"
+    },
+    {
+      "path": "CLAUDE.md",
+      "description": "Guide for AI assistants with common commands and references"
+    }
+  ]
+}

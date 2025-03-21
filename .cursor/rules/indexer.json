@@ -1,0 +1,95 @@
+{
+  "title": "Bitcoin Stamps Indexer",
+  "description": "Rules for understanding and working with the Bitcoin Stamps indexer component.",
+  "patterns": [
+    {
+      "pattern": "indexer/src/index_core/blocks.py",
+      "description": "Core block processing pipeline that orchestrates the entire indexing process",
+      "instructions": [
+        "The Block Processor is the main orchestrator of the indexing process.",
+        "It manages chain reorganization, error recovery, and coordinates the processing pipeline.",
+        "The `filter_block_transactions` function uses the Rust parser to efficiently filter transactions.",
+        "Refer to docs/ARCHITECTURE.md for the complete data flow."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/stamp.py",
+      "description": "Processes and validates stamp data (base layer for all protocols)",
+      "instructions": [
+        "StampProcessor handles data extraction and validation for all stamp types.",
+        "Supports both direct Bitcoin and Counterparty transaction sources.",
+        "For protocol specifications, check docs/PROTOCOLS.md."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/src20.py",
+      "description": "SRC-20 token implementation (fungible tokens on Bitcoin)",
+      "instructions": [
+        "Handles deploy, mint, and transfer operations for SRC-20 tokens.",
+        "Direct Bitcoin transactions are the standard after block 796000.",
+        "Counterparty SRC-20 transactions are no longer processed after block 796000."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/src101.py",
+      "description": "SRC-101 domain name system implementation",
+      "instructions": [
+        "Handles registration, transfer, and renewal of domain names.",
+        "Implements strict validation rules for domain registration."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/database.py",
+      "description": "Database operations and management",
+      "instructions": [
+        "Use parameterized queries with %s placeholders to prevent SQL injection.",
+        "Follow connection patterns from the file to ensure proper connection management.",
+        "Always use transactions for data consistency.",
+        "Always close connections to return them to the pool.",
+        "Check docs/DATABASE.md for complete database schema."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/xcprequest.py",
+      "description": "Counterparty API interaction for retrieving transaction data",
+      "instructions": [
+        "Manages requests to the Counterparty API for pre-decoded transaction data.",
+        "Handles connection management, retries, and error recovery.",
+        "Classic stamps via Counterparty are still supported.",
+        "SRC-20 tokens via Counterparty are no longer processed after block 796000."
+      ]
+    }
+  ],
+  "conceptDefinitions": [
+    {
+      "concept": "Block Processor",
+      "definition": "Main component that orchestrates the indexing process, managing block acquisition, transaction filtering, and protocol processing."
+    },
+    {
+      "concept": "Transaction Filter",
+      "definition": "Component that orchestrates filtering of relevant transactions using the Rust parser and handles Counterparty issuances."
+    },
+    {
+      "concept": "Protocol Handler",
+      "definition": "Components that validate and process protocol-specific operations (Stamp, SRC-20, SRC-101, etc.)."
+    },
+    {
+      "concept": "Chain Reorganization",
+      "definition": "Process of handling blockchain reorganizations by reverting changes and reprocessing blocks."
+    }
+  ],
+  "relatedDocumentation": [
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "Overall system architecture and component relationships"
+    },
+    {
+      "path": "docs/PROTOCOLS.md",
+      "description": "Detailed protocol specifications and transaction sources"
+    },
+    {
+      "path": "docs/DATABASE.md",
+      "description": "Database schema and operations"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "title": "Bitcoin Stamps Rust Parser",
+  "description": "Rules for understanding and working with the high-performance Rust parser component.",
+  "patterns": [
+    {
+      "pattern": "indexer/src/rust_parser/src/lib.rs",
+      "description": "Core Rust parser implementation",
+      "instructions": [
+        "High-performance transaction parsing implementation.",
+        "Used by the Transaction Filter to efficiently filter transactions.",
+        "Implements pattern matching for OP_MULTISIG and P2WSH outputs.",
+        "Detects 'stamp:' PREFIX in transaction data.",
+        "Manages memory-efficient caching with LRU implementation."
+      ]
+    },
+    {
+      "pattern": "indexer/src/rust_parser/src/transaction.rs",
+      "description": "Bitcoin transaction parsing utilities",
+      "instructions": [
+        "Utilities for parsing Bitcoin transaction structures.",
+        "Handles decoding of transaction inputs and outputs.",
+        "Extracts public keys and script data."
+      ]
+    },
+    {
+      "pattern": "indexer/src/rust_parser/src/arc4.rs",
+      "description": "ARC4 decryption implementation",
+      "instructions": [
+        "Implementation of ARC4 decryption for extracting stamp data.",
+        "Used to decrypt data from MULTISIG outputs."
+      ]
+    },
+    {
+      "pattern": "indexer/src/rust_parser/README.md",
+      "description": "Documentation for the Rust parser",
+      "instructions": [
+        "Documentation covering usage, architecture, and performance considerations.",
+        "Reference for understanding the parser's role in the system."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/blocks.py",
+      "description": "Integration point with the Transaction Filter",
+      "instructions": [
+        "Shows how the Rust parser is used by the Transaction Filter.",
+        "Helps understand the orchestration role of the Python code.",
+        "Contains the `filter_block_transactions` function that coordinates with the Rust parser."
+      ]
+    }
+  ],
+  "conceptDefinitions": [
+    {
+      "concept": "Rust Parser",
+      "definition": "High-performance component for filtering and initial parsing of transactions, used by the Transaction Filter."
+    },
+    {
+      "concept": "LRU Cache",
+      "definition": "Least Recently Used caching strategy used by the Rust parser to efficiently manage memory usage."
+    },
+    {
+      "concept": "OP_MULTISIG",
+      "definition": "Original encoding format that stores stamp data in public keys within a multisignature script."
+    },
+    {
+      "concept": "P2WSH",
+      "definition": "Pay-to-Witness-Script-Hash format used by OLGA for more efficient data storage."
+    },
+    {
+      "concept": "ARC4 Decryption",
+      "definition": "Encryption algorithm used to decrypt data stored in MULTISIG outputs, using the previous transaction hash as the key."
+    },
+    {
+      "concept": "FFI",
+      "definition": "Foreign Function Interface that allows the Python code to call the Rust implementation."
+    },
+    {
+      "concept": "PREFIX Detection",
+      "definition": "Process of identifying the 'stamp:' prefix in transaction data to validate stamp protocols."
+    }
+  ],
+  "relatedDocumentation": [
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "System architecture showing how the Rust parser fits into the overall system"
+    },
+    {
+      "path": "docs/PROTOCOLS.md",
+      "description": "Protocol specifications that the Rust parser helps validate"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "title": "Bitcoin Stamps Architecture",
+  "description": "Rules for understanding and working with the Bitcoin Stamps system architecture.",
+  "patterns": [
+    {
+      "pattern": "docs/ARCHITECTURE.md",
+      "description": "Comprehensive system architecture documentation",
+      "instructions": [
+        "This is the authoritative source for system architecture.",
+        "Includes component relationships, data flow, and key interfaces.",
+        "Reference this document before making architectural changes."
+      ]
+    },
+    {
+      "pattern": "indexer/src/index_core/blocks.py",
+      "description": "Core block processing pipeline",
+      "instructions": [
+        "Implements the main processing pipeline for blocks.",
+        "Contains the Transaction Filter that orchestrates with the Rust parser.",
+        "Manages chain reorganization and error recovery.",
+        "Coordinates the entire processing workflow."
+      ]
+    },
+    {
+      "pattern": "indexer/src/rust_parser/src/lib.rs",
+      "description": "Rust implementation for efficient transaction parsing",
+      "instructions": [
+        "Used by the Transaction Filter for efficient transaction filtering.",
+        "The Transaction Filter orchestrates this process and handles results.",
+        "High-performance pattern matching with memory-efficient caching."
+      ]
+    },
+    {
+      "pattern": "app/lib/controller/\\w+\\.ts",
+      "description": "Web interface controllers",
+      "instructions": [
+        "Controllers for the web interface.",
+        "Handle API requests and interface with the database.",
+        "Follow the MVC pattern."
+      ]
+    },
+    {
+      "pattern": "app/routes/api/.*\\.ts",
+      "description": "API endpoint definitions",
+      "instructions": [
+        "Define REST API endpoints for accessing protocol data.",
+        "Follow consistent patterns for parameter validation and error handling."
+      ]
+    }
+  ],
+  "conceptDefinitions": [
+    {
+      "concept": "Block Processor",
+      "definition": "Component that orchestrates the indexing process, managing block acquisition, transaction filtering, and protocol processing."
+    },
+    {
+      "concept": "Transaction Filter",
+      "definition": "Component that orchestrates filtering of relevant transactions using the Rust parser and handles Counterparty issuances."
+    },
+    {
+      "concept": "Rust Parser",
+      "definition": "High-performance component for filtering and initial parsing of transactions, used by the Transaction Filter."
+    },
+    {
+      "concept": "Protocol Handler",
+      "definition": "Components that validate and process protocol-specific operations (Stamp, SRC-20, SRC-101, etc.)."
+    },
+    {
+      "concept": "Database Layer",
+      "definition": "Component for structured data storage, transaction management, and state tracking."
+    },
+    {
+      "concept": "Web Interface",
+      "definition": "Deno/Fresh implementation providing REST API and user interface for accessing protocol data."
+    },
+    {
+      "concept": "Processing Pipeline",
+      "definition": "The sequence of operations from block acquisition through transaction filtering, protocol processing, to database storage."
+    }
+  ],
+  "relatedDocumentation": [
+    {
+      "path": "docs/PROTOCOLS.md",
+      "description": "Protocol specifications that influence architecture design"
+    },
+    {
+      "path": "docs/DATABASE.md",
+      "description": "Database schema and operations that support the architecture"
+    },
+    {
+      "path": "indexer/src/rust_parser/README.md",
+      "description": "Documentation for the Rust parser component"
+    }
+  ]
+}

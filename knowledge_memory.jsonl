@@ -1,0 +1,7 @@
+{"type":"entity","name":"signal_handlers.py","entityType":"file","observations":["New module created to handle SIGINT gracefully","Contains signal_handler and setup_signal_handler functions","Located at /indexer/src/index_core/signal_handlers.py"],"createdAt":"2025-03-21T16:36:02.309Z","version":1}
+{"type":"entity","name":"resource_manager.py","entityType":"file","observations":["New module created for resource cleanup","Contains cleanup_resources function","Located at /indexer/src/index_core/resource_manager.py"],"createdAt":"2025-03-21T16:36:02.310Z","version":1}
+{"type":"entity","name":"blocks.py","entityType":"file","observations":["Large core file reduced by 153 lines","Signal handling and resource cleanup code extracted","Located at /indexer/src/index_core/blocks.py"],"createdAt":"2025-03-21T16:36:02.310Z","version":1}
+{"type":"relation","from":"blocks.py","to":"signal_handlers.py","relationType":"imports","createdAt":"2025-03-21T16:36:07.073Z","version":1}
+{"type":"relation","from":"blocks.py","to":"resource_manager.py","relationType":"imports","createdAt":"2025-03-21T16:36:07.073Z","version":1}
+{"type":"relation","from":"signal_handlers.py","to":"server.py","relationType":"depends on","createdAt":"2025-03-21T16:36:07.073Z","version":1}
+{"type":"relation","from":"resource_manager.py","to":"blocks.py","relationType":"supports","createdAt":"2025-03-21T16:36:07.073Z","version":1}
