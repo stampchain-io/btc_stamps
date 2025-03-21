@@ -47,11 +47,14 @@ jobs:
           echo "SHA_TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           # Set branch name for tag
           BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          # Sanitize version for Docker tag (replace + with -)
+          SANITIZED_VERSION=$(echo "${{ steps.get-version.outputs.VERSION }}" | sed 's/+/-/g')
+          
           if [[ "$BRANCH_NAME" != "main" ]]; then
             # For non-main branches, add branch name to version
-            echo "VERSION_TAG=${{ steps.get-version.outputs.VERSION }}-$BRANCH_NAME" >> $GITHUB_OUTPUT
+            echo "VERSION_TAG=${SANITIZED_VERSION}-${BRANCH_NAME}" >> $GITHUB_OUTPUT
           else
-            echo "VERSION_TAG=${{ steps.get-version.outputs.VERSION }}" >> $GITHUB_OUTPUT
+            echo "VERSION_TAG=${SANITIZED_VERSION}" >> $GITHUB_OUTPUT
           fi
       
       - name: Log in to Docker Hub
