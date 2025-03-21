@@ -98,8 +98,8 @@ RUN apk add --no-cache \
     mpfr-dev \
     mpc1-dev \
     netcat-openbsd \
-    supervisor && \
-    mkdir -p /etc/supervisor/conf.d /var/log /var/run
+    openssl \
+    openssl-dev
 
 # Create user and set up directories (as root)
 RUN adduser -D -h /home/indexer indexer && \
@@ -122,11 +122,8 @@ COPY wait-for-mysql.sh /app/wait-for-mysql.sh
 RUN chown indexer:indexer /docker-entrypoint.sh /app/wait-for-mysql.sh && \
     chmod +x /docker-entrypoint.sh /app/wait-for-mysql.sh
 
-# Copy supervisor config
-COPY supervisor.conf /etc/supervisor/conf.d/indexer.conf
-
 # Switch to indexer user after all system operations are complete
 USER indexer
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/indexer.conf"]
+CMD ["poetry", "run", "indexer"]

@@ -175,6 +175,91 @@ make down
 make fdown
 ```
 
+#### Development Container Management
+
+The indexer includes a flexible container management system for development and testing:
+
+```shell
+cd indexer
+
+# Run local development build (outputs to log files)
+./run-container.sh --build
+
+# Run specific Docker Hub version with local MySQL
+./run-container.sh --image 1.8.26  # or --image dev
+
+# Run with logs to stdout (ideal for testing)
+./run-container.sh --image dev --prod
+
+# Run detached in background
+./run-container.sh --image dev --detach
+
+# Show all options
+./run-container.sh --help
+```
+
+**Environment modes:**
+- `--dev` (default): Saves logs to local files, ideal for long-running development
+- `--prod`: Directs logs to stdout/stderr, better for testing and debugging
+
+**Database connection:**
+All modes use the MySQL connection details from your `.env.local` file, so you can test any Docker Hub version against your local database.
+
+> For backward compatibility, the legacy `local-dev.sh` script is still available and delegates to the new unified runner.
+
+#### Quick Testing with Docker Hub Images
+
+For rapid testing without building locally:
+
+1. **Set up environment file:**
+```shell
+cd indexer
+cp .env.sample .env.local
+# Edit .env.local with your MySQL and BTC node details
+```
+
+2. **Run the latest development version:**
+```shell
+./run-container.sh --image dev --prod
+```
+
+This will:
+- Pull the latest dev image from Docker Hub
+- Connect to your local MySQL database (specified in .env.local)
+- Output logs to stdout for easy debugging
+- Use your local Bitcoin node configuration
+
+#### Troubleshooting Container Issues
+
+If you encounter problems with container execution:
+
+1. **Verify database connection:**
+   The container connects to the MySQL server based on your .env.local file. Make sure your database is accessible at the address specified by `RDS_HOSTNAME`.
+
+2. **Test with production mode:**
+   ```shell
+   ./run-container.sh --image dev --prod
+   ```
+   This outputs logs directly to the console, making it easier to identify errors.
+
+3. **Clean up Docker resources:**
+   ```shell
+   ./run-container.sh --cleanup
+   ```
+   This removes all containers, volumes, and images related to the project.
+
+4. **Check container logs:**
+   ```shell
+   docker logs indexer-local-indexer-1
+   ```
+
+5. **Verify network mode:**
+   If using host mode (default), ensure your local services are available on localhost.
+   If your services are on different hosts, try bridge mode:
+   ```shell
+   ./run-container.sh --image dev --bridge
+   ```
+
 ### 💻 Local Execution without Docker
 
 Configure environment variables for MySQL, Bitcoin Node, and Counterparty in the `.env` file.

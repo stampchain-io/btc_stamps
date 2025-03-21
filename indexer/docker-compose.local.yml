@@ -19,13 +19,14 @@ services:
       - "3306:3306"
 
   indexer:
+    # Only build if the image name includes 'local-dev' or 'test'
     build:
       context: .
       dockerfile: Dockerfile
       args:
         PYTHON_VERSION: 3.12
         INSTALL_DEV: "true"
-    image: ${IMAGE_NAME:-btc_stamps/indexer:local-dev}
+    image: ${IMAGE_NAME:-btcstamps/indexer:local-dev}
     labels:
       com.docker.compose.environment: "local-development"
       com.docker.compose.project: "indexer-local"
@@ -47,12 +48,18 @@ services:
       - BACKEND_POLL_INTERVAL=${BACKEND_POLL_INTERVAL:-0.5}
       - PYTHONDONTWRITEBYTECODE=1
       - POETRY_VIRTUALENVS_CREATE=false
-
+      - SUPERVISORD_OPTIONS=${SUPERVISORD_OPTIONS:-}
+      - ${ADDITIONAL_ENV:-}
 
     volumes:
       - ./logs:/app/logs
       - ../files:/usr/src/app/files
-      - .:/app:cached
+      # Only mount code directory if using local development image
+      - ${MOUNT_CODE_DIR:-.}:/app:cached
       - ~/.cache/pip:/root/.cache/pip
+      # Add volume for supervisor log directory with proper permissions
+      - ./logs/supervisor:/var/log/supervisor
     ports:
       - "5678:5678"
+    # Override default command for pulled images if specified
+    command: ${CONTAINER_COMMAND:-}

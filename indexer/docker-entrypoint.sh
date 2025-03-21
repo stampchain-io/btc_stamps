@@ -10,7 +10,7 @@ debug_info() {
         
         # Only show critical container-specific vars
         echo "  • Container Configuration:"
-        env | grep -E 'DOCKER_|PYTHONPATH|DEBUG' | sed 's/=.*$/=****/'
+        env | grep -E 'DOCKER_|PYTHONPATH|DEBUG|LD_LIBRARY_PATH' | sed 's/=.*$/=****/'
         
         # Show Poetry environment
         if command -v poetry &> /dev/null; then
@@ -18,6 +18,15 @@ debug_info() {
         fi
     fi
 }
+
+# Install additional OpenSSL libraries if needed
+if [ "$DOCKER_CONTAINER" = "1" ]; then
+    # Run as root if we have permissions, otherwise skip
+    if [ "$(id -u)" = "0" ]; then
+        echo "Installing additional OpenSSL libraries..."
+        apk add --no-cache libssl3 libcrypto3 2>/dev/null || true
+    fi
+fi
 
 # Wait for MySQL
 if [ "$DOCKER_CONTAINER" = "1" ]; then

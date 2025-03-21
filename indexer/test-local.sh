@@ -20,7 +20,7 @@ cleanup() {
     fi
 
     echo "  • Removing test image..."
-    if docker rmi btc_stamps/indexer:test --force; then
+    if docker rmi btcstamps/indexer:test --force; then
         echo "    ✔ Test image removed"
     else
         echo "    ⚠️  Warning: Could not remove test image"
@@ -84,7 +84,7 @@ services:
       dockerfile: Dockerfile
       args:
         PYTHON_VERSION: 3.12
-    image: btc_stamps/indexer:test
+    image: btcstamps/indexer:test
     labels:
       com.docker.compose.project: indexer-test
     working_dir: /app
