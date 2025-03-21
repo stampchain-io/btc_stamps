@@ -229,6 +229,24 @@ This will:
 - Output logs to stdout for easy debugging
 - Use your local Bitcoin node configuration
 
+#### Testing Docker Builds
+
+Before deploying or committing changes to Docker configuration, validate your builds:
+
+```shell
+# Run a quick build test without starting services
+cd indexer
+./run-container.sh --test
+```
+
+This will:
+- Build a test image
+- Verify it can run properly
+- Clean up after testing
+- Exit with status code 0 on success or 1 on failure
+
+The `--test` option is ideal for CI pipelines and pre-commit validation.
+
 #### Troubleshooting Container Issues
 
 If you encounter problems with container execution:
