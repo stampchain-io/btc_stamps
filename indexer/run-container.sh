@@ -11,6 +11,7 @@
 cd "$(dirname "$0")"
 SCRIPT_DIR=$(realpath "$(pwd)")
 LOGS_DIR="${SCRIPT_DIR}/logs"
+SUPERVISOR_LOGS_DIR="${LOGS_DIR}/supervisor"
 
 # Default values
 PROFILES=""
@@ -150,8 +151,10 @@ case $IMAGE_SOURCE in
         COMPOSE_OPTS=$(echo "$COMPOSE_OPTS" | sed 's/--build//')
         # Don't mount code directory when using pulled image
         export MOUNT_CODE_DIR=""
-        # Set command to use poetry run indexer
-        export CONTAINER_COMMAND="poetry run indexer"
+        # Configure supervisord options
+        export SUPERVISORD_OPTIONS="-c /app/supervisord.conf"
+        # Set command to use supervisord with proper configuration
+        export CONTAINER_COMMAND="sh -c 'mkdir -p /var/log/supervisor && chmod 777 /var/log/supervisor && mkdir -p /app/logs/supervisor && chmod 777 /app/logs/supervisor && supervisord \${SUPERVISORD_OPTIONS}'"
         # Add environment variables to help with OpenSSL issues
         export ADDITIONAL_ENV="PYTHONPATH=/app:/app/src:$PYTHONPATH LD_LIBRARY_PATH=/usr/lib:/usr/local/lib"
         ;;
@@ -166,8 +169,10 @@ case $IMAGE_SOURCE in
         # Don't mount code directory when using custom image
         export MOUNT_CODE_DIR=""
         echo "🔄 Using custom image: $IMAGE_NAME"
-        # Set command to use poetry run indexer
-        export CONTAINER_COMMAND="poetry run indexer"
+        # Configure supervisord options
+        export SUPERVISORD_OPTIONS="-c /app/supervisord.conf"
+        # Set command to use supervisord with proper configuration
+        export CONTAINER_COMMAND="sh -c 'mkdir -p /var/log/supervisor && chmod 777 /var/log/supervisor && mkdir -p /app/logs/supervisor && chmod 777 /app/logs/supervisor && supervisord \${SUPERVISORD_OPTIONS}'"
         # Add environment variables to help with OpenSSL issues
         export ADDITIONAL_ENV="PYTHONPATH=/app:/app/src:$PYTHONPATH LD_LIBRARY_PATH=/usr/lib:/usr/local/lib"
         ;;
@@ -177,6 +182,7 @@ esac
 if [ "$LOG_MODE" = "local" ]; then
     # For development with local logs
     mkdir -p "${LOGS_DIR}"
+    mkdir -p "${SUPERVISOR_LOGS_DIR}"
     chmod -R 777 "${LOGS_DIR}"
 else
     # For production mode - log to stdout/stderr
