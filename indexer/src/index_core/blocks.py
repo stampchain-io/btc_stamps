@@ -1310,7 +1310,6 @@ def follow(
                 zmq_enabled = False
 
         # Initialize profiler after setup but before processing
-        global profiler
         profiler = Profiler()
         profiler.start_block_profiling()
 
