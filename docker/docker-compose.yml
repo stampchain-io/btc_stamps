@@ -29,18 +29,17 @@ services:
          PYTHON_VERSION: 3.12
          # Set to true if you need development dependencies
          INSTALL_DEV: ${INSTALL_DEV:-false}
-    command: /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf
+    command: poetry run indexer
     volumes:
       - ../indexer:/usr/src/app
       - ../files:/usr/src/app/files
-      - /var/log/supervisor:/var/log/supervisor
     depends_on:
       db:
         condition: service_healthy
     env_file:
       - ../indexer/.env
     healthcheck:
-      test: ["CMD-SHELL", "supervisorctl status indexer | grep RUNNING || exit 1"]
+      test: ["CMD-SHELL", "pgrep -f 'python.*indexer' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

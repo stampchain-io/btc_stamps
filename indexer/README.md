@@ -27,10 +27,9 @@ services:
 
   indexer:
     image: btcstamps/indexer:latest
-    command: /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf
+    command: poetry run indexer
     volumes:
       - ./files:/usr/src/app/files
-      - /var/log/supervisor:/var/log/supervisor
     depends_on:
       db:
         condition: service_healthy
@@ -63,6 +62,21 @@ services:
 | `DOCKER_CONTAINER` | Set to 1 when running in container | `1` |
 | `STORE_FILES` | Whether to store files | `1` |
 | `DEBUG` | Enable debug mode | `0` |
+
+## Testing Docker Builds
+
+To validate Docker builds before deployment:
+
+```bash
+# Run a quick Docker build test without starting services
+./run-container.sh --test
+
+# Test with specific configuration
+./run-container.sh --build --with-db  # Test with local MySQL
+./run-container.sh --image dev --prod  # Test with dev image and stdout logs
+```
+
+The `--test` option is ideal for CI pipelines and pre-commit validation.
 
 ## More Information
 

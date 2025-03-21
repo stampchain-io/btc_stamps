@@ -4,9 +4,9 @@ Resource management utilities for handling resource cleanup and shutdown procedu
 
 import logging
 import threading
-import os
 
 logger = logging.getLogger(__name__)
+
 
 def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline=None):
     """Helper function to clean up resources safely."""
@@ -46,6 +46,7 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
     # Stop CP pipeline with timeout
     if cp_pipeline:
+
         def stop_pipeline():
             try:
                 cp_pipeline.stop()
@@ -61,6 +62,7 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
     # Clean up ZMQ with timeout
     if zmq_notifier:
+
         def cleanup_zmq():
             try:
                 zmq_notifier.cleanup()
@@ -71,6 +73,7 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
     # Clean up thread pool with timeout
     if executor:
+
         def cleanup_executor():
             try:
                 # Attempt a graceful shutdown with our own timeout

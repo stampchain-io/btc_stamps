@@ -11,13 +11,13 @@
 cd "$(dirname "$0")"
 SCRIPT_DIR=$(realpath "$(pwd)")
 LOGS_DIR="${SCRIPT_DIR}/logs"
-SUPERVISOR_LOGS_DIR="${LOGS_DIR}/supervisor"
 
 # Default values
 PROFILES=""
 NETWORK_MODE="host"
 COMPOSE_OPTS=""
 CLEANUP=false
+TEST_ONLY=false
 IMAGE_SOURCE="local"  # local, hub, custom
 IMAGE_NAME="btcstamps/indexer:local-dev"  # Default for local development
 DOCKER_HUB_VERSION=""
@@ -48,6 +48,7 @@ show_help() {
     echo "Runtime options:"
     echo "  --detach, -d       Run container in background"
     echo "  --cleanup          Clean up all Docker resources and exit"
+    echo "  --test             Test Docker build and run without starting services"
     echo "  -h, --help         Show this help message"
     echo ""
     echo "Examples:"
@@ -87,6 +88,36 @@ cleanup_resources() {
     echo "✨ Cleanup complete"
 }
 
+# Test Docker build and run
+test_docker_build() {
+    echo "🧪 Testing Docker build and run..."
+    
+    # Clean up any previous test resources
+    cleanup_resources
+    
+    # Build the image
+    echo "  🔨 Building test image..."
+    if ! docker build -t btcstamps/indexer:test-build ./; then
+        echo "  ❌ Docker build failed!"
+        return 1
+    fi
+    echo "  ✅ Docker build successful"
+    
+    # Test running the container briefly
+    echo "  🚀 Testing container startup..."
+    if ! timeout 10 docker run --rm btcstamps/indexer:test-build poetry --version; then
+        echo "  ❌ Container test failed!"
+        return 1
+    fi
+    echo "  ✅ Container starts successfully"
+    
+    # Clean up
+    docker rmi btcstamps/indexer:test-build --force
+    
+    echo "🎉 Docker build and run test passed!"
+    return 0
+}
+
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -107,6 +138,7 @@ while [[ "$#" -gt 0 ]]; do
         # Runtime options
         --detach|-d) COMPOSE_OPTS="$COMPOSE_OPTS --detach"; shift ;;
         --cleanup) CLEANUP=true; shift ;;
+        --test) TEST_ONLY=true; shift ;;
         -h|--help) show_help; exit 0 ;;
         
         # Unknown option
@@ -151,10 +183,8 @@ case $IMAGE_SOURCE in
         COMPOSE_OPTS=$(echo "$COMPOSE_OPTS" | sed 's/--build//')
         # Don't mount code directory when using pulled image
         export MOUNT_CODE_DIR=""
-        # Configure supervisord options
-        export SUPERVISORD_OPTIONS="-c /app/supervisord.conf"
-        # Set command to use supervisord with proper configuration
-        export CONTAINER_COMMAND="sh -c 'mkdir -p /var/log/supervisor && chmod 777 /var/log/supervisor && mkdir -p /app/logs/supervisor && chmod 777 /app/logs/supervisor && supervisord \${SUPERVISORD_OPTIONS}'"
+        # Set command to use poetry run indexer directly (no supervisord)
+        export CONTAINER_COMMAND="poetry run indexer"
         # Add environment variables to help with OpenSSL issues
         export ADDITIONAL_ENV="PYTHONPATH=/app:/app/src:$PYTHONPATH LD_LIBRARY_PATH=/usr/lib:/usr/local/lib"
         ;;
@@ -169,10 +199,8 @@ case $IMAGE_SOURCE in
         # Don't mount code directory when using custom image
         export MOUNT_CODE_DIR=""
         echo "🔄 Using custom image: $IMAGE_NAME"
-        # Configure supervisord options
-        export SUPERVISORD_OPTIONS="-c /app/supervisord.conf"
-        # Set command to use supervisord with proper configuration
-        export CONTAINER_COMMAND="sh -c 'mkdir -p /var/log/supervisor && chmod 777 /var/log/supervisor && mkdir -p /app/logs/supervisor && chmod 777 /app/logs/supervisor && supervisord \${SUPERVISORD_OPTIONS}'"
+        # Set command to use poetry run indexer directly (no supervisord)
+        export CONTAINER_COMMAND="poetry run indexer"
         # Add environment variables to help with OpenSSL issues
         export ADDITIONAL_ENV="PYTHONPATH=/app:/app/src:$PYTHONPATH LD_LIBRARY_PATH=/usr/lib:/usr/local/lib"
         ;;
@@ -182,7 +210,6 @@ esac
 if [ "$LOG_MODE" = "local" ]; then
     # For development with local logs
     mkdir -p "${LOGS_DIR}"
-    mkdir -p "${SUPERVISOR_LOGS_DIR}"
     chmod -R 777 "${LOGS_DIR}"
 else
     # For production mode - log to stdout/stderr
@@ -191,6 +218,18 @@ else
     echo "PYTHONUNBUFFERED=1" >> .env.tmp
     cat "$ENV_FILE" >> .env.tmp
     ENV_FILE=".env.tmp"
+fi
+
+# Handle test-only mode
+if [ "$TEST_ONLY" = true ]; then
+    echo "🧪 Running Docker build and run tests only..."
+    if test_docker_build; then
+        echo "✅ All tests passed successfully"
+        exit 0
+    else
+        echo "❌ Tests failed"
+        exit 1
+    fi
 fi
 
 # Export variables for compose file

@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import threading
+
 import index_core.server as server
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Global variables to be referenced by the signal handler
 profiler = None
 cp_pipeline_instance = None
+
 
 def signal_handler(sig, frame):
     """
@@ -65,15 +67,16 @@ def signal_handler(sig, frame):
     shutdown_timer.daemon = True  # Make timer daemon so it doesn't block process exit
     shutdown_timer.start()
 
+
 def setup_signal_handler(profiler_instance=None, cp_pipeline=None):
     """
     Set up the signal handler with required resources.
     """
     global profiler, cp_pipeline_instance
-    
+
     # Set global references that will be used by the handler
     profiler = profiler_instance
     cp_pipeline_instance = cp_pipeline
-    
+
     # Set up signal handler
     signal.signal(signal.SIGINT, signal_handler)

@@ -9,7 +9,6 @@ import decimal
 import http
 import logging
 import os
-import signal
 import subprocess
 import sys
 import threading
@@ -68,6 +67,8 @@ from index_core.fetch_utils import (
 from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
 from index_core.profiling import Profiler
+from index_core.resource_manager import cleanup_resources
+from index_core.signal_handlers import setup_signal_handler
 from index_core.src20 import (
     Src20Dict,
     clear_zero_balances,
@@ -79,8 +80,6 @@ from index_core.src20 import (
 from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.zmq_utils import ZMQNotifier
-from index_core.resource_manager import cleanup_resources
-from index_core.signal_handlers import setup_signal_handler
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -1193,8 +1192,6 @@ def find_common_ancestor_with_xcp(db: Connection, start_index: int) -> int:
     return config.BLOCK_FIRST
 
 
-
-
 def signal_handler(sig, frame):
     """
     Handle SIGINT (Ctrl+C) gracefully.
@@ -1318,7 +1315,7 @@ def follow(
             cp_pipeline_instance = CPBlocksPipeline(max_queue_size=200)
             cp_pipeline_instance.start(block_index)
             stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
-            
+
         # Set up signal handler after initializing resources
         setup_signal_handler(profiler, cp_pipeline_instance)
 
