@@ -51,7 +51,7 @@ eth-account = "^0.13.3"
 psutil = ">=6.1.1"
 filelock = ">=3.16.1"
 safety = ">=3.2.14"
-aiohttp = "^3.11.11"
+aiohttp = "^3.11.16"
 ratelimit = "^2.2.1"
 
 [tool.poetry.group.arweave.dependencies]
