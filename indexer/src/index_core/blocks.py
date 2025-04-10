@@ -749,9 +749,25 @@ def log_block_info(
         else:
             eta = "calculating..."
 
-        logger.block_status(  # type: ignore[attr-defined]
-            "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]%s"
-            % (
+        # Format log string based on whether we are at the tip
+        at_tip = block_index == block_tip
+        if at_tip:
+            log_format = "%s/%s │ %ss │ Avg: %s │ (Tip) │ %s%% │ [S:%s|20:%s|101:%s]%s"
+            log_args = (
+                str(block_index),
+                str(block_tip),
+                "{:.2f}".format(current_time),
+                avg_time,
+                # eta is removed
+                "{:.1f}".format(current_progress * 100),
+                stamps_in_block,
+                src20_in_block,
+                src101_in_block,
+                " (ZMQ)" if is_zmq else "",
+            )
+        else:
+            log_format = "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]%s"
+            log_args = (
                 str(block_index),
                 str(block_tip),
                 "{:.2f}".format(current_time),
@@ -763,22 +779,11 @@ def log_block_info(
                 src101_in_block,
                 " (ZMQ)" if is_zmq else "",
             )
-        )
+
+        logger.block_status(*log_args) # type: ignore[attr-defined]
 
     except Exception as e:
         logger.error(f"Error in log_block_info: {e}")
-        logger.block_status(  # type: ignore[attr-defined]
-            "%s/%s │ %ss │ [S:%s|20:%s|101:%s]%s"
-            % (
-                str(block_index),
-                str(block_tip),
-                "{:.2f}".format(time.time() - start_time),
-                stamps_in_block,
-                src20_in_block,
-                src101_in_block,
-                " (ZMQ)" if is_zmq else "",
-            )
-        )
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):

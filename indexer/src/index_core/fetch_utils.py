@@ -1809,7 +1809,7 @@ async def fetch_single_block(idx):
 
         # Handle cases where fetch_block_data returned None (e.g., block not ready)
         if block_response is None:
-            logger.info(f"Block data for {idx} is None (API indicated block not ready or beyond tip). Skipping block.")
+            logger.debug(f"Block data for {idx} is None (API indicated block not ready or beyond tip). Skipping block.")
             return None  # Return None, let the main loop handle potential retries or waits
 
         # We should have a valid dict response now from block_data fetch
