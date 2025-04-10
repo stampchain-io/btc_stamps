@@ -675,24 +675,27 @@ def log_block_info(
                 log_block_info,
                 "_state",
                 {
-                    "times": [],  # Store last N block times
-                    "window_size": 100,  # Reduced window for faster initial ETA
+                    "times": [],
+                    "window_size": 100,
                     "last_eta_update": 0,
                     "last_eta": None,
                     "last_tip": block_tip,
-                    "last_time": start_time,  # Track last block's time
+                    "last_log_time": start_time,  # Initialize with first block's start time
                 },
             )
 
         state = getattr(log_block_info, "_state")
 
+        # Calculate time since last log call
+        current_log_time = time.time()
+        time_since_last_log = current_log_time - state["last_log_time"]
+        state["last_log_time"] = current_log_time  # Update for next call
+
         # Calculate the time for this block's processing
-        # Use start_time directly instead of state["last_time"] to avoid
-        # including ZMQ wait time or polling time between blocks
-        current_time = time.time() - start_time
+        current_time = current_log_time - start_time
 
         # Update last_time for the next block
-        state["last_time"] = time.time()  # Update for next block
+        # state["last_time"] = time.time()  # Removed as last_log_time serves this purpose now
 
         # Detect if block tip has changed
         if block_tip != state["last_tip"]:
@@ -752,14 +755,15 @@ def log_block_info(
         # Format log string and log based on whether we are at the tip
         at_tip = block_index == block_tip
         if at_tip:
-            log_format = "%s/%s │ %ss │ Avg: %s │ (Tip) │ %s%% │ [S:%s|20:%s|101:%s]%s"
+            # Format to show time since last block log instead of '(Tip)'
+            log_format = "%s/%s │ %ss │ Avg: %s │ Last: %ss │ %s%% │ [S:%s|20:%s|101:%s]%s"
             logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
                 str(block_tip),
-                "{:.2f}".format(current_time),
+                "{:.2f}".format(current_time),  # Processing time for *this* block
                 avg_time,
-                # eta is removed
+                "{:.2f}".format(time_since_last_log),  # Time since *last* log message
                 "{:.1f}".format(current_progress * 100),
                 stamps_in_block,
                 src20_in_block,
@@ -767,6 +771,7 @@ def log_block_info(
                 " (ZMQ)" if is_zmq else "",
             )
         else:
+            # Keep the existing format with ETA for non-tip blocks
             log_format = "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]%s"
             logger.block_status(  # type: ignore[attr-defined]
                 log_format,
