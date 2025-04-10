@@ -749,11 +749,12 @@ def log_block_info(
         else:
             eta = "calculating..."
 
-        # Format log string based on whether we are at the tip
+        # Format log string and log based on whether we are at the tip
         at_tip = block_index == block_tip
         if at_tip:
             log_format = "%s/%s │ %ss │ Avg: %s │ (Tip) │ %s%% │ [S:%s|20:%s|101:%s]%s"
-            log_args = (
+            logger.block_status(  # type: ignore[attr-defined]
+                log_format,
                 str(block_index),
                 str(block_tip),
                 "{:.2f}".format(current_time),
@@ -767,7 +768,8 @@ def log_block_info(
             )
         else:
             log_format = "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]%s"
-            log_args = (
+            logger.block_status(  # type: ignore[attr-defined]
+                log_format,
                 str(block_index),
                 str(block_tip),
                 "{:.2f}".format(current_time),
@@ -779,8 +781,6 @@ def log_block_info(
                 src101_in_block,
                 " (ZMQ)" if is_zmq else "",
             )
-
-        logger.block_status(*log_args) # type: ignore[attr-defined]
 
     except Exception as e:
         logger.error(f"Error in log_block_info: {e}")

@@ -4,7 +4,6 @@ import concurrent.futures
 import csv
 import decimal
 import hashlib
-import json
 import logging
 import os
 import signal
@@ -382,7 +381,7 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
 
         if response.status_code == 304:
             logger.info(f"Bootstrap data for {filename} is unchanged (ETag: {current_etag}). Skipping download/processing.")
-            return # File hasn't changed, nothing more to do
+            return  # File hasn't changed, nothing more to do
 
         response.raise_for_status()  # Raise an exception for other HTTP errors (4xx, 5xx)
 
@@ -406,7 +405,7 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
                 logger.error(f"Error processing row {row} from {filename}: {e}")
                 # Decide if you want to continue or raise the exception
                 # raise # Uncomment to stop processing on the first error
-                continue # Comment out to stop processing on the first error
+                continue  # Comment out to stop processing on the first error
 
         logger.info(f"Finished processing {rows_processed} rows from {filename}")
 
@@ -417,12 +416,12 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
                 logger.debug(f"Saved new ETag '{new_etag}' to {etag_file}")
             except Exception as e:
                 logger.warning(f"Could not write ETag file {etag_file}: {e}")
-        elif current_etag: # If server didn't send ETag, remove old one
-             logger.debug(f"Server did not send ETag for {filename}. Removing local ETag file {etag_file}.")
-             try:
+        elif current_etag:  # If server didn't send ETag, remove old one
+            logger.debug(f"Server did not send ETag for {filename}. Removing local ETag file {etag_file}.")
+            try:
                 etag_file.unlink()
-             except OSError as e:
-                 logger.warning(f"Could not remove ETag file {etag_file}: {e}")
+            except OSError as e:
+                logger.warning(f"Could not remove ETag file {etag_file}: {e}")
 
     except requests.RequestException as e:
         logger.error(f"Error checking/downloading bootstrap data from {csv_url}: {e}")
