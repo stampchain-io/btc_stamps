@@ -1557,7 +1557,7 @@ def follow(
                                     time.sleep(30)
                                     continue
 
-                            logger.info(f"Successfully fetched {len(stamp_issuances_list)} blocks directly from XCP API")
+                            logger.debug(f"Successfully fetched {len(stamp_issuances_list)} blocks directly from XCP API")
 
                             if server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected after CP fetch, breaking...")
