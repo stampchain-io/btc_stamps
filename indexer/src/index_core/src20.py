@@ -1261,7 +1261,7 @@ def fetch_api_ledger_data(block_index: int):
         return None, None
 
     max_retries = 5
-    backoff_time = 1
+    backoff_time = 2
     retry_count = 0
 
     def fetch_url(url):
@@ -1306,7 +1306,11 @@ def fetch_api_ledger_data(block_index: int):
                     logger.error(f"Unexpected error parsing JSON: {e}")
                     return None, None
             else:
-                logger.warning(f"Non-200 response code: {response.status_code} from URL: {url}")
+                # Log 404 specifically at debug level during retries
+                if response.status_code == 404:
+                    logger.debug(f"Non-200 response code: {response.status_code} from URL: {url} (Will retry)")
+                else:
+                    logger.warning(f"Non-200 response code: {response.status_code} from URL: {url}")
                 return None, None
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed for URL {url}: {e}")

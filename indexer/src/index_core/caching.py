@@ -44,7 +44,7 @@ class CacheManager:
 
         # Initialize default caches without holding the main lock
         self._init_default_caches()
-        logger.info(f"CacheManager initialized with caches: {list(self._caches.keys())}")
+        logger.debug(f"CacheManager initialized with caches: {list(self._caches.keys())}")
 
     def _init_default_caches(self) -> None:
         """Initialize all default caches."""
@@ -70,9 +70,16 @@ class CacheManager:
                 logger.debug(f"Registering cache: {name}")
                 self.register_cache(name, cache)
 
-            logger.info(f"Successfully initialized all default caches: {list(self._caches.keys())}")
+            # Log cache details
+            for name, cache in self._caches.items():
+                logger.debug(
+                    f"  - Cache '{name}' initialized (type: {type(cache).__name__}, maxsize: {getattr(cache, 'maxsize', 'N/A')})"
+                )
+
+            # Log successful initialization
+            logger.debug(f"Successfully initialized all default caches: {list(self._caches.keys())}")
         except Exception as e:
-            logger.error(f"Error initializing default caches: {e}")
+            logger.error(f"Error during CacheManager initialization: {e}")
             raise
 
     def register_cache(self, name: str, cache: LRUCache[Any]) -> None:
