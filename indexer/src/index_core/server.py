@@ -4,12 +4,14 @@ import concurrent.futures
 import csv
 import decimal
 import hashlib
+import json
 import logging
 import os
 import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 import appdirs
 import requests
@@ -37,6 +39,9 @@ shutdown_flag = threading.Event()
 
 # Global backend instance - use the singleton
 backend_instance = Backend()
+
+CACHE_DIR = Path(appdirs.user_cache_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME)) / ".indexer_cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def sigterm_handler(_signo, _stack_frame):
@@ -332,7 +337,7 @@ def initialize_tables(db):
         raise e
 
 
-def import_csv_data(cursor, csv_file, insert_query, is_url=False):
+def import_csv_data(cursor, csv_url, insert_query, is_url=False):
     max_int = sys.maxsize
     while True:
         try:
@@ -341,27 +346,87 @@ def import_csv_data(cursor, csv_file, insert_query, is_url=False):
         except OverflowError:
             max_int = int(max_int / 10)
 
-    if is_url:
-        try:
-            logger.info(f"Downloading bootstrap data from {csv_file}")
-            response = requests.get(csv_file, timeout=config.REQUESTS_TIMEOUT)
-            response.raise_for_status()  # Raise an exception for HTTP errors
-
-            # Process the CSV data directly from the response text
-            csv_reader = csv.reader(response.text.splitlines())
-            for row in csv_reader:
-                cursor.execute(insert_query, tuple(row))
-
-            logger.info(f"Successfully loaded bootstrap data from {csv_file}")
-        except requests.RequestException as e:
-            logger.error(f"Error downloading bootstrap data from {csv_file}: {e}")
-            raise
-    else:
-        # Fall back to local file if needed
-        with open(csv_file, "r") as file:
+    if not is_url:
+        # Handle local file case (unchanged)
+        with open(csv_url, "r") as file:
             csv_reader = csv.reader(file)
             for row in csv_reader:
                 cursor.execute(insert_query, tuple(row))
+        return
+
+    # Handle URL case with ETag checking
+    try:
+        filename = Path(csv_url).name
+        etag_file = CACHE_DIR / f".{filename}.etag"
+        headers = {}
+        current_etag = None
+
+        if etag_file.exists():
+            try:
+                current_etag = etag_file.read_text().strip()
+                if current_etag:
+                    headers["If-None-Match"] = current_etag
+                    logger.debug(f"Found local ETag for {filename}: '{current_etag}'")
+                else:
+                    logger.debug(f"ETag file {etag_file} was empty.")
+            except Exception as e:
+                logger.warning(f"Could not read ETag file {etag_file}: {e}")
+        else:
+            logger.debug(f"ETag file {etag_file} not found.")
+
+        logger.info(f"Checking bootstrap data from {csv_url}")
+        logger.debug(f"Sending request headers: {headers}")
+        response = requests.get(csv_url, headers=headers, timeout=config.REQUESTS_TIMEOUT)
+        logger.debug(f"Received response status: {response.status_code}")
+        logger.debug(f"Received response headers: {response.headers}")
+
+        if response.status_code == 304:
+            logger.info(f"Bootstrap data for {filename} is unchanged (ETag: {current_etag}). Skipping download/processing.")
+            return # File hasn't changed, nothing more to do
+
+        response.raise_for_status()  # Raise an exception for other HTTP errors (4xx, 5xx)
+
+        # Process the CSV data if status code was 200 OK
+        logger.info(f"Downloading and processing updated bootstrap data from {csv_url}")
+        new_etag = response.headers.get("ETag")
+        logger.debug(f"Received new ETag from server: '{new_etag}'")
+        csv_reader = csv.reader(response.text.splitlines())
+
+        # Decide whether to clear table or update (assuming overwrite for now)
+        # TODO: This might need refinement based on specific file logic
+        if "creator" in filename:
+            logger.warning("Processing creator.csv - this will overwrite existing creator data.")
+            cursor.execute("TRUNCATE TABLE creator")
+        elif "srcbackground" in filename:
+            logger.warning("Processing srcbackground.csv - this will overwrite existing srcbackground data.")
+            cursor.execute("TRUNCATE TABLE srcbackground")
+        # Add similar checks for other potential bootstrap files if needed
+
+        rows_processed = 0
+        for row in csv_reader:
+            cursor.execute(insert_query, tuple(row))
+            rows_processed += 1
+
+        logger.info(f"Successfully processed {rows_processed} rows from updated {filename}")
+
+        # Save the new ETag
+        if new_etag:
+            try:
+                etag_file.write_text(new_etag)
+                logger.debug(f"Saved new ETag '{new_etag}' to {etag_file}")
+            except Exception as e:
+                logger.warning(f"Could not write ETag file {etag_file}: {e}")
+        elif current_etag: # If server didn't send ETag, remove old one
+             logger.debug(f"Server did not send ETag for {filename}. Removing local ETag file {etag_file}.")
+             try:
+                etag_file.unlink()
+             except OSError as e:
+                 logger.warning(f"Could not remove ETag file {etag_file}: {e}")
+
+    except requests.RequestException as e:
+        logger.error(f"Error checking/downloading bootstrap data from {csv_url}: {e}")
+        # Optionally: Add logic here to use a cached local version if download fails
+        raise
 
 
 def initialize_db():

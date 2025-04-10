@@ -14,14 +14,8 @@ from requests.exceptions import JSONDecodeError
 
 import config
 import index_core.log as log
-from config import (  # SRC_VALIDATION_API1,
-    CP_P2WSH_FEAT_BLOCK_START,
-    SRC20_BALANCES_TABLE,
-    SRC20_VALID_TABLE,
-    SRC_VALIDATION_API2,
-    SRC_VALIDATION_SECRET_API2,
-    TICK_PATTERN_SET,
-)
+from config import CP_P2WSH_FEAT_BLOCK_START  # SRC_VALIDATION_API1,
+from config import SRC20_BALANCES_TABLE, SRC20_VALID_TABLE, SRC_VALIDATION_API2, SRC_VALIDATION_SECRET_API2, TICK_PATTERN_SET
 from index_core.caching import cache_manager  # Use CacheManager
 from index_core.database import get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
