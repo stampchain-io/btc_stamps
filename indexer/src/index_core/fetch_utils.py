@@ -406,16 +406,24 @@ class CPBlocksPipeline:
                         continue
 
                 if not blocks_data:
-                    consecutive_errors += 1
-                    logger.error(
-                        f"No blocks data received for range {next_block} to {next_block + blocks_to_fetch - 1} "
-                        f"(attempt {consecutive_errors}/{max_consecutive_errors})"
-                    )
-                    if consecutive_errors >= max_consecutive_errors:
-                        logger.error("Too many consecutive errors, reinitializing node health...")
-                        update_healthy_nodes()
-                        consecutive_errors = 0
-                    time.sleep(self.fetch_interval)
+                    # Check if the failure was for a block at/near the tip
+                    is_tip_block = next_block >= block_tip - 1 # Define near tip as 0-1 blocks behind
+                    if is_tip_block:
+                        logger.debug(f"Block {next_block} not ready from XCP API (at/near tip {block_tip}), will retry after delay.")
+                        # Don't increment consecutive_errors for expected tip block delay
+                        time.sleep(self.fetch_interval * 3) # Longer sleep for tip blocks
+                    else:
+                        # This is a failure for an older block
+                        consecutive_errors += 1
+                        logger.error(
+                            f"No blocks data received for range {next_block} to {next_block + blocks_to_fetch - 1} "
+                            f"(attempt {consecutive_errors}/{max_consecutive_errors}) - Not a tip block."
+                        )
+                        if consecutive_errors >= max_consecutive_errors:
+                            logger.error("Too many consecutive errors fetching older blocks, reinitializing node health...")
+                            update_healthy_nodes()
+                            consecutive_errors = 0
+                        time.sleep(self.fetch_interval) # Standard sleep for non-tip errors
                     continue
 
                 # Reset error counter on successful fetch
