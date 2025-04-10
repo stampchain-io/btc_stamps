@@ -387,27 +387,28 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
         response.raise_for_status()  # Raise an exception for other HTTP errors (4xx, 5xx)
 
         # Process the CSV data if status code was 200 OK
-        logger.info(f"Downloading and processing updated bootstrap data from {csv_url}")
+        logger.info(f"Processing bootstrap data from {csv_url} (ETag: {response.headers.get('ETag') or 'None'})")
         new_etag = response.headers.get("ETag")
         logger.debug(f"Received new ETag from server: '{new_etag}'")
         csv_reader = csv.reader(response.text.splitlines())
 
-        # Decide whether to clear table or update (assuming overwrite for now)
-        # TODO: This might need refinement based on specific file logic
-        if "creator" in filename:
-            logger.warning("Processing creator.csv - this will overwrite existing creator data.")
-            cursor.execute("TRUNCATE TABLE creator")
-        elif "srcbackground" in filename:
-            logger.warning("Processing srcbackground.csv - this will overwrite existing srcbackground data.")
-            cursor.execute("TRUNCATE TABLE srcbackground")
-        # Add similar checks for other potential bootstrap files if needed
-
+        # Execute the insert_query for each row.
+        # The query itself (passed as argument) handles INSERT or UPDATE logic.
         rows_processed = 0
         for row in csv_reader:
-            cursor.execute(insert_query, tuple(row))
-            rows_processed += 1
+            # Skip empty rows if any
+            if not any(field.strip() for field in row):
+                continue
+            try:
+                cursor.execute(insert_query, tuple(row))
+                rows_processed += 1
+            except Exception as e:
+                logger.error(f"Error processing row {row} from {filename}: {e}")
+                # Decide if you want to continue or raise the exception
+                # raise # Uncomment to stop processing on the first error
+                continue # Comment out to stop processing on the first error
 
-        logger.info(f"Successfully processed {rows_processed} rows from updated {filename}")
+        logger.info(f"Finished processing {rows_processed} rows from {filename}")
 
         # Save the new ETag
         if new_etag:
