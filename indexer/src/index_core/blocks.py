@@ -52,6 +52,7 @@ from index_core.exceptions import (
     BlockAlreadyExistsError,
     BlockUpdateError,
     BTCOnlyError,
+    CriticalBlockFetchError,
     DatabaseInsertError,
     DecodeError,
     LedgerMismatchError,
@@ -2018,6 +2019,22 @@ def follow(
                 except Exception as reconnect_error:
                     logger.error(f"Failed to reconnect to database: {reconnect_error}")
                     raise
+
+            except CriticalBlockFetchError as e:
+                # Handle critical fetch errors that should halt execution
+                logger.critical(f"Critical error fetching data for block {e.block_index}: {e.reason}")
+                logger.critical("Indexer cannot continue safely with incomplete data. Exiting.")
+                db.rollback()  # Rollback any partial changes for the failed block
+                # Optionally: Perform specific cleanup or notification
+                if "zmq_notifier" in locals() and zmq_notifier and hasattr(zmq_notifier, "send_status_update"):
+                    try:
+                        zmq_notifier.send_status_update(
+                            "critical_error",
+                            f"Critical fetch error for block {e.block_index}: {e.reason}. Indexer stopped.",
+                        )
+                    except Exception as zmq_err:
+                        logger.warning(f"Failed to send ZMQ critical error notification: {zmq_err}")
+                sys.exit(1)  # Exit the process
 
             except Exception as e:
                 logger.error(f"Error processing block {block_index}: {e}")

@@ -75,3 +75,12 @@ class LedgerMismatchError(Exception):
     def __init__(self, block_index):
         self.block_index = block_index
         super().__init__(f"Ledger hash mismatch at block {block_index}")
+
+
+class CriticalBlockFetchError(Exception):
+    """Raised when fetching essential data for a non-recent block fails."""
+
+    def __init__(self, block_index, reason):
+        super().__init__(f"Critical fetch error for block {block_index}: {reason}")
+        self.block_index = block_index
+        self.reason = reason

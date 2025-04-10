@@ -15,6 +15,7 @@ import config
 import index_core.server as server
 from index_core.backend import Backend
 from index_core.base64_utils import parse_base64_from_description
+from index_core.exceptions import CriticalBlockFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -1623,21 +1624,18 @@ async def fetch_single_block(idx):
             logger.debug(f"Skipping block {idx} due to shutdown signal")
             return None
 
-        # Check if block is beyond current tip
+        # Try to get current tip, but don't fail if it's unavailable
         current_tip = None
         try:
             current_tip = backend_instance.getblockcount()
             if idx > current_tip:
                 logger.debug(f"Block {idx} is beyond current tip {current_tip}, skipping fetch")
-                return None
-
-            # Set a flag for blocks at or very near the tip
-            near_tip = idx >= current_tip - 1
-            if near_tip:
-                logger.debug(f"Block {idx} is at or near chain tip {current_tip}")
+                return None  # Return None for blocks beyond tip
         except Exception as e:
-            logger.debug(f"Could not check block tip: {e}")
-            near_tip = False  # Default value if we can't check
+            logger.warning(f"Could not get block tip during fetch for block {idx}: {e}")
+            # Continue without tip info, assuming block might be critical
+
+        # --- REMOVED near_tip and is_critical logic ---
 
         # Fetch block metadata and transactions concurrently
         async def fetch_block_data():
@@ -1649,64 +1647,34 @@ async def fetch_single_block(idx):
             elapsed_time = time.time() - start_time
             logger.debug(f"Block data fetch for block {idx} completed in {elapsed_time:.2f} seconds")
 
-            # Gracefully handle special case responses for recent blocks
+            # Gracefully handle specific non-error API responses
             if result and isinstance(result, dict):
                 error = result.get("error")
                 if error in ["Block not yet mined", "Block not yet processed by XCP"]:
-                    logger.debug(f"Block {idx} - {error}")
-                    return None
+                    logger.debug(f"Block {idx} - API reports: {error}")
+                    return None  # Return None, this is not a fetch failure
 
-            # Enhanced error detection: Check for empty response structure (200 OK but no data)
-            if result and isinstance(result, dict):
-                if "result" not in result:
-                    if near_tip:
-                        logger.debug(
-                            f"XCP node returned 200 OK for block {idx} but response missing 'result' field - expected for new blocks"
-                        )
-                        return None
-                    else:
-                        logger.error(f"XCP node returned 200 OK for block {idx} but response missing 'result' field: {result}")
-                        if current_tip is not None and idx <= current_tip - 5:  # Increased buffer from 3 to 5
-                            logger.error(f"Block {idx} should exist (≤ tip-5 {current_tip-5}) - treating as critical error")
-                            # Mark all nodes as unhealthy to force reset
-                            for node_name, health in node_health_tracker.items():
-                                health.mark_failure()
-                        return None
+            # Check for actual fetch failures or malformed data
+            if not result or not isinstance(result, dict) or "result" not in result or result.get("result") is None:
+                error_reason = "No result or malformed data"
+                if result is None:
+                    error_reason = "Fetch returned None (likely all nodes failed or 404)"
+                elif not isinstance(result, dict):
+                    error_reason = "Response was not a dictionary"
+                elif "result" not in result:
+                    error_reason = "Response missing 'result' field"
+                elif result.get("result") is None:
+                    error_reason = "Response 'result' field is null"
 
-                if result.get("result") is None or (isinstance(result.get("result"), dict) and not result.get("result")):
-                    if near_tip:
-                        logger.debug(
-                            f"XCP node returned 200 OK for block {idx} but empty result data - expected for new blocks"
-                        )
-                        return None
-                    else:
-                        logger.error(f"XCP node returned 200 OK for block {idx} but empty result data: {result}")
-                        if current_tip is not None and idx <= current_tip - 5:  # Increased from 3 to 5
-                            logger.error(f"Block {idx} should exist (≤ tip-5 {current_tip-5}) - treating as critical error")
-                            # Mark all nodes as unhealthy to force reset
-                            for node_name, health in node_health_tracker.items():
-                                health.mark_failure()
-                        return None
+                logger.error(f"Failed to fetch valid block data for block {idx}: {error_reason}")
+                # Raise critical error for any failure to get valid block data
+                raise CriticalBlockFetchError(idx, f"Block metadata fetch failed: {error_reason}")
 
-            # Handle 404 errors specially for blocks that should exist
-            if result is None and current_tip is not None:
-                if idx >= current_tip - 1:
-                    # For blocks at or very near the tip, this is normal - XCP might be behind
-                    logger.debug(f"Block {idx} not found in XCP node - expected for blocks at or near tip {current_tip}")
-                elif idx >= current_tip - 5:
-                    # For blocks somewhat near the tip, warn but don't treat as critical
-                    logger.warning(
-                        f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}"
-                    )
-                else:
-                    # For blocks well behind the tip, this is a real issue
-                    logger.error(
-                        f"Block {idx} not found in XCP node despite being {current_tip - idx} blocks from tip {current_tip}"
-                    )
-                    logger.error("This could indicate a missing block in the XCP node or connectivity issues.")
-                    # Mark all nodes as unhealthy to force reset
-                    for node_name, health in node_health_tracker.items():
-                        health.mark_failure()
+            # Handle 404 errors that weren't caught by fetch_xcp_async's specific handling
+            # This might occur if fetch_xcp_async logic changes or if a 404 slips through
+            if result.get("error") == "Block missing from XCP node":  # Check specific error string if set by fetch_xcp_async
+                logger.error(f"fetch_xcp_async indicated block {idx} is missing from node.")
+                raise CriticalBlockFetchError(idx, "Block reported missing by XCP node")
 
             return result
 
@@ -1716,7 +1684,7 @@ async def fetch_single_block(idx):
             tx_endpoint = f"/blocks/{idx}/transactions"
             all_transactions = []
             next_cursor = None
-            params = {"verbose": "true", "show_unconfirmed": "false", "limit": 1000}  # Increased limit
+            params = {"verbose": "true", "show_unconfirmed": "false", "limit": 1000}
 
             while True:
                 if next_cursor:
@@ -1725,67 +1693,50 @@ async def fetch_single_block(idx):
                 logger.debug(f"Fetching transactions page for block {idx} with cursor: {next_cursor}")
                 response = await fetch_xcp_async(tx_endpoint, params=params)
 
-                # Special case handling for blocks near the tip
-                if (
-                    response
-                    and isinstance(response, dict)
-                    and response.get("error") in ["Block not yet mined", "Block not yet processed by XCP"]
-                ):
-                    logger.debug(f"Block {idx} transactions not yet processed by XCP")
-                    return []
-
-                # Enhanced error detection: Check for malformed but successful responses
+                # Handle specific non-error API responses
                 if response and isinstance(response, dict):
-                    if "result" not in response:
-                        if near_tip:
-                            logger.debug(f"Transaction API returned response without 'result' field for block {idx} near tip")
-                            break
-                        elif current_tip is not None and idx <= current_tip - 5:  # Increased buffer
-                            logger.error(
-                                f"Transaction API returned 200 OK but malformed data (missing 'result' field) for block {idx}"
-                            )
-                            # Mark nodes as unhealthy if this is not at the tip
-                            for node_name, health in node_health_tracker.items():
-                                health.mark_failure()
-                        else:
-                            logger.debug(f"Transaction API returned data without 'result' field for block {idx}")
-                        break
+                    error = response.get("error")
+                    if error in ["Block not yet mined", "Block not yet processed by XCP"]:
+                        logger.debug(f"Block {idx} transactions - API reports: {error}")
+                        return []  # Return empty list, not a failure
 
-                if not response or not isinstance(response, dict):
-                    # Handle 404 errors specially for blocks that should exist
-                    if near_tip:
-                        logger.debug(f"No transaction data yet for block {idx} (at or near tip)")
-                    elif current_tip is not None and idx <= current_tip - 5:
-                        logger.error(
-                            f"Failed to fetch transactions for block {idx} which should exist (≤ tip-5 {current_tip-5})"
-                        )
-                    else:
-                        logger.debug(f"Invalid response format for transactions in block {idx}")
-                    break
+                # Check for fetch failures or malformed data
+                if not response or not isinstance(response, dict) or "result" not in response:
+                    error_reason = "No response or malformed data"
+                    if response is None:
+                        error_reason = "Fetch returned None (likely all nodes failed or 404)"
+                    elif not isinstance(response, dict):
+                        error_reason = "Response was not a dictionary"
+                    elif "result" not in response:
+                        error_reason = "Response missing 'result' field"
+
+                    logger.error(f"Failed to fetch valid transactions for block {idx}: {error_reason}")
+                    # Raise critical error for any failure to get valid transaction data
+                    raise CriticalBlockFetchError(idx, f"Transaction fetch failed: {error_reason}")
 
                 transactions = response.get("result", [])
-                if not transactions:
-                    logger.debug(f"No transactions found in page for block {idx}")
-                    break
+                # Even if result exists, it could be None or not a list, treat as failure if so
+                if not isinstance(transactions, list):
+                    logger.error(f"Invalid transaction data format for block {idx}: 'result' is not a list.")
+                    raise CriticalBlockFetchError(idx, "Invalid transaction data format ('result' not a list)")
 
-                logger.debug(f"Fetched {len(transactions)} transactions for block {idx}")
+                if not transactions and not response.get("next_cursor"):
+                    # If result is an empty list AND there's no next cursor, page is empty or block has no txs
+                    logger.debug(f"No transactions found on this page for block {idx}, or block has no transactions.")
+                    break
+                elif not transactions and response.get("next_cursor"):
+                    # If result is empty but there IS a next cursor, log it but continue
+                    logger.warning(
+                        f"Empty transaction list returned for block {idx}, but next_cursor exists. Continuing pagination."
+                    )
+
                 all_transactions.extend(transactions)
                 next_cursor = response.get("next_cursor")
                 if not next_cursor:
                     logger.debug(f"No more pages for transactions in block {idx}")
                     break
 
-                # Small delay between pagination requests
                 await asyncio.sleep(0.1)
-
-            # Only log at debug level - empty transactions are normal for most blocks
-            if (
-                not all_transactions
-                and current_tip is not None
-                and idx <= current_tip - 10
-                and idx >= config.CP_STAMP_GENESIS_BLOCK
-            ):
-                logger.debug(f"Block {idx} has no transactions (empty response from XCP API)")
 
             elapsed_time = time.time() - start_time
             logger.debug(
@@ -1802,64 +1753,82 @@ async def fetch_single_block(idx):
             # Wait for both tasks with timeout
             block_response, transactions = await asyncio.wait_for(
                 asyncio.gather(block_data_task, transactions_task, return_exceptions=True),
-                timeout=30,  # 30 second timeout for the entire block fetch
+                timeout=60,  # Increased timeout to 60 seconds for the whole block
             )
             elapsed_time = time.time() - start_time
-            logger.debug(f"Concurrent fetch for block {idx} completed in {elapsed_time:.2f} seconds")
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout fetching block {idx} data")
-            for task in [block_data_task, transactions_task]:
-                if not task.done():
-                    task.cancel()
-            return None
+            logger.debug(f"Concurrent fetch gather for block {idx} completed in {elapsed_time:.2f} seconds")
 
-        # Check for exceptions in results
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout waiting for block {idx} data/transaction fetch tasks to complete")
+            # Ensure tasks are cancelled
+            if not block_data_task.done():
+                block_data_task.cancel()
+            if not transactions_task.done():
+                transactions_task.cancel()
+            # Wait briefly for cancellation
+            await asyncio.sleep(0.1)
+            # Raise critical error on overall timeout
+            raise CriticalBlockFetchError(idx, "Timeout waiting for block data and transactions fetch")
+
+        # --- Check results AFTER gather ---
+
+        # Check if tasks were cancelled (e.g., by overall timeout or external signal)
+        if block_data_task.cancelled() or transactions_task.cancelled():
+            logger.warning(f"Fetch tasks for block {idx} were cancelled.")
+            # Re-raise CancelledError if appropriate, otherwise treat as failure
+            # For simplicity, treat cancellation during fetch as critical failure
+            raise CriticalBlockFetchError(idx, "Fetch tasks cancelled")
+
+        # Check for exceptions returned by gather
         if isinstance(block_response, Exception):
-            if near_tip:
-                logger.debug(f"Error fetching block {idx} metadata (near tip): {block_response}")
-            elif current_tip is not None and idx <= current_tip - 5:
-                logger.error(
-                    f"Error fetching block {idx} metadata which should exist (≤ tip-5 {current_tip-5}): {block_response}"
-                )
-            else:
-                logger.debug(f"Error fetching block {idx} metadata: {block_response}")
-            return None
+            logger.error(f"Error fetching block {idx} metadata: {block_response}")
+            # If the exception is already CriticalBlockFetchError, re-raise it
+            if isinstance(block_response, CriticalBlockFetchError):
+                raise block_response
+            # Otherwise, wrap it
+            raise CriticalBlockFetchError(idx, f"Error fetching block metadata: {block_response}")
 
         if isinstance(transactions, Exception):
-            if near_tip:
-                logger.debug(f"Error fetching block {idx} transactions (near tip): {transactions}")
-            elif current_tip is not None and idx <= current_tip - 5:
-                logger.error(
-                    f"Error fetching block {idx} transactions which should exist (≤ tip-5 {current_tip-5}): {transactions}"
-                )
-            else:
-                logger.debug(f"Error fetching block {idx} transactions: {transactions}")
-            return None
+            logger.error(f"Error fetching block {idx} transactions: {transactions}")
+            # If the exception is already CriticalBlockFetchError, re-raise it
+            if isinstance(transactions, CriticalBlockFetchError):
+                raise transactions
+            # Otherwise, wrap it
+            raise CriticalBlockFetchError(idx, f"Error fetching transactions: {transactions}")
 
-        if not block_response or not isinstance(block_response, dict):
-            if near_tip:
-                logger.debug(f"Invalid response format for block {idx} (near tip)")
-            elif current_tip is not None and idx <= current_tip - 5:
-                logger.error(f"Invalid response format for block {idx} which should exist (≤ tip-5 {current_tip-5})")
-            else:
-                logger.debug(f"Invalid response format for block {idx}")
-            return None
+        # At this point, both tasks completed without internal exceptions being raised to here
+        # or overall timeout. Now check the actual returned values.
+
+        # Handle cases where fetch_block_data returned None (e.g., block not ready)
+        if block_response is None:
+            logger.info(f"Block data for {idx} is None (API indicated block not ready or beyond tip). Skipping block.")
+            return None  # Return None, let the main loop handle potential retries or waits
+
+        # We should have a valid dict response now from block_data fetch
+        if not isinstance(block_response, dict):
+            # This case should ideally be caught within fetch_block_data, but check again
+            logger.error(f"Unexpected format for block_response for block {idx} after gather: {type(block_response)}")
+            raise CriticalBlockFetchError(idx, "Invalid block metadata response format after gather")
 
         block_data = block_response.get("result")
         if not block_data:
-            if near_tip:
-                logger.debug(f"No data found for block {idx} (near tip)")
-            elif current_tip is not None and idx <= current_tip - 5:
-                logger.error(f"No data found for block {idx} which should exist (≤ tip-5 {current_tip-5})")
-            else:
-                logger.debug(f"No data found for block {idx}")
-            return None
+            # This case should also ideally be caught within fetch_block_data
+            logger.error(f"No block data found in block_response for block {idx} after gather.")
+            raise CriticalBlockFetchError(idx, "No block data in response after gather")
+
+        # We expect transactions to be a list here (even if empty)
+        if not isinstance(transactions, list):
+            # This case should ideally be caught within fetch_block_transactions
+            logger.error(f"Invalid format for transactions for block {idx} after gather: {type(transactions)}")
+            raise CriticalBlockFetchError(idx, "Invalid transactions format after gather (not a list)")
+
+        # --- Processing successful fetch ---
 
         if server.shutdown_flag.is_set():
             return None
 
         # Add transactions to block data
-        block_data["transactions"] = transactions or []
+        block_data["transactions"] = transactions  # Already confirmed transactions is a list
 
         # Parse transactions for this block
         try:
@@ -1872,14 +1841,21 @@ async def fetch_single_block(idx):
             return {"block_index": idx, "xcp_block_hash": block_data.get("block_hash"), "issuances": issuances}
         except Exception as e:
             logger.error(f"Error parsing transactions for block {idx}: {e}")
-            return None
+            # Treat parsing errors as critical
+            raise CriticalBlockFetchError(idx, f"Error parsing transactions: {e}")
 
+    except CriticalBlockFetchError:  # Propagate the critical error
+        logger.error(f"CriticalBlockFetchError encountered for block {idx}. Propagating upwards.")
+        raise
     except asyncio.CancelledError:
-        logger.debug(f"Block {idx} fetch cancelled")
+        logger.info(f"Block {idx} fetch task was cancelled.")
+        # Do not raise Critical error here, let the cancellation propagate
         raise
     except Exception as e:
-        logger.error(f"Error fetching block {idx}: {e}")
-        return None
+        # Catch any other unexpected errors during the fetch_single_block process
+        logger.error(f"Unexpected error fetching or processing block {idx}: {e}", exc_info=True)
+        # Raise as critical error
+        raise CriticalBlockFetchError(idx, f"Unexpected error: {e}")
 
 
 def fetch_remaining_blocks_async(*args, **kwargs):

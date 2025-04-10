@@ -79,6 +79,7 @@ pytest-cov = "^6.0.0"
 pre-commit = "^4.1.0"
 types-toml = "^0.10.8"
 maturin = "^1.4.0"
+patchelf = "^0.17.2.2"
 
 [tool.poetry.scripts]
 indexer = "start:main"

@@ -18,3 +18,5 @@ app
 indexer/bitcoin_parser/target
 indexer/src/rust_parser/target/*
 indexer/profiling/*
+# Mypy cache
+.mypy_cache/
