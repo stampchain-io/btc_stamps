@@ -1261,7 +1261,7 @@ def fetch_api_ledger_data(block_index: int):
         return None, None
 
     max_retries = 5
-    backoff_time = 2
+    backoff_time = 3
     retry_count = 0
 
     def fetch_url(url):
@@ -1292,7 +1292,7 @@ def fetch_api_ledger_data(block_index: int):
                             return None, None
 
                         if retry_count > 0:
-                            logger.info(f"Successfully fetched ledger data after {retry_count} retries")
+                            logger.debug(f"Successfully fetched ledger data after {retry_count} retries")
 
                         return api_ledger_hash, api_ledger_validation
                     else:
