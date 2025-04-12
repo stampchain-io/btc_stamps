@@ -7,43 +7,50 @@ debug_info() {
         echo "🔍 Container Environment:"
         echo "  • Python version: $(python --version)"
         echo "  • Working directory: $(pwd)"
-        
-        # Only show critical container-specific vars
+
         echo "  • Container Configuration:"
         env | grep -E 'DOCKER_|PYTHONPATH|DEBUG|LD_LIBRARY_PATH' | sed 's/=.*$/=****/'
-        
-        # Show Poetry environment
+
         if command -v poetry &> /dev/null; then
             echo "  • Poetry version: $(poetry --version)"
         fi
     fi
 }
 
-# Install additional OpenSSL libraries if needed
-if [ "$DOCKER_CONTAINER" = "1" ]; then
-    # Run as root if we have permissions, otherwise skip
-    if [ "$(id -u)" = "0" ]; then
+# Only for Alpine-based containers (if using apk)
+install_openssl_libs() {
+    if [ -f /etc/alpine-release ]; then
         echo "Installing additional OpenSSL libraries..."
-        apk add --no-cache libssl3 libcrypto3 2>/dev/null || true
+        apk add --no-cache libssl3 libcrypto3 || true
     fi
-fi
+}
 
-# Wait for MySQL
-if [ "$DOCKER_CONTAINER" = "1" ]; then
-    # Using our custom wait-for-mysql script instead of dockerize
-    /app/wait-for-mysql.sh "${RDS_HOSTNAME:-localhost}" "3306" "60"
-fi
+# Wait for MySQL (only in Dockerized mode)
+wait_for_mysql_if_needed() {
+    if [ "$DOCKER_CONTAINER" = "1" ] && [ -x /app/wait-for-mysql.sh ]; then
+        /app/wait-for-mysql.sh "${RDS_HOSTNAME:-localhost}" "3306" "60"
+    fi
+}
 
-# Create logs directory if not using Docker container logging
-if [ "$DOCKER_CONTAINER" != "1" ]; then
-    mkdir -p /app/logs
-    chown indexer:indexer /app/logs
-fi
+# Prepare logs directory (non-Docker logging)
+prepare_logs() {
+    if [ "$DOCKER_CONTAINER" != "1" ]; then
+        mkdir -p /app/logs
+        chown indexer:indexer /app/logs
+    fi
+}
 
-# Show debug info if enabled
+# Main setup
+install_openssl_libs
+wait_for_mysql_if_needed
+prepare_logs
 debug_info
 
 echo "🚀 Starting application..."
 
-# Execute the main command
+# ⚠️ DO NOT run poetry install here!
+# All dependencies and the project itself must be installed at build time.
+
+# Execute the main command passed to the container (e.g., poetry run indexer)
 exec "$@"
+
