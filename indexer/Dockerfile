@@ -4,7 +4,7 @@ ARG INSTALL_DEV=false
 FROM python:${PYTHON_VERSION}-slim AS builder
 
 # Build arguments
-ARG POETRY_VERSION=1.8.2
+ARG POETRY_VERSION=2.1.1
 ARG TARGETARCH
 ARG INSTALL_DEV
 
@@ -60,7 +60,7 @@ RUN pip install target/wheels/*.whl
 # Runtime stage
 FROM python:${PYTHON_VERSION}-slim
 
-ARG POETRY_VERSION=1.8.2
+ARG POETRY_VERSION=2.1.1
 
 ENV PYTHONPATH=/app:/app/src \
     POETRY_VERSION=${POETRY_VERSION} \
