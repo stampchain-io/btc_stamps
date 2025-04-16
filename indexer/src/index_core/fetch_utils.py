@@ -1109,7 +1109,9 @@ def parse_issuance_from_transaction(tx, issuance_event):
             issuer = params.get("asset_info", {}).get("issuer")
         else:
             # Regular ASSET_ISSUANCE event
-            description = params.get("description", "").strip()
+            # Handle potential None value for description before stripping
+            raw_description = params.get("description")
+            description = raw_description.strip() if raw_description is not None else ""
             quantity = params.get("quantity")
             divisible = params.get("divisible")
             locked = params.get("locked")
