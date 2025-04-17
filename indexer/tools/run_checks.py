@@ -148,6 +148,12 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_src20_validator.py",
             "tests/test_src20.py",
             "tests/test_config.py",
+            # Reparse functionality tests
+            "tests/test_reparse_snapshot.py",
+            "tests/test_reparse_snapshot_db.py",
+            "tests/test_reparse_db_manager.py",
+            "tests/test_reparse_validator.py",
+            "tests/test_reparse_sequence.py",
         ]
 
         for test_file in test_files:
