@@ -6,9 +6,20 @@ import os
 import sys
 from pathlib import Path
 
-# Add the src directory to the Python path
+## Add the src directory to the Python path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.append(str(src_path))
+
+# Load environment variables from .env (e.g., RDS_HOSTNAME, RDS_USER, etc.)
+try:
+    from dotenv import load_dotenv
+
+    env_file = Path(__file__).parent.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        logging.getLogger(__name__).info(f"Loaded environment from {env_file}")
+except ImportError:
+    logging.getLogger(__name__).warning("python-dotenv not installed; skipping .env load")
 
 import config
 from index_core.reparse.snapshot import SnapshotManager
