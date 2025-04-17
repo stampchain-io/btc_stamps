@@ -62,9 +62,9 @@ class ReparseValidator:
                 # Create a BlockProcessor instance
                 block_processor = BlockProcessor(mock_db)
 
-                # Process each transaction
+                # Process only transactions for which we have raw data
                 tx_results = []
-                for tx_hash in txhash_list:
+                for tx_hash in raw_transactions.keys():
                     result = process_tx(mock_db, tx_hash, block_index, stamp_issuances, raw_transactions)
                     if result.data is not None:
                         result = result._replace(block_index=block_index, block_hash=block_hash, block_time=block_data["time"])
