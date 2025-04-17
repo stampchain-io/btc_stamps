@@ -266,8 +266,9 @@ Usage: poetry run reparse [OPTIONS]
 
 Options:
   --snapshot-path PATH    Path to reference hash snapshot
-  --save-snapshot        Save current hashes as reference
-  --force               Continue on hash mismatch (development only)
+  --block-index INT       Validate a specific block (computes and compares hashes)
+  --sequence              Validate snapshot continuity (detect missing blocks)
+  --force                 Continue on hash mismatches (development only)
 ```
 
 ### 10. Key Benefits

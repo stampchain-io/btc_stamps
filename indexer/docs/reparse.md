@@ -89,6 +89,12 @@ The reparse functionality works by:
    ```
    Fast in-memory validation against snapshot
 
+3.5 Verify no missing blocks in snapshot:
+   ```bash
+   poetry run reparse --sequence
+   ```
+   Ensure snapshot continuity before deeper validation
+
 4. If issues found:
    ```bash
    poetry run reparse --use-db
