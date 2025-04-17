@@ -5,10 +5,10 @@
   
   ### SRC-20 / SRC-721 / OLGA / SRC-721r / SRC-101
   
-  [![🧪 Code Quality & Unit Tests](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=main&job=code-quality)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
-  [![🔧 Rust Checks](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=main&job=rust)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
-  [![🌐 Integration Tests](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=main&job=integration)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
-  [![🐋 Docker Build](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml/badge.svg)](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml)
+  🧪 Code Quality & Unit Tests:    [![🧪 Code Quality & Unit Tests](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=dev&job=code-quality)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
+  🔧 Rust Checks:                  [![🔧 Rust Checks](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=dev&job=rust)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
+  🌐 Integration Tests:            [![🌐 Integration Tests](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml/badge.svg?branch=dev&job=integration)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)
+  🐋 Docker Build:                 [![🐋 Docker Build](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml/badge.svg?branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml)
   ![last commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)
   ![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
   ![License](https://img.shields.io/github/license/stampchain-io/btc_stamps)
