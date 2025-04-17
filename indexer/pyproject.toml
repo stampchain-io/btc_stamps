@@ -129,6 +129,7 @@ test = "pytest tests/ -v"
 test-src20 = "pytest tests/test_src20.py -v -s"
 test-thread-safety = "pytest tests/test_src20_thread_safety.py -v"
 test-thread-safety-debug = "python tests/thread_safety/test_thread_safety.py"
+test-reorg = "pytest tests/test_reorg_handling.py -v -s"
 
 [tool.mypy]
 mypy_path = "src"
