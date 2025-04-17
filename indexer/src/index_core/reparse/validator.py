@@ -145,6 +145,17 @@ class ReparseValidator:
         except Exception as e:
             logger.error(f"Error validating block {block_index}: {e}")
             raise
+    def validate_sequence(self) -> bool:
+        """Validate that snapshot block indices form a continuous sequence."""
+        data = self.snapshot_manager.load_snapshot()
+        hashes = data.get("hashes") if isinstance(data, dict) else None
+        if not hashes:
+            raise ValidationError("No hashes found in snapshot for sequence validation")
+        indices = sorted(int(i) for i in hashes.keys())
+        missing = [i for i in range(indices[0], indices[-1] + 1) if i not in indices]
+        if missing:
+            raise ValidationError(f"Missing blocks in snapshot: {missing}")
+        return True
 
 
 def main() -> None:
@@ -158,20 +169,27 @@ def main() -> None:
         help="Path to reference hash snapshot",
     )
     parser.add_argument("--block-index", type=int, help="Specific block to validate")
+    parser.add_argument("--sequence", action="store_true", help="Validate snapshot sequence continuity")
 
     args = parser.parse_args()
 
     try:
         validator = ReparseValidator(snapshot_path=args.snapshot_path)
 
-        if args.block_index:
+        if args.block_index is not None:
             if not validator.validate_block(args.block_index):
-                logger.error("Validation failed")
+                logger.error("Block validation failed")
                 exit(1)
             logger.info("Block validated successfully")
+        elif args.sequence:
+            try:
+                validator.validate_sequence()
+                logger.info("Snapshot sequence validated successfully")
+            except ValidationError as e:
+                logger.error(f"Sequence validation failed: {e}")
+                exit(1)
         else:
-            logger.error("Please specify a block to validate with --block-index")
-            exit(1)
+            parser.error("Please specify --block-index or --sequence to validate")
 
     except Exception as e:
         logger.error(f"Error during validation: {e}")
