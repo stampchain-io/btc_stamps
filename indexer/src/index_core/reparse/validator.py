@@ -145,6 +145,7 @@ class ReparseValidator:
         except Exception as e:
             logger.error(f"Error validating block {block_index}: {e}")
             raise
+
     def validate_sequence(self) -> bool:
         """Validate that snapshot block indices form a continuous sequence."""
         data = self.snapshot_manager.load_snapshot()
