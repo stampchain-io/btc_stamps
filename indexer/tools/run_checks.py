@@ -422,5 +422,15 @@ def main():
         sys.exit(1)
 
 
+# Standalone entrypoint for code quality in CI, exits 0 if all checks pass, else 1
+def run_code_quality_checks_standalone():
+    result = run_code_quality_checks(auto_fix=False)
+    if not result:
+        logger.error("Code quality checks failed. Exiting with code 1.")
+        sys.exit(1)
+    logger.info("All code quality checks passed. Exiting with code 0.")
+    sys.exit(0)
+
+
 if __name__ == "__main__":
     main()
