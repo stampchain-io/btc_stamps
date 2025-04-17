@@ -2,7 +2,6 @@ name: CI
 
 on:
   pull_request:
-    branches: [dev, main]
   workflow_dispatch:
 
 jobs:
@@ -10,6 +9,7 @@ jobs:
   rust:
     name: Rust Checks
     runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
     env:
       USE_TEST_TX_HEX: '1'
       TESTING: '1'
@@ -45,7 +45,6 @@ jobs:
   code-quality:
     name: Code Quality & Unit Tests
     runs-on: ubuntu-latest
-    needs: rust
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12']
@@ -95,6 +94,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: rust
+    if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
     env:
       PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
       USE_TEST_TX_HEX: '1'
