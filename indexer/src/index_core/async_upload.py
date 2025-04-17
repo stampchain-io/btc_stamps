@@ -175,16 +175,22 @@ def stop_upload_worker() -> None:
     global _upload_worker_running, _upload_worker_thread
 
     if not _upload_worker_running:
-        logger.warning("Upload worker thread is not running")
-        return
+        logger.warning("Upload worker thread is not running, but will proceed to shutdown executor")
+    else:
+        logger.info("Stopping async upload worker thread...")
+        _upload_worker_running = False
 
-    logger.info("Stopping async upload worker thread...")
-    _upload_worker_running = False
+        if _upload_worker_thread and _upload_worker_thread.is_alive():
+            _upload_worker_thread.join(timeout=5.0)
 
-    if _upload_worker_thread and _upload_worker_thread.is_alive():
-        _upload_worker_thread.join(timeout=5.0)
+        logger.info("Async upload worker thread stopped")
 
-    logger.info("Async upload worker thread stopped")
+    # Shutdown upload executor to prevent hanging threads
+    try:
+        upload_executor.shutdown(wait=False)
+        logger.info("Upload executor shutdown initiated")
+    except Exception as e:
+        logger.error(f"Error shutting down upload executor: {e}", exc_info=True)
 
 
 def queue_file_upload(filename: str, mime_type: str, file_obj: BytesIO, file_obj_md5: str) -> None:
