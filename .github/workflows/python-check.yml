@@ -1,4 +1,4 @@
-name: Python Check
+name: CI
 
 on:
   pull_request:
@@ -6,7 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  python-check:
+  # Code Quality & Unit Tests across Python versions
+  code-quality:
+    name: Code Quality & Unit Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -16,34 +18,28 @@ jobs:
       TESTING: '1'
       USE_TEST_DB: '1'
       MOCK_DB: '1'
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - name: Set up Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           profile: minimal
           components: rustfmt, clippy
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "indexer/src/rust_parser -> target"
-
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
           poetry config virtualenvs.in-project true
           poetry install
         working-directory: ./indexer
-
       - name: Check for debug flags
         run: |
           if grep -qi "DEBUG_SKIP_REBUILD_BALANCES = True" ./indexer/.env; then
@@ -51,41 +47,81 @@ jobs:
             exit 1
           fi
           echo "Debug flag check passed"
-
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer" >> $GITHUB_ENV
-
-      - name: Check import order with isort
-        run: poetry run isort . --check-only
+      - name: Run Code & Unit Tests
         working-directory: ./indexer
+        run: poetry run check-code
 
-      - name: Format check with Black
-        run: poetry run black --check . --config=pyproject.toml
-        working-directory: ./indexer
-
-      - name: Lint with flake8
+  # Rust build & checks only once (not matrix)
+  rust:
+    name: Rust Checks
+    runs-on: ubuntu-latest
+    needs: code-quality
+    env:
+      USE_TEST_TX_HEX: '1'
+      TESTING: '1'
+      USE_TEST_DB: '1'
+      MOCK_DB: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "indexer/src/rust_parser -> target"
+      - name: Install Poetry
         run: |
-          poetry run flake8 src/ --count --statistics
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          poetry config virtualenvs.in-project true
+          poetry install
         working-directory: ./indexer
-
-      - name: Check Rust code
+      - name: Run Rust Checks
         working-directory: ./indexer
         run: poetry run check-rust
 
-      - name: Security check with Bandit
-        run: poetry run task bandit
-        working-directory: ./indexer
-
-      - name: Check with mypy
-        run: poetry run mypy . --explicit-package-bases 
-        working-directory: ./indexer
-
-      - name: Run Tests
-        working-directory: ./indexer
-        env:
-          PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
-          USE_TEST_TX_HEX: "1"
-          TESTING: "1"
+  # Integration tests once after code-quality
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+    env:
+      PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+      USE_TEST_TX_HEX: '1'
+      TESTING: '1'
+      USE_TEST_DB: '1'
+      MOCK_DB: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "indexer/src/rust_parser -> target"
+      - name: Install Poetry
         run: |
-          # Run all tests using Poetry scripts
-          poetry run check-code
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          poetry config virtualenvs.in-project true
+          poetry install
+        working-directory: ./indexer
+      - name: Run Integration Tests
+        working-directory: ./indexer
+        run: poetry run check-integration
