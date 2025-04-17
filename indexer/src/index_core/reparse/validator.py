@@ -14,6 +14,7 @@ from index_core.blocks import (
     filter_block_transactions,
     process_tx,
 )
+import index_core.util as util
 from index_core.database_manager import DatabaseManager
 from index_core.reparse.snapshot import SnapshotManager
 
@@ -38,6 +39,8 @@ class ReparseValidator:
     def compute_block_hashes(self, block_index: int, block_processor: Optional[BlockProcessor] = None) -> Dict[str, str]:
         """Compute hashes for a block using the same logic as production."""
         try:
+            # Set CURRENT_BLOCK_INDEX so filter_block_transactions uses correct branch
+            util.CURRENT_BLOCK_INDEX = block_index
             # Get block data from Bitcoin node
             block_hash = backend_instance.getblockhash(block_index)
             block_data = backend_instance.getblock(block_hash, 2)
@@ -163,6 +166,9 @@ def main() -> None:
     """Main entry point for the validator."""
     import argparse
 
+    # Configure logging for CLI
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     parser = argparse.ArgumentParser(description="Bitcoin Stamps Indexer Reparse Validator")
     parser.add_argument(
         "--snapshot-path",
@@ -171,10 +177,15 @@ def main() -> None:
     )
     parser.add_argument("--block-index", type=int, help="Specific block to validate")
     parser.add_argument("--sequence", action="store_true", help="Validate snapshot sequence continuity")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging output")
+    parser.add_argument("--sequence", action="store_true", help="Validate snapshot sequence continuity")
 
     args = parser.parse_args()
 
     try:
+        # Adjust log level if verbose requested
+        if args.verbose:
+            logging.getLogger().setLevel(logging.DEBUG)
         validator = ReparseValidator(snapshot_path=args.snapshot_path)
 
         if args.block_index is not None:

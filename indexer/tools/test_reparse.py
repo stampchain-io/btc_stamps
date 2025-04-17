@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Main test function."""
+    # Increase log verbosity to see parsing details
+    logging.getLogger().setLevel(logging.DEBUG)
     try:
         # Initialize database connection
         logger.info("Initializing database connection...")
@@ -54,13 +56,13 @@ def main():
         # Test validation on genesis block
         genesis_block = config.CP_STAMP_GENESIS_BLOCK
         logger.info(f"Testing validation on genesis block {genesis_block}...")
-
         try:
             is_valid = validator.validate_block(genesis_block)
             if is_valid:
                 logger.info(f"✅ Block {genesis_block} validated successfully!")
             else:
                 logger.error(f"❌ Block {genesis_block} validation failed!")
+                raise RuntimeError(f"Validation failed for block {genesis_block}")
         except Exception as e:
             logger.error(f"Error validating block {genesis_block}: {e}")
             raise
