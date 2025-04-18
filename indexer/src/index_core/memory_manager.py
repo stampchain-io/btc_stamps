@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import psutil
 
@@ -94,4 +94,11 @@ class MemoryManager:
 
 
 # Global memory manager instance
-memory_manager = MemoryManager()
+if TYPE_CHECKING:
+    memory_manager: MemoryManager
+else:
+    try:
+        memory_manager = MemoryManager()
+    except Exception:
+        # Stub in environments without psutil.Process
+        memory_manager = None  # type: ignore

@@ -154,6 +154,7 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_reparse_db_manager.py",
             "tests/test_reparse_validator.py",
             "tests/test_reparse_sequence.py",
+            "tests/test_reparse_inmemory_stamp_cache.py",
         ]
 
         for test_file in test_files:

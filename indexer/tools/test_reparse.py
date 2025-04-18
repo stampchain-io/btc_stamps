@@ -21,6 +21,11 @@ try:
 except ImportError:
     logging.getLogger(__name__).warning("python-dotenv not installed; skipping .env load")
 
+import sys
+import types
+
+# Stub boto3 to allow config import
+sys.modules["boto3"] = types.ModuleType("boto3")
 import config
 from index_core.reparse.snapshot import SnapshotManager
 from index_core.reparse.validator import ReparseValidator
@@ -53,19 +58,18 @@ def main():
         logger.info("Creating reparse validator...")
         validator = ReparseValidator(snapshot_path=snapshot_path)
 
-        # Test validation on genesis block
-        genesis_block = config.CP_STAMP_GENESIS_BLOCK
-        logger.info(f"Testing validation on genesis block {genesis_block}...")
-        try:
-            is_valid = validator.validate_block(genesis_block)
-            if is_valid:
-                logger.info(f"✅ Block {genesis_block} validated successfully!")
-            else:
-                logger.error(f"❌ Block {genesis_block} validation failed!")
-                raise RuntimeError(f"Validation failed for block {genesis_block}")
-        except Exception as e:
-            logger.error(f"Error validating block {genesis_block}: {e}")
-            raise
+        # Validate every block in the snapshot against computed hashes
+        ref = snapshot_manager.load_snapshot().get("hashes", {})
+        logger.info(f"Validating {len(ref)} blocks against snapshot...")
+        for blk_str in sorted(ref.keys(), key=int):
+            blk = int(blk_str)
+            logger.info(f"Validating block {blk}...")
+            try:
+                if not validator.validate_block(blk):
+                    raise RuntimeError(f"Validation failed for block {blk}")
+            except Exception as e:
+                logger.error(f"Error validating block {blk}: {e}")
+                raise
 
     except Exception as e:
         logger.error(f"Test failed: {e}")

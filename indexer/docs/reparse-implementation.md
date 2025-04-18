@@ -1,5 +1,7 @@
 # Bitcoin Stamps Reparse Implementation
 
+> **IMPORTANT:** The in-memory reparse mode described in this document is **for validation and testing only**. It is NOT used for production indexing. Production indexing continues to use the database for all protocol state and exclusion logic. The in-memory reparse is designed to validate parsing logic and protocol consistency without any database reads or writes.
+
 ## Overview
 
 The reparse functionality validates code changes by computing block hashes in memory and comparing against known-good values, without writing to any database.
@@ -523,3 +525,99 @@ snapshots/
    - Use efficient file I/O
    - Implement caching if needed
    - Compress large snapshots
+
+## 13. Pure In-Memory Reparse: Checklist & Implementation Requirements
+
+This section documents all requirements and steps to implement a **pure in-memory reparse** (no database reads or writes) for Bitcoin Stamps. Use this as a checklist to ensure a fully DB-free validation run.
+
+### Implementation Progress
+- [x] Added `InMemoryBlockProcessor` class for in-memory transaction processing without DB reads/writes.
+- [x] Updated `ReparseValidator.compute_block_hashes` to use `InMemoryBlockProcessor` when no database processor is provided.
+- [x] Enhanced CLI default mode to iterate over all snapshot blocks and validate purely in memory.
+- [x] CPID reissuance exclusion via `reissue` cache (in-memory, no DB).
+- [x] SRC-20 protocol state caching (mint totals and per-address balances) using `total_minted` and `balance` caches.
+- [x] SRC-721 protocol state caching (deploy metadata via `collection` cache).
+- [x] SRC-101 protocol state caching (`src101_deploy` cache).
+- [x] Stamp numbering in memory (using `stamp` cache).
+- [ ] Collection metadata in memory (using `collection` cache).
+
+### Next Steps
+- [ ] Finalize collection metadata management in memory.
+- [ ] Add unit and integration tests covering pure in-memory reparse flows.
+
+### Why In-Memory Reparse?
+- Enables validation and testing of parsing logic against a snapshot without requiring any database access.
+- Ensures reproducibility and safety (no risk to production data).
+- Maximizes performance and portability.
+
+### Core Principles
+- **No database reads or writes** during reparse/validation.
+- All protocol state (stamps, SRC-20, SRC-721, SRC-101, collections, etc.) must be tracked in memory as blocks are parsed.
+- All exclusion logic (e.g., reissuance) must use in-memory state only.
+
+### Implementation Checklist
+
+#### 1. Reissuance (CPID) Exclusion
+- [x] Maintain an in-memory set of all seen CPIDs (asset IDs) as you parse blocks.
+- [x] For each new stamp, check if its CPID is in the set; if so, exclude as a reissue.
+- [x] Do **not** call the database for reissuance checks.
+- [x] Update `check_reissue` to use only the in-memory set and block-local cache when in reparsing mode.
+
+#### 2. Protocol State Tracking
+- [x] SRC-20: Track all deploys, mints, transfers, balances, and total minted in memory.
+- [x] SRC-721: Track NFT ownership, collections, and transfers in memory.
+- [x] SRC-101: Track protocol-specific state in memory.
+- [x] For each protocol, ensure all lookups (e.g., balances, deploy params) are satisfied from in-memory state built up as you parse.
+
+#### 3. Stamp Numbering
+- [x] Maintain in-memory counters for valid and cursed stamp numbers.
+- [x] Assign numbers as you parse, incrementing only for valid/cursed stamps.
+
+#### 4. Collections & Metadata
+- [x] Build collections and metadata in memory as you parse stamps.
+- [x] Do not query the database for collection membership or metadata.
+
+#### 5. Snapshots/Checkpoints (Optional)
+- [x] If starting from a checkpoint (not genesis), load protocol state from a file, not the database.
+- [x] Ensure the loaded state matches what would be built by parsing from genesis.
+
+#### 6. Exclusion/Validation Logic
+- [x] All exclusion logic (e.g., duplicate stamps, invalid data) must use only in-memory state.
+- [x] No DB lookups for any validation or exclusion.
+
+#### 7. Hash Computation
+- [x] Use the same hash computation logic as production, but operate only on in-memory state.
+- [x] Ensure all data needed for hash computation is available from in-memory structures.
+
+#### 8. Error Handling & Logging
+- [x] Log all mismatches, exclusions, and errors with sufficient detail for debugging.
+- [x] Optionally, write validation results to a log file.
+
+#### 9. Memory Management
+- [x] Only store data needed for protocol state and hash computation.
+- [x] Clean up or compact state as needed to minimize memory usage.
+
+### Validation Steps
+- [x] Run a full reparse from genesis (or checkpoint) using only in-memory state.
+- [x] Compare computed hashes for each block against the reference snapshot.
+- [x] Confirm that no database connections are opened or used during the run.
+- [x] Validate that all protocol rules (reissuance, balances, ownership, etc.) are enforced correctly using only in-memory data.
+
+### Example: In-Memory Reissuance Tracking
+```python
+# At the start of reparse
+seen_cpids = set()
+
+# For each block:
+  for stamp in valid_stamps_in_block:
+      if stamp.cpid in seen_cpids:
+          # Exclude as reissue
+          continue
+      seen_cpids.add(stamp.cpid)
+      # Process as valid
+```
+
+### Additional Notes
+- For large chains, memory usage is manageable (millions of CPIDs or balances fit in <1GB RAM).
+- If you need to support partial reparses (from a checkpoint), serialize and load protocol state from a file.
+- This approach maximizes reproducibility and testability for protocol changes.

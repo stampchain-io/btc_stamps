@@ -1,10 +1,20 @@
 import logging
 import os
 import re
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-import boto3
-from requests.auth import HTTPBasicAuth
+if TYPE_CHECKING:
+    import boto3
+    from requests.auth import HTTPBasicAuth
+else:
+    try:
+        import boto3
+    except ImportError:
+        boto3 = None  # type: ignore
+    try:
+        from requests.auth import HTTPBasicAuth
+    except ImportError:
+        HTTPBasicAuth = None  # type: ignore
 
 from exceptions import ConfigurationError
 
@@ -90,11 +100,18 @@ CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", None)
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", None)
 
-AWS_S3_CLIENT = boto3.client(
-    "s3",
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-)
+try:
+    AWS_S3_CLIENT = (
+        boto3.client(
+            "s3",
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        )
+        if boto3
+        else None
+    )
+except Exception:
+    AWS_S3_CLIENT = None
 
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID", None)
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)

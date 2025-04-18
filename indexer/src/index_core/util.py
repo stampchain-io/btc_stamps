@@ -9,9 +9,43 @@ import unicodedata
 from binascii import unhexlify
 from typing import Optional
 
-from bitcoin.wallet import CBitcoinAddress
-from bitcoinlib import encoding
-from ecdsa import SECP256k1, VerifyingKey
+try:
+    from bitcoin.wallet import CBitcoinAddress
+except ImportError:
+    # For test environments without real bitcoin library
+    def CBitcoinAddress(addr):
+        return addr
+
+
+try:
+    from bitcoinlib import encoding
+except ImportError:
+    # Stub encoding for bech32/base58 address parsing
+    class _StubEncoding:
+        @staticmethod
+        def addr_bech32_to_pubkeyhash(addr):
+            return None
+
+        @staticmethod
+        def addr_base58_to_pubkeyhash(addr):
+            return None
+
+    encoding = _StubEncoding
+
+
+try:
+    from ecdsa import SECP256k1, VerifyingKey
+except ImportError:
+    # For test environments without ecdsa
+    SECP256k1 = None
+
+    class _StubVerifyingKey:
+        @staticmethod
+        def from_string(data, curve=None):
+            raise ImportError("ecdsa.VerifyingKey not available")
+
+    VerifyingKey = _StubVerifyingKey
+
 
 import config
 from index_core.caching import cache_manager
