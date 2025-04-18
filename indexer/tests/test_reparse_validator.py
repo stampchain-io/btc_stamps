@@ -74,7 +74,7 @@ class FakeBlockProcessor:
         self.valid_stamps_in_block = []
         self.processed_src20_in_block = []
         self.processed_src721_in_block = []
-        self.processed_src1010_in_block = []
+        self.processed_src101_in_block = []
         self.ledger_updates = {}
         self.collection_operations = []
 

@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 import ast
 import importlib.util
-import logging
 import json  # for debug dump of hash dicts
+import logging
 import time  # for measuring validation duration
 from pathlib import Path
 
@@ -33,7 +33,6 @@ from index_core.blocks import (
     filter_block_transactions,
     process_tx,
 )
-from index_core.stamp import create_valid_stamp_dict
 
 # Load .env from project root, falling back to .env.sample
 root_dir = Path(__file__).resolve().parents[3]
@@ -98,13 +97,13 @@ def main() -> None:
     hashes = validator.snapshot_manager.load_snapshot().get("hashes", {})
     for blk in sorted(int(i) for i in hashes):
         start = time.time()
-        logger.block_status("Validating block %s...", blk)
+        logger.block_status("Validating block %s...", blk)  # type: ignore[attr-defined]
         ok = validator.validate_block(blk)
         duration = time.time() - start
         if not ok:
-            logger.block_status("Validation failed at block %s (took %ss)", blk, f"{duration:.2f}")
+            logger.block_status("Validation failed at block %s (took %ss)", blk, f"{duration:.2f}")  # type: ignore[attr-defined]
             sys.exit(1)
-        logger.block_status("Block %s validated in %ss", blk, f"{duration:.2f}")
+        logger.block_status("Block %s validated in %ss", blk, f"{duration:.2f}")  # type: ignore[attr-defined]
         reparse_caching.cache_manager.check_memory_pressure()
     logging.info("All blocks validated successfully")
     sys.exit(0)
@@ -150,6 +149,7 @@ class InMemoryBlockProcessor:
 
     def process_transaction_results(self, tx_results: list) -> None:
         """Process transaction results and update in-memory state."""
+        # Lazy import to avoid pulling heavy dependencies at module import time
         for result in tx_results:
             if not getattr(result, "data", None):
                 continue
@@ -172,16 +172,18 @@ class InMemoryBlockProcessor:
             prev_stamp_num = reparse_caching.cache_manager.get_cache_value("stamp", "counter") or 0
             new_stamp_num = prev_stamp_num + 1
             reparse_caching.cache_manager.set_cache_value("stamp", "counter", new_stamp_num)
-            valid_stamp = create_valid_stamp_dict(
-                stamp_number=new_stamp_num,
-                tx_hash=result.tx_hash,
-                cpid=data.get("cpid", ""),
-                is_btc_stamp=True,
-                is_valid_base64=False,
-                stamp_base64="",
-                is_cursed=False,
-                src_data=data if isinstance(data, str) else str(data),
-            )
+            valid_stamp = {
+                "stamp_number": new_stamp_num,
+                "tx_hash": result.tx_hash,
+                "cpid": data.get("cpid", ""),
+                "is_btc_stamp": True,
+                "is_valid_base64": False,
+                "stamp_base64": "",
+                "is_cursed": False,
+                "src_data": "",  # empty to match production ValidStamp src_data
+            }
+            # Backward compatibility: alias 'stamp' to stamp_number
+            valid_stamp["stamp"] = new_stamp_num
             self.valid_stamps_in_block.append(valid_stamp)
             # Protocol operations
             protocol = data.get("protocol")
@@ -333,9 +335,15 @@ class ReparseValidator:
             logger.debug(f"  txhash_list (len {len(txhash_list)}): {txhash_list}")
             logger.debug(f"  valid_stamps_in_block: {block_processor.valid_stamps_in_block}")
             logger.debug(f"  processed_src20_in_block: {block_processor.processed_src20_in_block}")
-            logger.debug(f"  processed_src721_in_block: {block_processor.processed_src721_in_block}")
-            logger.debug(f"  processed_src101_in_block: {block_processor.processed_src101_in_block}")
-            logger.debug(f"  ledger_updates: {block_processor.ledger_updates}")
+            # Only InMemoryBlockProcessor has these attributes
+            if isinstance(block_processor, InMemoryBlockProcessor):  # type: ignore[name-defined]
+                logger.debug(f"  processed_src721_in_block: {block_processor.processed_src721_in_block}")  # type: ignore[union-attr]
+                logger.debug(f"  processed_src101_in_block: {block_processor.processed_src101_in_block}")  # type: ignore[union-attr]
+                logger.debug(f"  ledger_updates: {block_processor.ledger_updates}")  # type: ignore[union-attr]
+            else:
+                logger.debug("  processed_src721_in_block: []")
+                logger.debug("  processed_src101_in_block: []")
+                logger.debug("  ledger_updates: {}")
             logger.debug(f"  collection_operations: {block_processor.collection_operations}")
 
             # Prepare result
