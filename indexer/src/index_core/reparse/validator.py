@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 import ast
 import importlib.util
 import logging
+import json  # for debug dump of hash dicts
+import time  # for measuring validation duration
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -94,10 +96,14 @@ def main() -> None:
         sys.exit(0 if validator.validate_sequence() else 1)
     hashes = validator.snapshot_manager.load_snapshot().get("hashes", {})
     for blk in sorted(int(i) for i in hashes):
-        logging.info(f"Validating block {blk}...")
-        if not validator.validate_block(blk):
-            logging.error(f"Validation failed at block {blk}")
+        start = time.time()
+        logger.block_status("Validating block %s...", blk)
+        ok = validator.validate_block(blk)
+        duration = time.time() - start
+        if not ok:
+            logger.block_status("Validation failed at block %s (took %ss)", blk, f"{duration:.2f}")
             sys.exit(1)
+        logger.block_status("Block %s validated in %ss", blk, f"{duration:.2f}")
         reparse_caching.cache_manager.check_memory_pressure()
     logging.info("All blocks validated successfully")
     sys.exit(0)
@@ -319,6 +325,16 @@ class ReparseValidator:
                 if orig_checkpoint is not None:
                     check_mod.CHECKPOINTS_MAINNET[block_index] = orig_checkpoint
 
+            # Debug: log detailed state for this block
+            logger.debug(f"Block {block_index} debug state:")
+            logger.debug(f"  txhash_list (len {len(txhash_list)}): {txhash_list}")
+            logger.debug(f"  valid_stamps_in_block: {block_processor.valid_stamps_in_block}")
+            logger.debug(f"  processed_src20_in_block: {block_processor.processed_src20_in_block}")
+            logger.debug(f"  processed_src721_in_block: {block_processor.processed_src721_in_block}")
+            logger.debug(f"  processed_src101_in_block: {block_processor.processed_src101_in_block}")
+            logger.debug(f"  ledger_updates: {block_processor.ledger_updates}")
+            logger.debug(f"  collection_operations: {block_processor.collection_operations}")
+
             # Prepare result
             result = {
                 "block_hash": block_hash,
@@ -375,6 +391,9 @@ class ReparseValidator:
                         f"  Computed: {computed_hashes[hash_type]}\n"
                         f"  Expected: {expected_hashes[hash_type]}"
                     )
+                    # Dump full computed vs expected for debugging
+                    logger.debug(f"Full computed hashes: {json.dumps(computed_hashes, indent=2)}")
+                    logger.debug(f"Full expected hashes: {json.dumps(expected_hashes, indent=2)}")
                     return False
 
             # Only compare ledger_hash if it's not empty in the snapshot
@@ -385,6 +404,9 @@ class ReparseValidator:
                         f"  Computed: {computed_hashes['ledger_hash']}\n"
                         f"  Expected: {expected_hashes['ledger_hash']}"
                     )
+                    # Dump full computed vs expected for debugging
+                    logger.debug(f"Full computed hashes: {json.dumps(computed_hashes, indent=2)}")
+                    logger.debug(f"Full expected hashes: {json.dumps(expected_hashes, indent=2)}")
                     return False
 
             return True
