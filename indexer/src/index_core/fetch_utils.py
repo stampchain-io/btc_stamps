@@ -1253,7 +1253,8 @@ async def get_xcp_transactions_async(
     """Async version of get_xcp_transactions."""
     try:
         endpoint = f"/blocks/{block_index}/transactions"
-        params = {"verbose": "true", "show_unconfirmed": "false", "limit": limit}
+        # Omit limit parameter to avoid server errors on v11 ; use default page size and pagination
+        params = {"verbose": "true", "show_unconfirmed": "false"}
 
         if cursor:
             params["cursor"] = cursor
@@ -1696,7 +1697,8 @@ async def fetch_single_block(idx):
             tx_endpoint = f"/blocks/{idx}/transactions"
             all_transactions = []
             next_cursor = None
-            params = {"verbose": "true", "show_unconfirmed": "false", "limit": 1000}
+            # Remove explicit limit to avoid API errors; on v11 rely on server default pagination
+            params = {"verbose": "true", "show_unconfirmed": "false"}
 
             while True:
                 if next_cursor:
