@@ -33,6 +33,7 @@ from index_core.blocks import (
     filter_block_transactions,
     process_tx,
 )
+from index_core.stamp import create_valid_stamp_dict
 
 # Load .env from project root, falling back to .env.sample
 root_dir = Path(__file__).resolve().parents[3]
@@ -167,19 +168,21 @@ class InMemoryBlockProcessor:
                 if reparse_caching.cache_manager.get_cache_value("reissue", cpid):
                     continue
                 reparse_caching.cache_manager.set_cache_value("reissue", cpid, True)
-            # Track valid stamps with in-memory numbering
-            # Assign in-memory stamp number
+            # Track valid stamps with in-memory numbering and mirror production ValidStamp structure
             prev_stamp_num = reparse_caching.cache_manager.get_cache_value("stamp", "counter") or 0
             new_stamp_num = prev_stamp_num + 1
             reparse_caching.cache_manager.set_cache_value("stamp", "counter", new_stamp_num)
-            stamp_record = {
-                "tx_hash": result.tx_hash,
-                "block_index": result.block_index,
-                "block_time": result.block_time,
-                "cpid": data.get("cpid"),
-                "stamp": new_stamp_num,
-            }
-            self.valid_stamps_in_block.append(stamp_record)
+            valid_stamp = create_valid_stamp_dict(
+                stamp_number=new_stamp_num,
+                tx_hash=result.tx_hash,
+                cpid=data.get("cpid", ""),
+                is_btc_stamp=True,
+                is_valid_base64=False,
+                stamp_base64="",
+                is_cursed=False,
+                src_data=data if isinstance(data, str) else str(data),
+            )
+            self.valid_stamps_in_block.append(valid_stamp)
             # Protocol operations
             protocol = data.get("protocol")
             if protocol == "src-20":
@@ -311,10 +314,10 @@ class ReparseValidator:
                 orig_checkpoint = check_mod.CHECKPOINTS_MAINNET.pop(block_index)
             try:
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-                    mock_db,  # Use mock DB for hash computation
+                    mock_db,
                     block_index,
                     block_processor.valid_stamps_in_block,
-                    "",  # Empty string for valid_src20_str as we're just validating
+                    block_processor.processed_src20_in_block,
                     txhash_list,
                     prev_hashes["ledger_hash"],
                     prev_hashes["txlist_hash"],
