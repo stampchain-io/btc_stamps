@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import pymysql as mysql
-from pymysql.connections import Connection
+
+try:
+    from pymysql.connections import Connection
+except ImportError:
+    Connection = Any  # type: ignore[misc, assignment]
 from pymysql.cursors import Cursor
 
 import config

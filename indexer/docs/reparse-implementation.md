@@ -57,7 +57,7 @@ class InMemoryBlockProcessor:
         # Protocol state
         self.processed_src20_in_block: List = []
         self.processed_src721_in_block: List = []
-        self.processed_src1010_in_block: List = []
+        self.processed_src101_in_block: List = []
         
         # Ledger state
         self.ledger_updates: Dict[str, Dict] = {}
@@ -177,7 +177,7 @@ class ReparseValidator:
                 block_index,
                 block_processor.processed_src20_in_block,
                 block_processor.processed_src721_in_block,
-                block_processor.processed_src1010_in_block
+                block_processor.processed_src101_in_block
             )
             
             txlist_hash = create_txlist_hash(
