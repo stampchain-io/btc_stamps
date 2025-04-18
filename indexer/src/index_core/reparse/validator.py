@@ -8,7 +8,7 @@ import sys
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 os.environ["TESTING"] = "1"
-from typing import TYPE_CHECKING, Optional, Union, Dict
+from typing import TYPE_CHECKING, Dict, Optional, Union
 from unittest.mock import MagicMock
 
 if TYPE_CHECKING:
@@ -19,9 +19,10 @@ import importlib.util
 import logging
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 import index_core.caching as reparse_caching
 import index_core.util as util
-from dotenv import load_dotenv
 from index_core.blocks import (
     BlockProcessor,
     backend_instance,
