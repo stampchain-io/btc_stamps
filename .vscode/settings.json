@@ -21,14 +21,15 @@
     "python.formatting.blackArgs": [
         "--line-length=127"
     ],
-    
-    "python.formatting.blackPath": "${workspaceFolder}/.venv/bin/black",
+    "python.formatting.blackPath": "${workspaceFolder}/indexer/.venv/bin/black",
     "flake8.args": [
         "--max-line-length=127",
         "--exclude=.tox,build",
         "--extend-ignore=E203,W503,E402,E501"
     ],
-    "flake8.path": ["${workspaceFolder}/.venv/bin/flake8"],
+    "flake8.path": [
+        "${workspaceFolder}/indexer/.venv/bin/flake8"
+    ],
     "json.schemas": [],
     "json.validate.enable": false,
     "files.associations": {
@@ -91,5 +92,8 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestArgs": [
         "indexer/tests"
-    ]
+    ],
+    "python.defaultInterpreterPath": "${workspaceFolder}/indexer/.venv/bin/python",
+    "python.pythonPath": "${workspaceFolder}/indexer/.venv/bin/python",
+    "python.venvPath": "${workspaceFolder}/indexer"
 }
