@@ -1758,104 +1758,35 @@ async def fetch_single_block(idx):
             )
             return all_transactions
 
-        # Fetch block data and transactions concurrently
+        # Only fetch transactions; block metadata is embedded in transaction payloads
         start_time = time.time()
-        block_data_task = asyncio.create_task(fetch_block_data())
-        transactions_task = asyncio.create_task(fetch_block_transactions())
+        transactions = await fetch_block_transactions()
+        elapsed_time = time.time() - start_time
+        logger.debug(f"Transaction-only fetch for block {idx} completed in {elapsed_time:.2f} seconds")
 
-        try:
-            # Wait for both tasks with timeout
-            block_response, transactions = await asyncio.wait_for(
-                asyncio.gather(block_data_task, transactions_task, return_exceptions=True),
-                timeout=60,  # Increased timeout to 60 seconds for the whole block
-            )
-            elapsed_time = time.time() - start_time
-            logger.debug(f"Concurrent fetch gather for block {idx} completed in {elapsed_time:.2f} seconds")
-
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout waiting for block {idx} data/transaction fetch tasks to complete")
-            # Ensure tasks are cancelled
-            if not block_data_task.done():
-                block_data_task.cancel()
-            if not transactions_task.done():
-                transactions_task.cancel()
-            # Wait briefly for cancellation
-            await asyncio.sleep(0.1)
-            # Raise critical error on overall timeout
-            raise CriticalBlockFetchError(idx, "Timeout waiting for block data and transactions fetch")
-
-        # --- Check results AFTER gather ---
-
-        # Check if tasks were cancelled (e.g., by overall timeout or external signal)
-        if block_data_task.cancelled() or transactions_task.cancelled():
-            logger.warning(f"Fetch tasks for block {idx} were cancelled.")
-            # Re-raise CancelledError if appropriate, otherwise treat as failure
-            # For simplicity, treat cancellation during fetch as critical failure
-            raise CriticalBlockFetchError(idx, "Fetch tasks cancelled")
-
-        # Check for exceptions returned by gather
-        if isinstance(block_response, Exception):
-            logger.error(f"Error fetching block {idx} metadata: {block_response}")
-            # If the exception is already CriticalBlockFetchError, re-raise it
-            if isinstance(block_response, CriticalBlockFetchError):
-                raise block_response
-            # Otherwise, wrap it
-            raise CriticalBlockFetchError(idx, f"Error fetching block metadata: {block_response}")
-
-        if isinstance(transactions, Exception):
-            logger.error(f"Error fetching block {idx} transactions: {transactions}")
-            # If the exception is already CriticalBlockFetchError, re-raise it
-            if isinstance(transactions, CriticalBlockFetchError):
-                raise transactions
-            # Otherwise, wrap it
-            raise CriticalBlockFetchError(idx, f"Error fetching transactions: {transactions}")
-
-        # At this point, both tasks completed without internal exceptions being raised to here
-        # or overall timeout. Now check the actual returned values.
-
-        # Handle cases where fetch_block_data returned None (e.g., block not ready)
-        if block_response is None:
-            logger.debug(f"Block data for {idx} is None (API indicated block not ready or beyond tip). Skipping block.")
-            return None  # Return None, let the main loop handle potential retries or waits
-
-        # We should have a valid dict response now from block_data fetch
-        if not isinstance(block_response, dict):
-            # This case should ideally be caught within fetch_block_data, but check again
-            logger.error(f"Unexpected format for block_response for block {idx} after gather: {type(block_response)}")
-            raise CriticalBlockFetchError(idx, "Invalid block metadata response format after gather")
-
-        block_data = block_response.get("result")
-        if not block_data:
-            # This case should also ideally be caught within fetch_block_data
-            logger.error(f"No block data found in block_response for block {idx} after gather.")
-            raise CriticalBlockFetchError(idx, "No block data in response after gather")
-
-        # We expect transactions to be a list here (even if empty)
-        if not isinstance(transactions, list):
-            # This case should ideally be caught within fetch_block_transactions
-            logger.error(f"Invalid format for transactions for block {idx} after gather: {type(transactions)}")
-            raise CriticalBlockFetchError(idx, "Invalid transactions format after gather (not a list)")
-
-        # --- Processing successful fetch ---
-
-        if server.shutdown_flag.is_set():
+        if transactions is None:
+            # None indicates block not ready or an expected no-result
             return None
 
-        # Add transactions to block data
-        block_data["transactions"] = transactions  # Already confirmed transactions is a list
+        if not isinstance(transactions, list):
+            logger.error(f"Invalid transactions format for block {idx}: {type(transactions)}")
+            raise CriticalBlockFetchError(idx, "Invalid transactions format (not a list)")
 
-        # Parse transactions for this block
+        # Build a minimal block_data stub from the first transaction's metadata
+        block_hash = None
+        if transactions:
+            first_tx = transactions[0]
+            block_hash = first_tx.get("block_hash")
+        block_data = {"block_index": idx, "block_hash": block_hash, "transactions": transactions}
+
+        # Parse issuances from transactions
         try:
             issuances = parse_xcp_block_transactions([block_data])
             logger.debug(f"Parsed {len(issuances)} issuances for block {idx}")
-
-            # Sort issuances by message_index
-            issuances = sorted(issuances, key=lambda x: (x.get("message_index", 0) if x else 0))
-
-            return {"block_index": idx, "xcp_block_hash": block_data.get("block_hash"), "issuances": issuances}
+            issuances = sorted(issuances, key=lambda x: x.get("message_index", 0) if x else 0)
+            return {"block_index": idx, "xcp_block_hash": block_hash, "issuances": issuances}
         except Exception as e:
             logger.error(f"Error parsing transactions for block {idx}: {e}")
-            # Treat parsing errors as critical
             raise CriticalBlockFetchError(idx, f"Error parsing transactions: {e}")
 
     except CriticalBlockFetchError:  # Propagate the critical error
