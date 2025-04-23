@@ -379,9 +379,9 @@ def main():
     print_header("summary")
     # Build a dynamically sized results table
     rows = [
-        ("Code Quality Checks", f"💣 PASS" if code_quality_ok else f"💀 FAIL [{', '.join(code_quality_failures)}]"),
-        ("Rust Checks", f"💣 PASS" if rust_ok else f"💀 FAIL [{', '.join(rust_failures)}]"),
-        ("Integration Tests", f"💣 PASS" if integration_ok else f"💀 FAIL [{', '.join(integration_failures)}]"),
+        ("Code Quality Checks", "💣 PASS" if code_quality_ok else f"💀 FAIL [{', '.join(code_quality_failures)}]"),
+        ("Rust Checks", "💣 PASS" if rust_ok else f"💀 FAIL [{', '.join(rust_failures)}]"),
+        ("Integration Tests", "💣 PASS" if integration_ok else f"💀 FAIL [{', '.join(integration_failures)}]"),
     ]
     # Determine column widths based on content
     name_w = max(len(name) for name, _ in rows + [("💻 Check Type", "")])
