@@ -12,6 +12,23 @@
             "justMyCode": true
         },
         {
+            "name": "Debug Reparse Validator",
+            "type": "python",
+            "request": "launch",
+            "interpreterPath": "${workspaceFolder}/indexer/.venv/bin/python",
+            "program": "${workspaceFolder}/indexer/src/index_core/reparse/validator.py",
+            "args": [
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/indexer",
+            "justMyCode": true,
+            "env": {
+                "USE_TEST_DB": "1",
+                "MOCK_DB": "1",
+                "TESTING": "1"
+            }
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",

@@ -215,11 +215,12 @@ RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 # Add new constants for the V2 CP API endpoints
 XCP_V2_NODES = [
     {
-        "name": "CP_RPC_URL",
+        "name": "counterparty-primary",
         "url": f"{CP_RPC_URL.rstrip('/').replace('/api/', '/')}/v2",  # Remove 'api' path if present
     },
+    # Uncomment this if you want a backup node
     # {
-    #     "name": "counterparty.io",
+    #     "name": "counterparty-backup",
     #     "url": "https://api.counterparty.io:4000/v2",
     # },
 ]  # TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
