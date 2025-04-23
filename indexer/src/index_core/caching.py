@@ -20,7 +20,7 @@ from config import (
 )
 from index_core.cache_types import LRUCache
 from index_core.memory_manager import memory_manager
-from index_core.types import DeployResult, SRC101DeployResult
+from index_core.stamp_types import DeployResult, SRC101DeployResult
 
 logger = logging.getLogger(__name__)
 D = Decimal

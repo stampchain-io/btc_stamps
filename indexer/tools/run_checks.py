@@ -315,6 +315,7 @@ def run_integration_tests():
         "poetry run pytest tests/test_integration_block_processing.py -v",
         "poetry run pytest tests/test_reorg_handling.py -v",
         "poetry run pytest tests/test_aws_integration.py -v",
+        "poetry run pytest tests/test_shutdown_callbacks.py -v",
     ]
 
     all_passed = True

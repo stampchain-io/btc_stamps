@@ -36,7 +36,7 @@ from index_core.caching import SRC101DeployResult, cache_manager, clear_all_cach
 from index_core.database_manager import DatabaseManager
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
 from index_core.memory_manager import memory_manager
-from index_core.types import NO_DEPLOY, DeployResult
+from index_core.stamp_types import NO_DEPLOY, DeployResult
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
