@@ -490,7 +490,6 @@ def start_all(db: Connection) -> None:
         executor = concurrent.futures.ThreadPoolExecutor()
 
         # Backend
-        global backend_instance
         connect_to_backend()  # This sets the global backend_instance
         if config.STORE_FILES:
             if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:

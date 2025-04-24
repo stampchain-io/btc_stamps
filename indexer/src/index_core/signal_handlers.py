@@ -22,9 +22,6 @@ def signal_handler(sig, frame):
     Handle SIGINT (Ctrl+C) gracefully.
     This handler is designed to be thread-safe and idempotent.
     """
-    global profiler
-    global cp_pipeline_instance
-
     # Track how many times the handler has been called
     if not hasattr(signal_handler, "call_count"):
         signal_handler.call_count = 0

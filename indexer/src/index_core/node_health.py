@@ -352,7 +352,7 @@ def exponential_backoff(attempt: int) -> float:
 
 def initialize_node_health():
     """Initialize health tracking for all nodes"""
-    global node_health_tracker, healthy_nodes
+    global node_health_tracker, healthy_nodes  # noqa: F824 - These are assigned to within this function
 
     # Try to acquire lock with timeout
     lock_acquired = False
@@ -613,7 +613,7 @@ def update_healthy_nodes():
 
 def get_healthy_nodes():
     """Get the list of healthy nodes."""
-    global healthy_nodes
+    # global healthy_nodes # Removed unnecessary global statement
 
     # Create a local copy to avoid lock contention
     result = []

@@ -120,8 +120,6 @@ def _upload_worker() -> None:
     This function runs in a separate thread and continuously processes
     upload tasks from the queue until stopped.
     """
-    global _upload_worker_running
-
     logger.info("Starting async upload worker thread")
 
     while _upload_worker_running:
@@ -172,7 +170,7 @@ def stop_upload_worker() -> None:
 
     This function should be called during application shutdown.
     """
-    global _upload_worker_running, _upload_worker_thread
+    global _upload_worker_running
 
     if not _upload_worker_running:
         logger.warning("Upload worker thread is not running, but will proceed to shutdown executor")
