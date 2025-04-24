@@ -114,7 +114,7 @@ jobs:
             TEMP_VERSION=${PR_VERSION%.*}
             # Then convert to prod format
             NEW_VERSION=${TEMP_VERSION%+*}
-            bump2version --new-version $NEW_VERSION --allow-dirty release
+            bump2version --new-version "${NEW_VERSION}" --allow-dirty release
           fi
           
           # Handle version bumping based on PR title
