@@ -62,6 +62,7 @@ def main() -> None:
         heights.extend(parse_heights(args.heights))
     if args.from_snapshot:
         import json
+
         snap_path = Path(args.from_snapshot)
         if not snap_path.exists():
             raise FileNotFoundError(f"Snapshot {snap_path} not found")
@@ -78,4 +79,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main() 
+    main()

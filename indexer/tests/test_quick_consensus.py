@@ -2,16 +2,14 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, Tuple
-
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from index_core import check as check_mod
-from index_core.blocks import (
-    backend_instance,  # noqa: F401  (used in live mode)
-    fetch_xcp_blocks_concurrent,  # noqa: F401
-    filter_block_transactions,  # noqa: F401
-)
+from index_core.blocks import backend_instance  # noqa: F401  (used in live mode)
+from index_core.blocks import fetch_xcp_blocks_concurrent  # noqa: F401
+from index_core.blocks import filter_block_transactions  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,4 +86,4 @@ def test_consensus_hash(height):
         messages_content,
     )
 
-    assert messages_hash == e["messages_hash"], f"messages mismatch at {height}" 
+    assert messages_hash == e["messages_hash"], f"messages mismatch at {height}"

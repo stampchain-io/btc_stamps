@@ -125,7 +125,14 @@ def run_code_quality_checks(auto_fix=False):
 
     try:
         # Set test environment variables
-        test_env = {"PYTHONPATH": "src:.", "USE_TEST_TX_HEX": "1", "TESTING": "1", "USE_TEST_DB": "1", "MOCK_DB": "1", "CI_FIXTURE_MODE": "true"}
+        test_env = {
+            "PYTHONPATH": "src:.",
+            "USE_TEST_TX_HEX": "1",
+            "TESTING": "1",
+            "USE_TEST_DB": "1",
+            "MOCK_DB": "1",
+            "CI_FIXTURE_MODE": "true",
+        }
         env = {**os.environ, **test_env}
 
         logger.info(colored("Setting up test environment...", "cyan"))
