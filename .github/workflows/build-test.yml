@@ -36,8 +36,12 @@ jobs:
         id: test
         working-directory: ./indexer
         run: |
-          ./test-local.sh
-          echo "test_status=success" >> $GITHUB_OUTPUT
+          if ./test-local.sh; then
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "test_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
       - name: Run Rust parser tests
         working-directory: ./indexer
