@@ -4,6 +4,8 @@ from typing import Dict
 
 import config
 import index_core.util as util
+from index_core.fetch_utils import fetch_node_version_v2
+from index_core.node_health import get_healthy_nodes, initialize_node_health
 
 logger = logging.getLogger(__name__)
 
@@ -299,15 +301,28 @@ def check_change(protocol_change, change_name):
 
 
 def cp_version(log_connection=False):
-    from index_core.xcprequest import get_cp_version
+    initialize_node_health()
+    healthy_nodes = get_healthy_nodes()
 
-    version = get_cp_version(log_connection)
-    if version:
-        version_number = version[0] if isinstance(version, tuple) and len(version) > 0 else str(version)
-        logger.info(f"Connected to Counterparty node version: {version_number}")
+    if not healthy_nodes:
+        logger.warning("Could not determine Counterparty version: No healthy nodes available.")
+        return None, None
+
+    first_node = healthy_nodes[0]
+    node_url = first_node.get("url")
+
+    if not node_url:
+        logger.warning(f"Could not determine Counterparty version: Healthy node {first_node.get('name')} has no URL.")
+        return None, None
+
+    version_string, version_info = fetch_node_version_v2(node_url)
+
+    if version_string and version_info:
+        logger.info(f"Connected to Counterparty node {first_node.get('name')}: version {version_string}")
+        return version_string, version_info
     else:
-        logger.warning("Could not determine Counterparty version")
-    return version
+        logger.warning(f"Could not determine Counterparty version from node {first_node.get('name')}.")
+        return None, None
 
 
 def software_version():

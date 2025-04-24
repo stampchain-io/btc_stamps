@@ -58,7 +58,6 @@ from index_core.exceptions import (
     LedgerMismatchError,
 )
 from index_core.fetch_utils import (
-    CPBlocksPipeline,
     fetch_xcp_blocks_concurrent,
     find_issuance_by_tx_hash,
     get_xcp_assets_by_cpids,
@@ -67,6 +66,8 @@ from index_core.fetch_utils import (
 )
 from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
+from index_core.node_health import is_shutdown_requested, register_shutdown_callback, set_shutdown_flag
+from index_core.pipeline_utils import CPBlocksPipeline
 from index_core.profiling import Profiler
 from index_core.resource_manager import cleanup_resources
 from index_core.signal_handlers import setup_signal_handler
@@ -837,7 +838,8 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
             None,
             p2wsh_data,
         )
-    except Exception:  # Removed unused variable 'e'
+    except Exception:
+
         return TxResult(
             None, None, None, None, None, None, None, None, None, None, None, tx_hash, block_index, None, None, None
         )
@@ -1203,58 +1205,6 @@ def find_common_ancestor_with_xcp(db: Connection, start_index: int) -> int:
     return config.BLOCK_FIRST
 
 
-def signal_handler(sig, frame):
-    """
-    Handle SIGINT (Ctrl+C) gracefully.
-    This handler is designed to be thread-safe and idempotent.
-    """
-    global profiler
-    global cp_pipeline_instance
-
-    # Track how many times the handler has been called
-    if not hasattr(signal_handler, "call_count"):
-        signal_handler.call_count = 0
-    signal_handler.call_count += 1
-
-    # If this is the second or later call, force immediate exit
-    if signal_handler.call_count >= 2:
-        logger.warning("Received second interrupt, forcing immediate exit...")
-        if "profiler" in globals():
-            try:
-                profiler.end_block_profiling()
-            except Exception:
-                pass
-        os._exit(1)  # Use os._exit for immediate termination
-
-    logger.info("Received interrupt signal, initiating graceful shutdown...")
-    if "profiler" in globals():
-        try:
-            profiler.end_block_profiling()
-        except Exception as e:
-            logger.error(f"Error ending profiling: {e}")
-
-    # Set both shutdown flags
-    server.shutdown_flag.set()
-
-    # Also set CP pipeline shutdown flag if it exists
-    if "cp_pipeline_instance" in globals() and cp_pipeline_instance is not None:
-        logger.info("Setting CP pipeline shutdown flag...")
-        try:
-            cp_pipeline_instance.shutdown_flag.set()
-        except Exception as e:
-            logger.error(f"Error setting CP pipeline shutdown flag: {e}")
-
-    # Create a timer that forces exit if shutdown takes too long
-    def force_exit_after_timeout():
-        logger.warning("Shutdown timeout reached (10 seconds), forcing exit...")
-        os._exit(1)  # Use os._exit for a hard exit that bypasses Python's cleanup
-
-    # Schedule forced exit after 10 seconds
-    shutdown_timer = threading.Timer(10.0, force_exit_after_timeout)
-    shutdown_timer.daemon = True  # Make timer daemon so it doesn't block process exit
-    shutdown_timer.start()
-
-
 def follow(
     db,
     executor=None,
@@ -1278,16 +1228,31 @@ def follow(
         single_block: Whether to process just one block and exit
         reparse_mode: Whether running in reparse mode
     """
-    # Initialize resources that need cleanup
-    executor = executor or concurrent.futures.ThreadPoolExecutor()
-    zmq_notifier = None
-    update_cpids_future = None
-    global cp_pipeline_instance
-    cp_pipeline_instance = None
-    global profiler
-    profiler = None
+    # Register for shutdown notifications
+    shutdown_requested = [False]  # Use list for mutable reference in callback
+
+    def handle_shutdown():
+        """Callback for shutdown notification"""
+        logger.info("Block processor received shutdown notification")
+        shutdown_requested[0] = True
+
+    register_shutdown_callback(handle_shutdown)
+
+    # Setup thread executor if not provided
+    using_provided_executor = executor is not None
+    if not executor:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
     try:
+        # Initialize resources that need cleanup
+        executor = executor or concurrent.futures.ThreadPoolExecutor()
+        zmq_notifier = None
+        update_cpids_future = None
+        global cp_pipeline_instance
+        cp_pipeline_instance = None
+        global profiler
+        profiler = None
+
         # Initial database setup
         if not reparse_mode:
             initialize(db)
@@ -1327,8 +1292,8 @@ def follow(
             cp_pipeline_instance.start(block_index)
             stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
 
-        # Set up signal handler after initializing resources
-        setup_signal_handler(profiler, cp_pipeline_instance)
+        # Set up signal handler with resources that need to be cleaned up
+        setup_signal_handler(profiler_instance=profiler, cp_pipeline=cp_pipeline_instance)
 
         consecutive_errors = 0
         max_consecutive_errors = 5
@@ -1388,11 +1353,10 @@ def follow(
                 logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
                 return True  # Continue processing
 
-        while not server.shutdown_flag.is_set():
-            start_time = time.time()
-
-            # Check shutdown flag before starting new transaction
-            if server.shutdown_flag.is_set():
+        while True:
+            # Check if shutdown has been requested via callback or global flag
+            if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                logger.info("Shutdown requested, exiting block processor")
                 break
 
             try:
@@ -1409,7 +1373,7 @@ def follow(
                         block_tip = block_index
                 except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
                     if config.FORCE:
-                        if server.shutdown_flag.is_set():
+                        if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                             break
                         time.sleep(config.BACKEND_POLL_INTERVAL)
                         continue
@@ -1441,7 +1405,7 @@ def follow(
                 if block_index <= block_tip:
                     logger.debug("Starting block processing after notification")
                     # Check shutdown flag before heavy operations
-                    if server.shutdown_flag.is_set():
+                    if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                         break
 
                     # Check database connection before operations
@@ -1451,7 +1415,8 @@ def follow(
                     start_time = time.time()
 
                     # Start profiling for this block
-                    profiler.start_block_profiling()
+                    if profiler:
+                        profiler.start_block_profiling()
 
                     # Define at_chain_tip here to ensure it's always available
                     at_chain_tip = block_index == block_tip
@@ -1467,6 +1432,33 @@ def follow(
                     else:
                         # Check if we're at or near the chain tip - expected behavior
                         near_tip = block_index >= block_tip - 1
+
+                        # Check if the pipeline is in the process of fetching this block
+                        pipeline_fetching = False
+                        if cp_pipeline_instance:
+                            with cp_pipeline_instance._blocks_fetch_lock:
+                                pipeline_fetching = block_index in cp_pipeline_instance.blocks_being_fetched
+
+                        # Wait if the pipeline is actively fetching the block we need
+                        if pipeline_fetching:
+                            logger.info(f"Block {block_index} is currently being fetched by the pipeline, waiting...")
+                            time.sleep(3)  # Short wait to let the fetch complete
+                            db.rollback()
+                            continue
+
+                        # Also check if the pipeline is still initializing
+                        pipeline_initializing = (
+                            cp_pipeline_instance
+                            and not cp_pipeline_instance.initial_blocks_ready.is_set()
+                            and cp_pipeline_instance.current_block > block_index
+                        )
+
+                        if pipeline_initializing:
+                            logger.info(f"Pipeline is still initializing and likely fetching block {block_index}, waiting...")
+                            time.sleep(5)  # Wait a bit more to let pipeline complete
+                            db.rollback()
+                            continue
+
                         if at_chain_tip or near_tip:
                             logger.debug(
                                 f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip}"
@@ -1479,7 +1471,7 @@ def follow(
                             logger.warning(f"Block {block_index} not found in CP pipeline, falling back to direct fetch")
 
                         try:
-                            if server.shutdown_flag.is_set():
+                            if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected before CP fetch, breaking...")
                                 break
 
@@ -1493,28 +1485,26 @@ def follow(
                                 time.sleep(pause_interval)
                                 continue
 
-                            if block_index + 1 == block_tip:
-                                indicator = True
-                            else:
-                                indicator = None
-
                             # Adjust logging based on chain tip status
                             if at_chain_tip:
                                 logger.debug(f"Directly fetching block {block_index} from XCP API (at chain tip)")
                             else:
                                 logger.info(f"Directly fetching block {block_index} from XCP API")
 
-                            # Limit the fetch to at most 100 blocks instead of all the way to block_tip
-                            max_fetch_blocks = 100
+                            # Limit the fetch to just a few blocks ahead instead of 100
+                            # This avoids refetching too many blocks that the pipeline will get anyway
+                            max_fetch_blocks = 5  # Reduced from 100 to 5 to minimize redundant fetching
                             end_block = min(block_index + max_fetch_blocks - 1, block_tip)
 
                             # Progressive backoff for chain tip blocks
                             max_attempts = 3 if at_chain_tip else 1
                             for attempt in range(max_attempts):
-                                if server.shutdown_flag.is_set():
+                                if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                                     break
 
-                                stamp_issuances_list = fetch_xcp_blocks_concurrent(block_index, end_block, indicator=indicator)
+                                stamp_issuances_list = fetch_xcp_blocks_concurrent(
+                                    block_index, end_block, progress_indicator=(block_index + 1 == block_tip)
+                                )
 
                                 if stamp_issuances_list or not at_chain_tip:
                                     break
@@ -1569,7 +1559,7 @@ def follow(
 
                             logger.debug(f"Successfully fetched {len(stamp_issuances_list)} blocks directly from XCP API")
 
-                            if server.shutdown_flag.is_set():
+                            if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected after CP fetch, breaking...")
                                 break
 
@@ -1577,11 +1567,22 @@ def follow(
                         except KeyboardInterrupt:
                             logger.info("Received keyboard interrupt during CP fetch.")
                             server.shutdown_flag.set()
+                            set_shutdown_flag()
                             break
+                        except CriticalBlockFetchError as e:
+                            logger.critical(f"Critical block fetch error: {e}")
+                            if config.FORCE:
+                                logger.warning("Continuing due to FORCE=True despite critical error")
+                                db.rollback()
+                                continue
+                            else:
+                                raise
                         except Exception as e:
                             logger.error(f"Error during CP fetch: {e}")
                             if not config.FORCE:
                                 raise
+                            db.rollback()
+                            continue
 
                     # Check for critical block error marker
                     if (
@@ -1613,6 +1614,7 @@ def follow(
                     if not stamp_issuances and not at_chain_tip and block_index >= config.CP_STAMP_GENESIS_BLOCK:
                         logger.debug(f"Block {block_index} has no stamp issuances - this is normal")
 
+                    # Check for orphan blocks
                     if block_tip - block_index < 100 and not reparse_mode:
                         requires_rollback = False
                         while True:
@@ -1663,6 +1665,7 @@ def follow(
                             time.sleep(60)  # delay waiting for CP to catch up
                             continue
 
+                    # Get block hash and verify
                     block_hash = backend_instance.getblockhash(block_index)
 
                     # Get full block data from backend

@@ -1,13 +1,13 @@
 import logging
 import os
 import sys
-from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import colorlog
 import pytest
 
+from index_core.async_upload import stop_upload_worker
 from index_core.blocks import BlockProcessor
 from index_core.caching import cache_manager
 from index_core.models import StampData
@@ -66,9 +66,12 @@ def setup_environment():
 
     yield db_simulator
 
+    # Teardown starts here
     db_patcher.stop()
     # Clear cache at the end of all tests
     cache_manager.clear_all()
+    # Stop the upload worker explicitly
+    stop_upload_worker()
 
 
 @pytest.fixture(autouse=True)
