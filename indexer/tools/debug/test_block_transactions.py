@@ -44,6 +44,7 @@ if env_path.exists():
 # Import after environment setup
 try:
     from btc_stamps_parser import FastTransactionParser
+
     from src.config import BTC_SRC20_OLGA_BLOCK, PREFIX, SRC20_VALID_TABLE
     from src.index_core import arc4, backend, blocks, script
     from src.index_core.backend import Backend

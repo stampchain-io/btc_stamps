@@ -6,6 +6,7 @@ Test script to verify special transaction handling in the Rust parser.
 import logging
 
 from btc_stamps_parser import FastTransactionParser
+
 from index_core.backend import Backend
 
 # Configure logging
