@@ -9,6 +9,7 @@ of late registrations.
 
 import logging
 import sys
+
 import pytest
 
 # Configure logging

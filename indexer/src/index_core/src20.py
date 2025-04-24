@@ -229,7 +229,7 @@ class Src20Processor:
 
     def handle_deploy(self):
         if self.operation.upper() != "DEPLOY":
-            logger.warning(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
+            logger.debug(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
             return
 
         if not self.deploy_lim and not self.deploy_max and self.src20_dict.get("lim") and self.src20_dict.get("max"):
@@ -488,7 +488,7 @@ class Src20Processor:
                     self.processed_src20_in_block.append(self.src20_dict)
             else:
                 self.processed_src20_in_block.append(self.src20_dict)
-            logger.warning(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
+            logger.debug(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
             self.is_valid = False
             return
 
@@ -645,7 +645,7 @@ def check_format(input_string, tx_hash, block_index):
 
     def parse_no_sci_float(s):
         if "e" in s.lower():
-            logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
+            logger.debug(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
             raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
         return D(s)
 
@@ -659,10 +659,10 @@ def check_format(input_string, tx_hash, block_index):
             elif isinstance(input_string, dict):
                 input_dict = input_string
             else:
-                logger.warning("EXCLUSION: Input string is neither bytes, str, nor dict")
+                logger.debug("EXCLUSION: Input string is neither bytes, str, nor dict")
                 return None
         except (json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.warning(f"EXCLUSION: JSON decode error: {e}")
+            logger.debug(f"EXCLUSION: JSON decode error: {e}")
             return None
         if input_dict.get("p").lower() == "src-721":
             return input_dict
@@ -670,7 +670,7 @@ def check_format(input_string, tx_hash, block_index):
             tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
-                logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
+                logger.debug(f"EXCLUSION: did not match tick pattern {input_dict}")
                 return None
 
             deploy_keys = {"op", "tick", "max", "lim"}
@@ -694,7 +694,7 @@ def check_format(input_string, tx_hash, block_index):
                     for key in key_values_to_check[list(key_values_to_check.keys())[i]]:
                         value = input_dict.get(key)
                         if value is None:
-                            logger.warning(
+                            logger.debug(
                                 f"EXCLUSION: Missing or invalid value for {key}",
                                 input_dict,
                             )
@@ -707,9 +707,7 @@ def check_format(input_string, tx_hash, block_index):
                                 else:
                                     value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
                             except InvalidOperation as e:
-                                logger.warning(
-                                    f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
-                                )
+                                logger.debug(f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}")
                                 return None
                         elif isinstance(value, int):
                             value = D(value)
@@ -719,10 +717,10 @@ def check_format(input_string, tx_hash, block_index):
                         elif isinstance(value, D):
                             pass
                         else:
-                            logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
+                            logger.debug(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
                         if value.is_nan() or not (D("0") <= value <= uint64_max):
-                            logger.warning(f"EXCLUSION: {key} not in range", input_dict)
+                            logger.debug(f"EXCLUSION: {key} not in range", input_dict)
                             return None
             return input_dict
 

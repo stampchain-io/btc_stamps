@@ -5,6 +5,9 @@ Resource management utilities for handling resource cleanup and shutdown procedu
 import logging
 import threading
 
+# Import stop_upload_worker
+from index_core.async_upload import stop_upload_worker
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,8 +17,8 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
     # Set timeouts for each cleanup phase
     PIPELINE_TIMEOUT = 3  # seconds
+    UPLOAD_WORKER_TIMEOUT = 5
     ZMQ_TIMEOUT = 2  # seconds
-    EXECUTOR_TIMEOUT = 3  # seconds
     DB_TIMEOUT = 2  # seconds
 
     # Helper function to run a task with timeout
@@ -55,6 +58,16 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
         run_with_timeout(stop_pipeline, PIPELINE_TIMEOUT, "CP pipeline")
 
+    # Stop Async Upload Worker with timeout (Added)
+    def stop_uploader():
+        try:
+            # This function already handles logging and executor shutdown internally
+            stop_upload_worker()
+        except Exception as e:
+            logger.error(f"Error stopping async upload worker: {e}")
+
+    run_with_timeout(stop_uploader, UPLOAD_WORKER_TIMEOUT, "Async Upload Worker")
+
     # Cancel any pending CPID updates
     if update_cpids_future and not update_cpids_future.done():
         logger.info("Cancelling pending CPID updates...")
@@ -71,19 +84,16 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
 
         run_with_timeout(cleanup_zmq, ZMQ_TIMEOUT, "ZMQ")
 
-    # Clean up thread pool with timeout
+    # Clean up the main thread pool passed to the function (if it exists)
+    # Note: The async_upload module has its own executor, stopped by stop_upload_worker
     if executor:
-
-        def cleanup_executor():
-            try:
-                # Attempt a graceful shutdown with our own timeout
-                # Use shutdown(wait=False) instead of wait=True to avoid getting stuck
-                executor.shutdown(wait=False)
-                logger.info("Executor shutdown initiated")
-            except Exception as e:
-                logger.error(f"Error shutting down executor: {e}")
-
-        run_with_timeout(cleanup_executor, EXECUTOR_TIMEOUT, "executor")
+        logger.info("Shutting down main executor...")
+        try:
+            # Assuming this executor might be different from the upload one
+            executor.shutdown(wait=True)  # Use wait=True for the main executor if needed
+            logger.info("Main executor shutdown complete")
+        except Exception as e:
+            logger.error(f"Error shutting down main executor: {e}")
 
     # Commit any pending transactions and close DB with timeout
     def cleanup_db():
