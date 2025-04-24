@@ -96,6 +96,8 @@ check-integration = "tools.run_checks:run_integration_tests_standalone"
 reparse = "index_core.reparse.validator:main"
 save-snapshot = "index_core.reparse.snapshot:create_snapshot"
 rollback = "tools.rollback_db:main"
+dump-seeds = "tools.dump_seeds:main"
+dump-fixtures = "tools.dump_block_fixtures:main"
 
 [[tool.poetry.packages]]
 from = "src"
