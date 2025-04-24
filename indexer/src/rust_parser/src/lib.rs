@@ -237,7 +237,10 @@ impl FastTransactionParser {
         ))
     }
 
-    pub fn batch_parse_transactions(&self, tx_hexes: Vec<&str>) -> PyResult<Vec<TransactionInfo>> {
+    pub fn batch_parse_transactions(
+        &self,
+        tx_hexes: Vec<String>,
+    ) -> PyResult<Vec<TransactionInfo>> {
         let start_time = std::time::Instant::now();
         let total_txs = tx_hexes.len();
 
@@ -264,8 +267,7 @@ impl FastTransactionParser {
                     chunk.len()
                 );
 
-                let chunk_vec: Vec<String> = chunk.iter().map(|&s| s.to_string()).collect();
-                let chunk_results = self.process_transaction_chunk(chunk_vec)?;
+                let chunk_results = self.process_transaction_chunk(chunk.to_vec())?;
                 total_processed += chunk.len(); // Count all transactions processed
 
                 // Count transactions that should be included before filtering
@@ -303,8 +305,7 @@ impl FastTransactionParser {
             }
         } else {
             // For smaller batches, process all at once
-            let tx_hexes_vec: Vec<String> = tx_hexes.iter().map(|&s| s.to_string()).collect();
-            let all_results = self.process_transaction_chunk(tx_hexes_vec)?;
+            let all_results = self.process_transaction_chunk(tx_hexes.clone())?; // Clone tx_hexes here as it's consumed by process_transaction_chunk
             total_processed = tx_hexes.len(); // Count all transactions processed
 
             // Count transactions that should be included before filtering
@@ -1071,38 +1072,54 @@ impl BlockInfo {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
-        Python::with_gil(|py| match slf.current_index {
-            0 => {
-                slf.current_index += 1;
-                Ok(Some(slf.transaction_ids.clone().into_py(py)))
+        Python::with_gil(|py| {
+            match slf.current_index {
+                0 => {
+                    slf.current_index += 1;
+                    // Handle Result with ?, then convert Bound to PyObject
+                    let bound_obj = slf.transaction_ids.clone().into_pyobject(py)?;
+                    Ok(Some(bound_obj.into()))
+                }
+                1 => {
+                    slf.current_index += 1;
+                    // Handle Result with ?, then convert Bound to PyObject
+                    let bound_obj = slf.metadata.clone().into_pyobject(py)?;
+                    Ok(Some(bound_obj.into()))
+                }
+                2 => {
+                    slf.current_index += 1;
+                    // Handle Result with ?, then convert Bound to PyObject
+                    let bound_obj = slf.version.into_pyobject(py)?;
+                    Ok(Some(bound_obj.into()))
+                }
+                3 => {
+                    slf.current_index += 1;
+                    // Handle Result with ?, then convert Bound to PyObject
+                    let bound_obj = slf.block_hash.clone().into_pyobject(py)?;
+                    Ok(Some(bound_obj.into()))
+                }
+                4 => {
+                    slf.current_index += 1;
+                    // Handle Result with ?, then convert Bound to PyObject
+                    let bound_obj = slf.timestamp.into_pyobject(py)?;
+                    Ok(Some(bound_obj.into()))
+                }
+                _ => Ok(None), // This arm is already correct
             }
-            1 => {
-                slf.current_index += 1;
-                Ok(Some(slf.metadata.clone().into_py(py)))
-            }
-            2 => {
-                slf.current_index += 1;
-                Ok(Some(slf.version.into_py(py)))
-            }
-            3 => {
-                slf.current_index += 1;
-                Ok(Some(slf.block_hash.clone().into_py(py)))
-            }
-            4 => {
-                slf.current_index += 1;
-                Ok(Some(slf.timestamp.into_py(py)))
-            }
-            _ => Ok(None),
         })
     }
 }
 
 #[pymodule]
-fn btc_stamps_parser(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<FastTransactionParser>()?;
-    m.add_class::<TransactionInfo>()?;
-    m.add_class::<InputInfo>()?;
-    m.add_class::<OutputInfo>()?;
-    m.add_class::<BlockInfo>()?;
+#[pyo3(name = "btc_stamps_parser")]
+fn btc_stamps_parser(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add(
+        "FastTransactionParser",
+        py.get_type::<FastTransactionParser>(),
+    )?;
+    m.add("TransactionInfo", py.get_type::<TransactionInfo>())?;
+    m.add("InputInfo", py.get_type::<InputInfo>())?;
+    m.add("OutputInfo", py.get_type::<OutputInfo>())?;
+    m.add("BlockInfo", py.get_type::<BlockInfo>())?;
     Ok(())
 }
