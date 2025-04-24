@@ -1,13 +1,15 @@
 import os
 import sys
 import types
-from pathlib import Path
+
+# from pathlib import Path # Unused
 from typing import Any
 
 import pytest
 
-### Stub external dependencies before importing project modules
-### Use Any typing to suppress mypy attr-defined errors
+# Stub external dependencies before importing project modules
+# Use Any typing to suppress mypy attr-defined errors
+
 # Stub boto3 for config imports
 _boto3_mod: Any = types.ModuleType("boto3")
 _boto3_mod.client = lambda *args, **kwargs: None
@@ -23,12 +25,14 @@ _cur_mod: Any = types.ModuleType("pymysql.cursors")
 _cur_mod.Cursor = object
 _cur_mod.DictCursor = object
 sys.modules["pymysql.cursors"] = _cur_mod
-# Stub bitcoin module for index_core.util imports
-_btc_mod: Any = types.ModuleType("bitcoin")
-sys.modules["bitcoin"] = _btc_mod
-_btc_wallet: Any = types.ModuleType("bitcoin.wallet")
-_btc_wallet.CBitcoinAddress = lambda addr: addr
-sys.modules["bitcoin.wallet"] = _btc_wallet
+
+# Remove conflicting bitcoin stub
+# _btc_mod: Any = types.ModuleType("bitcoin")
+# sys.modules["bitcoin"] = _btc_mod
+# _btc_wallet: Any = types.ModuleType("bitcoin.wallet")
+# _btc_wallet.CBitcoinAddress = lambda addr: addr
+# sys.modules["bitcoin.wallet"] = _btc_wallet
+
 # Stub bitcoinlib module for index_core.util imports
 _blib_mod: Any = types.ModuleType("bitcoinlib")
 sys.modules["bitcoinlib"] = _blib_mod
@@ -36,6 +40,7 @@ _blib_encoding: Any = types.ModuleType("bitcoinlib.encoding")
 _blib_encoding.addr_bech32_to_pubkeyhash = lambda addr: None
 _blib_encoding.addr_base58_to_pubkeyhash = lambda addr: None
 sys.modules["bitcoinlib.encoding"] = _blib_encoding
+
 # Stub ecdsa module for index_core.util imports
 _ecdsa_mod: Any = types.ModuleType("ecdsa")
 _ecdsa_mod.SECP256k1 = object
@@ -47,11 +52,12 @@ class _VerifyingKey:
 
 _ecdsa_mod.VerifyingKey = _VerifyingKey
 sys.modules["ecdsa"] = _ecdsa_mod
-# Stub psutil module for index_core.memory_manager imports
-_psutil_mod: Any = types.ModuleType("psutil")
-# Provide Process to avoid attribute errors
-_psutil_mod.Process = lambda pid: types.SimpleNamespace(memory_info=lambda: None)
-sys.modules["psutil"] = _psutil_mod
+
+# Remove conflicting psutil stub
+# _psutil_mod: Any = types.ModuleType("psutil")
+# _psutil_mod.Process = lambda pid: types.SimpleNamespace(memory_info=lambda: None)
+# sys.modules["psutil"] = _psutil_mod
+
 _blocks_mod: Any = types.ModuleType("index_core.blocks")
 _blocks_mod.BlockProcessor = lambda db: None
 _blocks_mod.backend_instance = types.SimpleNamespace(getblockhash=lambda idx: None, getblock=lambda *args, **kwargs: {})
@@ -63,6 +69,8 @@ sys.modules["index_core.blocks"] = _blocks_mod
 
 # Add the src directory to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+# Now safe to import the module under test
 import index_core.reparse.validator as validator_module
 from index_core.reparse.validator import ReparseValidator, ValidationError
 

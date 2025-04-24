@@ -24,16 +24,15 @@ mods = [
     "pymysql",
     "pymysql.connections",
     "pymysql.cursors",
-    "bitcoin",
-    "bitcoin.wallet",
     "bitcoinlib",
     "bitcoinlib.encoding",
     "ecdsa",
-    "psutil",
 ]
 # Prepare stub modules
 for m in mods:
-    sys.modules[m] = types.ModuleType(m)  # type: ignore
+    # Add a check to avoid overwriting potentially already loaded modules
+    if m not in sys.modules or not hasattr(sys.modules[m], "__file__"):
+        sys.modules[m] = types.ModuleType(m)  # type: ignore
 # Configure stub for index_core.blocks with required attributes
 _blocks_mod: Any = sys.modules["index_core.blocks"]  # type: ignore
 _blocks_mod.BlockProcessor = lambda db: None

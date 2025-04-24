@@ -24,12 +24,12 @@ _pcurs_mod: Any = types.ModuleType("pymysql.cursors")
 _pcurs_mod.Cursor = type("Cursor", (), {})
 _pcurs_mod.DictCursor = type("DictCursor", (), {})
 sys.modules["pymysql.cursors"] = _pcurs_mod
-# Stub bitcoin modules for util import
-_btc_mod: Any = types.ModuleType("bitcoin")
-sys.modules["bitcoin"] = _btc_mod
-_btc_wallet: Any = types.ModuleType("bitcoin.wallet")
-_btc_wallet.CBitcoinAddress = lambda addr: addr
-sys.modules["bitcoin.wallet"] = _btc_wallet
+# Stub bitcoin modules for util import - REMOVING CONFLICTING STUBS
+# _btc_mod: Any = types.ModuleType("bitcoin")
+# sys.modules["bitcoin"] = _btc_mod
+# _btc_wallet: Any = types.ModuleType("bitcoin.wallet")
+# _btc_wallet.CBitcoinAddress = lambda addr: addr
+# sys.modules["bitcoin.wallet"] = _btc_wallet
 _blib_mod: Any = types.ModuleType("bitcoinlib")
 sys.modules["bitcoinlib"] = _blib_mod
 _blib_encoding: Any = types.ModuleType("bitcoinlib.encoding")
@@ -40,9 +40,11 @@ _ecdsa_mod: Any = types.ModuleType("ecdsa")
 _ecdsa_mod.SECP256k1 = object
 _ecdsa_mod.VerifyingKey = type("VK", (), {})
 sys.modules["ecdsa"] = _ecdsa_mod
-_psutil_mod: Any = types.ModuleType("psutil")
-_psutil_mod.Process = lambda pid: types.SimpleNamespace(memory_info=lambda: None)
-sys.modules["psutil"] = _psutil_mod
+
+# Remove conflicting psutil stub
+# _psutil_mod: Any = types.ModuleType("psutil")
+# _psutil_mod.Process = lambda pid: types.SimpleNamespace(memory_info=lambda: None)
+# sys.modules["psutil"] = _psutil_mod
 
 # Add src directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))

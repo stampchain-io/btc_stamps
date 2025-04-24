@@ -2,13 +2,15 @@ import json
 import os
 import sys
 import types
-from pathlib import Path
+
+# from pathlib import Path # Unused
 from typing import Any
 
-import pytest
+# import pytest # Unused in this specific file top-level, used by test functions
 
-### Stub external dependencies before importing project modules
-### Use Any typing to suppress mypy attr-defined errors
+# Stub external dependencies before importing project modules
+# Use Any typing to suppress mypy attr-defined errors
+
 # Stub boto3 to satisfy config imports
 _boto3_mod: Any = types.ModuleType("boto3")
 _boto3_mod.client = lambda *args, **kwargs: None
@@ -24,11 +26,14 @@ _cur_mod: Any = types.ModuleType("pymysql.cursors")
 _cur_mod.Cursor = object
 _cur_mod.DictCursor = object
 sys.modules["pymysql.cursors"] = _cur_mod
-_btc_mod: Any = types.ModuleType("bitcoin")
-sys.modules["bitcoin"] = _btc_mod
-_btc_wallet: Any = types.ModuleType("bitcoin.wallet")
-_btc_wallet.CBitcoinAddress = lambda addr: addr
-sys.modules["bitcoin.wallet"] = _btc_wallet
+
+# Remove these conflicting bitcoin stubs
+# _btc_mod: Any = types.ModuleType("bitcoin")
+# sys.modules["bitcoin"] = _btc_mod
+# _btc_wallet: Any = types.ModuleType("bitcoin.wallet")
+# _btc_wallet.CBitcoinAddress = lambda addr: addr
+# sys.modules["bitcoin.wallet"] = _btc_wallet
+
 _blib_mod: Any = types.ModuleType("bitcoinlib")
 sys.modules["bitcoinlib"] = _blib_mod
 _blib_encoding: Any = types.ModuleType("bitcoinlib.encoding")
@@ -45,11 +50,11 @@ class _VerifyingKey:
 
 _ecdsa_mod.VerifyingKey = _VerifyingKey
 sys.modules["ecdsa"] = _ecdsa_mod
-### Added stub for psutil to satisfy index_core.memory_manager imports
-_psutil_mod: Any = types.ModuleType("psutil")
-# Provide Process to avoid attribute errors
-_psutil_mod.Process = lambda pid: types.SimpleNamespace(memory_info=lambda: None)
-sys.modules["psutil"] = _psutil_mod
+
+# Remove conflicting psutil stub
+# _psutil_mod: Any = types.ModuleType("psutil")
+# _psutil_mod.Process = lambda pid: types.SimpleNamespace(memory_info=lambda: None)
+# sys.modules["psutil"] = _psutil_mod
 
 # Add the src directory to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
