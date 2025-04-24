@@ -422,6 +422,13 @@ ON DUPLICATE KEY UPDATE
     total_minted = VALUES(total_minted),
     holders_count = VALUES(holders_count);
 
+-- fix owners table
+ALTER TABLE `owners`
+DROP INDEX IF EXISTS `p_deploy_hash_tokenid_unique`,
+DROP INDEX IF EXISTS `p_deploy_hash_tokenid_utf8`,
+ADD INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
+ADD UNIQUE INDEX `p_deploy_hash_tokenid_utf8_unique` (`p`,`deploy_hash`,`tokenid_utf8`);
+
 -- -- Remove redundant indexes
 -- ALTER TABLE transactions DROP INDEX idx_block_time;
 -- ALTER TABLE StampTableV4 DROP INDEX block_index;
