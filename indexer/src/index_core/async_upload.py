@@ -185,8 +185,9 @@ def stop_upload_worker() -> None:
 
     # Shutdown upload executor to prevent hanging threads
     try:
-        upload_executor.shutdown(wait=True)
-        logger.info("Upload executor shutdown initiated")
+        # Attempt to cancel futures that haven't started and wait for running ones
+        upload_executor.shutdown(wait=True, cancel_futures=True)
+        logger.info("Upload executor shutdown initiated (with future cancellation)")
     except Exception as e:
         logger.error(f"Error shutting down upload executor: {e}", exc_info=True)
 
