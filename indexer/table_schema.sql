@@ -367,11 +367,11 @@ CREATE TABLE IF NOT EXISTS `owners` (
   `expire_timestamp` BIGINT UNSIGNED DEFAULT NULL,
   `last_update` int,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `p_deploy_hash_tokenid_unique` (`p`, `deploy_hash`, `tokenid`),
   INDEX `index_deploy_hash` (`index`, `deploy_hash`),
   INDEX `owner` (`owner`),
   INDEX `deploy_hash` (`deploy_hash`),
-  INDEX `p_deploy_hash_tokenid_utf8` (`p`,`deploy_hash`,`tokenid_utf8`)
+  INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
+  UNIQUE INDEX `p_deploy_hash_tokenid_utf8_unique` (`p`,`deploy_hash`,`tokenid_utf8`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `recipients` (
@@ -423,11 +423,11 @@ ON DUPLICATE KEY UPDATE
     holders_count = VALUES(holders_count);
 
 -- fix owners table
-ALTER TABLE `owners`
-DROP INDEX IF EXISTS `p_deploy_hash_tokenid_unique`,
-DROP INDEX IF EXISTS `p_deploy_hash_tokenid_utf8`,
-ADD INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
-ADD UNIQUE INDEX `p_deploy_hash_tokenid_utf8_unique` (`p`,`deploy_hash`,`tokenid_utf8`);
+-- ALTER TABLE `owners`
+-- DROP INDEX IF EXISTS `p_deploy_hash_tokenid_unique`,
+-- DROP INDEX IF EXISTS `p_deploy_hash_tokenid_utf8`,
+-- ADD INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
+-- ADD UNIQUE INDEX `p_deploy_hash_tokenid_utf8_unique` (`p`,`deploy_hash`,`tokenid_utf8`);
 
 -- -- Remove redundant indexes
 -- ALTER TABLE transactions DROP INDEX idx_block_time;
