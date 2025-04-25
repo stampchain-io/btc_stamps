@@ -8,6 +8,7 @@ import pytest
 
 from index_core import check as check_mod
 from index_core.blocks import backend_instance  # noqa: F401  (used in live mode)
+from index_core.blocks import create_check_hashes  # noqa: F401
 from index_core.blocks import fetch_xcp_blocks_concurrent  # noqa: F401
 from index_core.blocks import filter_block_transactions  # noqa: F401
 
@@ -22,12 +23,17 @@ def load_snapshot(path: Path) -> Tuple[Dict, Dict]:
     return data["seeds"], data["expected"]
 
 
-def load_fixture(height: int, fixtures_dir: Path) -> Tuple[Dict, Dict]:
+def load_fixture(height: int, fixtures_dir: Path) -> Tuple[Dict, Dict, list, list]:
+    """Return (block_data, cp_blocks_dict, valid_stamps, src20_state)."""
     fpath = fixtures_dir / f"{height}.json"
     if not fpath.exists():
         raise FileNotFoundError(f"Fixture {fpath} not found")
     blob = json.load(open(fpath))
-    return blob["block"], {height: blob.get("cp")}
+    block_data = blob["block"]
+    cp_dict = {height: blob.get("cp")}
+    valid = blob.get("valid", [])
+    src20 = blob.get("src20", [])
+    return block_data, cp_dict, valid, src20
 
 
 # ---------------------------------------------------------------------------
@@ -45,16 +51,17 @@ else:
     pytest.skip(f"quick-ci snapshot not found at {SNAPSHOT_PATH}", allow_module_level=True)
 
 
-def get_block_and_cp(height: int) -> Tuple[Dict, Dict]:
-    """Return (block_data, cp_blocks_dict)."""
+def get_block_and_cp(height: int):
+    """Return (block_data, cp_blocks_dict, valid_stamps, src20_state)."""
     use_fixture = os.getenv("CI_FIXTURE_MODE", "false").lower() == "true"
     if use_fixture:
         return load_fixture(height, FIXTURES_DIR)
-    # Live RPC path
+
+    # Live RPC path – we do *not* compute valid/src20 lists here (would require full parsing).
     block_hash = backend_instance.getblockhash(height)
     block_data = backend_instance.getblock(block_hash, 2)
     cp_blocks = fetch_xcp_blocks_concurrent(height, height)
-    return block_data, cp_blocks
+    return block_data, cp_blocks, [], []
 
 
 @pytest.mark.parametrize("height", [h for h in BLOCK_HEIGHTS if h != 779652])
@@ -63,7 +70,8 @@ def test_consensus_hash(height):
     s = seeds[str(height)]
     e = expected[str(height)]
 
-    block_data, cp_blocks = get_block_and_cp(height)
+    block_data, cp_blocks, valid, src20 = get_block_and_cp(height)
+
     if cp_blocks and cp_blocks.get(height):
         stamp_issuances = cp_blocks[height].get("issuances", []) or []
     else:
@@ -71,19 +79,39 @@ def test_consensus_hash(height):
 
     txids, _ = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
 
-    # We only verify messages_hash (depends only on txids list)
     mock_db = MagicMock()
     mock_cursor = MagicMock()
     mock_cursor.fetchall.return_value = []
     mock_db.cursor.return_value = mock_cursor
 
-    messages_content = str(txids)
-    messages_hash, _ = check_mod.consensus_hash(
-        mock_db,
-        height,
-        "messages_hash",
-        s["messages_prev_hash"],
-        messages_content,
-    )
+    # Decide which hashes to validate based on availability of valid/src20 lists
+    has_state = bool(valid) or bool(src20)
 
-    assert messages_hash == e["messages_hash"], f"messages mismatch at {height}"
+    if has_state:
+        # Full validation using create_check_hashes (fast, off-chain)
+        new_ledger, new_txlist, new_messages = create_check_hashes(
+            mock_db,
+            height,
+            valid,
+            src20,
+            txids,
+            s["ledger_prev_hash"],
+            s["txlist_prev_hash"],
+            s["messages_prev_hash"],
+        )
+
+        assert new_messages == e["messages_hash"], f"messages mismatch at {height}"
+        assert new_txlist == e["txlist_hash"], f"txlist mismatch at {height}"
+        if e["ledger_hash"]:
+            assert new_ledger == e["ledger_hash"], f"ledger mismatch at {height}"
+    else:
+        # Fallback: validate only messages_hash as before
+        messages_content = str(txids)
+        messages_hash, _ = check_mod.consensus_hash(
+            mock_db,
+            height,
+            "messages_hash",
+            s["messages_prev_hash"],
+            messages_content,
+        )
+        assert messages_hash == e["messages_hash"], f"messages mismatch at {height} (messages-only mode)"

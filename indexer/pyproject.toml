@@ -97,7 +97,8 @@ reparse = "index_core.reparse.validator:main"
 save-snapshot = "index_core.reparse.snapshot:create_snapshot"
 rollback = "tools.rollback_db:main"
 dump-seeds = "tools.dump_seeds:main"
-dump-fixtures = "tools.dump_block_fixtures:main"
+dump-block-fixtures = "tools.dump_block_fixtures:main"
+dump-state-fixtures = "tools.dump_state_fixtures:main"
 
 [[tool.poetry.packages]]
 from = "src"

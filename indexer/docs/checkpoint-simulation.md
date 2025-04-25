@@ -186,5 +186,66 @@ Minimal keys to capture:
 ```
 Load this JSON before parsing block N using `reparse_caching.cache_manager.set_cache_value(...)` then run full `create_check_hashes` as in production. A helper script `dump_state_fixtures.py` (TBD) can emit these snapshots.
 
+## 11. Validating txlist_hash & ledger_hash (NEW)
+
+While the quick‐CI suite originally validated only `messages_hash`, we now extend coverage to the remaining two
+consensus hashes without compromising execution speed.
+
+### 11.1 What is required?
+1. **Valid stamp list for block _N_** –  exactly the `valid_stamps_in_block` list that production keeps after
+   `BlockProcessor.process_transaction_results` (sorted by `stamp_number`).
+2. **SRC-20 state changes for block _N_** –  the `processed_src20_in_block` list passed into
+   `create_check_hashes`.
+3. **Seed hashes from block _N − 1_** –  already shipped via `seeds[HEIGHT]` in `quick_ci.json`.
+
+With these three ingredients the existing `create_check_hashes` function can deterministically recompute
+`ledger_hash` and `txlist_hash` in a single call – no database or replay required.
+
+### 11.2 Fixture layout additions
+We keep the previously generated `BLOCK.json` files and extend their structure with two optional top-level keys:
+```jsonc
+{
+  "block":    { /* unchanged */ },
+  "cp":       { /* unchanged */ },
+  "valid":    [ /* list[ValidStamp] for block N */ ],
+  "src20":    [ /* list[dict] produced_src20_in_block for block N */ ]
+}
+```
+If the `valid`/`src20` keys are missing, tests will gracefully fall back to `messages_hash`-only validation.
+
+### 11.3 Generating extended fixtures
+A new helper (`tools/dump_state_fixtures.py`) complements `dump_block_fixtures.py`.
+Example usage:
+```bash
+poetry run dump_state_fixtures --heights 820000,865000 --out tests/fixtures
+
+# or automatically derive the list from the snapshot file
+poetry run dump_state_fixtures --from-snapshot snapshots/quick_ci.json --out tests/fixtures
+```
+`dump_state_fixtures` internally runs the **in-memory** `BlockProcessor` logic for each requested height and dumps
+exactly the two structures required for hash calculation.  On typical hardware it needs <40 ms per block, so the
+CI runtime impact is negligible.
+
+### 11.4 Test changes
+`tests/test_quick_consensus.py` now:
+1. Loads `valid` and `src20` if present.
+2. Passes them into `create_check_hashes` along with the existing `txids` list and seed hashes.
+3. Asserts all three hashes – `messages`, `txlist`, and `ledger`.
+
+### 11.5 Backwards compatibility
+Older fixture files that lack the new keys continue to work – only `messages_hash` will be asserted in that case.
+This allows a smooth transition for downstream forks.
+
+### 11.6 Static vs Dynamic delta strategy
+
+| Strategy | What is stored in fixture? | What the test recomputes | Pros | Cons |
+|----------|---------------------------|--------------------------|------|------|
+| **Static-delta** (current default) | Final `valid` & `src20` lists for block N | Nothing (hashes are computed straight from stored lists) | • blazing fast<br>• fixtures are deterministic | • **cannot detect** future code changes that alter the *content* of those lists – only `messages_hash` would fail if filtering changes but deeper validation bugs could slip through |
+| **Dynamic** | Minimal cache snapshot for block N−1 (`stamp_counter`, balances, reissue-set, …) | Parses block N during the test to regenerate the lists | • Catches any behaviour change in stamp/SRC-20 parsing logic | • slightly larger fixtures<br>• a few extra milliseconds of compute |
+
+For now we ship the **static-delta** variant because it keeps CI under one second and still guards the most brittle layer: *transaction selection*.  Once the parsing pipeline stabilises we can switch to the dynamic mode with just a fixture tweak—no test code changes required.
+
+> **Important:** when modifying core stamp/SRC-20 validation logic locally, run the full `reparse` test-suite or regenerate state fixtures to ensure no silent divergences are introduced.
+
 ---
 Last updated : {{DATE}} 
