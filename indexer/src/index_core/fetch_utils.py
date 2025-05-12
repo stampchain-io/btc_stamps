@@ -448,53 +448,63 @@ async def fetch_xcp_async(
     endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: int = 10
 ) -> Optional[Dict[str, Any]]:
     """Async version of fetch_xcp to get data from XCP V2 API."""
-    # Get healthy nodes or use provided node
     healthy_nodes = get_healthy_nodes()
     if not healthy_nodes:
         logger.error("No healthy nodes available for async fetch")
-        update_healthy_nodes()  # Try updating nodes
+        update_healthy_nodes()
         healthy_nodes = get_healthy_nodes()
         if not healthy_nodes:
             logger.error("Still no healthy nodes after update")
             return None
 
-    # Try each node until success
     for node in healthy_nodes:
         try:
             url = f"{node['url'].rstrip('/')}{endpoint}"
-            logger.debug(f"Async fetch from {node['name']} at URL: {url}")
+            logger.debug(f"Async fetch from {node['name']} at URL: {url} with params: {params}")
 
-            # Make the async request
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=timeout) as response:
-                    logger.debug(f"Response status from {node['name']}: {response.status}")
-                    if response.status == 200:
-                        data = await response.json()
-                        # Mark node as healthy
+            try:
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(url, params=params, timeout=timeout) as response:
+                            logger.debug(f"Response status from {node['name']}: {response.status}")
+                            if response.status == 200:
+                                data = await response.json()
+                                health_tracker = node_health_tracker.get(node["name"])
+                                if health_tracker:
+                                    health_tracker.mark_success()
+                                return data
+                            else:
+                                error_text = await response.text()
+                                logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
+                                health_tracker = node_health_tracker.get(node["name"])
+                                if health_tracker:
+                                    health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout fetching from {node['name']} (during session.get for {url})")
                         health_tracker = node_health_tracker.get(node["name"])
                         if health_tracker:
-                            health_tracker.mark_success()
-                        return data
-                    else:
-                        # Get error text
-                        error_text = await response.text()
-                        logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
-                        # Mark node failure
+                            health_tracker.mark_failure("Timeout during session.get")
+                    except Exception as inner_get_exc:
+                        logger.error(f"Exception during session.get for {url}. Error: {type(inner_get_exc).__name__}: {inner_get_exc}", exc_info=True)
                         health_tracker = node_health_tracker.get(node["name"])
                         if health_tracker:
-                            health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+                            health_tracker.mark_failure(f"Exception during session.get: {type(inner_get_exc).__name__}")
+            except Exception as client_session_exc:
+                logger.error(f"Exception during ClientSession object creation for {url}. Error: {type(client_session_exc).__name__}: {client_session_exc}", exc_info=True)
+                health_tracker = node_health_tracker.get(node["name"])
+                if health_tracker:
+                    health_tracker.mark_failure(f"ClientSessionObjectCreation Exception: {type(client_session_exc).__name__}")
         except asyncio.TimeoutError:
-            logger.warning(f"Timeout fetching from {node['name']}")
+            logger.error(f"Outer asyncio.TimeoutError for node {node['name']} (should have been caught by inner handlers if related to session.get). URL: {url}", exc_info=True)
             health_tracker = node_health_tracker.get(node["name"])
             if health_tracker:
-                health_tracker.mark_failure("Timeout")
+                health_tracker.mark_failure("OuterTimeout")
         except Exception as e:
-            logger.error(f"Error fetching from {node['name']}: {e}")
+            logger.error(f"Outer exception for node {node['name']} in fetch_xcp_async: {type(e).__name__}: {e}", exc_info=True)
             health_tracker = node_health_tracker.get(node["name"])
             if health_tracker:
                 health_tracker.mark_failure(str(e))
 
-    # If we get here, all nodes failed
     logger.error("All nodes failed in async fetch")
     return None
 
@@ -659,75 +669,47 @@ def verify_cp_block_hash(block_index: int, expected_hash: str | None = None, max
 async def fetch_block_transactions_with_pagination(
     block_index: int, node_url: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
-    """
-    Fetch all transactions for a specific block from CP API with pagination support.
-
-    Args:
-        block_index: The block index to fetch
-        node_url: Optional specific node URL to use (otherwise uses healthy nodes)
-
-    Returns:
-        Dictionary containing block data with transactions and issuances
-    """
+    """Fetch all transactions for a specific block from CP API with pagination support."""
     logger.debug(f"Fetching block {block_index} transactions with pagination")
-
-    # Construct API endpoint
     endpoint = f"/blocks/{block_index}/transactions"
-
-    # Initialize variables
-    all_transactions: List[Dict[str, Any]] = []  # Added type annotation
+    all_transactions: List[Dict[str, Any]] = []
     next_cursor = None
     page_count = 0
     max_retries = 3
-    page_size = 1000  # Use a large page size to reduce number of requests
+    page_size = 1000
 
-    # Use pagination to get all transactions in the block
     while True:
         page_count += 1
-
-        # Initialize params for this page request
-        params = {"verbose": "true", "limit": str(page_size)}
-
-        # Add cursor if we have one for subsequent pages
+        params = {"verbose": "true", "limit": str(page_size), "show_unconfirmed": "false"}
         if next_cursor:
             params["cursor"] = next_cursor
-
         logger.debug(f"Fetching page {page_count} of transactions for block {block_index}, cursor: {next_cursor}")
 
-        # Make the API call with retries
         data = None
-        for retry in range(max_retries):
+        for retry_attempt in range(max_retries):
             try:
-                # Adjust timeout based on page count (longer timeout for subsequent pages)
                 timeout = 15 if page_count > 1 else 10
-
-                # Make the async request with appropriate timeout
                 data = await fetch_xcp_async(endpoint, params, timeout=timeout)
-
                 if data:
                     break
-
-                if retry < max_retries - 1:
-                    logger.warning(f"Retrying page {page_count} for block {block_index} (attempt {retry+1}/{max_retries})")
-                    await asyncio.sleep(1 * (retry + 1))  # Increasing delay between retries
+                if retry_attempt < max_retries - 1:
+                    logger.warning(f"Retrying page {page_count} for block {block_index} (attempt {retry_attempt+1}/{max_retries})")
+                    await asyncio.sleep(1 * (retry_attempt + 1))
             except Exception as e:
-                logger.error(f"Error fetching page {page_count} for block {block_index} (attempt {retry+1}): {e}")
-                if retry < max_retries - 1:
-                    await asyncio.sleep(1 * (retry + 1))
+                logger.error(f"Error fetching page {page_count} for block {block_index} (attempt {retry_attempt+1}): {e}", exc_info=True)
+                if retry_attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (retry_attempt + 1))
 
         if not data:
             logger.error(f"Failed to fetch data for block {block_index}, page {page_count} after {max_retries} retries")
-            # If it's the first page and failed, return None
             if page_count == 1:
                 return None
-            # Otherwise, we've got some data already, so break and proceed with what we have
             break
 
-        # Get transactions from this page
         page_transactions = data.get("result", [])
-        if page_transactions is None:
-            logger.error(f"Received None for result field in block {block_index}, page {page_count}")
-            break
+        if page_transactions is None:  # Should not happen if data.get has a default, but good practice
+            logger.error(f"Received None for result field in block {block_index}, page {page_count}. Data was: {data}")
+            page_transactions = []  # Ensure it's a list
 
         # Check for duplicates before adding
         tx_hashes_before = {tx.get("tx_hash") for tx in all_transactions if tx.get("tx_hash")}
@@ -859,10 +841,10 @@ async def _fetch_blocks_range_async(
     """
     # Initialize result and counters
     results = {}
-    max_concurrent = 10  # Maximum number of concurrent requests
-
+    # Set max_concurrent to 1 based on user testing that it resolves issues
+    max_concurrent_semaphore = 1
     # Create a semaphore to limit concurrency
-    semaphore = asyncio.Semaphore(max_concurrent)
+    semaphore = asyncio.Semaphore(max_concurrent_semaphore)
 
     # Create tasks for each block to fetch
     async def fetch_block_with_semaphore(block_idx):
@@ -874,20 +856,22 @@ async def _fetch_blocks_range_async(
                         logger.info(f"Progress: Fetched block {block_idx}")
                     return block_idx, block_data
                 else:
-                    return block_idx, {"error": "Failed to fetch block", "issuances": []}
+                    # Ensure a consistent structure for blocks that might fail to fetch or have no data
+                    logger.warning(f"No block data returned from fetch_block_transactions_with_pagination for block {block_idx}")
+                    return block_idx, {"block_index": block_idx, "error": "Failed to fetch block or no data", "issuances": [], "transactions": []}
             except Exception as e:
-                logger.error(f"Error fetching block {block_idx}: {e}")
-                return block_idx, {"error": str(e), "issuances": []}
+                logger.error(f"Error fetching block {block_idx} in _fetch_blocks_range_async: {e}", exc_info=True)
+                return block_idx, {"block_index": block_idx, "error": str(e), "issuances": [], "transactions": []}
 
     # Create tasks for each block
     tasks = [fetch_block_with_semaphore(i) for i in range(start_block, end_block + 1)]
 
     # Wait for all tasks to complete
-    blocks_data = await asyncio.gather(*tasks)
+    blocks_data_results = await asyncio.gather(*tasks)
 
     # Process the results
-    for block_idx, block_data in blocks_data:
-        results[block_idx] = block_data
+    for block_idx, block_data_item in blocks_data_results:
+        results[block_idx] = block_data_item
 
     logger.info(f"Completed fetching {len(results)} blocks from {start_block} to {end_block}")
     return results
