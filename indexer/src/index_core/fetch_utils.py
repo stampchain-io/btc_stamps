@@ -182,20 +182,60 @@ def fetch_node_version_v2(node_url: str, timeout: int = 5) -> Tuple[Optional[str
         # Parse version string
         version_parts = {}
         if version_string:
-            parts = version_string.split(".")
-            if len(parts) >= 3:
-                try:
-                    version_parts = {
-                        "version_major": int(parts[0]),
-                        "version_minor": int(parts[1]),
-                        "version_revision": int(parts[2]),
-                    }
-                except ValueError:
-                    logger.error(f"Could not parse version string: {version_string}")
-                    return None, None
-            else:
-                logger.error(f"Version string has unexpected format: {version_string}")
+            parts = version_string.split('.')
+            
+            if len(parts) < 3:
+                logger.error(f"Version string '{version_string}' is expected to have at least 3 dot-separated parts for Major.Minor.Revision.")
                 return None, None
+
+            try:
+                version_major = int(parts[0])
+                version_minor = int(parts[1])
+                
+                # Process the third part for revision and initial suffix
+                revision_part_str = parts[2]
+                parsed_revision_numeric_str = ""
+                suffix_after_revision_numeric = ""
+                for char_idx, char_val in enumerate(revision_part_str):
+                    if char_val.isdigit():
+                        parsed_revision_numeric_str += char_val
+                    else:
+                        suffix_after_revision_numeric = revision_part_str[char_idx:]
+                        break
+                
+                if not parsed_revision_numeric_str:
+                    # This means parts[2] (e.g., "alpha") did not start with a number.
+                    logger.error(f"Numeric revision not found at the start of the third part ('{revision_part_str}') of version string: {version_string}")
+                    return None, None
+                
+                version_revision = int(parsed_revision_numeric_str)
+                
+                # Construct the full suffix from suffix_after_revision_numeric and any further parts (parts[3:])
+                raw_suffix_components = []
+                if suffix_after_revision_numeric:  # Add if not empty, e.g., "-rc" or "alpha"
+                    raw_suffix_components.append(suffix_after_revision_numeric)
+                
+                if len(parts) > 3:  # If there are parts like ".1" or ".beta.4" after the third main part
+                    raw_suffix_components.extend(parts[3:])
+                
+                final_suffix = None
+                if raw_suffix_components:
+                    # Join components: e.g., ["-rc", "1"] -> "-rc.1"; ["beta", "4"] -> "beta.4"
+                    final_suffix = raw_suffix_components[0]
+                    if len(raw_suffix_components) > 1:
+                        final_suffix += "." + ".".join(raw_suffix_components[1:])
+
+                version_parts = {
+                    "version_major": version_major,
+                    "version_minor": version_minor,
+                    "version_revision": version_revision,
+                    "version_suffix": final_suffix  # Will be None if no suffix was found
+                }
+
+            except ValueError:  # Handles errors from int() conversion for major, minor, or revision
+                logger.error(f"Could not parse numeric components (Major, Minor, or Revision) from version string: {version_string}")
+                return None, None
+        # If version_string was None or empty, version_parts remains {} and downstream code handles it.
 
         # Consolidate information (prefer body where available, fallback to headers)
         cp_height = cp_height_body if cp_height_body is not None else cp_height_header
