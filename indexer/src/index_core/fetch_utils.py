@@ -182,16 +182,18 @@ def fetch_node_version_v2(node_url: str, timeout: int = 5) -> Tuple[Optional[str
         # Parse version string
         version_parts = {}
         if version_string:
-            parts = version_string.split('.')
-            
+            parts = version_string.split(".")
+
             if len(parts) < 3:
-                logger.error(f"Version string '{version_string}' is expected to have at least 3 dot-separated parts for Major.Minor.Revision.")
+                logger.error(
+                    f"Version string '{version_string}' is expected to have at least 3 dot-separated parts for Major.Minor.Revision."
+                )
                 return None, None
 
             try:
                 version_major = int(parts[0])
                 version_minor = int(parts[1])
-                
+
                 # Process the third part for revision and initial suffix
                 revision_part_str = parts[2]
                 parsed_revision_numeric_str = ""
@@ -202,22 +204,24 @@ def fetch_node_version_v2(node_url: str, timeout: int = 5) -> Tuple[Optional[str
                     else:
                         suffix_after_revision_numeric = revision_part_str[char_idx:]
                         break
-                
+
                 if not parsed_revision_numeric_str:
                     # This means parts[2] (e.g., "alpha") did not start with a number.
-                    logger.error(f"Numeric revision not found at the start of the third part ('{revision_part_str}') of version string: {version_string}")
+                    logger.error(
+                        f"Numeric revision not found at the start of the third part ('{revision_part_str}') of version string: {version_string}"
+                    )
                     return None, None
-                
+
                 version_revision = int(parsed_revision_numeric_str)
-                
+
                 # Construct the full suffix from suffix_after_revision_numeric and any further parts (parts[3:])
                 raw_suffix_components = []
                 if suffix_after_revision_numeric:  # Add if not empty, e.g., "-rc" or "alpha"
                     raw_suffix_components.append(suffix_after_revision_numeric)
-                
+
                 if len(parts) > 3:  # If there are parts like ".1" or ".beta.4" after the third main part
                     raw_suffix_components.extend(parts[3:])
-                
+
                 final_suffix = None
                 if raw_suffix_components:
                     # Join components: e.g., ["-rc", "1"] -> "-rc.1"; ["beta", "4"] -> "beta.4"
@@ -229,11 +233,13 @@ def fetch_node_version_v2(node_url: str, timeout: int = 5) -> Tuple[Optional[str
                     "version_major": version_major,
                     "version_minor": version_minor,
                     "version_revision": version_revision,
-                    "version_suffix": final_suffix  # Will be None if no suffix was found
+                    "version_suffix": final_suffix,  # Will be None if no suffix was found
                 }
 
             except ValueError:  # Handles errors from int() conversion for major, minor, or revision
-                logger.error(f"Could not parse numeric components (Major, Minor, or Revision) from version string: {version_string}")
+                logger.error(
+                    f"Could not parse numeric components (Major, Minor, or Revision) from version string: {version_string}"
+                )
                 return None, None
         # If version_string was None or empty, version_parts remains {} and downstream code handles it.
 
@@ -525,17 +531,26 @@ async def fetch_xcp_async(
                         if health_tracker:
                             health_tracker.mark_failure("Timeout during session.get")
                     except Exception as inner_get_exc:
-                        logger.error(f"Exception during session.get for {url}. Error: {type(inner_get_exc).__name__}: {inner_get_exc}", exc_info=True)
+                        logger.error(
+                            f"Exception during session.get for {url}. Error: {type(inner_get_exc).__name__}: {inner_get_exc}",
+                            exc_info=True,
+                        )
                         health_tracker = node_health_tracker.get(node["name"])
                         if health_tracker:
                             health_tracker.mark_failure(f"Exception during session.get: {type(inner_get_exc).__name__}")
             except Exception as client_session_exc:
-                logger.error(f"Exception during ClientSession object creation for {url}. Error: {type(client_session_exc).__name__}: {client_session_exc}", exc_info=True)
+                logger.error(
+                    f"Exception during ClientSession object creation for {url}. Error: {type(client_session_exc).__name__}: {client_session_exc}",
+                    exc_info=True,
+                )
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
                     health_tracker.mark_failure(f"ClientSessionObjectCreation Exception: {type(client_session_exc).__name__}")
         except asyncio.TimeoutError:
-            logger.error(f"Outer asyncio.TimeoutError for node {node['name']} (should have been caught by inner handlers if related to session.get). URL: {url}", exc_info=True)
+            logger.error(
+                f"Outer asyncio.TimeoutError for node {node['name']} (should have been caught by inner handlers if related to session.get). URL: {url}",
+                exc_info=True,
+            )
             health_tracker = node_health_tracker.get(node["name"])
             if health_tracker:
                 health_tracker.mark_failure("OuterTimeout")
@@ -733,10 +748,14 @@ async def fetch_block_transactions_with_pagination(
                 if data:
                     break
                 if retry_attempt < max_retries - 1:
-                    logger.warning(f"Retrying page {page_count} for block {block_index} (attempt {retry_attempt+1}/{max_retries})")
+                    logger.warning(
+                        f"Retrying page {page_count} for block {block_index} (attempt {retry_attempt+1}/{max_retries})"
+                    )
                     await asyncio.sleep(1 * (retry_attempt + 1))
             except Exception as e:
-                logger.error(f"Error fetching page {page_count} for block {block_index} (attempt {retry_attempt+1}): {e}", exc_info=True)
+                logger.error(
+                    f"Error fetching page {page_count} for block {block_index} (attempt {retry_attempt+1}): {e}", exc_info=True
+                )
                 if retry_attempt < max_retries - 1:
                     await asyncio.sleep(1 * (retry_attempt + 1))
 
@@ -897,8 +916,15 @@ async def _fetch_blocks_range_async(
                     return block_idx, block_data
                 else:
                     # Ensure a consistent structure for blocks that might fail to fetch or have no data
-                    logger.warning(f"No block data returned from fetch_block_transactions_with_pagination for block {block_idx}")
-                    return block_idx, {"block_index": block_idx, "error": "Failed to fetch block or no data", "issuances": [], "transactions": []}
+                    logger.warning(
+                        f"No block data returned from fetch_block_transactions_with_pagination for block {block_idx}"
+                    )
+                    return block_idx, {
+                        "block_index": block_idx,
+                        "error": "Failed to fetch block or no data",
+                        "issuances": [],
+                        "transactions": [],
+                    }
             except Exception as e:
                 logger.error(f"Error fetching block {block_idx} in _fetch_blocks_range_async: {e}", exc_info=True)
                 return block_idx, {"block_index": block_idx, "error": str(e), "issuances": [], "transactions": []}
