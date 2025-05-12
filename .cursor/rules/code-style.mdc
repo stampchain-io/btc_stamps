@@ -1,5 +1,34 @@
 ---
-description:
-globs:
+description: 
+globs: 
 alwaysApply: false
 ---
+# Bitcoin Stamps Indexer Code Style Guidelines
+
+This document details code style and quality guidelines for the Bitcoin Stamps Indexer project.
+
+## Formatting
+
+- Use Black with a maximum line length of 127 characters.
+- Sort imports using isort.
+
+## Linting
+
+- Run flake8, ignoring the following codes:
+  - E203
+  - W503
+  - E402
+  - E501
+
+## Type Checking
+
+- Use Mypy to enforce type hints across the codebase.
+
+## Pre-commit Hooks
+
+A `.pre-commit-config.yaml` at the repository root is configured to run:
+- black  
+- isort  
+- flake8  
+- mypy  
+- pytest (basic smoke tests)

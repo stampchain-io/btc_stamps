@@ -3,3 +3,36 @@ description:
 globs:
 alwaysApply: false
 ---
+# Bitcoin Stamps Indexer Project Structure
+
+This document outlines the directory structure and key components of the Bitcoin Stamps Indexer project.
+
+## Root Structure
+
+- [indexer/](mdc:indexer/): Main application directory
+  - [src/](mdc:indexer/src/): Core Python source code
+  - [tests/](mdc:indexer/tests/): Pytest test suite and benchmarks
+  - [docs/](mdc:indexer/docs/): Project documentation
+  - [tools/](mdc:indexer/tools/): Utility scripts and debug tools
+  - [Dockerfile](mdc:indexer/Dockerfile): Container image specification
+  - [pyproject.toml](mdc:indexer/pyproject.toml): Poetry configuration and dependencies
+
+- Shell Scripts for development and deployment (in `indexer/`):
+  - `local-dev.sh`, `run-container.sh`, `run_indexer.sh`
+
+## Source Code Layout (indexer/src)
+
+- [config.py](mdc:indexer/src/config.py): Configuration management
+- [exceptions.py](mdc:indexer/src/exceptions.py): Custom exception definitions
+- [index_core/](mdc:indexer/src/index_core/): Core indexer logic and pipeline
+  - [blocks.py](mdc:indexer/src/index_core/blocks.py): Block processing
+  - [parser.py](mdc:indexer/src/index_core/parser.py): Python transaction parser
+  - [src20.py](mdc:indexer/src/index_core/src20.py): SRC-20 token processing
+  - [database.py](mdc:indexer/src/index_core/database.py): Core database operations
+  - [database_manager.py](mdc:indexer/src/index_core/database_manager.py): Connection pooling
+  - [rust_parser/](mdc:indexer/src/rust_parser/): Rust-based transaction parser
+
+## Entry Points
+
+- [start.py](mdc:indexer/start.py): CLI application entrypoint
+- [run_indexer.sh](mdc:indexer/run_indexer.sh): Shell script to launch indexer via Docker

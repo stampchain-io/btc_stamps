@@ -3,3 +3,27 @@ description:
 globs:
 alwaysApply: false
 ---
+# Bitcoin Stamps Protocols
+
+This document provides rules and references for the supported Bitcoin Stamps protocols.
+
+## Supported Protocols
+
+- **Classic Stamps**: Original immutable image storage format on the Bitcoin blockchain.
+- **SRC-20**: Fungible token protocol with immutability guarantees of Stamps.
+- **SRC-721**: Non-fungible token protocol using JSON manifests for layered images.
+- **SRC-101**: Domain name system native to Bitcoin Stamps (registration, transfer, renewal).
+- **OLGA**: P2WSH-based On-chain Lightweight Graphics Array format.
+
+## References
+
+- [Protocol Specifications](mdc:docs/PROTOCOLS.md): Comprehensive protocol definitions.
+- [Stamp Processing Implementation](mdc:indexer/src/index_core/stamp.py)
+- [SRC-20 Implementation](mdc:indexer/src/index_core/src20.py)
+- [SRC-101 Implementation](mdc:indexer/src/index_core/src101.py)
+- [Rust Parser](mdc:indexer/src/rust_parser/src/lib.rs)
+
+## Key Concepts
+
+- **Dual-Source Architecture**: Supports both direct Bitcoin and Counterparty transactions.
+- **PREFIX**: The `stamp:` prefix identifying relevant protocol data in transactions.

@@ -3,3 +3,65 @@ description:
 globs:
 alwaysApply: false
 ---
+# Bitcoin Stamps Indexer Development Workflow
+
+This document describes the development workflow for contributors to the Bitcoin Stamps Indexer.
+
+**Note:** All commands below assume execution via Poetry within the `indexer/` directory (e.g., `poetry run <command>`).
+
+## Environment Setup
+
+1. Ensure you have Python >=3.9 installed.
+2. Navigate to the `indexer/` directory:
+   ```bash
+   cd indexer
+   ```
+3. Install dependencies via Poetry:
+   ```bash
+   poetry install
+   ```
+
+## Running the Indexer
+
+- Local development:
+  ```bash
+  poetry run python start.py
+  ```
+- Docker (requires Docker daemon):
+  ```bash
+  docker-compose up --build
+  ```
+
+## Testing
+
+- Run all tests:
+  ```bash
+  poetry run pytest
+  ```
+- Run a single test file:
+  ```bash
+  poetry run pytest indexer/tests/test_src20.py
+  ```
+
+## Linting and Formatting
+
+- Format code with Black (line length 127):
+  ```bash
+  poetry run black .
+  ```
+- Sort imports with isort:
+  ```bash
+  poetry run isort .
+  ```
+- Run linter (flake8):
+  ```bash
+  poetry run flake8 .
+  ```
+- Type-check with Mypy:
+  ```bash
+  poetry run mypy .
+  ```
+
+## Debugging Tools
+
+Refer to [debug-tools.mdc](mdc:debug-tools.mdc) for detailed debug script usage.
