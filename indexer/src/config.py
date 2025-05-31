@@ -213,16 +213,26 @@ logger.info(f"Final RPC URL format: {masked_url}")
 RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
 
 # Add new constants for the V2 CP API endpoints
+# Configure primary and backup nodes for automatic fallback
+primary_url = f"{CP_RPC_URL.rstrip('/').replace('/api/', '/')}/v2"
+
+# Determine backup URL based on primary
+if "127.0.0.1" in primary_url or "localhost" in primary_url:
+    # If primary is local, use external as backup
+    backup_url = "https://api.counterparty.io:4000/v2"
+else:
+    # If primary is external, use local as backup
+    backup_url = "http://127.0.0.1:4000/v2"
+
 XCP_V2_NODES = [
     {
         "name": "counterparty-primary",
-        "url": f"{CP_RPC_URL.rstrip('/').replace('/api/', '/')}/v2",  # Remove 'api' path if present
+        "url": primary_url,
     },
-    # Uncomment this if you want a backup node
-    # {
-    #     "name": "counterparty-backup",
-    #     "url": "https://api.counterparty.io:4000/v2",
-    # },
+    {
+        "name": "counterparty-backup", 
+        "url": backup_url,
+    },
 ]  # TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
 
 logger.info("XCP V2 Node Configuration:")

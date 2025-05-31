@@ -30,7 +30,7 @@ def signal_handler(sig, frame):
     # If this is the second or later call, force immediate exit
     if signal_handler.call_count >= 2:
         logger.warning("Received second interrupt, forcing immediate exit...")
-        if "profiler" in globals() and profiler is not None:
+        if profiler is not None:
             try:
                 profiler.end_block_profiling()
             except Exception:
@@ -38,7 +38,7 @@ def signal_handler(sig, frame):
         os._exit(1)  # Use os._exit for immediate termination
 
     logger.info("Received interrupt signal, initiating graceful shutdown...")
-    if "profiler" in globals() and profiler is not None:
+    if profiler is not None:
         try:
             profiler.end_block_profiling()
         except Exception as e:

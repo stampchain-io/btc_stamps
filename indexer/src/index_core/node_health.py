@@ -138,6 +138,18 @@ class NodeHealth:
                 # If parsing fails, default to treating it as severe
                 pass
 
+        # Treat timeouts as minor failures - they're often due to network congestion
+        if "timeout" in error_info.lower() or "Timeout" in error_info:
+            return False
+
+        # Treat connection errors as minor failures initially
+        if "connection" in error_info.lower() or "Connection" in error_info:
+            return False
+
+        # Treat server disconnection errors as minor failures
+        if "serverdisconnectederror" in error_info.lower() or "server disconnected" in error_info.lower():
+            return False
+
         return True
 
     def mark_failure(self, error_info: str = ""):
@@ -539,38 +551,55 @@ def update_healthy_nodes():
                 continue
 
             try:
-                # Simple direct health check
+                # Try healthz endpoint first, fallback to root endpoint
                 health_url = f"{node_url.rstrip('/')}/healthz"
                 logger.debug(f"Checking health of node {node_name} at {health_url}")
 
                 response = requests.get(health_url, timeout=5)
+                is_healthy = False
 
                 if response.status_code == 200:
                     try:
                         data = response.json()
                         is_healthy = data.get("result", {}).get("status") == "Healthy"
-
                         if is_healthy:
-                            # Add to healthy nodes list
-                            healthy_nodes_local.append(node)
-                            nodes_healthy += 1
-                            logger.debug(f"Node {node_name} is healthy")
-
-                            # Update the NodeHealth tracker if it exists
-                            if node_name in node_health_tracker:
-                                try:
-                                    node_health_tracker[node_name].mark_success()
-                                except Exception as e:
-                                    logger.debug(f"Error updating health tracker for {node_name}: {e}")
-                            else:
-                                # Initialize health tracker
-                                node_health_tracker[node_name] = NodeHealth(node_name, node_url)
-                        else:
-                            logger.warning(f"Node {node_name} reported non-healthy status: {data}")
+                            logger.debug(f"Node {node_name} is healthy via /healthz endpoint")
                     except Exception as e:
-                        logger.debug(f"Error parsing health response from {node_name}: {e}")
+                        logger.debug(f"Error parsing healthz response from {node_name}: {e}")
+                
+                # If healthz failed, try the root V2 endpoint as fallback
+                if not is_healthy:
+                    logger.debug(f"Healthz failed for {node_name}, trying root V2 endpoint")
+                    root_url = node_url.rstrip('/')
+                    response = requests.get(root_url, timeout=5)
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            # Check if it looks like a valid V2 API response
+                            if "result" in data and isinstance(data["result"], dict):
+                                is_healthy = True
+                                logger.debug(f"Node {node_name} is healthy via root V2 endpoint")
+                        except Exception as e:
+                            logger.debug(f"Error parsing root V2 response from {node_name}: {e}")
+
+                if is_healthy:
+                    # Add to healthy nodes list
+                    healthy_nodes_local.append(node)
+                    nodes_healthy += 1
+                    logger.debug(f"Node {node_name} is healthy")
+
+                    # Update the NodeHealth tracker if it exists
+                    if node_name in node_health_tracker:
+                        try:
+                            node_health_tracker[node_name].mark_success()
+                        except Exception as e:
+                            logger.debug(f"Error updating health tracker for {node_name}: {e}")
+                    else:
+                        # Initialize health tracker
+                        node_health_tracker[node_name] = NodeHealth(node_name, node_url)
                 else:
-                    logger.debug(f"Node {node_name} returned non-200 status: {response.status_code}")
+                    logger.debug(f"Node {node_name} failed both health checks")
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout checking health of {node_name} after 5 seconds")
             except requests.exceptions.ConnectionError:

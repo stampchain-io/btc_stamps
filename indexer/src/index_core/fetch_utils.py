@@ -377,7 +377,16 @@ async def get_all_xcp_transactions(start_block: int, limit: int = 100) -> Option
     try:
         logger.debug(f"get_all_xcp_transactions started for blocks {start_block} to {start_block + limit - 1}")
         complete_blocks = []
-        chunk_size = 10  # Increased chunk size for better throughput
+        # Adaptive chunk size based on node type
+        healthy_nodes = get_healthy_nodes()
+        if healthy_nodes:
+            primary_node_url = healthy_nodes[0].get('url', '')
+            if '127.0.0.1' in primary_node_url or 'localhost' in primary_node_url:
+                chunk_size = 10  # Local node can handle larger chunks
+            else:
+                chunk_size = 5  # External API - moderate chunks
+        else:
+            chunk_size = 5  # Default to moderate
         max_retries = 3
         base_chunk_timeout = 30  # Increased base timeout
         empty_blocks_count = 0  # Track empty blocks to detect potential API issues
@@ -509,51 +518,56 @@ async def fetch_xcp_async(
             logger.debug(f"Async fetch from {node['name']} at URL: {url} with params: {params}")
 
             try:
-                async with aiohttp.ClientSession() as session:
-                    try:
-                        async with session.get(url, params=params, timeout=timeout) as response:
-                            logger.debug(f"Response status from {node['name']}: {response.status}")
-                            if response.status == 200:
-                                data = await response.json()
-                                health_tracker = node_health_tracker.get(node["name"])
-                                if health_tracker:
-                                    health_tracker.mark_success()
-                                return data
-                            else:
-                                error_text = await response.text()
-                                logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
-                                health_tracker = node_health_tracker.get(node["name"])
-                                if health_tracker:
-                                    health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Timeout fetching from {node['name']} (during session.get for {url})")
-                        health_tracker = node_health_tracker.get(node["name"])
-                        if health_tracker:
-                            health_tracker.mark_failure("Timeout during session.get")
-                    except Exception as inner_get_exc:
-                        logger.error(
-                            f"Exception during session.get for {url}. Error: {type(inner_get_exc).__name__}: {inner_get_exc}",
-                            exc_info=True,
-                        )
-                        health_tracker = node_health_tracker.get(node["name"])
-                        if health_tracker:
-                            health_tracker.mark_failure(f"Exception during session.get: {type(inner_get_exc).__name__}")
-            except Exception as client_session_exc:
+                # Create timeout and connector configuration for aiohttp
+                timeout_obj = aiohttp.ClientTimeout(total=timeout, connect=5)
+                connector = aiohttp.TCPConnector(
+                    limit=20,  # Reduced total connection pool size
+                    limit_per_host=10,  # Reduced connections per host for external APIs
+                    ttl_dns_cache=300,  # DNS cache TTL
+                    use_dns_cache=True,
+                    keepalive_timeout=30,  # Keep connections alive
+                    enable_cleanup_closed=True
+                )
+                
+                async with aiohttp.ClientSession(
+                    timeout=timeout_obj, 
+                    connector=connector,
+                    headers={'Connection': 'keep-alive'}
+                ) as session:
+                    async with session.get(url, params=params) as response:
+                        logger.debug(f"Response status from {node['name']}: {response.status}")
+                        if response.status == 200:
+                            data = await response.json()
+                            health_tracker = node_health_tracker.get(node["name"])
+                            if health_tracker:
+                                health_tracker.mark_success()
+                            return data
+                        else:
+                            error_text = await response.text()
+                            logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
+                            health_tracker = node_health_tracker.get(node["name"])
+                            if health_tracker:
+                                health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+                            
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout fetching from {node['name']} (during session.get for {url})")
+                health_tracker = node_health_tracker.get(node["name"])
+                if health_tracker:
+                    health_tracker.mark_failure("Timeout during session.get")
+            except aiohttp.ServerDisconnectedError as sde:
+                logger.warning(f"Server disconnected from {node['name']} for {url}: {sde}")
+                health_tracker = node_health_tracker.get(node["name"])
+                if health_tracker:
+                    health_tracker.mark_failure(f"ServerDisconnectedError: {sde}")
+            except Exception as inner_get_exc:
                 logger.error(
-                    f"Exception during ClientSession object creation for {url}. Error: {type(client_session_exc).__name__}: {client_session_exc}",
+                    f"Exception during session.get for {url}. Error: {type(inner_get_exc).__name__}: {inner_get_exc}",
                     exc_info=True,
                 )
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
-                    health_tracker.mark_failure(f"ClientSessionObjectCreation Exception: {type(client_session_exc).__name__}")
-        except asyncio.TimeoutError:
-            logger.error(
-                f"Outer asyncio.TimeoutError for node {node['name']} (should have been caught by inner handlers if related to session.get). URL: {url}",
-                exc_info=True,
-            )
-            health_tracker = node_health_tracker.get(node["name"])
-            if health_tracker:
-                health_tracker.mark_failure("OuterTimeout")
+                    health_tracker.mark_failure(f"Exception during session.get: {type(inner_get_exc).__name__}")
+                    
         except Exception as e:
             logger.error(f"Outer exception for node {node['name']} in fetch_xcp_async: {type(e).__name__}: {e}", exc_info=True)
             health_tracker = node_health_tracker.get(node["name"])
@@ -900,8 +914,20 @@ async def _fetch_blocks_range_async(
     """
     # Initialize result and counters
     results = {}
-    # Set max_concurrent to 1 based on user testing that it resolves issues
-    max_concurrent_semaphore = 1
+    
+    # Adaptive concurrency based on node type
+    healthy_nodes = get_healthy_nodes()
+    if healthy_nodes:
+        primary_node_url = healthy_nodes[0].get('url', '')
+        # Use higher concurrency for local nodes, moderate for external APIs
+        if '127.0.0.1' in primary_node_url or 'localhost' in primary_node_url:
+            max_concurrent_semaphore = 3  # Local node can handle more
+        else:
+            max_concurrent_semaphore = 2  # External API - still concurrent but gentle
+    else:
+        max_concurrent_semaphore = 2  # Default to moderate
+    
+    logger.debug(f"Using concurrency limit of {max_concurrent_semaphore} for block fetching")
     # Create a semaphore to limit concurrency
     semaphore = asyncio.Semaphore(max_concurrent_semaphore)
 
