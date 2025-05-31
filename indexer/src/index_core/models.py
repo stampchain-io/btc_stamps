@@ -407,10 +407,12 @@ class StampData:
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
-        mime_type = magic.from_buffer(
-            (bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data),
-            mime=True,
-        )
+        # Use enhanced MIME detection for better accuracy
+        from .enhanced_mime_detection import enhanced_mime_detection
+        
+        processed_data = bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data
+        mime_type = enhanced_mime_detection(processed_data)
+        
         self.file_suffix = mime_type.split("/")[-1]
         self.stamp_mimetype = mime_type
 
