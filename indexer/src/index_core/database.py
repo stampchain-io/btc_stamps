@@ -459,7 +459,7 @@ def insert_transactions(db, transactions):
         # Sort transactions by tx_index to maintain order
         sorted_transactions = sorted(transactions, key=lambda x: x.tx_index if x.tx_index is not None else float("inf"))
 
-        BATCH_SIZE = 5000
+        BATCH_SIZE = config.DB_TRANSACTION_BATCH_SIZE
 
         values = []
 
@@ -898,7 +898,7 @@ def insert_balances(cursor, all_balances):
         for key, value in all_balances.items()
     ]
 
-    BATCH_SIZE = 10000
+    BATCH_SIZE = config.DB_BALANCE_BATCH_SIZE
     total_rows = len(values)
 
     for i in range(0, total_rows, BATCH_SIZE):
@@ -998,7 +998,7 @@ def rebuild_balances(db, block_index=None):
         cursor.execute("SET SESSION net_read_timeout=600")
         cursor.execute("SET SESSION net_write_timeout=600")
 
-        BATCH_SIZE = 2000
+        BATCH_SIZE = config.DB_REBUILD_BATCH_SIZE
         COMMIT_INTERVAL = 25
 
         # Get all data first to maintain exact same logic

@@ -27,12 +27,10 @@ DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "1
 RUST_PARSER_MAX_CACHE_MB = int(os.environ.get("RUST_PARSER_MAX_CACHE_MB", "250"))  # 250MB for raw transaction data
 RUST_PARSER_ENTRIES = int(os.environ.get("RUST_PARSER_ENTRIES", "20000"))  # Match Python cache size
 
-# Cache sizes with memory usage estimates
-BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "1000"))  # Reduced from 10000, Active balance tracking
-# Cache sizes with memory usage estimates
-BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "1000"))  # Reduced from 10000, Active balance tracking
-DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "1000"))  # Deployment info (~0.5MB memory)
-TOTAL_MINTED_CACHE_SIZE = int(os.environ.get("TOTAL_MINTED_CACHE_SIZE", "2000"))
+# Cache sizes with memory usage estimates - optimized for production
+BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "2000"))  # Optimized for production workload
+DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "2000"))  # Optimized for production workload
+TOTAL_MINTED_CACHE_SIZE = int(os.environ.get("TOTAL_MINTED_CACHE_SIZE", "3000"))  # Optimized for production workload
 SUBASSET_CACHE_SIZE = int(os.environ.get("SUBASSET_CACHE_SIZE", "1500"))
 ADDRESS_CACHE_SIZE = int(os.environ.get("ADDRESS_CACHE_SIZE", "15000"))
 SRC721_SUBASSET_CACHE_SIZE = int(os.environ.get("SRC721_SUBASSET_CACHE_SIZE", "256"))  # SRC-721 specific subasset cache
@@ -47,6 +45,14 @@ SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DE
 # Batch processing configurations
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
 MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
+
+# Production-optimized batch sizes for database operations
+# Larger batches reduce network round-trips to RDS - optimized defaults for production
+DB_TRANSACTION_BATCH_SIZE = int(os.environ.get("DB_TRANSACTION_BATCH_SIZE", "15000"))  # Optimized for RDS
+DB_BALANCE_BATCH_SIZE = int(os.environ.get("DB_BALANCE_BATCH_SIZE", "20000"))  # Optimized for RDS
+DB_SRC20_BATCH_SIZE = int(os.environ.get("DB_SRC20_BATCH_SIZE", "8000"))  # Optimized for RDS
+DB_COLLECTION_BATCH_SIZE = int(os.environ.get("DB_COLLECTION_BATCH_SIZE", "3000"))  # Optimized for RDS
+DB_REBUILD_BATCH_SIZE = int(os.environ.get("DB_REBUILD_BATCH_SIZE", "8000"))  # Optimized for RDS
 
 # Memory thresholds
 MEMORY_WARNING_THRESHOLD = float(os.environ.get("MEMORY_WARNING_THRESHOLD", "70.0"))  # Early warning at 70%
@@ -210,7 +216,7 @@ else:
 
 logger.info(f"Final RPC URL format: {masked_url}")
 
-RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
+RPC_BATCH_SIZE = 75  # Optimized batch size for better throughput
 
 # Add new constants for the V2 CP API endpoints
 # Configure primary and backup nodes for automatic fallback
@@ -311,14 +317,14 @@ BLOCK_FIRST_REGTEST: int = 0
 STAMPS_NAME: str = "stamps"
 APP_NAME: str = "app"
 
-# Load retry and rate limit settings from environment with validation
-CP_RPC_RETRY_COUNT = int(os.environ.get("CP_RPC_RETRY_COUNT", "3"))
-CP_RPC_RETRY_DELAY = int(os.environ.get("CP_RPC_RETRY_DELAY", "2"))
-CP_RPC_TIMEOUT = int(os.environ.get("CP_RPC_TIMEOUT", "30"))
+# Load retry and rate limit settings from environment with validation - optimized for production
+CP_RPC_RETRY_COUNT = int(os.environ.get("CP_RPC_RETRY_COUNT", "5"))  # Increased for RDS resilience
+CP_RPC_RETRY_DELAY = int(os.environ.get("CP_RPC_RETRY_DELAY", "3"))  # Increased for RDS resilience
+CP_RPC_TIMEOUT = int(os.environ.get("CP_RPC_TIMEOUT", "45"))  # Increased for RDS latency
 CP_RATE_LIMIT = int(os.environ.get("CP_RATE_LIMIT", "2"))
 CP_MAX_RETRIES = int(os.environ.get("CP_MAX_RETRIES", "5"))
 CP_BASE_DELAY = int(os.environ.get("CP_BASE_DELAY", "1"))
-CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "50"))
+CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "75"))  # Increased for better throughput
 
 
 SRC_VALIDATION_API1 = "https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconciliation/balances_hash?block_height="
