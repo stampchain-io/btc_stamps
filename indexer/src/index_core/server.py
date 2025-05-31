@@ -295,15 +295,40 @@ def initialize_tables(db):
     try:
         logger.info("initializing tables...")
         cursor = db.cursor()
-        with open("table_schema.sql", "r") as file:
-            sql_script = file.read()
-        sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
-        for command in sql_commands:
-            try:
-                db_manager.execute_with_retry(cursor, command)
-            except Exception as e:
-                logger.error(f"Error executing command:{command};\nerror:{e}")
-                raise e
+        
+        # Check if tables already exist to avoid unnecessary schema execution
+        required_tables = [
+            'blocks', 'transactions', 'StampTableV4', 'srcbackground', 'creator',
+            'SRC20', 'SRC20Valid', 'balances', 's3objects', 'collections',
+            'collection_creators', 'collection_stamps', 'src20_metadata',
+            'SRC101', 'SRC101Valid', 'owners', 'recipients', 'src101price', 'src20_token_stats'
+        ]
+        
+        # Quick check if all tables exist
+        cursor.execute("""
+            SELECT COUNT(*) as table_count 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE() 
+            AND table_name IN ({})
+        """.format(','.join(['%s'] * len(required_tables))), required_tables)
+        
+        existing_count = cursor.fetchone()[0]
+        
+        if existing_count == len(required_tables):
+            logger.info(f"All {len(required_tables)} required tables already exist, skipping schema execution")
+        else:
+            logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing schema...")
+            # Get the path to table_schema.sql relative to this file
+            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "table_schema.sql")
+            with open(schema_path, "r") as file:
+                sql_script = file.read()
+            sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
+            for command in sql_commands:
+                try:
+                    db_manager.execute_with_retry(cursor, command)
+                except Exception as e:
+                    logger.error(f"Error executing command:{command};\nerror:{e}")
+                    raise e
 
         import_csv_data(
             cursor,
