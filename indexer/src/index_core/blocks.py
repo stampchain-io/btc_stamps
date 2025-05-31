@@ -1459,16 +1459,18 @@ def follow(
                             db.rollback()
                             continue
 
-                        if at_chain_tip or near_tip:
+                        # Only add delay for blocks that are truly at the chain tip (within 2 blocks)
+                        blocks_from_tip = block_tip - block_index
+                        if blocks_from_tip <= 2:
                             logger.debug(
-                                f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip}"
+                                f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip} ({blocks_from_tip} blocks behind)"
                             )
-                            # Add delay to allow XCP to catch up
-                            xcp_sync_delay = 5  # seconds
+                            # Add delay to allow XCP to catch up, but only for blocks very close to tip
+                            xcp_sync_delay = 2  # Reduced from 5 to 2 seconds
                             logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
                             time.sleep(xcp_sync_delay)
                         else:
-                            logger.warning(f"Block {block_index} not found in CP pipeline, falling back to direct fetch")
+                            logger.debug(f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch")
 
                         try:
                             if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
@@ -2085,8 +2087,11 @@ def follow(
         raise
     finally:
         # End profiling before cleanup
-        if "profiler" in globals():
-            profiler.end_block_profiling()
+        if "profiler" in locals() and profiler is not None:
+            try:
+                profiler.end_block_profiling()
+            except Exception as e:
+                logger.debug(f"Error ending profiling: {e}")
 
         # Cleanup all resources
         cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance)
