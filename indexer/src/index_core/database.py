@@ -125,14 +125,33 @@ def is_prev_block_parsed(db: Connection, block_index: int) -> bool:
 
 
 def insert_into_src20_tables(db: Connection, processed_src20_in_block: List[Dict[str, Any]]) -> None:
-    """Insert processed SRC-20 transactions into their respective tables."""
+    """Insert processed SRC-20 transactions into their respective tables using batch operations."""
+    if not processed_src20_in_block:
+        return
+        
     with db.cursor() as src20_cursor:
+        # Prepare batch data for both tables
+        src20_batch = []
+        src20_valid_batch = []
+        
         for i, src20_dict in enumerate(processed_src20_in_block):
             id = f"{i}_{src20_dict.get('tx_index')}_"
             id += f"{src20_dict.get('tx_hash')}"
-            insert_into_src20_table(src20_cursor, SRC20_TABLE, id, src20_dict)
+            
+            # Prepare data for SRC20 table
+            src20_batch.append((id, src20_dict))
+            
+            # Prepare data for SRC20Valid table if valid
             if src20_dict.get("valid") == 1:
-                insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
+                src20_valid_batch.append((id, src20_dict))
+        
+        # Batch insert into SRC20 table
+        if src20_batch:
+            insert_into_src20_table_batch(src20_cursor, SRC20_TABLE, src20_batch)
+            
+        # Batch insert into SRC20Valid table
+        if src20_valid_batch:
+            insert_into_src20_table_batch(src20_cursor, SRC20_VALID_TABLE, src20_valid_batch)
 
 
 def insert_into_src101_tables(db: Connection, processed_src101_in_block: List[Dict[str, Any]]) -> None:
@@ -209,6 +228,67 @@ def insert_into_src20_table(cursor: Cursor, table_name: str, id: str, src20_dict
     """  # nosec
 
     cursor.execute(query, tuple(column_values))
+    return
+
+
+def insert_into_src20_table_batch(cursor: Cursor, table_name: str, batch_data: List[Tuple[str, Dict[str, Any]]]) -> None:
+    """Insert multiple SRC-20 transactions into the specified table using batch operations."""
+    if not batch_data:
+        return
+        
+    # Prepare batch values
+    values = []
+    for id, src20_dict in batch_data:
+        block_time = src20_dict.get("block_time")
+        if isinstance(block_time, int):
+            block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+
+        row_values = [
+            id,
+            src20_dict.get("tx_hash"),
+            src20_dict.get("tx_index"),
+            src20_dict.get("amt"),
+            src20_dict.get("block_index"),
+            src20_dict.get("creator"),
+            src20_dict.get("dec"),
+            src20_dict.get("lim"),
+            src20_dict.get("max"),
+            src20_dict.get("op"),
+            src20_dict.get("p"),
+            src20_dict.get("tick"),
+            src20_dict.get("destination"),
+            block_time,
+            src20_dict.get("tick_hash"),
+            src20_dict.get("status"),
+        ]
+
+        # Add balance columns for SRC20Valid table
+        if table_name == SRC20_VALID_TABLE:
+            row_values.extend([
+                src20_dict.get("total_balance_creator"),
+                src20_dict.get("total_balance_destination")
+            ])
+
+        values.append(tuple(row_values))
+
+    # Build column list based on table type
+    column_names = [
+        "id", "tx_hash", "tx_index", "amt", "block_index", "creator",
+        "deci", "lim", "max", "op", "p", "tick", "destination", 
+        "block_time", "tick_hash", "status"
+    ]
+    
+    if table_name == SRC20_VALID_TABLE:
+        column_names.extend(["creator_bal", "destination_bal"])
+
+    placeholders = ", ".join(["%s"] * len(column_names))
+    
+    query = f"""
+        INSERT INTO {table_name} ({", ".join(column_names)})
+        VALUES ({placeholders})
+    """  # nosec
+
+    cursor.executemany(query, values)
     return
 
 

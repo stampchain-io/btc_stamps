@@ -227,25 +227,40 @@ class StampData:
 
     @staticmethod
     def ensure_creators_exist(db, creator_inserts: List[tuple]):
+        if not creator_inserts:
+            return
         cursor = db.cursor()
-        for _, creator_address in creator_inserts:
-            cursor.execute("SELECT 1 FROM creator WHERE address = %s", (creator_address,))
-            if cursor.fetchone() is None:
-                cursor.execute("INSERT INTO creator (address) VALUES (%s)", (creator_address,))
-        db.commit()
+        # Batch check for existing creators
+        creator_addresses = [creator_address for _, creator_address in creator_inserts]
+        placeholders = ','.join(['%s'] * len(creator_addresses))
+        cursor.execute(f"SELECT address FROM creator WHERE address IN ({placeholders})", creator_addresses)
+        existing_creators = {row[0] for row in cursor.fetchall()}
+        
+        # Insert only new creators
+        new_creators = [
+            (creator_address,) for _, creator_address in creator_inserts
+            if creator_address not in existing_creators
+        ]
+        if new_creators:
+            cursor.executemany("INSERT IGNORE INTO creator (address) VALUES (%s)", new_creators)
+        # Note: No commit here - let caller handle transaction
 
     @staticmethod
     def insert_into_collections(db, collection_inserts: List[Tuple[str, str, Optional[str], Optional[str], Optional[bool]]]):
+        if not collection_inserts:
+            return
         query = """
         INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website, collection_onchain)
         VALUES (UNHEX(%s), %s, %s, %s, %s)
         """
         cursor = db.cursor()
         cursor.executemany(query, collection_inserts)
-        db.commit()
+        # Note: No commit here - let caller handle transaction
 
     @staticmethod
     def insert_into_collection_stamps(db, stamp_inserts: List[Tuple[str, int]]):
+        if not stamp_inserts:
+            return
         query = """
         INSERT INTO collection_stamps (collection_id, stamp)
         VALUES (UNHEX(%s), %s)
@@ -253,10 +268,12 @@ class StampData:
         """
         cursor = db.cursor()
         cursor.executemany(query, stamp_inserts)
-        db.commit()
+        # Note: No commit here - let caller handle transaction
 
     @staticmethod
     def insert_into_collection_creators(db, creator_inserts: List[Tuple[str, str]]):
+        if not creator_inserts:
+            return
         query = """
         INSERT INTO collection_creators (collection_id, creator_address)
         VALUES (UNHEX(%s), %s)
@@ -264,7 +281,7 @@ class StampData:
         """
         cursor = db.cursor()
         cursor.executemany(query, creator_inserts)
-        db.commit()
+        # Note: No commit here - let caller handle transaction
 
     def is_javascript(self, bytestring_data):
         """
