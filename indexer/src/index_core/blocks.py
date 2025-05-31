@@ -637,8 +637,7 @@ def log_block_info(
     is_zmq: bool = False,
 ) -> None:
     """
-    Logs block information with highly stable ETA using weighted EMA and complexity factors.
-    Skips first block of each batch in calculations due to CP overhead.
+    Logs block information using enhanced display formatting.
 
     Args:
         block_index: Current block index
@@ -652,141 +651,68 @@ def log_block_info(
         is_zmq: Whether the block was processed via ZMQ
     """
     try:
+        import config
+        from index_core.log import log_enhanced_block_status
+
         # Get current tip of the blockchain
         block_tip: int = backend_instance.getblockcount()
-
-        # Calculate progress based on CP genesis block to current tip
-        blocks_to_process = block_tip - config.CP_STAMP_GENESIS_BLOCK
-        blocks_processed = block_index - config.CP_STAMP_GENESIS_BLOCK
-
-        # Ensure we don't show progress before genesis block
-        if block_index < config.CP_STAMP_GENESIS_BLOCK:
-            current_progress = 0.0
-        else:
-            current_progress = min(1.0, blocks_processed / blocks_to_process if blocks_to_process > 0 else 0)
-
+        current_time = time.time() - start_time
+        
         # Log memory usage and cache stats every 100 blocks
         if block_index % 100 == 0:
             memory_manager.log_memory_usage(block_index)
-            cache_manager.log_cache_stats()  # Use CacheManager's stats logging
+            cache_manager.log_cache_stats()
 
         # Initialize tracking variables if not exists
         if not hasattr(log_block_info, "_state"):
-            setattr(
-                log_block_info,
-                "_state",
-                {
-                    "times": [],
-                    "window_size": 100,
-                    "last_eta_update": 0,
-                    "last_eta": None,
-                    "last_tip": block_tip,
-                    "last_log_time": start_time,  # Initialize with first block's start time
-                },
-            )
+            setattr(log_block_info, "_state", {"times": [], "window_size": 100})
 
         state = getattr(log_block_info, "_state")
 
-        # Calculate time since last log call
-        current_log_time = time.time()
-        time_since_last_log = current_log_time - state["last_log_time"]
-        state["last_log_time"] = current_log_time  # Update for next call
-
-        # Calculate the time for this block's processing
-        current_time = current_log_time - start_time
-
-        # Update last_time for the next block
-        # state["last_time"] = time.time()  # Removed as last_log_time serves this purpose now
-
-        # Detect if block tip has changed
-        if block_tip != state["last_tip"]:
-            logger.debug(f"Block tip changed from {state['last_tip']} to {block_tip}")
-            state["last_tip"] = block_tip
-
-        # Check if this is a CP fetch block (every 100 blocks)
-        is_cp_fetch_block = (block_index % 100) == 0
-        if is_cp_fetch_block:
-            logger.debug(f"CP fetch block at {block_index}")
-
-        # Only update times list if not a CP fetch block and time is reasonable
-        if not is_cp_fetch_block and current_time < 10:  # Filter out outliers > 10s
+        # Only update times list if time is reasonable (filter outliers)
+        if current_time < 10:  # Filter out outliers > 10s
             state["times"].append(current_time)
             if len(state["times"]) > state["window_size"]:
                 state["times"].pop(0)
 
         # Calculate average block time
         avg_time = "N/A"
+        eta_seconds = 0
         if len(state["times"]) > 0:
-            avg_time = "{:.2f}s".format(sum(state["times"]) / len(state["times"]))
+            avg_time_float = sum(state["times"]) / len(state["times"])
+            avg_time = "{:.2f}s".format(avg_time_float)
+            
+            # Calculate ETA
+            if block_index < block_tip:
+                blocks_remaining = block_tip - block_index
+                eta_seconds = blocks_remaining * avg_time_float
 
-        # Calculate ETA using simple moving average
-        if len(state["times"]) >= 5:  # Reduced minimum samples needed
-            # Calculate average excluding highest 10% of times to handle outliers
-            sorted_times = sorted(state["times"])
-            cutoff = int(len(sorted_times) * 0.9)
-            avg_time_calc = sum(sorted_times[:cutoff]) / cutoff
+        # Get display mode from config with auto-optimization
+        display_mode = getattr(config, 'LOG_DISPLAY_MODE', 'enhanced')
+        
+        # Auto-optimize display mode for tip processing (if enabled)
+        if getattr(config, 'LOG_AUTO_OPTIMIZE_TIP', True):
+            at_tip = (block_tip - block_index) <= 5
+            if at_tip and display_mode == "detailed":
+                display_mode = "enhanced"
+                logger.debug("Auto-switching from detailed to enhanced mode for tip processing")
+            elif at_tip and display_mode == "enhanced" and current_time < 0.5:
+                display_mode = "compact"
+                logger.debug("Auto-switching to compact mode for high-frequency tip processing")
 
-            blocks_remaining = block_tip - block_index
-            # Add time for remaining CP fetch blocks
-            cp_fetches_remaining = blocks_remaining // 100  # CP fetch every 100 blocks
-            est_seconds_remaining = (blocks_remaining * avg_time_calc) + (cp_fetches_remaining * 5)  # Assume 5s per CP fetch
-
-            # Convert to hours and minutes
-            hours = int(est_seconds_remaining // 3600)
-            minutes = int((est_seconds_remaining % 3600) // 60)
-
-            # Update ETA only every 20 blocks or if significant change
-            should_update = (
-                state["last_eta"] is None
-                or (block_index - state["last_eta_update"]) >= 20
-                or abs(hours - state["last_eta"][0]) > 0
-                or abs(minutes - state["last_eta"][1]) > 5
-            )
-
-            if should_update:
-                state["last_eta"] = (hours, minutes)
-                state["last_eta_update"] = block_index
-            else:
-                hours, minutes = state["last_eta"]
-
-            eta = f"{hours}h {minutes:02d}m"
-        else:
-            eta = "calculating..."
-
-        # Format log string and log based on whether we are at the tip
-        at_tip = block_index == block_tip
-        if at_tip:
-            # Format to show time since last block log instead of '(Tip)'
-            log_format = "%s/%s │ %ss │ Avg: %s │ Last: %ss │ %s%% │ [S:%s|20:%s|101:%s]%s"
-            logger.block_status(  # type: ignore[attr-defined]
-                log_format,
-                str(block_index),
-                str(block_tip),
-                "{:.2f}".format(current_time),  # Processing time for *this* block
-                avg_time,
-                "{:.2f}".format(time_since_last_log),  # Time since *last* log message
-                "{:.1f}".format(current_progress * 100),
-                stamps_in_block,
-                src20_in_block,
-                src101_in_block,
-                " (ZMQ)" if is_zmq else "",
-            )
-        else:
-            # Keep the existing format with ETA for non-tip blocks
-            log_format = "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s%% │ [S:%s|20:%s|101:%s]%s"
-            logger.block_status(  # type: ignore[attr-defined]
-                log_format,
-                str(block_index),
-                str(block_tip),
-                "{:.2f}".format(current_time),
-                avg_time,
-                eta,
-                "{:.1f}".format(current_progress * 100),
-                stamps_in_block,
-                src20_in_block,
-                src101_in_block,
-                " (ZMQ)" if is_zmq else "",
-            )
+        # Use the enhanced logging function from log.py
+        log_enhanced_block_status(
+            block_index=block_index,
+            block_tip=block_tip,
+            processing_time=current_time,
+            avg_time=avg_time,
+            stamps_in_block=stamps_in_block,
+            src20_in_block=src20_in_block,
+            src101_in_block=src101_in_block,
+            eta_seconds=eta_seconds,
+            is_zmq=is_zmq,
+            display_mode=display_mode,
+        )
 
     except Exception as e:
         logger.error(f"Error in log_block_info: {e}")

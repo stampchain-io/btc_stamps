@@ -65,6 +65,13 @@ DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
+# Logging display configuration
+# Options: "compact", "enhanced", "detailed", "flashy"
+LOG_DISPLAY_MODE = os.environ.get("LOG_DISPLAY_MODE", "enhanced")
+
+# Auto-optimize logging for tip processing (reduces overhead when caught up)
+LOG_AUTO_OPTIMIZE_TIP = os.environ.get("LOG_AUTO_OPTIMIZE_TIP", "true").lower() == "true"
+
 STORE_FILES = os.environ.get("STORE_FILES", "true").lower() == "true"
 
 # env vars to be set in docker, or locally if connecting to local nodes
