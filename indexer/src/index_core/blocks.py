@@ -657,7 +657,7 @@ def log_block_info(
         # Get current tip of the blockchain
         block_tip: int = backend_instance.getblockcount()
         current_time = time.time() - start_time
-        
+
         # Log memory usage and cache stats every 100 blocks
         if block_index % 100 == 0:
             memory_manager.log_memory_usage(block_index)
@@ -681,17 +681,17 @@ def log_block_info(
         if len(state["times"]) > 0:
             avg_time_float = sum(state["times"]) / len(state["times"])
             avg_time = "{:.2f}s".format(avg_time_float)
-            
+
             # Calculate ETA
             if block_index < block_tip:
                 blocks_remaining = block_tip - block_index
                 eta_seconds = blocks_remaining * avg_time_float
 
         # Get display mode from config with auto-optimization
-        display_mode = getattr(config, 'LOG_DISPLAY_MODE', 'enhanced')
-        
+        display_mode = getattr(config, "LOG_DISPLAY_MODE", "enhanced")
+
         # Auto-optimize display mode for tip processing (if enabled)
-        if getattr(config, 'LOG_AUTO_OPTIMIZE_TIP', True):
+        if getattr(config, "LOG_AUTO_OPTIMIZE_TIP", True):
             at_tip = (block_tip - block_index) <= 5
             if at_tip and display_mode == "detailed":
                 display_mode = "enhanced"
@@ -1396,7 +1396,9 @@ def follow(
                             logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
                             time.sleep(xcp_sync_delay)
                         else:
-                            logger.debug(f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch")
+                            logger.debug(
+                                f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch"
+                            )
 
                         try:
                             if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():

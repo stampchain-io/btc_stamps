@@ -380,8 +380,8 @@ async def get_all_xcp_transactions(start_block: int, limit: int = 100) -> Option
         # Adaptive chunk size based on node type
         healthy_nodes = get_healthy_nodes()
         if healthy_nodes:
-            primary_node_url = healthy_nodes[0].get('url', '')
-            if '127.0.0.1' in primary_node_url or 'localhost' in primary_node_url:
+            primary_node_url = healthy_nodes[0].get("url", "")
+            if "127.0.0.1" in primary_node_url or "localhost" in primary_node_url:
                 chunk_size = 10  # Local node can handle larger chunks
             else:
                 chunk_size = 5  # External API - moderate chunks
@@ -526,13 +526,11 @@ async def fetch_xcp_async(
                     ttl_dns_cache=300,  # DNS cache TTL
                     use_dns_cache=True,
                     keepalive_timeout=30,  # Keep connections alive
-                    enable_cleanup_closed=True
+                    enable_cleanup_closed=True,
                 )
-                
+
                 async with aiohttp.ClientSession(
-                    timeout=timeout_obj, 
-                    connector=connector,
-                    headers={'Connection': 'keep-alive'}
+                    timeout=timeout_obj, connector=connector, headers={"Connection": "keep-alive"}
                 ) as session:
                     async with session.get(url, params=params) as response:
                         logger.debug(f"Response status from {node['name']}: {response.status}")
@@ -548,7 +546,7 @@ async def fetch_xcp_async(
                             health_tracker = node_health_tracker.get(node["name"])
                             if health_tracker:
                                 health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
-                            
+
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout fetching from {node['name']} (during session.get for {url})")
                 health_tracker = node_health_tracker.get(node["name"])
@@ -567,7 +565,7 @@ async def fetch_xcp_async(
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
                     health_tracker.mark_failure(f"Exception during session.get: {type(inner_get_exc).__name__}")
-                    
+
         except Exception as e:
             logger.error(f"Outer exception for node {node['name']} in fetch_xcp_async: {type(e).__name__}: {e}", exc_info=True)
             health_tracker = node_health_tracker.get(node["name"])
@@ -914,19 +912,19 @@ async def _fetch_blocks_range_async(
     """
     # Initialize result and counters
     results = {}
-    
+
     # Adaptive concurrency based on node type
     healthy_nodes = get_healthy_nodes()
     if healthy_nodes:
-        primary_node_url = healthy_nodes[0].get('url', '')
+        primary_node_url = healthy_nodes[0].get("url", "")
         # Use higher concurrency for local nodes, moderate for external APIs
-        if '127.0.0.1' in primary_node_url or 'localhost' in primary_node_url:
+        if "127.0.0.1" in primary_node_url or "localhost" in primary_node_url:
             max_concurrent_semaphore = 3  # Local node can handle more
         else:
             max_concurrent_semaphore = 2  # External API - still concurrent but gentle
     else:
         max_concurrent_semaphore = 2  # Default to moderate
-    
+
     logger.debug(f"Using concurrency limit of {max_concurrent_semaphore} for block fetching")
     # Create a semaphore to limit concurrency
     semaphore = asyncio.Semaphore(max_concurrent_semaphore)

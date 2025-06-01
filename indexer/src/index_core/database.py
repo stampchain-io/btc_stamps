@@ -128,27 +128,27 @@ def insert_into_src20_tables(db: Connection, processed_src20_in_block: List[Dict
     """Insert processed SRC-20 transactions into their respective tables using batch operations."""
     if not processed_src20_in_block:
         return
-        
+
     with db.cursor() as src20_cursor:
         # Prepare batch data for both tables
         src20_batch = []
         src20_valid_batch = []
-        
+
         for i, src20_dict in enumerate(processed_src20_in_block):
             id = f"{i}_{src20_dict.get('tx_index')}_"
             id += f"{src20_dict.get('tx_hash')}"
-            
+
             # Prepare data for SRC20 table
             src20_batch.append((id, src20_dict))
-            
+
             # Prepare data for SRC20Valid table if valid
             if src20_dict.get("valid") == 1:
                 src20_valid_batch.append((id, src20_dict))
-        
+
         # Batch insert into SRC20 table
         if src20_batch:
             insert_into_src20_table_batch(src20_cursor, SRC20_TABLE, src20_batch)
-            
+
         # Batch insert into SRC20Valid table
         if src20_valid_batch:
             insert_into_src20_table_batch(src20_cursor, SRC20_VALID_TABLE, src20_valid_batch)
@@ -235,7 +235,7 @@ def insert_into_src20_table_batch(cursor: Cursor, table_name: str, batch_data: L
     """Insert multiple SRC-20 transactions into the specified table using batch operations."""
     if not batch_data:
         return
-        
+
     # Prepare batch values
     values = []
     for id, src20_dict in batch_data:
@@ -264,25 +264,35 @@ def insert_into_src20_table_batch(cursor: Cursor, table_name: str, batch_data: L
 
         # Add balance columns for SRC20Valid table
         if table_name == SRC20_VALID_TABLE:
-            row_values.extend([
-                src20_dict.get("total_balance_creator"),
-                src20_dict.get("total_balance_destination")
-            ])
+            row_values.extend([src20_dict.get("total_balance_creator"), src20_dict.get("total_balance_destination")])
 
         values.append(tuple(row_values))
 
     # Build column list based on table type
     column_names = [
-        "id", "tx_hash", "tx_index", "amt", "block_index", "creator",
-        "deci", "lim", "max", "op", "p", "tick", "destination", 
-        "block_time", "tick_hash", "status"
+        "id",
+        "tx_hash",
+        "tx_index",
+        "amt",
+        "block_index",
+        "creator",
+        "deci",
+        "lim",
+        "max",
+        "op",
+        "p",
+        "tick",
+        "destination",
+        "block_time",
+        "tick_hash",
+        "status",
     ]
-    
+
     if table_name == SRC20_VALID_TABLE:
         column_names.extend(["creator_bal", "destination_bal"])
 
     placeholders = ", ".join(["%s"] * len(column_names))
-    
+
     query = f"""
         INSERT INTO {table_name} ({", ".join(column_names)})
         VALUES ({placeholders})

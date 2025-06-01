@@ -295,25 +295,45 @@ def initialize_tables(db):
     try:
         logger.info("initializing tables...")
         cursor = db.cursor()
-        
+
         # Check if tables already exist to avoid unnecessary schema execution
         required_tables = [
-            'blocks', 'transactions', 'StampTableV4', 'srcbackground', 'creator',
-            'SRC20', 'SRC20Valid', 'balances', 's3objects', 'collections',
-            'collection_creators', 'collection_stamps', 'src20_metadata',
-            'SRC101', 'SRC101Valid', 'owners', 'recipients', 'src101price', 'src20_token_stats'
+            "blocks",
+            "transactions",
+            "StampTableV4",
+            "srcbackground",
+            "creator",
+            "SRC20",
+            "SRC20Valid",
+            "balances",
+            "s3objects",
+            "collections",
+            "collection_creators",
+            "collection_stamps",
+            "src20_metadata",
+            "SRC101",
+            "SRC101Valid",
+            "owners",
+            "recipients",
+            "src101price",
+            "src20_token_stats",
         ]
-        
+
         # Quick check if all tables exist
-        cursor.execute("""
-            SELECT COUNT(*) as table_count 
-            FROM information_schema.tables 
-            WHERE table_schema = DATABASE() 
+        cursor.execute(
+            """
+            SELECT COUNT(*) as table_count
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
             AND table_name IN ({})
-        """.format(','.join(['%s'] * len(required_tables))), required_tables)
-        
+        """.format(
+                ",".join(["%s"] * len(required_tables))
+            ),
+            required_tables,
+        )
+
         existing_count = cursor.fetchone()[0]
-        
+
         if existing_count == len(required_tables):
             logger.info(f"All {len(required_tables)} required tables already exist, skipping schema execution")
         else:

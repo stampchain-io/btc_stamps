@@ -243,7 +243,7 @@ XCP_V2_NODES = [
         "url": primary_url,
     },
     {
-        "name": "counterparty-backup", 
+        "name": "counterparty-backup",
         "url": backup_url,
     },
 ]  # TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.

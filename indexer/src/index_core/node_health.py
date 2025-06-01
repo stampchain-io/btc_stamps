@@ -566,13 +566,13 @@ def update_healthy_nodes():
                             logger.debug(f"Node {node_name} is healthy via /healthz endpoint")
                     except Exception as e:
                         logger.debug(f"Error parsing healthz response from {node_name}: {e}")
-                
+
                 # If healthz failed, try the root V2 endpoint as fallback
                 if not is_healthy:
                     logger.debug(f"Healthz failed for {node_name}, trying root V2 endpoint")
-                    root_url = node_url.rstrip('/')
+                    root_url = node_url.rstrip("/")
                     response = requests.get(root_url, timeout=5)
-                    
+
                     if response.status_code == 200:
                         try:
                             data = response.json()

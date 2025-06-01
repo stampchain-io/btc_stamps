@@ -229,7 +229,7 @@ def log_enhanced_block_status(
 ) -> None:
     """
     Log block status with enhanced formatting.
-    
+
     Args:
         block_index: Current block being processed
         block_tip: Latest block height
@@ -248,15 +248,15 @@ def log_enhanced_block_status(
     else:
         current_progress = 0.0
     current_progress = min(1.0, current_progress)
-    
+
     # Determine if we're at the tip (within 5 blocks)
     at_tip = (block_tip - block_index) <= 5
-    
+
     # Get display components
     progress_bar = create_progress_bar(current_progress, 20)
     speed_indicator = get_speed_indicator(processing_time)
     activity_indicator = get_activity_indicator(stamps_in_block, src20_in_block, src101_in_block)
-    
+
     # Format progress with appropriate precision
     blocks_remaining = block_tip - block_index
     if blocks_remaining <= 20 and blocks_remaining > 0:
@@ -265,12 +265,12 @@ def log_enhanced_block_status(
         progress_format = "%.2f%%"
     else:
         progress_format = "%.1f%%"
-    
+
     progress_str = progress_format % (current_progress * 100)
-    
+
     # Get logger
     block_logger = logging.getLogger("index_core.blocks")
-    
+
     if display_mode == "compact":
         if at_tip:
             log_format = "%s/%s │ %ss │ Avg: %s │ %s │ [S:%s|20:%s|101:%s]%s"
@@ -302,7 +302,7 @@ def log_enhanced_block_status(
                 src101_in_block,
                 " (ZMQ)" if is_zmq else "",
             )
-    
+
     elif display_mode == "enhanced":
         if at_tip:
             log_format = f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) {activity_indicator} S:%s SRC20:%s SRC101:%s%s"
@@ -321,7 +321,9 @@ def log_enhanced_block_status(
             )
         else:
             eta_str = format_eta(eta_seconds)
-            log_format = f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) ⏱️ %s {activity_indicator} S:%s SRC20:%s SRC101:%s%s"
+            log_format = (
+                f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) ⏱️ %s {activity_indicator} S:%s SRC20:%s SRC101:%s%s"
+            )
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
@@ -336,15 +338,11 @@ def log_enhanced_block_status(
                 src101_in_block,
                 " 📡" if is_zmq else "",
             )
-    
+
     elif display_mode == "detailed":
         if at_tip:
             block_logger.block_status(  # type: ignore[attr-defined]
-                "┌─ BLOCK %s/%s (%s) ─ AT TIP%s",
-                str(block_index),
-                str(block_tip),
-                progress_str,
-                " [ZMQ]" if is_zmq else ""
+                "┌─ BLOCK %s/%s (%s) ─ AT TIP%s", str(block_index), str(block_tip), progress_str, " [ZMQ]" if is_zmq else ""
             )
         else:
             eta_str = format_eta(eta_seconds)
@@ -354,25 +352,15 @@ def log_enhanced_block_status(
                 str(block_tip),
                 progress_str,
                 eta_str,
-                " [ZMQ]" if is_zmq else ""
+                " [ZMQ]" if is_zmq else "",
             )
-        
+
         block_logger.block_status(  # type: ignore[attr-defined]
-            "├─ ⚡ Processing: %ss (avg: %s) %s",
-            "{:.2f}".format(processing_time),
-            avg_time,
-            speed_indicator
+            "├─ ⚡ Processing: %ss (avg: %s) %s", "{:.2f}".format(processing_time), avg_time, speed_indicator
         )
-        
+
+        block_logger.block_status("├─ %s %s", progress_bar, activity_indicator)  # type: ignore[attr-defined]
+
         block_logger.block_status(  # type: ignore[attr-defined]
-            "├─ %s %s",
-            progress_bar,
-            activity_indicator
-        )
-        
-        block_logger.block_status(  # type: ignore[attr-defined]
-            "└─ 📊 Found: %s stamps, %s SRC-20, %s SRC-101",
-            stamps_in_block,
-            src20_in_block,
-            src101_in_block
+            "└─ 📊 Found: %s stamps, %s SRC-20, %s SRC-101", stamps_in_block, src20_in_block, src101_in_block
         )

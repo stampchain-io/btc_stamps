@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import ClassVar, Dict, List, Optional, Tuple, TypedDict, Union
 
-import magic
 import msgpack
 import regex as re
 
@@ -232,14 +231,13 @@ class StampData:
         cursor = db.cursor()
         # Batch check for existing creators
         creator_addresses = [creator_address for _, creator_address in creator_inserts]
-        placeholders = ','.join(['%s'] * len(creator_addresses))
+        placeholders = ",".join(["%s"] * len(creator_addresses))
         cursor.execute(f"SELECT address FROM creator WHERE address IN ({placeholders})", creator_addresses)
         existing_creators = {row[0] for row in cursor.fetchall()}
-        
+
         # Insert only new creators
         new_creators = [
-            (creator_address,) for _, creator_address in creator_inserts
-            if creator_address not in existing_creators
+            (creator_address,) for _, creator_address in creator_inserts if creator_address not in existing_creators
         ]
         if new_creators:
             cursor.executemany("INSERT IGNORE INTO creator (address) VALUES (%s)", new_creators)
@@ -409,10 +407,10 @@ class StampData:
 
         # Use enhanced MIME detection for better accuracy
         from .enhanced_mime_detection import enhanced_mime_detection
-        
+
         processed_data = bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data
         mime_type = enhanced_mime_detection(processed_data)
-        
+
         self.file_suffix = mime_type.split("/")[-1]
         self.stamp_mimetype = mime_type
 
