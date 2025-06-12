@@ -30,6 +30,7 @@ from config import (
     SRC101_VALID_TABLE,
     SRC_BACKGROUND_TABLE,
     STAMP_TABLE,
+    STAMP_VIEWS_TABLE,
     TRANSACTIONS_TABLE,
 )
 from index_core.caching import SRC101DeployResult, cache_manager, clear_all_caches
@@ -1819,3 +1820,632 @@ def balances_need_update(existing_balances, all_balances):
     except Exception as e:
         logger.error(f"Error comparing balances: {str(e)}")
         return True
+
+
+def increment_stamp_view_count(db: Connection, stamp_id: int) -> None:
+    """
+    Increment the view count for a specific stamp.
+    Creates a new record if the stamp doesn't exist in the stamp_views table.
+
+    Args:
+        db: Database connection
+        stamp_id: The stamp ID to increment views for
+    """
+    try:
+        with db.cursor() as cursor:
+            # Use INSERT ... ON DUPLICATE KEY UPDATE to handle both new and existing records
+            query = f"""
+                INSERT INTO {STAMP_VIEWS_TABLE} (stamp, view_count, last_viewed)
+                VALUES (%s, 1, NOW())
+                ON DUPLICATE KEY UPDATE
+                    view_count = view_count + 1,
+                    last_viewed = NOW()
+            """  # nosec
+            cursor.execute(query, (stamp_id,))
+            db.commit()
+            logger.debug(f"Incremented view count for stamp {stamp_id}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error incrementing view count for stamp {stamp_id}: {e}")
+        raise DatabaseInsertError(f"Failed to increment view count for stamp {stamp_id}: {e}")
+
+
+def get_stamp_view_count(db: Connection, stamp_id: int) -> int:
+    """
+    Get the current view count for a specific stamp.
+
+    Args:
+        db: Database connection
+        stamp_id: The stamp ID to get view count for
+
+    Returns:
+        The current view count (0 if stamp has no views recorded)
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT view_count
+                FROM {STAMP_VIEWS_TABLE}
+                WHERE stamp = %s
+            """  # nosec
+            cursor.execute(query, (stamp_id,))
+            result = cursor.fetchone()
+            return result[0] if result else 0
+    except Exception as e:
+        logger.error(f"Error getting view count for stamp {stamp_id}: {e}")
+        return 0
+
+
+def get_popular_stamps(db: Connection, limit: int = 10) -> List[Tuple[int, int]]:
+    """
+    Get the most popular stamps by view count.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return (default: 10)
+
+    Returns:
+        List of tuples (stamp_id, view_count) ordered by view count descending
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT stamp, view_count
+                FROM {STAMP_VIEWS_TABLE}
+                ORDER BY view_count DESC, last_viewed DESC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting popular stamps: {e}")
+        return []
+
+
+def get_recently_viewed_stamps(db: Connection, limit: int = 10) -> List[Tuple[int, int]]:
+    """
+    Get the most recently viewed stamps.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return (default: 10)
+
+    Returns:
+        List of tuples (stamp_id, view_count) ordered by last_viewed descending
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT stamp, view_count
+                FROM {STAMP_VIEWS_TABLE}
+                ORDER BY last_viewed DESC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting recently viewed stamps: {e}")
+        return []
+
+
+def get_stamp_view_stats(db: Connection) -> Dict[str, int]:
+    """
+    Get overall statistics about stamp views.
+
+    Args:
+        db: Database connection
+
+    Returns:
+        Dictionary with statistics: total_stamps_with_views, total_views, avg_views_per_stamp
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT
+                    COUNT(*) as total_stamps_with_views,
+                    SUM(view_count) as total_views,
+                    AVG(view_count) as avg_views_per_stamp
+                FROM {STAMP_VIEWS_TABLE}
+                WHERE view_count > 0
+            """  # nosec
+            cursor.execute(query)
+            result = cursor.fetchone()
+
+            if result:
+                return {
+                    "total_stamps_with_views": result[0] or 0,
+                    "total_views": result[1] or 0,
+                    "avg_views_per_stamp": float(result[2]) if result[2] else 0.0,
+                }
+            else:
+                return {"total_stamps_with_views": 0, "total_views": 0, "avg_views_per_stamp": 0.0}
+    except Exception as e:
+        logger.error(f"Error getting stamp view statistics: {e}")
+        return {"total_stamps_with_views": 0, "total_views": 0, "avg_views_per_stamp": 0.0}
+
+
+# =====================================================================
+# MARKET DATA ACCESS FUNCTIONS
+# =====================================================================
+# These functions provide direct database access for market data operations
+# and complement the MarketDataService for external API integrations
+# =====================================================================
+
+
+def get_stamp_market_data_raw(db: Connection, cpid: str) -> Optional[Tuple]:
+    """
+    Get raw stamp market data from database.
+
+    Args:
+        db: Database connection
+        cpid: Counterparty asset ID
+
+    Returns:
+        Raw database row or None if not found
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, floor_price_btc, recent_sale_price_btc,
+                    open_dispensers_count, closed_dispensers_count, total_dispensers_count,
+                    holder_count, unique_holder_count, top_holder_percentage, holder_distribution_score,
+                    volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
+                    price_source, volume_sources, data_quality_score, confidence_level,
+                    last_updated, last_dispenser_block, last_balance_block, last_price_update,
+                    update_frequency_minutes, created_at
+                FROM stamp_market_data
+                WHERE cpid = %s
+            """  # nosec
+            cursor.execute(query, (cpid,))
+            return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error getting raw stamp market data for {cpid}: {e}")
+        return None
+
+
+def get_src20_market_data_raw(db: Connection, tick: str) -> Optional[Tuple]:
+    """
+    Get raw SRC-20 market data from database.
+
+    Args:
+        db: Database connection
+        tick: SRC-20 token ticker
+
+    Returns:
+        Raw database row or None if not found
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    tick, price_btc, price_usd, floor_price_btc, market_cap_btc, market_cap_usd,
+                    volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
+                    price_change_24h_percent, price_change_7d_percent, price_change_30d_percent,
+                    holder_count, circulating_supply, max_supply,
+                    primary_exchange, exchange_sources, data_quality_score, confidence_level,
+                    last_updated, last_price_update, update_frequency_minutes, created_at
+                FROM src20_market_data
+                WHERE tick = %s
+            """  # nosec
+            cursor.execute(query, (tick,))
+            return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error getting raw SRC-20 market data for {tick}: {e}")
+        return None
+
+
+def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> None:
+    """
+    Insert or update stamp market data in the database.
+
+    Args:
+        db: Database connection
+        market_data: Dictionary containing market data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Build dynamic insert/update query
+            fields = []
+            values = []
+            update_fields = []
+
+            # Required field
+            cpid = market_data.get("cpid")
+            if not cpid:
+                raise ValueError("cpid is required for stamp market data")
+
+            # Map of allowed fields
+            field_mapping = {
+                "floor_price_btc": "floor_price_btc",
+                "recent_sale_price_btc": "recent_sale_price_btc",
+                "open_dispensers_count": "open_dispensers_count",
+                "closed_dispensers_count": "closed_dispensers_count",
+                "total_dispensers_count": "total_dispensers_count",
+                "holder_count": "holder_count",
+                "unique_holder_count": "unique_holder_count",
+                "top_holder_percentage": "top_holder_percentage",
+                "holder_distribution_score": "holder_distribution_score",
+                "volume_24h_btc": "volume_24h_btc",
+                "volume_7d_btc": "volume_7d_btc",
+                "volume_30d_btc": "volume_30d_btc",
+                "total_volume_btc": "total_volume_btc",
+                "price_source": "price_source",
+                "volume_sources": "volume_sources",
+                "data_quality_score": "data_quality_score",
+                "confidence_level": "confidence_level",
+                "last_dispenser_block": "last_dispenser_block",
+                "last_balance_block": "last_balance_block",
+                "last_price_update": "last_price_update",
+                "update_frequency_minutes": "update_frequency_minutes",
+            }
+
+            # Build field lists
+            fields.append("cpid")
+            values.append(cpid)
+
+            for field, db_field in field_mapping.items():
+                if field in market_data:
+                    fields.append(db_field)
+                    values.append(market_data[field])
+                    update_fields.append(f"{db_field} = VALUES({db_field})")
+
+            # Add timestamps
+            fields.extend(["last_updated", "created_at"])
+            values.extend([None, None])  # Will be replaced by NOW()
+            update_fields.append("last_updated = NOW()")
+
+            # Build query
+            placeholders = ", ".join(["%s"] * (len(fields) - 2)) + ", NOW(), NOW()"
+            field_list = ", ".join(fields)
+            update_clause = ", ".join(update_fields)
+
+            query = f"""
+                INSERT INTO stamp_market_data ({field_list})
+                VALUES ({placeholders})
+                ON DUPLICATE KEY UPDATE {update_clause}
+            """  # nosec
+
+            cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
+            db.commit()
+            logger.debug(f"Inserted/updated stamp market data for: {cpid}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting stamp market data for {cpid}: {e}")
+        raise DatabaseInsertError(f"Failed to insert stamp market data: {e}")
+
+
+def insert_src20_market_data(db: Connection, market_data: Dict[str, Any]) -> None:
+    """
+    Insert or update SRC-20 market data in the database.
+
+    Args:
+        db: Database connection
+        market_data: Dictionary containing market data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Build dynamic insert/update query
+            fields = []
+            values = []
+            update_fields = []
+
+            # Required field
+            tick = market_data.get("tick")
+            if not tick:
+                raise ValueError("tick is required for SRC-20 market data")
+
+            # Map of allowed fields
+            field_mapping = {
+                "price_btc": "price_btc",
+                "price_usd": "price_usd",
+                "floor_price_btc": "floor_price_btc",
+                "market_cap_btc": "market_cap_btc",
+                "market_cap_usd": "market_cap_usd",
+                "volume_24h_btc": "volume_24h_btc",
+                "volume_7d_btc": "volume_7d_btc",
+                "volume_30d_btc": "volume_30d_btc",
+                "total_volume_btc": "total_volume_btc",
+                "price_change_24h_percent": "price_change_24h_percent",
+                "price_change_7d_percent": "price_change_7d_percent",
+                "price_change_30d_percent": "price_change_30d_percent",
+                "holder_count": "holder_count",
+                "circulating_supply": "circulating_supply",
+                "max_supply": "max_supply",
+                "primary_exchange": "primary_exchange",
+                "exchange_sources": "exchange_sources",
+                "data_quality_score": "data_quality_score",
+                "confidence_level": "confidence_level",
+                "last_price_update": "last_price_update",
+                "update_frequency_minutes": "update_frequency_minutes",
+            }
+
+            # Build field lists
+            fields.append("tick")
+            values.append(tick)
+
+            for field, db_field in field_mapping.items():
+                if field in market_data:
+                    fields.append(db_field)
+                    values.append(market_data[field])
+                    update_fields.append(f"{db_field} = VALUES({db_field})")
+
+            # Add timestamps
+            fields.extend(["last_updated", "created_at"])
+            values.extend([None, None])  # Will be replaced by NOW()
+            update_fields.append("last_updated = NOW()")
+
+            # Build query
+            placeholders = ", ".join(["%s"] * (len(fields) - 2)) + ", NOW(), NOW()"
+            field_list = ", ".join(fields)
+            update_clause = ", ".join(update_fields)
+
+            query = f"""
+                INSERT INTO src20_market_data ({field_list})
+                VALUES ({placeholders})
+                ON DUPLICATE KEY UPDATE {update_clause}
+            """  # nosec
+
+            cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
+            db.commit()
+            logger.debug(f"Inserted/updated SRC-20 market data for: {tick}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting SRC-20 market data for {tick}: {e}")
+        raise DatabaseInsertError(f"Failed to insert SRC-20 market data: {e}")
+
+
+def get_stamp_holders_raw(db: Connection, cpid: str, limit: int = 100) -> List[Tuple]:
+    """
+    Get raw stamp holder data from database.
+
+    Args:
+        db: Database connection
+        cpid: Counterparty asset ID
+        limit: Maximum number of holders to return
+
+    Returns:
+        List of raw database rows
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, address, quantity, percentage, rank_position,
+                    balance_source, last_updated, last_tx_block
+                FROM stamp_holder_cache
+                WHERE cpid = %s
+                ORDER BY rank_position ASC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (cpid, limit))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting raw stamp holders for {cpid}: {e}")
+        return []
+
+
+def insert_stamp_holder_data(db: Connection, holder_data: Dict[str, Any]) -> None:
+    """
+    Insert or update stamp holder data in the database.
+
+    Args:
+        db: Database connection
+        holder_data: Dictionary containing holder data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Required fields
+            cpid = holder_data.get("cpid")
+            address = holder_data.get("address")
+            if not cpid or not address:
+                raise ValueError("cpid and address are required for stamp holder data")
+
+            query = """
+                INSERT INTO stamp_holder_cache (
+                    cpid, address, quantity, percentage, rank_position,
+                    balance_source, last_updated, last_tx_block
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
+                ON DUPLICATE KEY UPDATE
+                    quantity = VALUES(quantity),
+                    percentage = VALUES(percentage),
+                    rank_position = VALUES(rank_position),
+                    balance_source = VALUES(balance_source),
+                    last_updated = NOW(),
+                    last_tx_block = VALUES(last_tx_block)
+            """  # nosec
+
+            values = (
+                cpid,
+                address,
+                holder_data.get("quantity", 0),
+                holder_data.get("percentage", 0),
+                holder_data.get("rank_position", 0),
+                holder_data.get("balance_source", "counterparty"),
+                holder_data.get("last_tx_block"),
+            )
+
+            cursor.execute(query, values)
+            db.commit()
+            logger.debug(f"Inserted/updated holder data for {cpid}:{address}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting holder data for {cpid}:{address}: {e}")
+        raise DatabaseInsertError(f"Failed to insert holder data: {e}")
+
+
+def get_market_data_sources(db: Connection, asset_type: str = None, asset_id: str = None) -> List[Tuple]:
+    """
+    Get market data sources from database.
+
+    Args:
+        db: Database connection
+        asset_type: Optional filter by asset type ('stamp' or 'src20')
+        asset_id: Optional filter by asset ID
+
+    Returns:
+        List of raw database rows
+    """
+    try:
+        with db.cursor() as cursor:
+            where_conditions = []
+            params = []
+
+            if asset_type:
+                where_conditions.append("asset_type = %s")
+                params.append(asset_type)
+
+            if asset_id:
+                where_conditions.append("asset_id = %s")
+                params.append(asset_id)
+
+            where_clause = ""
+            if where_conditions:
+                where_clause = "WHERE " + " AND ".join(where_conditions)
+
+            query = f"""
+                SELECT
+                    id, asset_type, asset_id, source_name,
+                    price_btc, volume_24h_btc, holder_count, market_cap_btc,
+                    source_confidence, api_response_time_ms, success_rate_24h,
+                    last_success, last_failure, consecutive_failures,
+                    last_updated, update_count_24h, created_at
+                FROM market_data_sources
+                {where_clause}
+                ORDER BY source_confidence DESC, success_rate_24h DESC
+            """  # nosec
+
+            cursor.execute(query, params)
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting market data sources: {e}")
+        return []
+
+
+def insert_market_data_source(db: Connection, source_data: Dict[str, Any]) -> None:
+    """
+    Insert or update market data source information.
+
+    Args:
+        db: Database connection
+        source_data: Dictionary containing source data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Required fields
+            asset_type = source_data.get("asset_type")
+            asset_id = source_data.get("asset_id")
+            source_name = source_data.get("source_name")
+
+            if not all([asset_type, asset_id, source_name]):
+                raise ValueError("asset_type, asset_id, and source_name are required")
+
+            query = """
+                INSERT INTO market_data_sources (
+                    asset_type, asset_id, source_name,
+                    price_btc, volume_24h_btc, holder_count, market_cap_btc,
+                    source_confidence, api_response_time_ms, success_rate_24h,
+                    last_success, last_failure, consecutive_failures,
+                    last_updated, update_count_24h, created_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, NOW()
+                )
+                ON DUPLICATE KEY UPDATE
+                    price_btc = VALUES(price_btc),
+                    volume_24h_btc = VALUES(volume_24h_btc),
+                    holder_count = VALUES(holder_count),
+                    market_cap_btc = VALUES(market_cap_btc),
+                    source_confidence = VALUES(source_confidence),
+                    api_response_time_ms = VALUES(api_response_time_ms),
+                    success_rate_24h = VALUES(success_rate_24h),
+                    last_success = VALUES(last_success),
+                    last_failure = VALUES(last_failure),
+                    consecutive_failures = VALUES(consecutive_failures),
+                    last_updated = NOW(),
+                    update_count_24h = VALUES(update_count_24h)
+            """  # nosec
+
+            values = (
+                asset_type,
+                asset_id,
+                source_name,
+                source_data.get("price_btc"),
+                source_data.get("volume_24h_btc", 0),
+                source_data.get("holder_count", 0),
+                source_data.get("market_cap_btc", 0),
+                source_data.get("source_confidence", 5.0),
+                source_data.get("api_response_time_ms", 0),
+                source_data.get("success_rate_24h", 100.0),
+                source_data.get("last_success"),
+                source_data.get("last_failure"),
+                source_data.get("consecutive_failures", 0),
+                source_data.get("update_count_24h", 0),
+            )
+
+            cursor.execute(query, values)
+            db.commit()
+            logger.debug(f"Inserted/updated market data source: {asset_type}:{asset_id}:{source_name}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting market data source: {e}")
+        raise DatabaseInsertError(f"Failed to insert market data source: {e}")
+
+
+def get_trending_stamps(db: Connection, limit: int = 20) -> List[Tuple]:
+    """
+    Get trending stamps using the optimized view.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of tuples with trending stamp data
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, stamp, creator, floor_price_btc, holder_count,
+                    volume_24h_btc, volume_7d_btc, holder_distribution_score,
+                    trending_score
+                FROM v_trending_stamps
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting trending stamps: {e}")
+        return []
+
+
+def get_stamp_market_overview(db: Connection, limit: int = 100) -> List[Tuple]:
+    """
+    Get stamp market overview using the optimized view.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of tuples with market overview data
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, stamp, creator, stamp_url, stamp_mimetype,
+                    floor_price_btc, holder_count, volume_24h_btc,
+                    data_quality_score, last_updated, cache_status
+                FROM v_stamp_market_overview
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting stamp market overview: {e}")
+        return []
