@@ -255,6 +255,7 @@ for node in XCP_V2_NODES:
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
 STAMP_TABLE = "StampTableV4"
+STAMP_VIEWS_TABLE = "stamp_views"
 SRC20_TABLE = "SRC20"
 SRC20_VALID_TABLE = "SRC20Valid"
 SRC20_BALANCES_TABLE = "balances"
@@ -264,6 +265,13 @@ SRC101_VALID_TABLE = "SRC101Valid"
 SRC101_PRICE_TABLE = "src101price"
 SRC101_OWNERS_TABLE = "owners"
 SRC101_RECIPIENTS_TABLE = "recipients"
+
+# Market Data Cache Tables
+STAMP_MARKET_DATA_TABLE = "stamp_market_data"
+STAMP_HOLDER_CACHE_TABLE = "stamp_holder_cache"
+MARKET_DATA_SOURCES_TABLE = "market_data_sources"
+SRC20_MARKET_DATA_TABLE = "src20_market_data"
+COLLECTION_MARKET_DATA_TABLE = "collection_market_data"
 
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ["SRC-721", "SRC-20", "SRC-101"]
