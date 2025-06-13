@@ -317,6 +317,13 @@ def initialize_tables(db):
             "recipients",
             "src101price",
             "src20_token_stats",
+            "stamp_views",
+            # Enhanced Market Data Cache Tables
+            "stamp_market_data",
+            "stamp_holder_cache",
+            "market_data_sources",
+            "src20_market_data",
+            "collection_market_data",
         ]
 
         # Quick check if all tables exist
