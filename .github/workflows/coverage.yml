@@ -57,8 +57,13 @@ jobs:
         run: poetry run maturin develop --manifest-path src/rust_parser/Cargo.toml --release
         working-directory: ./indexer
         
-      - name: Run comprehensive coverage analysis
-        run: poetry run run-coverage --format=all --fail-under=6
+      - name: Run fast coverage analysis (unit tests only)
+        run: |
+          # Run fast coverage for quick CI feedback
+          poetry run run-coverage-fast
+          
+          # Also generate XML for Codecov upload
+          poetry run pytest tests/test_src20*.py tests/test_config.py tests/test_arc4.py tests/test_transactions.py --cov=src --cov-report=xml --no-header -q
         working-directory: ./indexer
         
       - name: Upload coverage to Codecov

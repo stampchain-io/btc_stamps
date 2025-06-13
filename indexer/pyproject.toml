@@ -100,6 +100,7 @@ dump-seeds = "tools.dump_seeds:main"
 dump-block-fixtures = "tools.dump_block_fixtures:main"
 dump-state-fixtures = "tools.dump_state_fixtures:main"
 run-coverage = "tools.run_coverage:main"
+run-coverage-fast = "tools.run_coverage_fast:run_fast_coverage"
 
 [[tool.poetry.packages]]
 from = "src"
