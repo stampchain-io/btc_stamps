@@ -64,6 +64,7 @@ from index_core.fetch_utils import (
     get_xcp_block_hash,
     verify_cp_block_hash,
 )
+from index_core.market_data_jobs import start_market_data_jobs
 from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
 from index_core.node_health import is_shutdown_requested, register_shutdown_callback, set_shutdown_flag
@@ -1218,6 +1219,19 @@ def follow(
             cp_pipeline_instance.start(block_index)
             stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
 
+        # Initialize market data job scheduler for time-based updates
+        # Only start if not in single block mode or reparse mode
+        market_data_scheduler_started = False
+        if not single_block and not reparse_mode:
+            try:
+                logger.info("Starting market data job scheduler...")
+                start_market_data_jobs(max_workers=2)  # Use 2 workers for market data jobs
+                market_data_scheduler_started = True
+                logger.info("Market data job scheduler started successfully")
+            except Exception as e:
+                logger.warning(f"Failed to start market data scheduler: {e}")
+                market_data_scheduler_started = False
+
         # Set up signal handler with resources that need to be cleaned up
         setup_signal_handler(profiler_instance=profiler, cp_pipeline=cp_pipeline_instance)
 
@@ -2005,7 +2019,7 @@ def follow(
             if config.DEBUG_VALIDATION and block_index % 1000 == 0:
                 if not validate_block_against_production(block_index):
                     logger.error("Validation failed - terminating execution")
-                    cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance)
+                    cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started)
                     sys.exit(1)
 
     except KeyboardInterrupt:
@@ -2022,7 +2036,7 @@ def follow(
                 logger.debug(f"Error ending profiling: {e}")
 
         # Cleanup all resources
-        cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance)
+        cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started)
 
 
 def validate_block_against_production(block_index: int) -> bool:
