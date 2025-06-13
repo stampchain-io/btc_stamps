@@ -42,6 +42,9 @@ COLLECTION_CACHE_SIZE = int(os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET
 PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
 SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
 
+# Market data cache size
+MARKET_DATA_CACHE_SIZE = int(os.environ.get("MARKET_DATA_CACHE_SIZE", "5000"))  # Cache for market data operations
+
 # Batch processing configurations
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
 MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
