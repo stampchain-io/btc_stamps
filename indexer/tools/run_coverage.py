@@ -7,7 +7,7 @@ and CI/CD integration.
 """
 
 import argparse
-import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +19,9 @@ def run_command(cmd, description=""):
     print(f"   Running: {cmd}")
     print("-" * 80)
 
-    result = subprocess.run(cmd, shell=True, capture_output=False)
+    # Split command safely using shlex to avoid shell injection
+    cmd_list = shlex.split(cmd)
+    result = subprocess.run(cmd_list, capture_output=False, check=False)
 
     if result.returncode == 0:
         print(f"✅ {description} completed successfully")
@@ -28,6 +30,19 @@ def run_command(cmd, description=""):
 
     print()
     return result.returncode == 0
+
+
+def open_html_report(html_path):
+    """Safely open HTML coverage report in browser."""
+    try:
+        if sys.platform.startswith("darwin"):  # macOS
+            subprocess.run(["open", str(html_path)], check=False)
+        elif sys.platform.startswith("linux"):  # Linux
+            subprocess.run(["xdg-open", str(html_path)], check=False)
+        elif sys.platform.startswith("win"):  # Windows
+            subprocess.run(["start", "", str(html_path)], shell=True, check=False)  # nosec B602
+    except (FileNotFoundError, subprocess.SubprocessError):
+        print("⚠️  Could not open HTML report automatically")
 
 
 def main():
@@ -73,12 +88,7 @@ def main():
             html_path = Path("htmlcov/index.html").absolute()
             if html_path.exists():
                 print(f"📊 Opening coverage report: {html_path}")
-                if sys.platform.startswith("darwin"):  # macOS
-                    os.system(f"open {html_path}")
-                elif sys.platform.startswith("linux"):  # Linux
-                    os.system(f"xdg-open {html_path}")
-                elif sys.platform.startswith("win"):  # Windows
-                    os.system(f"start {html_path}")
+                open_html_report(html_path)
 
     if args.format == "xml" or args.format == "all":
         cmd = base_cmd + " --cov-report=xml"
