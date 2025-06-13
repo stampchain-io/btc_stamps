@@ -10,7 +10,7 @@ import sys
 # Fast unit tests only - no integration tests
 FAST_TEST_TARGETS = [
     "tests/test_src20_balance.py",
-    "tests/test_src20_update_valid.py", 
+    "tests/test_src20_update_valid.py",
     "tests/test_src20_validator.py",
     "tests/test_src20.py",
     "tests/test_config.py",
