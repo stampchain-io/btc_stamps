@@ -11,7 +11,7 @@ from index_core.async_upload import stop_upload_worker
 logger = logging.getLogger(__name__)
 
 
-def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline=None):
+def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline=None, market_data_scheduler_started=False):
     """Helper function to clean up resources safely."""
     logger.info("Starting cleanup...")
 
@@ -46,6 +46,19 @@ def cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeli
         if not result:
             logger.warning(f"{task_name} cleanup timed out after {timeout}s, continuing with next phase")
         return result
+
+    # Stop market data scheduler with timeout
+    if market_data_scheduler_started:
+
+        def stop_market_scheduler():
+            try:
+                from index_core.market_data_jobs import stop_market_data_jobs
+
+                stop_market_data_jobs(timeout=10)
+            except Exception as e:
+                logger.error(f"Error stopping market data scheduler: {e}")
+
+        run_with_timeout(stop_market_scheduler, 15, "market data scheduler")
 
     # Stop CP pipeline with timeout
     if cp_pipeline:

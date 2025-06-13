@@ -417,6 +417,79 @@ class MarketDataService:
             logger.error(f"Error updating SRC-20 market data for {tick}: {e}")
             raise exceptions.DatabaseError(f"Failed to update SRC-20 market data: {e}")
 
+    def update_collection_market_data(self, collection_id: str, data: Dict[str, Any]) -> None:
+        """
+        Update market data for a specific collection.
+
+        Args:
+            collection_id: Collection identifier (binary UUID as hex string)
+            data: Dictionary containing market data fields to update
+
+        Raises:
+            DatabaseError: If database operation fails
+        """
+        try:
+            db = self.db_manager.connect()
+            try:
+                with db.cursor() as cursor:
+                    # Build dynamic update query based on provided data
+                    update_fields = []
+                    values = []
+
+                    # Map of allowed fields to database columns
+                    field_mapping = {
+                        "floor_price_btc": "floor_price_btc",
+                        "avg_price_btc": "avg_price_btc",
+                        "total_value_btc": "total_value_btc",
+                        "volume_24h_btc": "volume_24h_btc",
+                        "volume_7d_btc": "volume_7d_btc",
+                        "volume_30d_btc": "volume_30d_btc",
+                        "total_volume_btc": "total_volume_btc",
+                        "total_stamps": "total_stamps",
+                        "unique_holders": "unique_holders",
+                        "listed_stamps": "listed_stamps",
+                        "sold_stamps_24h": "sold_stamps_24h",
+                    }
+
+                    for field, value in data.items():
+                        if field in field_mapping:
+                            update_fields.append(f"{field_mapping[field]} = %s")
+                            values.append(value)
+
+                    if not update_fields:
+                        logger.warning(f"No valid fields provided for collection market data update: {collection_id}")
+                        return
+
+                    # Always update last_updated timestamp
+                    update_fields.append("last_updated = NOW()")
+                    values.append(collection_id)  # For WHERE clause
+
+                    query = f"""
+                        INSERT INTO {COLLECTION_MARKET_DATA_TABLE} (collection_id, {', '.join(field_mapping[f] for f in data.keys() if f in field_mapping)}, last_updated, created_at)
+                        VALUES (UNHEX(%s), {', '.join(['%s'] * len([f for f in data.keys() if f in field_mapping]))}, NOW(), NOW())
+                        ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
+                    """
+
+                    # Prepare values for INSERT
+                    insert_values = [collection_id] + [data[f] for f in data.keys() if f in field_mapping]
+                    all_values = insert_values + values
+
+                    cursor.execute(query, all_values)
+                    db.commit()
+
+                    # Invalidate cache
+                    cache_key = f"{CACHE_KEY_COLLECTION_MARKET}:{collection_id}"
+                    cache_manager.invalidate_cache_entry("market_data", cache_key)
+
+                    logger.debug(f"Updated collection market data for: {collection_id}")
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"Error updating collection market data for {collection_id}: {e}")
+            raise exceptions.DatabaseError(f"Failed to update collection market data: {e}")
+
     def get_stamp_holders(self, cpid: str, limit: int = 100, use_cache: bool = True) -> List[HolderData]:
         """
         Retrieve holder information for a specific stamp.
@@ -635,6 +708,17 @@ def update_src20_market_data(tick: str, data: Dict[str, Any]) -> None:
         data: Dictionary containing market data fields to update
     """
     return market_data_service.update_src20_market_data(tick, data)
+
+
+def update_collection_market_data(collection_id: str, data: Dict[str, Any]) -> None:
+    """
+    Convenience function to update collection market data.
+
+    Args:
+        collection_id: Collection identifier (binary UUID as hex string)
+        data: Dictionary containing market data fields to update
+    """
+    return market_data_service.update_collection_market_data(collection_id, data)
 
 
 def get_stamp_holders(cpid: str, limit: int = 100, use_cache: bool = True) -> List[HolderData]:
