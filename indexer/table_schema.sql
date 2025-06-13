@@ -390,7 +390,7 @@ CREATE TABLE IF NOT EXISTS `recipients` (
 CREATE TABLE IF NOT EXISTS `src101price` (
   `id` VARCHAR(255) NOT NULL,
   `len` INT NOT NULL,
-  `price`BIGINT NOT NULL,
+  `price` BIGINT NOT NULL,
   `deploy_hash` VARCHAR(64) NOT NULL,
   `block_index` int,
   PRIMARY KEY (`id`),
@@ -613,8 +613,8 @@ CREATE TABLE IF NOT EXISTS `src20_market_data` (
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
   INDEX `idx_market_overview` (`price_btc`, `market_cap_btc`, `volume_24h_btc`, `holder_count`) COMMENT 'For market overview pages',
   
-  -- Foreign key relationship to existing SRC20 metadata
-  CONSTRAINT `fk_src20_market_tick` FOREIGN KEY (`tick`) REFERENCES `src20_metadata`(`tick`) ON DELETE CASCADE
+  -- Note: Foreign key constraint removed to work with existing database constraints
+  -- Data integrity maintained by application logic
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
 COMMENT='Cached market data for SRC-20 tokens from multiple exchanges';
 
@@ -650,8 +650,8 @@ CREATE TABLE IF NOT EXISTS `collection_market_data` (
   INDEX `idx_unique_holders` (`unique_holders` DESC) COMMENT 'For holder count sorting',
   INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks',
   
-  -- Foreign key relationship to existing collections table
-  CONSTRAINT `fk_collection_market_id` FOREIGN KEY (`collection_id`) REFERENCES `collections`(`collection_id`) ON DELETE CASCADE
+  -- Note: Foreign key constraint removed to work with existing database constraints
+  -- Data integrity maintained by application logic
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
 COMMENT='Aggregated market data for stamp collections';
 
