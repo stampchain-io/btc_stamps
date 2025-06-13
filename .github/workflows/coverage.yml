@@ -1,0 +1,98 @@
+name: Coverage Analysis
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    name: Code Coverage Analysis
+    runs-on: ubuntu-latest
+    # Only run coverage on PRs to main/dev or manual dispatch
+    if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
+    
+    env:
+      USE_TEST_TX_HEX: '1'
+      TESTING: '1'
+      USE_TEST_DB: '1'
+      MOCK_DB: '1'
+      PYTHONPATH: ${{ github.workspace }}/indexer/src:${{ github.workspace }}/indexer
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'  # Use single version for coverage (same as integration tests)
+          
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+          
+      - name: Cache Rust dependencies (Restore Only)
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-${{ runner.os }}-${{ hashFiles('indexer/src/rust_parser/rust-toolchain') }}-${{ hashFiles('indexer/src/rust_parser/Cargo.lock') }}
+          save-if: ${{ false }}  # Don't save cache, only restore from main CI
+          
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          poetry config virtualenvs.in-project true
+        working-directory: ./indexer
+        
+      - name: Install dependencies
+        run: poetry install
+        working-directory: ./indexer
+        
+      - name: Build Rust parser
+        run: poetry run maturin develop --manifest-path src/rust_parser/Cargo.toml --release
+        working-directory: ./indexer
+        
+      - name: Run comprehensive coverage analysis
+        run: poetry run run-coverage --format=all --fail-under=6
+        working-directory: ./indexer
+        
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./indexer/coverage.xml
+          directory: ./indexer
+          flags: unittests
+          name: bitcoin-stamps-indexer
+          fail_ci_if_error: false
+          verbose: true
+          token: ${{ secrets.CODECOV_TOKEN }}  # Optional but recommended
+          
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report-html-${{ github.sha }}
+          path: indexer/htmlcov/
+          retention-days: 30
+          
+      - name: Coverage Summary
+        if: always()
+        run: |
+          echo "## 📊 Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "indexer/coverage.xml" ]; then
+            coverage_percent=$(grep -o 'line-rate="[^"]*"' indexer/coverage.xml | head -1 | cut -d'"' -f2 | awk '{printf "%.1f", $1*100}')
+            echo "**Current Coverage:** ${coverage_percent}%" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📁 **Artifacts Generated:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 📊 HTML Report: Available in build artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "- 📄 XML Report: Uploaded to Codecov" >> $GITHUB_STEP_SUMMARY
+            echo "- 📋 JSON Report: Available for analysis" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Coverage report not generated" >> $GITHUB_STEP_SUMMARY
+          fi 

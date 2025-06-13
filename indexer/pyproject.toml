@@ -99,6 +99,7 @@ rollback = "tools.rollback_db:main"
 dump-seeds = "tools.dump_seeds:main"
 dump-block-fixtures = "tools.dump_block_fixtures:main"
 dump-state-fixtures = "tools.dump_state_fixtures:main"
+run-coverage = "tools.run_coverage:main"
 
 [[tool.poetry.packages]]
 from = "src"
@@ -111,6 +112,8 @@ line-length = 127
 profile = "black"
 line_length = 127
 skip_glob = ["tools/debug/*"]
+src_paths = ["src", "tests"]
+known_first_party = ["btc_stamps_parser", "index_core"]
 
 [tool.flake8]
 max-line-length = 127
@@ -197,4 +200,35 @@ filterwarnings = [
     "ignore::PendingDeprecationWarning",
     "ignore::sqlalchemy.exc.MovedIn20Warning",
     "ignore::UserWarning"
-] 
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "tools/debug/*",
+    "src/rust_parser/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self\\.debug:",
+    "if settings\\.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+ignore_errors = true
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov" 
