@@ -1,22 +1,28 @@
+import csv
 import decimal
 import json
 import logging
+import os
+import sys
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import pymysql as mysql
+import requests
 
 try:
     from pymysql.connections import Connection
 except ImportError:
-    Connection = Any  # type: ignore[misc, assignment]
+    Connection = Any  # type: ignore
 from pymysql.cursors import Cursor
 
 import config
 import index_core.exceptions as exceptions
 import index_core.log as log
+import index_core.util as util
 from config import (
     BLOCK_FIELDS_POSITION,
     BLOCKS_TABLE,
@@ -46,6 +52,12 @@ D = decimal.Decimal
 F = TypeVar("F", bound=Callable[..., Any])
 
 db_manager = DatabaseManager()
+
+# Cache directory for bootstrap data ETags
+CACHE_DIR = (
+    Path(config.USER_CACHE_DIR) / ".indexer_cache" if hasattr(config, "USER_CACHE_DIR") else Path.home() / ".btc_stamps_cache"
+)
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def initialize(db: Connection) -> None:
@@ -915,7 +927,7 @@ def insert_balances(cursor, all_balances):
     for i in range(0, total_rows, BATCH_SIZE):
         batch = values[i : i + BATCH_SIZE]
         logger.info(
-            f"Processing batch balances update {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)"
+            f"Processing batch balances update {i // BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1) // BATCH_SIZE} ({len(batch)} rows)"
         )
 
         cursor.executemany(
@@ -1047,7 +1059,9 @@ def rebuild_balances(db, block_index=None):
 
         for i in range(0, total_rows, BATCH_SIZE):
             batch = values[i : i + BATCH_SIZE]
-            logger.info(f"Processing balance rebuild batch {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE}")
+            logger.info(
+                f"Processing balance rebuild batch {i // BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1) // BATCH_SIZE}"
+            )
 
             cursor.executemany(
                 f"""
@@ -1673,7 +1687,7 @@ def update_assets_in_db(
         start = i * chunk_size
         end = min(start + chunk_size, total_assets)
         assets_chunk = assets_details[start:end]
-        logger.info(f"Updating assets in database for chunk {i+1}/{num_chunks}")
+        logger.info(f"Updating assets in database for chunk {i + 1}/{num_chunks}")
 
         try:
             updates = []
@@ -1717,8 +1731,8 @@ def update_assets_in_db(
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.error(f"Error updating assets in chunk {i+1}: {e}")
-            raise DatabaseInsertError(f"Failed to update assets in chunk {i+1}: {e}")
+            logger.error(f"Error updating assets in chunk {i + 1}: {e}")
+            raise DatabaseInsertError(f"Failed to update assets in chunk {i + 1}: {e}")
 
         if i < num_chunks - 1:
             time.sleep(delay_between_chunks)
@@ -1928,7 +1942,7 @@ def get_recently_viewed_stamps(db: Connection, limit: int = 10) -> List[Tuple[in
         return []
 
 
-def get_stamp_view_stats(db: Connection) -> Dict[str, int]:
+def get_stamp_view_stats(db: Connection) -> Dict[str, Any]:
     """
     Get overall statistics about stamp views.
 
@@ -1953,8 +1967,8 @@ def get_stamp_view_stats(db: Connection) -> Dict[str, int]:
 
             if result:
                 return {
-                    "total_stamps_with_views": result[0] or 0,
-                    "total_views": result[1] or 0,
+                    "total_stamps_with_views": int(result[0]) if result[0] else 0,
+                    "total_views": int(result[1]) if result[1] else 0,
                     "avg_views_per_stamp": float(result[2]) if result[2] else 0.0,
                 }
             else:
@@ -2277,7 +2291,7 @@ def insert_stamp_holder_data(db: Connection, holder_data: Dict[str, Any]) -> Non
         raise DatabaseInsertError(f"Failed to insert holder data: {e}")
 
 
-def get_market_data_sources(db: Connection, asset_type: str = None, asset_id: str = None) -> List[Tuple]:
+def get_market_data_sources(db: Connection, asset_type: Optional[str] = None, asset_id: Optional[str] = None) -> List[Tuple]:
     """
     Get market data sources from database.
 
@@ -2449,3 +2463,242 @@ def get_stamp_market_overview(db: Connection, limit: int = 100) -> List[Tuple]:
     except Exception as e:
         logger.error(f"Error getting stamp market overview: {e}")
         return []
+
+
+def import_csv_data(cursor, csv_url, insert_query, is_url=False):
+    """Import CSV data from URL or local file with ETag caching."""
+    max_int = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(max_int)
+            break
+        except OverflowError:
+            max_int = int(max_int / 10)
+
+    if not is_url:
+        # Handle local file case (unchanged)
+        with open(csv_url, "r") as file:
+            csv_reader = csv.reader(file)
+            for row in csv_reader:
+                cursor.execute(insert_query, tuple(row))
+        return
+
+    # Handle URL case with ETag checking
+    try:
+        filename = Path(csv_url).name
+        etag_file = CACHE_DIR / f".{filename}.etag"
+        headers = {}
+        current_etag = None
+
+        if etag_file.exists():
+            try:
+                current_etag = etag_file.read_text().strip()
+                if current_etag:
+                    headers["If-None-Match"] = current_etag
+                    logger.debug(f"Found local ETag for {filename}: '{current_etag}'")
+                else:
+                    logger.debug(f"ETag file {etag_file} was empty.")
+            except Exception as e:
+                logger.warning(f"Could not read ETag file {etag_file}: {e}")
+        else:
+            logger.debug(f"ETag file {etag_file} not found.")
+
+        logger.info(f"Checking bootstrap data from {csv_url}")
+        logger.debug(f"Sending request headers: {headers}")
+        response = requests.get(csv_url, headers=headers, timeout=config.REQUESTS_TIMEOUT)
+        logger.debug(f"Received response status: {response.status_code}")
+        logger.debug(f"Received response headers: {response.headers}")
+
+        if response.status_code == 304:
+            logger.info(f"Bootstrap data for {filename} is unchanged (ETag: {current_etag}). Skipping download/processing.")
+            return  # File hasn't changed, nothing more to do
+
+        response.raise_for_status()  # Raise an exception for other HTTP errors (4xx, 5xx)
+
+        # Process the CSV data if status code was 200 OK
+        logger.info(f"Processing bootstrap data from {csv_url} (ETag: {response.headers.get('ETag') or 'None'})")
+        new_etag = response.headers.get("ETag")
+        logger.debug(f"Received new ETag from server: '{new_etag}'")
+        csv_reader = csv.reader(response.text.splitlines())
+
+        # Execute the insert_query for each row.
+        # The query itself (passed as argument) handles INSERT or UPDATE logic.
+        rows_processed = 0
+        for row in csv_reader:
+            # Skip empty rows if any
+            if not any(field.strip() for field in row):
+                continue
+            try:
+                cursor.execute(insert_query, tuple(row))
+                rows_processed += 1
+            except Exception as e:
+                logger.error(f"Error processing row {row} from {filename}: {e}")
+                # Decide if you want to continue or raise the exception
+                # raise # Uncomment to stop processing on the first error
+                continue  # Comment out to stop processing on the first error
+
+        logger.info(f"Finished processing {rows_processed} rows from {filename}")
+
+        # Save the new ETag
+        if new_etag:
+            try:
+                etag_file.write_text(new_etag)
+                logger.debug(f"Saved new ETag '{new_etag}' to {etag_file}")
+            except Exception as e:
+                logger.warning(f"Could not write ETag file {etag_file}: {e}")
+        elif current_etag:  # If server didn't send ETag, remove old one
+            logger.debug(f"Server did not send ETag for {filename}. Removing local ETag file {etag_file}.")
+            try:
+                etag_file.unlink()
+            except OSError as e:
+                logger.warning(f"Could not remove ETag file {etag_file}: {e}")
+
+    except requests.RequestException as e:
+        logger.error(f"Error checking/downloading bootstrap data from {csv_url}: {e}")
+        # Optionally: Add logic here to use a cached local version if download fails
+        raise
+
+
+def initialize_tables(db):
+    """Initialize database tables from schema file."""
+    try:
+        logger.info("initializing tables...")
+        cursor = db.cursor()
+
+        # Check if tables already exist to avoid unnecessary schema execution
+        required_tables = [
+            "blocks",
+            "transactions",
+            "StampTableV4",
+            "srcbackground",
+            "creator",
+            "SRC20",
+            "SRC20Valid",
+            "balances",
+            "s3objects",
+            "collections",
+            "collection_creators",
+            "collection_stamps",
+            "src20_metadata",
+            "SRC101",
+            "SRC101Valid",
+            "owners",
+            "recipients",
+            "src101price",
+            "src20_token_stats",
+            "stamp_views",
+            # Enhanced Market Data Cache Tables
+            "stamp_market_data",
+            "stamp_holder_cache",
+            "market_data_sources",
+            "src20_market_data",
+            "collection_market_data",
+        ]
+
+        # Quick check if all tables exist
+        cursor.execute(
+            """
+            SELECT COUNT(*) as table_count
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            AND table_name IN ({})
+        """.format(
+                ",".join(["%s"] * len(required_tables))
+            ),
+            required_tables,
+        )
+
+        existing_count = cursor.fetchone()[0]
+
+        if existing_count == len(required_tables):
+            logger.info(f"All {len(required_tables)} required tables already exist, skipping schema execution")
+        else:
+            logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing schema...")
+            # Get the path to table_schema.sql relative to this file
+            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "table_schema.sql")
+            with open(schema_path, "r") as file:
+                sql_script = file.read()
+            sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
+            for command in sql_commands:
+                try:
+                    db_manager.execute_with_retry(cursor, command)
+                except Exception as e:
+                    logger.error(f"Error executing command:{command};\nerror:{e}")
+                    raise e
+
+        import_csv_data(
+            cursor,
+            config.BOOTSTRAP_CREATOR_CSV_URL,
+            """
+            INSERT INTO creator (address, creator)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE creator = VALUES(creator)
+            """,
+            is_url=True,
+        )
+        import_csv_data(
+            cursor,
+            config.BOOTSTRAP_SRCBACKGROUND_CSV_URL,
+            """INSERT INTO srcbackground
+            (tick, tick_hash, base64, font_size, text_color, unicode, p)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            base64 = VALUES(base64),
+            font_size = VALUES(font_size),
+            text_color = VALUES(text_color),
+            unicode = VALUES(unicode),
+            p = VALUES(p)""",
+            is_url=True,
+        )
+        db.commit()
+        cursor.close()
+    except Exception as e:
+        logger.error("Error initializing tables: {}".format(e))
+        raise e
+
+
+def initialize_db():
+    """Initialize database connection and tables."""
+    logger.info("Initializing database...")
+    if config.FORCE:
+        logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
+
+    max_retries = 5
+    retry_delay = 5
+    attempt = 0
+
+    while attempt < max_retries:
+        try:
+            # Get connection from database manager
+            db = db_manager.connect()
+
+            # Test connection first
+            with db.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                logger.info("Successfully connected to database server")
+
+            # Now try to create and use the database
+            with db.cursor() as cursor:
+                database_name = os.environ.get("RDS_DATABASE", "btc_stamps")
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
+                cursor.execute(f"USE `{database_name}`")
+                db.commit()
+                logger.info(f"Successfully initialized database: {database_name}")
+
+            util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+            # Initialize tables from schema
+            initialize_tables(db)
+
+            return db
+
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_retries:
+                logger.error(f"Failed to initialize database after {max_retries} attempts: {e}")
+                raise
+            else:
+                logger.warning(f"Database initialization attempt {attempt} failed: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff

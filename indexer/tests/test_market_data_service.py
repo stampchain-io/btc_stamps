@@ -5,20 +5,21 @@ This module tests the MarketDataService class and related database functions
 for the Bitcoin Stamps Market Data Cache System.
 """
 
-import pytest
-from decimal import Decimal
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
+import os
 
 # Import the modules to test
 import sys
-import os
+from datetime import datetime
+from decimal import Decimal
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from index_core.market_data_service import MarketDataService, market_data_service
 from index_core import database
 from index_core.exceptions import DatabaseInsertError
+from index_core.market_data_service import MarketDataService, market_data_service
 
 
 class TestMarketDataService:

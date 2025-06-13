@@ -126,7 +126,7 @@ def run_code_quality_checks(auto_fix=False):
     try:
         # Set test environment variables
         test_env = {
-            "PYTHONPATH": "src:.",
+            "PYTHONPATH": "src",
             "USE_TEST_TX_HEX": "1",
             "TESTING": "1",
             "USE_TEST_DB": "1",
@@ -155,6 +155,8 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_src20_validator.py",
             "tests/test_src20.py",
             "tests/test_config.py",
+            # Market data functionality tests
+            "tests/test_market_data_service.py",
             # Reparse functionality tests
             "tests/test_reparse_snapshot.py",
             "tests/test_reparse_snapshot_db.py",
@@ -371,7 +373,7 @@ def main():
         logger.info(colored("⚡️ Auto-fix enabled", "magenta"))
 
     # Set test environment variables for the main process
-    test_env = {"PYTHONPATH": "src:.", "USE_TEST_TX_HEX": "1", "TESTING": "1", "USE_TEST_DB": "1", "MOCK_DB": "1"}
+    test_env = {"PYTHONPATH": "src", "USE_TEST_TX_HEX": "1", "TESTING": "1", "USE_TEST_DB": "1", "MOCK_DB": "1"}
     for key, value in test_env.items():
         os.environ[key] = value
 

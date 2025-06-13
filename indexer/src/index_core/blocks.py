@@ -2019,7 +2019,9 @@ def follow(
             if config.DEBUG_VALIDATION and block_index % 1000 == 0:
                 if not validate_block_against_production(block_index):
                     logger.error("Validation failed - terminating execution")
-                    cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started)
+                    cleanup_resources(
+                        executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started
+                    )
                     sys.exit(1)
 
     except KeyboardInterrupt:

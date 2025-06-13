@@ -8,7 +8,9 @@ The processor follows the existing patterns in the indexer codebase for error ha
 logging, and database operations.
 """
 
+import decimal
 import logging
+import math
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -25,7 +27,7 @@ D = Decimal
 
 # Validation constants for SRC20 market data
 MIN_PRICE = D("0.00000001")  # 1 satoshi in BTC
-MAX_PRICE = D("21000000")    # Max possible BTC
+MAX_PRICE = D("21000000")  # Max possible BTC
 MIN_MARKET_CAP = D("0")
 MAX_MARKET_CAP = D("21000000000")  # 21M BTC * 1000 for max supply
 MIN_VOLUME = D("0")
@@ -50,7 +52,7 @@ DEFAULT_UPDATE_FREQUENCY = 10  # minutes (more frequent than stamps)
 class SRC20MarketDataProcessor:
     """
     Processor for SRC20-specific market data operations.
-    
+
     This class handles validation, transformation, and business logic
     specific to SRC20 token market data processing.
     """
@@ -74,34 +76,30 @@ class SRC20MarketDataProcessor:
             InvalidInputDataError: If validation fails
         """
         try:
-            validated_data = {}
+            validated_data: Dict[str, Any] = {}
 
             # Validate tick (required field)
             tick = data.get("tick")
             if not tick or not isinstance(tick, str):
                 raise exceptions.InvalidInputDataError("Tick is required and must be a string")
-            
+
             # Validate tick format (SRC20 tickers are typically 1-32 characters)
             if not (1 <= len(tick) <= 32):
                 raise exceptions.InvalidInputDataError(f"Invalid tick format: {tick}")
-            
+
             validated_data["tick"] = tick.upper()  # Normalize to uppercase
 
             # Validate price fields (optional)
             for field in ["price_btc", "price_usd", "floor_price_btc"]:
                 if field in data:
-                    price = self._validate_decimal_field(
-                        data[field], field, MIN_PRICE, MAX_PRICE
-                    )
+                    price = self._validate_decimal_field(data[field], field, MIN_PRICE, MAX_PRICE)
                     if price is not None:
                         validated_data[field] = price
 
             # Validate market cap fields (optional)
             for field in ["market_cap_btc", "market_cap_usd"]:
                 if field in data:
-                    market_cap = self._validate_decimal_field(
-                        data[field], field, MIN_MARKET_CAP, MAX_MARKET_CAP
-                    )
+                    market_cap = self._validate_decimal_field(data[field], field, MIN_MARKET_CAP, MAX_MARKET_CAP)
                     if market_cap is not None:
                         validated_data[field] = market_cap
 
@@ -115,9 +113,7 @@ class SRC20MarketDataProcessor:
             # Validate price change fields (optional)
             for field in ["price_change_24h_percent", "price_change_7d_percent", "price_change_30d_percent"]:
                 if field in data:
-                    change = self._validate_decimal_field(
-                        data[field], field, MIN_PRICE_CHANGE, MAX_PRICE_CHANGE
-                    )
+                    change = self._validate_decimal_field(data[field], field, MIN_PRICE_CHANGE, MAX_PRICE_CHANGE)
                     if change is not None:
                         validated_data[field] = change
 
@@ -188,7 +184,7 @@ class SRC20MarketDataProcessor:
             DataConversionError: If transformation fails
         """
         try:
-            transformed_data = {}
+            transformed_data: Dict[str, Any] = {}
 
             # Extract tick from various possible fields
             tick = None
@@ -196,10 +192,10 @@ class SRC20MarketDataProcessor:
                 if field in raw_data and raw_data[field]:
                     tick = str(raw_data[field]).upper()
                     break
-            
+
             if not tick:
                 raise exceptions.DataConversionError("No tick/symbol found in raw data")
-            
+
             transformed_data["tick"] = tick
 
             # Transform price data based on exchange format
@@ -262,16 +258,16 @@ class SRC20MarketDataProcessor:
             # Add metadata
             transformed_data["primary_exchange"] = exchange_name
             transformed_data["exchange_sources"] = exchange_name
-            
+
             # Set quality and confidence based on exchange reliability
             exchange_quality = {
-                "openstamp": D("8.0"),    # High quality for SRC20-specific exchange
-                "kucoin": D("7.5"),       # Good quality for established exchange
-                "stampscan": D("7.0"),    # Good quality for specialized service
+                "openstamp": D("8.0"),  # High quality for SRC20-specific exchange
+                "kucoin": D("7.5"),  # Good quality for established exchange
+                "stampscan": D("7.0"),  # Good quality for specialized service
             }
             transformed_data["data_quality_score"] = exchange_quality.get(exchange_name.lower(), D("6.0"))
             transformed_data["confidence_level"] = exchange_quality.get(exchange_name.lower(), D("6.0"))
-            
+
             transformed_data["last_price_update"] = datetime.now()
             transformed_data["update_frequency_minutes"] = 10  # More frequent updates for volatile tokens
 
@@ -296,42 +292,42 @@ class SRC20MarketDataProcessor:
             DataConversionError: If calculation fails
         """
         try:
-            enhanced_data = market_data.copy()
+            enhanced_data: Dict[str, Any] = market_data.copy()
 
             # Calculate market cap if price and supply are available
             price_btc = market_data.get("price_btc")
             circulating_supply = market_data.get("circulating_supply")
-            
+
             if price_btc and circulating_supply:
                 market_cap_btc = D(str(price_btc)) * D(str(circulating_supply))
                 enhanced_data["market_cap_btc"] = market_cap_btc
 
             # Calculate volume ratios and liquidity metrics
-            volume_24h = market_data.get("volume_24h_btc", D("0"))
-            market_cap = enhanced_data.get("market_cap_btc", D("0"))
-            
+            volume_24h_val = market_data.get("volume_24h_btc", D("0"))
+            volume_24h = D(str(volume_24h_val)) if volume_24h_val is not None else D("0")
+            market_cap_val = enhanced_data.get("market_cap_btc", D("0"))
+            market_cap = D(str(market_cap_val)) if market_cap_val is not None else D("0")
+
             if market_cap > 0 and volume_24h > 0:
-                volume_to_mcap_ratio = (D(str(volume_24h)) / D(str(market_cap))) * D("100")
+                volume_to_mcap_ratio = (volume_24h / market_cap) * D("100")
                 enhanced_data["volume_to_mcap_ratio"] = min(volume_to_mcap_ratio, D("1000"))  # Cap at 1000%
 
             # Calculate trading activity score
             holder_count = market_data.get("holder_count", 0)
             volume_24h_float = float(volume_24h) if volume_24h else 0
-            
+
             activity_score = D("0")
-            
+
             # Volume component (0-6 points)
             if volume_24h_float > 0:
-                import math
-                volume_score = min(math.log10(volume_24h_float * 1000000) * D("1.2"), D("6"))
+                volume_score = min(D(str(math.log10(volume_24h_float * 1000000))) * D("1.2"), D("6"))
                 activity_score += max(D("0"), volume_score)
-            
+
             # Holder component (0-4 points)
             if holder_count > 0:
-                import math
-                holder_score = min(math.log10(holder_count + 1) * D("1.5"), D("4"))
+                holder_score = min(D(str(math.log10(holder_count + 1))) * D("1.5"), D("4"))
                 activity_score += holder_score
-            
+
             enhanced_data["trading_activity_score"] = min(activity_score, D("10"))
 
             # Calculate volatility indicator from price changes
@@ -339,9 +335,9 @@ class SRC20MarketDataProcessor:
             for field in ["price_change_24h_percent", "price_change_7d_percent", "price_change_30d_percent"]:
                 if field in market_data and market_data[field] is not None:
                     price_changes.append(abs(D(str(market_data[field]))))
-            
+
             if price_changes:
-                avg_volatility = sum(price_changes) / len(price_changes)
+                avg_volatility = sum(price_changes) / D(str(len(price_changes)))
                 # Normalize volatility to 0-10 scale (higher = more volatile)
                 volatility_score = min(avg_volatility / D("10"), D("10"))
                 enhanced_data["volatility_score"] = volatility_score
@@ -350,15 +346,15 @@ class SRC20MarketDataProcessor:
             completeness_score = D("0")
             required_fields = ["price_btc", "volume_24h_btc", "holder_count"]
             optional_fields = ["market_cap_btc", "circulating_supply", "price_change_24h_percent"]
-            
+
             for field in required_fields:
                 if field in market_data and market_data[field] is not None:
                     completeness_score += D("2")  # 2 points per required field
-            
+
             for field in optional_fields:
                 if field in market_data and market_data[field] is not None:
                     completeness_score += D("1")  # 1 point per optional field
-            
+
             # Adjust quality score based on completeness
             base_quality = market_data.get("data_quality_score", DEFAULT_QUALITY_SCORE)
             adjusted_quality = (D(str(base_quality)) + completeness_score) / D("2")
@@ -387,7 +383,9 @@ class SRC20MarketDataProcessor:
             logger.error(f"Error calculating derived metrics: {e}")
             raise exceptions.DataConversionError(f"Failed to calculate derived metrics: {e}")
 
-    def process_src20_market_update(self, tick: str, raw_data: Dict[str, Any], exchange_name: str = "generic") -> Dict[str, Any]:
+    def process_src20_market_update(
+        self, tick: str, raw_data: Dict[str, Any], exchange_name: str = "generic"
+    ) -> Dict[str, Any]:
         """
         Process a complete SRC20 market data update.
 
@@ -436,14 +434,14 @@ class SRC20MarketDataProcessor:
         """Validate a decimal field with range checking."""
         if value is None:
             return None
-        
+
         try:
             decimal_val = D(str(value))
             if decimal_val < min_val or decimal_val > max_val:
                 logger.warning(f"Field {field_name} value {decimal_val} out of range [{min_val}, {max_val}]")
                 return None
             return decimal_val
-        except (ValueError, TypeError, Decimal.InvalidOperation):
+        except (ValueError, TypeError, decimal.InvalidOperation):
             logger.warning(f"Invalid decimal value for {field_name}: {value}")
             return None
 
@@ -451,7 +449,7 @@ class SRC20MarketDataProcessor:
         """Validate an integer field with range checking."""
         if value is None:
             return None
-        
+
         try:
             int_val = int(value)
             if int_val < min_val or int_val > max_val:
@@ -466,7 +464,7 @@ class SRC20MarketDataProcessor:
         """Validate a timestamp field."""
         if value is None:
             return None
-        
+
         try:
             if isinstance(value, datetime):
                 return value
@@ -474,7 +472,7 @@ class SRC20MarketDataProcessor:
                 return datetime.fromtimestamp(value)
             elif isinstance(value, str):
                 # Try to parse ISO format
-                return datetime.fromisoformat(value.replace('Z', '+00:00'))
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
             else:
                 logger.warning(f"Invalid timestamp format for {field_name}: {value}")
                 return None
@@ -491,12 +489,12 @@ src20_market_processor = SRC20MarketDataProcessor()
 def process_src20_market_data(tick: str, raw_data: Dict[str, Any], exchange_name: str = "generic") -> Dict[str, Any]:
     """
     Process SRC20 market data using the global processor instance.
-    
+
     Args:
         tick: SRC20 token ticker symbol
         raw_data: Raw market data from external sources
         exchange_name: Name of the exchange providing the data
-    
+
     Returns:
         Processed and validated market data
     """
@@ -506,10 +504,10 @@ def process_src20_market_data(tick: str, raw_data: Dict[str, Any], exchange_name
 def validate_src20_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate SRC20 market data using the global processor instance.
-    
+
     Args:
         data: Market data dictionary to validate
-    
+
     Returns:
         Validated market data dictionary
     """
@@ -519,12 +517,12 @@ def validate_src20_data(data: Dict[str, Any]) -> Dict[str, Any]:
 def transform_exchange_response(raw_data: Dict[str, Any], exchange_name: str) -> Dict[str, Any]:
     """
     Transform exchange API response using the global processor instance.
-    
+
     Args:
         raw_data: Raw data from exchange API
         exchange_name: Name of the exchange
-    
+
     Returns:
         Transformed market data dictionary
     """
-    return src20_market_processor.transform_exchange_data(raw_data, exchange_name) 
+    return src20_market_processor.transform_exchange_data(raw_data, exchange_name)
