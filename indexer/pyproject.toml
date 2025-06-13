@@ -110,6 +110,7 @@ line-length = 127
 [tool.isort]
 profile = "black"
 line_length = 127
+skip_glob = ["tools/debug/*"]
 
 [tool.flake8]
 max-line-length = 127
