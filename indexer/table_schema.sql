@@ -490,8 +490,8 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   INDEX `idx_volume_composite` (`volume_24h_btc` DESC, `volume_7d_btc` DESC, `holder_count` DESC) COMMENT 'For trending/popular stamps',
   INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages',
   
-  -- Foreign key relationship to existing stamps table
-  CONSTRAINT `fk_stamp_market_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`) ON DELETE CASCADE
+  -- Note: Foreign key constraint removed to work with existing cpid prefix index
+  -- Data integrity maintained by application logic
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
 COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
 
@@ -518,8 +518,8 @@ CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
   INDEX `idx_percentage` (`percentage` DESC) COMMENT 'For percentage-based analysis',
   INDEX `idx_holder_analysis` (`cpid`, `percentage` DESC, `quantity` DESC) COMMENT 'For distribution analysis',
   
-  -- Foreign key relationship to existing stamps table
-  CONSTRAINT `fk_stamp_holder_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`) ON DELETE CASCADE
+  -- Note: Foreign key constraint removed to work with existing cpid prefix index
+  -- Data integrity maintained by application logic
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
 COMMENT='Detailed holder information cache for stamps to avoid real-time API calls';
 
