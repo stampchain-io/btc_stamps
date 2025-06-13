@@ -488,7 +488,7 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   INDEX `idx_data_quality` (`data_quality_score` DESC) COMMENT 'For quality-based filtering',
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
   INDEX `idx_volume_composite` (`volume_24h_btc` DESC, `volume_7d_btc` DESC, `holder_count` DESC) COMMENT 'For trending/popular stamps',
-  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages',
+  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
   
   -- Note: Foreign key constraint removed to work with existing cpid prefix index
   -- Data integrity maintained by application logic
