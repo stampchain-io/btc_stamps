@@ -443,7 +443,7 @@ ON DUPLICATE KEY UPDATE
 
 -- Enhanced stamp market data cache with multi-source support
 CREATE TABLE IF NOT EXISTS `stamp_market_data` (
-  `cpid` VARCHAR(255) PRIMARY KEY COMMENT 'Counterparty asset ID (unique identifier)',
+  `cpid` VARCHAR(25) PRIMARY KEY COMMENT 'Counterparty asset ID (unique identifier)',
   
   -- Floor Price Data (from Counterparty dispensers)
   `floor_price_btc` DECIMAL(16,8) NULL COMMENT 'Current floor price in BTC',
@@ -478,6 +478,9 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   `update_frequency_minutes` INTEGER DEFAULT 30 COMMENT 'How often this stamp should be updated (adaptive)',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
   
+  -- Foreign Key Constraint (works with existing cpid prefix index)
+  CONSTRAINT `fk_stamp_market_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
+  
   -- Performance Indexes
   INDEX `idx_floor_price_btc` (`floor_price_btc` DESC) COMMENT 'For floor price filtering and sorting',
   INDEX `idx_holder_count` (`holder_count` DESC) COMMENT 'For holder count filtering',
@@ -489,16 +492,12 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
   INDEX `idx_volume_composite` (`volume_24h_btc` DESC, `volume_7d_btc` DESC, `holder_count` DESC) COMMENT 'For trending/popular stamps',
   INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
-  
-  -- Note: Foreign key constraint removed to work with existing cpid prefix index
-  -- Data integrity maintained by application logic
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
-COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
 
 -- Detailed holder cache for individual stamp holder pages
 CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'Unique record identifier',
-  `cpid` VARCHAR(255) NOT NULL COMMENT 'Counterparty asset ID',
+  `cpid` VARCHAR(25) NOT NULL COMMENT 'Counterparty asset ID',
   `address` VARCHAR(255) NOT NULL COMMENT 'Bitcoin address holding the stamp',
   `quantity` DECIMAL(20,8) NOT NULL COMMENT 'Quantity held by this address',
   `percentage` DECIMAL(5,2) NOT NULL COMMENT 'Percentage of total supply held',
@@ -506,6 +505,9 @@ CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
   `balance_source` VARCHAR(50) DEFAULT 'counterparty' COMMENT 'Source of balance data',
   `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last update time',
   `last_tx_block` INTEGER NULL COMMENT 'Block of last transaction affecting this balance',
+  
+  -- Foreign Key Constraint (works with existing cpid prefix index)
+  CONSTRAINT `fk_stamp_holder_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
   
   -- Ensure one record per stamp-address combination
   UNIQUE KEY `unique_cpid_address` (`cpid`, `address`) COMMENT 'One record per stamp-address pair',
@@ -516,12 +518,8 @@ CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
   INDEX `idx_address` (`address`) COMMENT 'For address-based lookups',
   INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness',
   INDEX `idx_percentage` (`percentage` DESC) COMMENT 'For percentage-based analysis',
-  INDEX `idx_holder_analysis` (`cpid`, `percentage` DESC, `quantity` DESC) COMMENT 'For distribution analysis',
-  
-  -- Note: Foreign key constraint removed to work with existing cpid prefix index
-  -- Data integrity maintained by application logic
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
-COMMENT='Detailed holder information cache for stamps to avoid real-time API calls';
+  INDEX `idx_holder_analysis` (`cpid`, `percentage` DESC, `quantity` DESC) COMMENT 'For distribution analysis'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Detailed holder information cache for stamps to avoid real-time API calls';
 
 -- Track reliability and performance of different data sources
 CREATE TABLE IF NOT EXISTS `market_data_sources` (
@@ -560,8 +558,7 @@ CREATE TABLE IF NOT EXISTS `market_data_sources` (
   INDEX `idx_success_rate` (`success_rate_24h` DESC) COMMENT 'For performance monitoring',
   INDEX `idx_response_time` (`api_response_time_ms`) COMMENT 'For performance analysis',
   INDEX `idx_reliability_score` (`source_confidence` DESC, `success_rate_24h` DESC, `api_response_time_ms`) COMMENT 'For source ranking'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
-COMMENT='Track reliability and performance metrics for different market data sources';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Track reliability and performance metrics for different market data sources';
 
 -- SRC-20 token market data cache for exchange-based data
 CREATE TABLE IF NOT EXISTS `src20_market_data` (
@@ -611,12 +608,11 @@ CREATE TABLE IF NOT EXISTS `src20_market_data` (
   INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks',
   INDEX `idx_data_quality` (`data_quality_score` DESC) COMMENT 'For quality-based filtering',
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
-  INDEX `idx_market_overview` (`price_btc`, `market_cap_btc`, `volume_24h_btc`, `holder_count`) COMMENT 'For market overview pages',
+  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
   
   -- Note: Foreign key constraint removed to work with existing database constraints
   -- Data integrity maintained by application logic
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
-COMMENT='Cached market data for SRC-20 tokens from multiple exchanges';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for SRC-20 tokens from multiple exchanges';
 
 -- Collection-level market data aggregation
 CREATE TABLE IF NOT EXISTS `collection_market_data` (
@@ -648,12 +644,11 @@ CREATE TABLE IF NOT EXISTS `collection_market_data` (
   INDEX `idx_volume_24h` (`volume_24h_btc` DESC) COMMENT 'For volume sorting',
   INDEX `idx_total_value` (`total_value_btc` DESC) COMMENT 'For total value sorting',
   INDEX `idx_unique_holders` (`unique_holders` DESC) COMMENT 'For holder count sorting',
-  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks',
+  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks'
   
   -- Note: Foreign key constraint removed to work with existing database constraints
   -- Data integrity maintained by application logic
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
-COMMENT='Aggregated market data for stamp collections';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Aggregated market data for stamp collections';
 
 -- Performance optimization views
 CREATE OR REPLACE VIEW `v_stamp_market_overview` AS
