@@ -603,7 +603,7 @@ def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
             block_index += 1
             return block_index
         except Exception as e:
-            logger.error(f"Error committing block {block_index} (attempt {attempt+1}/{max_retries}): {e}")
+            logger.error(f"Error committing block {block_index} (attempt {attempt + 1}/{max_retries}): {e}")
             db.rollback()
 
             if attempt < max_retries - 1:
@@ -1443,7 +1443,7 @@ def follow(
                                 if at_chain_tip and attempt < max_attempts - 1:
                                     backoff_time = min(10, 5 * (attempt + 1))
                                     logger.debug(
-                                        f"Block {block_index} not ready in XCP, waiting {backoff_time}s (attempt {attempt+1}/{max_attempts})"
+                                        f"Block {block_index} not ready in XCP, waiting {backoff_time}s (attempt {attempt + 1}/{max_attempts})"
                                     )
                                     time.sleep(backoff_time)
 

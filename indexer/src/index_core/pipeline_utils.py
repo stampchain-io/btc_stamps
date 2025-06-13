@@ -224,6 +224,11 @@ class CPBlocksPipeline:
         # Invalidate blockcount cache to ensure fresh data after reorg
         backend_instance.invalidate_blockcount_cache()
 
+        # Create a new ThreadPoolExecutor since the old one was shutdown in stop()
+        # This fixes the "cannot schedule new futures after shutdown" error
+        logger.debug("Creating new ThreadPoolExecutor for pipeline reset")
+        self.fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
         # Begin running again
         self.start(new_start_block)
 

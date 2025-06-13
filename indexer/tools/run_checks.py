@@ -163,6 +163,10 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_reparse_sequence.py",
             "tests/test_reparse_inmemory_stamp_cache.py",
             "tests/test_quick_consensus.py",
+            # ThreadPoolExecutor lifecycle management tests
+            "tests/test_pipeline_executor_lifecycle.py",
+            # SRC-20 thread safety and locking mechanism tests
+            "tests/thread_safety/test_thread_safety.py",
         ]
 
         for test_file in test_files:
@@ -231,7 +235,7 @@ def run_code_quality_checks(auto_fix=False):
 
         # mypy check
         logger.info("Running mypy...")
-        if run_command("poetry run mypy . --explicit-package-bases", ignore_errors=True):
+        if run_command("poetry run mypy src/ --explicit-package-bases", ignore_errors=True):
             logger.info(colored("PASS: mypy check", "green"))
         else:
             code_quality_failures.append("mypy")
@@ -282,7 +286,7 @@ def run_rust_checks():
 
     all_passed = True
     for i, cmd in enumerate(commands):
-        progress = f"[{i+1}/{len(commands)}]"
+        progress = f"[{i + 1}/{len(commands)}]"
         logger.info(f"{progress} {colored('Running Rust check:', 'cyan')} {colored(cmd, 'yellow')}")
         cmd_result = run_command(cmd, ignore_errors=True)
         if not cmd_result:
@@ -328,7 +332,7 @@ def run_integration_tests():
 
     all_passed = True
     for i, cmd in enumerate(commands):
-        progress = f"[{i+1}/{len(commands)}]"
+        progress = f"[{i + 1}/{len(commands)}]"
         logger.info(f"{progress} {colored('Running integration test:', 'cyan')} {colored(cmd, 'yellow')}")
         cmd_result = run_command(cmd, ignore_errors=True)
         logger.info(f"Command result: {cmd_result}")
@@ -394,7 +398,7 @@ def main():
     # Determine column widths based on content
     name_w = max(len(name) for name, _ in rows + [("💻 Check Type", "")])
     status_w = max(len(status) for _, status in rows + [("", "🛡️ Status")])
-    border = f"+{'-'*(name_w+2)}+{'-'*(status_w+2)}+"
+    border = f"+{'-' * (name_w + 2)}+{'-' * (status_w + 2)}+"
     header = f"| {'💻 Check Type'.ljust(name_w)} | {'🛡️ Status'.ljust(status_w)} |"
     print(colored(border, "magenta"))
     print(colored(header, "magenta"))

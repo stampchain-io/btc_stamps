@@ -1,7 +1,6 @@
 import unittest
 
 from btc_stamps_parser import FastTransactionParser
-
 from index_core.backend import Backend
 
 

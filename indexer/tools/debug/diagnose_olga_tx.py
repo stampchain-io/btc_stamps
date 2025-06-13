@@ -28,7 +28,6 @@ if env_path.exists():
                 os.environ[key] = value
 
 from btc_stamps_parser import FastTransactionParser
-
 from src.config import BTC_SRC20_OLGA_BLOCK, PREFIX
 from src.index_core import arc4, blocks, script
 from src.index_core.backend import Backend

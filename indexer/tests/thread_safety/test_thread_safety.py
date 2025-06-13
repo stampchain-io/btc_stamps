@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -222,7 +222,7 @@ def main():
 
     # Run test without lock to demonstrate race conditions
     logger.info("\n--- Testing without thread locks ---")
-    without_lock_result = test_without_lock()
+    test_without_lock()
 
     # Overall results
     if with_lock_result:
