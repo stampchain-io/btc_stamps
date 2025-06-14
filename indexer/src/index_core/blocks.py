@@ -62,6 +62,7 @@ from index_core.fetch_utils import (
     find_issuance_by_tx_hash,
     get_xcp_assets_by_cpids,
     get_xcp_block_hash,
+    is_valid_counterparty_asset,
     verify_cp_block_hash,
 )
 from index_core.market_data_jobs import start_market_data_jobs
@@ -2100,12 +2101,27 @@ def update_cpids_async(db):
             cpids = get_unlocked_cpids(task_db)
             if cpids:
                 cpids_list = [cpid[0] for cpid in cpids]
-                assets_details = get_xcp_assets_by_cpids(cpids_list, chunk_size=200, delay_between_chunks=6, max_workers=5)
-                if assets_details:
-                    update_assets_in_db(task_db, assets_details, chunk_size=200, delay_between_chunks=6)
-                    logger.info("Successfully updated assets in the database.")
+
+                # Filter out SRC-20 hash tokens that don't exist in Counterparty API
+                valid_cpids = [cpid for cpid in cpids_list if is_valid_counterparty_asset(cpid)]
+                invalid_cpids = [cpid for cpid in cpids_list if not is_valid_counterparty_asset(cpid)]
+
+                if invalid_cpids:
+                    logger.debug(
+                        f"Filtered out {len(invalid_cpids)} SRC-20 hash tokens from CPID update: {invalid_cpids[:5]}..."
+                    )
+
+                if valid_cpids:
+                    assets_details = get_xcp_assets_by_cpids(
+                        valid_cpids, chunk_size=200, delay_between_chunks=6, max_workers=5
+                    )
+                    if assets_details:
+                        update_assets_in_db(task_db, assets_details, chunk_size=200, delay_between_chunks=6)
+                        logger.info("Successfully updated assets in the database.")
+                    else:
+                        logger.warning("No asset details were retrieved.")
                 else:
-                    logger.warning("No asset details were retrieved.")
+                    logger.info("No valid Counterparty CPIDs to update.")
             else:
                 logger.info("No CPIDs to update.")
         finally:

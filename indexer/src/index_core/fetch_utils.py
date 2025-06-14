@@ -1036,3 +1036,41 @@ def parse_issuance_from_transaction(tx, issuance_event):
     except Exception as e:
         logger.error(f"Error parsing issuance for tx {tx.get('tx_hash')}: {e}")
         return None
+
+
+def is_valid_counterparty_asset(cpid: str) -> bool:
+    """
+    Check if a CPID is a valid Counterparty asset that exists in the API.
+
+    Valid Counterparty assets:
+    - Start with 'A' followed by numbers (e.g., A1234567890)
+    - Are named assets (alphabetic strings without special chars)
+    - Are not SRC-20 hash tokens (alphanumeric hashes)
+
+    Args:
+        cpid: The CPID/asset identifier to check
+
+    Returns:
+        True if this is a valid Counterparty asset, False otherwise
+    """
+    if not cpid:
+        return False
+
+    # Check if it starts with 'A' followed by numbers (standard asset format)
+    if cpid.startswith("A") and cpid[1:].isdigit():
+        return True
+
+    # Check if it's a named asset (all letters, no numbers or special chars)
+    if cpid.isalpha():
+        return True
+
+    # If it contains both letters and numbers mixed (like a hash), it's likely SRC-20
+    has_letters = any(c.isalpha() for c in cpid)
+    has_numbers = any(c.isdigit() for c in cpid)
+
+    # Mixed alphanumeric that doesn't start with 'A' is likely a SRC-20 hash
+    if has_letters and has_numbers and not cpid.startswith("A"):
+        return False
+
+    # Default to False for safety
+    return False

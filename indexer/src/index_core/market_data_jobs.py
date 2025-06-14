@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 
 import config
 from index_core.database import initialize_db
-from index_core.fetch_utils import RateLimiter, get_xcp_assets_by_cpids
+from index_core.fetch_utils import RateLimiter, get_xcp_assets_by_cpids, is_valid_counterparty_asset
 from index_core.market_data_service import market_data_service
 from index_core.src20_worker import SRC20Worker
 from index_core.stamp_worker import StampWorker
@@ -390,11 +390,25 @@ class MarketDataJobScheduler:
     def _process_stamp_batch(self, db, stamp_cpids: List[str]):
         """Process a batch of stamps for market data updates."""
         try:
+            # Filter out SRC-20 hash tokens that don't exist in Counterparty API
+            # Separate valid Counterparty assets from SRC-20 hash tokens
+            valid_cpids = [cpid for cpid in stamp_cpids if is_valid_counterparty_asset(cpid)]
+            invalid_cpids = [cpid for cpid in stamp_cpids if not is_valid_counterparty_asset(cpid)]
+
+            if invalid_cpids:
+                logger.debug(
+                    f"Filtered out {len(invalid_cpids)} SRC-20 hash tokens from Counterparty API fetch: {invalid_cpids[:5]}..."
+                )
+
+            if not valid_cpids:
+                logger.debug("No valid Counterparty assets in batch, skipping API call")
+                return
+
             # Rate limiting for Counterparty API
-            COUNTERPARTY_RATE_LIMITER.acquire(len(stamp_cpids))
+            COUNTERPARTY_RATE_LIMITER.acquire(len(valid_cpids))
 
             # Get asset details from Counterparty API (following existing pattern)
-            assets_details = get_xcp_assets_by_cpids(stamp_cpids, chunk_size=50, delay_between_chunks=3, max_workers=2)
+            assets_details = get_xcp_assets_by_cpids(valid_cpids, chunk_size=50, delay_between_chunks=3, max_workers=2)
 
             if assets_details:
                 # Process each asset and update market data
