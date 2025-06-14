@@ -67,7 +67,7 @@ jobs:
         working-directory: ./indexer
         
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           file: ./indexer/coverage.xml
           directory: ./indexer
