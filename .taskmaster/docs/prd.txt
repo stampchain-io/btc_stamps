@@ -1,0 +1,223 @@
+# Multi-Source Market Data Cache System - Product Requirements Document
+
+## Executive Summary
+
+The Bitcoin Stamps indexer frontend explorer currently suffers from severe performance issues due to excessive external API calls to counterparty.io and other exchange APIs. Collection pages take 10+ seconds to load, make 40+ concurrent API calls, and frequently encounter "dispatch task is gone" errors. This PRD outlines the implementation of a comprehensive market data cache system that will reduce page load times to under 2 seconds while supporting both Bitcoin Stamps (art) and SRC-20 tokens from multiple data sources.
+
+## Problem Statement
+
+### Current Performance Issues
+- Collection pages load in 10+ seconds due to excessive API calls
+- 40+ concurrent calls to counterparty.io for floor prices and holder data
+- "dispatch task is gone" errors from external API overload
+- Holder filtering requires fetching ALL holder data for EVERY stamp via paginated API calls
+- SRC-20 tokens require different data sources (OpenStamp, StampScan, KuCoin) not currently integrated
+- 95% of external API calls are redundant and could be cached
+
+### Business Impact
+- Poor user experience leading to user abandonment
+- Unreliable frontend performance affecting platform credibility
+- Inability to implement advanced filtering features due to performance constraints
+- Limited scalability for growing stamp and SRC-20 token ecosystems
+
+## Solution Overview
+
+Implement a unified multi-source market data cache system that:
+- Pre-computes floor prices, holder counts, and volume metrics for both stamps and SRC-20 tokens
+- Aggregates data from multiple sources with confidence-weighted scoring
+- Updates cache via background jobs every 15-30 minutes (stamps) and 2-10 minutes (SRC-20)
+- Provides instant database queries instead of external API calls
+- Supports real-time updates for high-activity assets
+
+## Technical Requirements
+
+### Database Schema Enhancement
+- **stamp_market_data**: Floor prices, holder counts, volume data for stamps
+- **src20_market_data**: Multi-exchange market data for SRC-20 tokens  
+- **market_data_sources**: Source attribution and reliability tracking
+- **collection_market_data**: Aggregated collection-level metrics
+- **stamp_holder_cache**: Detailed holder information for filtering
+
+### Multi-Source Data Integration
+- **Stamps**: Counterparty API (dispensers, balances, sends)
+- **SRC-20 Tokens**: OpenStamp API, StampScan API, KuCoin API, future exchanges
+- **Aggregation Logic**: Confidence-weighted averaging with conflict resolution
+- **Source Reliability**: Health monitoring and quality scoring (0-10 scale)
+
+### Background Job System
+- **Adaptive Frequencies**: Stamps (15-30 min), SRC-20 (2-10 min based on volatility)
+- **Batch Processing**: 50 stamps or 20 SRC-20 tokens per batch with concurrency control
+- **Rate Limiting**: Respect external API limits with exponential backoff
+- **Real-time Events**: Immediate updates for dispenser events and external trades
+
+### API Enhancement
+- **Enhanced Controllers**: Serve cached data instead of live API calls
+- **Filter Support**: Enable holder count and floor price filtering from database
+- **Collection Aggregation**: Pre-computed collection statistics
+- **Health Endpoints**: Monitor cache freshness and source reliability
+
+### Frontend Integration
+- **Zero API Calls**: Collection pages load from cached data only
+- **Advanced Filtering**: Holder count ranges, floor price ranges, volume filters
+- **Real-time Updates**: WebSocket support for high-activity assets
+- **Fallback Handling**: Graceful degradation when cache is stale
+
+## Success Metrics
+
+### Performance Targets
+- Collection page load time: < 2 seconds (from 10+ seconds)
+- External API calls per page: 0 (from 40+)
+- Error rate: < 1% (from 15-20%)
+- Cache update success rate: > 99%
+
+### Scalability Targets
+- Support 10,000+ stamps with sub-second queries
+- Support 1,000+ SRC-20 tokens with real-time pricing
+- Handle 95% reduction in external API dependency
+- Enable cross-exchange price comparison for SRC-20 tokens
+
+### User Experience Targets
+- Instant floor price display for both asset types
+- Real-time holder count filtering
+- Consistent market data across all pages
+- No loading states for cached market information
+
+## Implementation Phases
+
+### Phase 1: Foundation (Weeks 1-2)
+- Database schema creation for all cache tables
+- Core MarketDataService implementation
+- Background job infrastructure for both asset types
+- Basic Counterparty API integration enhancement
+
+### Phase 2: Multi-Source Integration (Weeks 3-4)
+- OpenStamp API integration for SRC-20 data
+- StampScan API integration for SRC-20 data
+- KuCoin API integration for SRC-20 data
+- Source reliability tracking and health monitoring
+
+### Phase 3: Advanced Features (Weeks 5-6)
+- Multi-source aggregation with conflict resolution
+- Collection-level aggregation for both asset types
+- Real-time event processing integration
+- Advanced monitoring and alerting systems
+
+### Phase 4: Optimization & Production (Weeks 7-8)
+- Performance tuning for multi-source processing
+- Cache warming strategies for both asset types
+- Comprehensive error handling and recovery
+- Documentation and team training
+
+## Team Structure & Responsibilities
+
+### Backend Indexer Team
+- Database schema implementation
+- Background job system development
+- Counterparty API integration
+- Real-time event processing
+- Rate limiting and health monitoring
+
+### Frontend API Team  
+- Enhanced controller implementation
+- Route handler updates
+- Database query optimization
+- API endpoint development
+- Cache integration
+
+### External Integration Team
+- OpenStamp API integration
+- StampScan API integration  
+- KuCoin API integration
+- Multi-source aggregation logic
+- Source reliability scoring
+
+### QA & Performance Team
+- Load testing and performance validation
+- Multi-source data accuracy testing
+- Error handling and recovery testing
+- Production deployment validation
+- Monitoring and alerting setup
+
+## Risk Mitigation
+
+### Data Freshness Risk
+- **Mitigation**: Adaptive update frequencies based on asset activity
+- **Monitoring**: Cache age alerts and freshness dashboards
+- **Fallback**: Real-time API calls for critical high-activity assets
+
+### Multi-Source Conflicts
+- **Mitigation**: Confidence-weighted aggregation with source reliability scoring
+- **Validation**: Cross-source data consistency checks
+- **Resolution**: Automated conflict detection and manual review processes
+
+### External API Failures
+- **Mitigation**: Multi-source redundancy and graceful degradation
+- **Monitoring**: Source health tracking and automatic failover
+- **Recovery**: Retry logic with exponential backoff and circuit breakers
+
+### SRC-20 Volatility
+- **Mitigation**: Adaptive scheduling based on price changes and volume
+- **Processing**: Priority queues for high-activity tokens
+- **Efficiency**: Batch updates with intelligent grouping
+
+## Dependencies
+
+### Technical Dependencies
+- Existing indexer infrastructure and database schema
+- Current Counterparty API integration patterns
+- Frontend collection and filtering components
+- Background job execution framework
+
+### External Dependencies
+- Counterparty API stability and rate limits
+- OpenStamp API access and documentation
+- StampScan API integration requirements
+- KuCoin API credentials and rate limits
+
+### Team Dependencies
+- Backend indexer team availability for schema changes
+- Frontend team coordination for API integration
+- DevOps support for production deployment
+- QA resources for comprehensive testing
+
+## Success Criteria
+
+### Technical Success
+- 95% reduction in external API calls for collection pages
+- Sub-second query times for all cached market data
+- 99%+ cache update success rate across all sources
+- Zero functionality loss during implementation
+
+### Business Success
+- Improved user engagement metrics on collection pages
+- Reduced support tickets related to performance issues
+- Enabled advanced filtering features previously impossible
+- Foundation for future marketplace and trading features
+
+### Operational Success
+- Reliable multi-source data aggregation
+- Automated monitoring and alerting systems
+- Comprehensive documentation and runbooks
+- Team knowledge transfer and training completion
+
+## Future Enhancements
+
+### Advanced Analytics
+- Cross-exchange arbitrage detection for SRC-20 tokens
+- Market trend prediction and analysis
+- Portfolio tracking across multiple asset types
+- Historical market data analysis and reporting
+
+### Trading Integration
+- Real-time order book aggregation
+- Cross-exchange trading API integration
+- Market maker integration for SRC-20 tokens
+- Automated trading alerts and notifications
+
+### API Extensions
+- Public market data API for third-party developers
+- WebSocket real-time updates for all asset types
+- Historical data exports with source attribution
+- Cross-chain bridge data integration
+
+This comprehensive market data cache system will transform the Bitcoin Stamps ecosystem by providing instant, reliable access to market information across both traditional stamps and the emerging SRC-20 token marketplace, positioning the platform as the definitive source for Bitcoin Stamps ecosystem data. 
