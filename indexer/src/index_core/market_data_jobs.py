@@ -325,7 +325,7 @@ class MarketDataJobScheduler:
         try:
             # Query for stamps that haven't been updated recently or have no market data
             # OPTIMIZED: Filter for all valid Counterparty assets (including cursed named assets)
-            query = """
+            query = r"""
             SELECT DISTINCT s.cpid
             FROM StampTableV4 s
             LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
