@@ -15,22 +15,29 @@ from typing import Dict, List, Optional
 
 import config
 from index_core.database_manager import DatabaseManager
-from index_core.fetch_utils import RateLimiter, is_valid_counterparty_asset
+from index_core.fetch_utils import RateLimiter
 from index_core.market_data_service import market_data_service
 from index_core.src20_worker import SRC20Worker
 from index_core.stamp_worker import StampWorker
 
 logger = logging.getLogger(__name__)
 
-# Job scheduling constants
-STAMP_UPDATE_INTERVAL = 15 * 60  # 15 minutes in seconds
-SRC20_UPDATE_INTERVAL = 5 * 60  # 5 minutes in seconds
-COLLECTION_UPDATE_INTERVAL = 30 * 60  # 30 minutes in seconds
+# Configuration constants for job scheduling
+STAMP_UPDATE_INTERVAL = 900  # 15 minutes in seconds
+SRC20_UPDATE_INTERVAL = 300  # 5 minutes in seconds
+COLLECTION_UPDATE_INTERVAL = 1800  # 30 minutes in seconds
 
-# Batch processing constants
-STAMP_BATCH_SIZE = 100
-SRC20_BATCH_SIZE = 50
+# Batch processing configuration - INCREASED FOR FULL COVERAGE
+STAMP_BATCH_SIZE = 100  # Keep manageable for API rate limiting
+SRC20_BATCH_SIZE = 50  # Keep manageable for exchange APIs
+
+# DRAMATICALLY INCREASE SELECTION LIMITS FOR COMPREHENSIVE PROCESSING
+STAMP_SELECTION_LIMIT = 10000  # Process up to 10K stamps per cycle (was 500)
+SRC20_SELECTION_LIMIT = 1000  # Process up to 1K SRC-20 tokens per cycle (was 150)
+
+# Rate limiting configuration
 MAX_WORKERS = 3
+DEFAULT_RATE_LIMIT = 1.5  # requests per second for Counterparty API
 
 # Rate limiting for external APIs (workers have their own rate limiters)
 COUNTERPARTY_RATE_LIMITER = RateLimiter(calls_per_second=2.0)
@@ -317,21 +324,28 @@ class MarketDataJobScheduler:
         """Get list of stamp CPIDs that need market data updates."""
         try:
             # Query for stamps that haven't been updated recently or have no market data
+            # OPTIMIZED: Filter for traditional stamps only (exclude SRC-20 tokens) using ident field
             query = """
             SELECT DISTINCT s.cpid
             FROM StampTableV4 s
             LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
-            WHERE smd.last_updated IS NULL
-               OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+            WHERE s.ident = 'STAMP'                 -- Only traditional stamps with valid Counterparty CPIDs
+            AND (
+                smd.last_updated IS NULL
+                OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+            )
             ORDER BY s.block_index DESC
             LIMIT %s
             """
 
             cursor = db.cursor()
-            cursor.execute(query, (STAMP_UPDATE_INTERVAL // 60, STAMP_BATCH_SIZE * 5))
+            cursor.execute(query, (STAMP_UPDATE_INTERVAL // 60, STAMP_SELECTION_LIMIT))
             results = cursor.fetchall()
             cursor.close()
 
+            logger.info(
+                f"Found {len(results)} traditional stamps (ident=STAMP) needing market data updates (limit: {STAMP_SELECTION_LIMIT})"
+            )
             return [row[0] for row in results]
 
         except Exception as e:
@@ -342,6 +356,7 @@ class MarketDataJobScheduler:
         """Get list of SRC-20 token ticks that need market data updates."""
         try:
             # Query for SRC-20 tokens that haven't been updated recently
+            # IMPROVED: Much larger selection limit for comprehensive processing
             query = """
             SELECT DISTINCT s.tick
             FROM SRC20Valid s
@@ -353,10 +368,11 @@ class MarketDataJobScheduler:
             """
 
             cursor = db.cursor()
-            cursor.execute(query, (SRC20_UPDATE_INTERVAL // 60, SRC20_BATCH_SIZE * 3))
+            cursor.execute(query, (SRC20_UPDATE_INTERVAL // 60, SRC20_SELECTION_LIMIT))
             results = cursor.fetchall()
             cursor.close()
 
+            logger.info(f"Found {len(results)} SRC-20 tokens needing market data updates (limit: {SRC20_SELECTION_LIMIT})")
             return [row[0] for row in results]
 
         except Exception as e:
@@ -390,21 +406,9 @@ class MarketDataJobScheduler:
     def _process_stamp_batch(self, db, stamp_cpids: List[str]):
         """Process a batch of stamps for market data updates with detailed analysis."""
         try:
-            # Filter out SRC-20 hash tokens that don't exist in Counterparty API
-            # Separate valid Counterparty assets from SRC-20 hash tokens
-            valid_cpids = [cpid for cpid in stamp_cpids if is_valid_counterparty_asset(cpid)]
-            invalid_cpids = [cpid for cpid in stamp_cpids if not is_valid_counterparty_asset(cpid)]
-
-            if invalid_cpids:
-                logger.debug(
-                    f"Filtered out {len(invalid_cpids)} SRC-20 hash tokens from Counterparty API fetch: {invalid_cpids[:5]}..."
-                )
-
-            if not valid_cpids:
-                logger.debug("No valid Counterparty assets in batch, skipping API call")
-                return
-
-            logger.debug(f"Processing detailed market data for {len(valid_cpids)} valid stamps")
+            # All CPIDs are now pre-filtered as valid Counterparty assets in the SQL query
+            # No need for additional Python-side filtering!
+            logger.debug(f"Processing detailed market data for {len(stamp_cpids)} pre-validated stamps")
 
             # Use StampWorker for detailed market data processing
             # This provides comprehensive analysis: dispensers, dispenses, balances, volume metrics, etc.
@@ -413,7 +417,7 @@ class MarketDataJobScheduler:
             processed_count = 0
             error_count = 0
 
-            for cpid in valid_cpids:
+            for cpid in stamp_cpids:
                 if self.shutdown_event.is_set():
                     logger.info("Shutdown requested, stopping stamp processing")
                     break
@@ -428,7 +432,7 @@ class MarketDataJobScheduler:
                         processed_count += 1
 
                         if processed_count % 5 == 0:  # Log every 5 successful updates
-                            logger.debug(f"✅ Processed {processed_count}/{len(valid_cpids)} stamps in batch")
+                            logger.debug(f"✅ Processed {processed_count}/{len(stamp_cpids)} stamps in batch")
                     else:
                         error_count += 1
                         logger.debug(f"No market data generated for {cpid}")
@@ -437,9 +441,9 @@ class MarketDataJobScheduler:
                     error_count += 1
                     logger.warning(f"Error processing detailed market data for {cpid}: {e}")
 
-            success_rate = (processed_count / len(valid_cpids) * 100) if valid_cpids else 0
+            success_rate = (processed_count / len(stamp_cpids) * 100) if stamp_cpids else 0
             logger.debug(
-                f"Batch complete: {processed_count}/{len(valid_cpids)} stamps processed ({success_rate:.1f}% success)"
+                f"Batch complete: {processed_count}/{len(stamp_cpids)} stamps processed ({success_rate:.1f}% success)"
             )
 
         except Exception as e:

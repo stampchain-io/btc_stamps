@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from index_core.fetch_utils import RateLimiter, fetch_xcp, is_valid_counterparty_asset
+from index_core.fetch_utils import RateLimiter, fetch_xcp
 from index_core.stamp_market_processor import StampMarketDataProcessor
 
 logger = logging.getLogger(__name__)
@@ -54,11 +54,8 @@ class StampWorker:
             Dictionary with processed market data or None if failed
         """
         try:
-            # Validate that this is a valid Counterparty asset before processing
-            if not is_valid_counterparty_asset(cpid):
-                logger.debug(f"Skipping market data processing for invalid Counterparty asset: {cpid}")
-                return None
-
+            # CPIDs are now pre-filtered as valid Counterparty assets in the SQL query (ident='STAMP')
+            # No need for additional validation here!
             logger.debug(f"Processing market data for stamp {cpid}")
             start_time = time.time()
 
