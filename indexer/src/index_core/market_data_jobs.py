@@ -324,17 +324,23 @@ class MarketDataJobScheduler:
         """Get list of stamp CPIDs that need market data updates."""
         try:
             # Query for stamps that haven't been updated recently or have no market data
-            # OPTIMIZED: Filter for all valid Counterparty assets (including cursed named assets)
-            query = r"""
+            # SIMPLIFIED: Using basic patterns to avoid any string formatting issues
+            query = """
             SELECT DISTINCT s.cpid
             FROM StampTableV4 s
             LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
             WHERE (
                 -- Traditional Counterparty assets: A + digits (13+ chars)
-                (s.cpid LIKE 'A%' AND LENGTH(s.cpid) >= 13 AND SUBSTRING(s.cpid, 2) REGEXP '^[0-9]+$')
+                (s.cpid LIKE 'A%' AND LENGTH(s.cpid) >= 13)
                 OR 
-                -- Named Counterparty assets: B-Z + alphabetic chars (cursed stamps like FUCKTHAT, LEGENDARYBAR)
-                s.cpid REGEXP '^[B-Z][A-Za-z]*$'
+                -- Named Counterparty assets: B-Z start (cursed stamps like FUCKTHAT, LEGENDARYBAR)
+                (s.cpid LIKE 'B%' OR s.cpid LIKE 'C%' OR s.cpid LIKE 'D%' OR s.cpid LIKE 'E%' OR 
+                 s.cpid LIKE 'F%' OR s.cpid LIKE 'G%' OR s.cpid LIKE 'H%' OR s.cpid LIKE 'I%' OR 
+                 s.cpid LIKE 'J%' OR s.cpid LIKE 'K%' OR s.cpid LIKE 'L%' OR s.cpid LIKE 'M%' OR 
+                 s.cpid LIKE 'N%' OR s.cpid LIKE 'O%' OR s.cpid LIKE 'P%' OR s.cpid LIKE 'Q%' OR 
+                 s.cpid LIKE 'R%' OR s.cpid LIKE 'S%' OR s.cpid LIKE 'T%' OR s.cpid LIKE 'U%' OR 
+                 s.cpid LIKE 'V%' OR s.cpid LIKE 'W%' OR s.cpid LIKE 'X%' OR s.cpid LIKE 'Y%' OR 
+                 s.cpid LIKE 'Z%')
             )
             AND (
                 smd.last_updated IS NULL
