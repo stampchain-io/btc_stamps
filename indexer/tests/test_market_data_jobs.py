@@ -271,9 +271,9 @@ class TestMarketDataJobScheduler:
         """Test the full stamp market data update job flow."""
         # Setup mocks - mock the database manager connection instead of initialize_db
         self.mock_cursor.fetchall.return_value = [("CPID1",), ("CPID2",)]
-        
+
         # Mock the database manager connection
-        with patch.object(self.scheduler.database_manager, 'connect', return_value=self.mock_db):
+        with patch.object(self.scheduler.database_manager, "connect", return_value=self.mock_db):
             with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
                 with patch("index_core.market_data_jobs.market_data_service") as mock_service:
                     with patch("index_core.market_data_jobs.is_valid_counterparty_asset", return_value=True):
