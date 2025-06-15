@@ -368,7 +368,7 @@ class MarketDataJobScheduler:
         try:
             # Query for collections that haven't been updated recently
             query = """
-            SELECT DISTINCT c.collection_id
+            SELECT DISTINCT HEX(c.collection_id)
             FROM collections c
             LEFT JOIN collection_market_data cmd ON c.collection_id = cmd.collection_id
             WHERE cmd.last_updated IS NULL
@@ -446,13 +446,11 @@ class MarketDataJobScheduler:
 
                 # Placeholder market data (will be replaced with real exchange data)
                 market_data = {
-                    "tick": tick,
                     "floor_price_btc": None,
                     "volume_24h_btc": None,
                     "holder_count": None,
-                    "last_updated": datetime.now(),
-                    "data_source": "placeholder",
-                    "quality_score": 1.0,
+                    "primary_exchange": "placeholder",
+                    "data_quality_score": 1.0,
                 }
 
                 market_data_service.update_src20_market_data(tick, market_data)
@@ -470,11 +468,9 @@ class MarketDataJobScheduler:
             # For now, create placeholder data
 
             collection_data = {
-                "collection_id": collection_id,
                 "floor_price_btc": None,
                 "total_volume_btc": None,
                 "unique_holders": None,
-                "last_updated": datetime.now(),
                 "quality_score": 1.0,
             }
 
@@ -494,13 +490,11 @@ class MarketDataJobScheduler:
 
             # Basic market data structure
             market_data = {
-                "cpid": cpid,
                 "floor_price_btc": None,  # Will be calculated from dispensers
                 "volume_24h_btc": None,  # Will be calculated from dispenses
                 "holder_count": None,  # Will be calculated from balances
-                "last_updated": datetime.now(),
-                "data_source": "counterparty",
-                "quality_score": 8.0,  # High quality for Counterparty data
+                "price_source": "counterparty",
+                "data_quality_score": 8.0,  # High quality for Counterparty data
             }
 
             # TODO: Add more sophisticated data transformation

@@ -266,10 +266,6 @@ class MarketDataService:
             db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
-                    # Build dynamic update query based on provided data
-                    update_fields = []
-                    values = []
-
                     # Map of allowed fields to database columns
                     field_mapping = {
                         "floor_price_btc": "floor_price_btc",
@@ -295,30 +291,30 @@ class MarketDataService:
                         "update_frequency_minutes": "update_frequency_minutes",
                     }
 
-                    for field, value in data.items():
-                        if field in field_mapping:
-                            update_fields.append(f"{field_mapping[field]} = %s")
-                            values.append(value)
-
-                    if not update_fields:
+                    # Filter data to only include valid fields
+                    valid_fields = {k: v for k, v in data.items() if k in field_mapping}
+                    
+                    if not valid_fields:
                         logger.warning(f"No valid fields provided for stamp market data update: {cpid}")
                         return
 
+                    # Build column names and update fields
+                    columns = [field_mapping[f] for f in valid_fields.keys()]
+                    update_fields = [f"{col} = VALUES({col})" for col in columns]
+                    
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
-                    values.append(cpid)  # For WHERE clause
 
                     query = f"""
-                        INSERT INTO {STAMP_MARKET_DATA_TABLE} (cpid, {', '.join(field_mapping[f] for f in data.keys() if f in field_mapping)}, last_updated, created_at)
-                        VALUES (%s, {', '.join(['%s'] * len([f for f in data.keys() if f in field_mapping]))}, NOW(), NOW())
+                        INSERT INTO {STAMP_MARKET_DATA_TABLE} (cpid, {', '.join(columns)}, last_updated, created_at)
+                        VALUES (%s, {', '.join(['%s'] * len(columns))}, NOW(), NOW())
                         ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
                     """
 
-                    # Prepare values for INSERT
-                    insert_values = [cpid] + [data[f] for f in data.keys() if f in field_mapping]
-                    all_values = insert_values + values
+                    # Prepare values for INSERT only
+                    values = [cpid] + list(valid_fields.values())
 
-                    cursor.execute(query, all_values)
+                    cursor.execute(query, values)
                     db.commit()
 
                     # Invalidate cache
@@ -349,10 +345,6 @@ class MarketDataService:
             db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
-                    # Build dynamic update query based on provided data
-                    update_fields = []
-                    values = []
-
                     # Map of allowed fields to database columns
                     field_mapping = {
                         "price_btc": "price_btc",
@@ -378,30 +370,30 @@ class MarketDataService:
                         "update_frequency_minutes": "update_frequency_minutes",
                     }
 
-                    for field, value in data.items():
-                        if field in field_mapping:
-                            update_fields.append(f"{field_mapping[field]} = %s")
-                            values.append(value)
-
-                    if not update_fields:
+                    # Filter data to only include valid fields
+                    valid_fields = {k: v for k, v in data.items() if k in field_mapping}
+                    
+                    if not valid_fields:
                         logger.warning(f"No valid fields provided for SRC-20 market data update: {tick}")
                         return
 
+                    # Build column names and update fields
+                    columns = [field_mapping[f] for f in valid_fields.keys()]
+                    update_fields = [f"{col} = VALUES({col})" for col in columns]
+                    
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
-                    values.append(tick)  # For WHERE clause
 
                     query = f"""
-                        INSERT INTO {SRC20_MARKET_DATA_TABLE} (tick, {', '.join(field_mapping[f] for f in data.keys() if f in field_mapping)}, last_updated, created_at)
-                        VALUES (%s, {', '.join(['%s'] * len([f for f in data.keys() if f in field_mapping]))}, NOW(), NOW())
+                        INSERT INTO {SRC20_MARKET_DATA_TABLE} (tick, {', '.join(columns)}, last_updated, created_at)
+                        VALUES (%s, {', '.join(['%s'] * len(columns))}, NOW(), NOW())
                         ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
                     """
 
-                    # Prepare values for INSERT
-                    insert_values = [tick] + [data[f] for f in data.keys() if f in field_mapping]
-                    all_values = insert_values + values
+                    # Prepare values for INSERT only
+                    values = [tick] + list(valid_fields.values())
 
-                    cursor.execute(query, all_values)
+                    cursor.execute(query, values)
                     db.commit()
 
                     # Invalidate cache
@@ -432,10 +424,6 @@ class MarketDataService:
             db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
-                    # Build dynamic update query based on provided data
-                    update_fields = []
-                    values = []
-
                     # Map of allowed fields to database columns
                     field_mapping = {
                         "floor_price_btc": "floor_price_btc",
@@ -451,30 +439,30 @@ class MarketDataService:
                         "sold_stamps_24h": "sold_stamps_24h",
                     }
 
-                    for field, value in data.items():
-                        if field in field_mapping:
-                            update_fields.append(f"{field_mapping[field]} = %s")
-                            values.append(value)
-
-                    if not update_fields:
+                    # Filter data to only include valid fields
+                    valid_fields = {k: v for k, v in data.items() if k in field_mapping}
+                    
+                    if not valid_fields:
                         logger.warning(f"No valid fields provided for collection market data update: {collection_id}")
                         return
 
+                    # Build column names and update fields
+                    columns = [field_mapping[f] for f in valid_fields.keys()]
+                    update_fields = [f"{col} = VALUES({col})" for col in columns]
+                    
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
-                    values.append(collection_id)  # For WHERE clause
 
                     query = f"""
-                        INSERT INTO {COLLECTION_MARKET_DATA_TABLE} (collection_id, {', '.join(field_mapping[f] for f in data.keys() if f in field_mapping)}, last_updated, created_at)
-                        VALUES (UNHEX(%s), {', '.join(['%s'] * len([f for f in data.keys() if f in field_mapping]))}, NOW(), NOW())
+                        INSERT INTO {COLLECTION_MARKET_DATA_TABLE} (collection_id, {', '.join(columns)}, last_updated, created_at)
+                        VALUES (UNHEX(%s), {', '.join(['%s'] * len(columns))}, NOW(), NOW())
                         ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
                     """
 
-                    # Prepare values for INSERT
-                    insert_values = [collection_id] + [data[f] for f in data.keys() if f in field_mapping]
-                    all_values = insert_values + values
+                    # Prepare values for INSERT only
+                    values = [collection_id] + list(valid_fields.values())
 
-                    cursor.execute(query, all_values)
+                    cursor.execute(query, values)
                     db.commit()
 
                     # Invalidate cache
