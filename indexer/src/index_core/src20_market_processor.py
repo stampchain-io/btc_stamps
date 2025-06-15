@@ -162,6 +162,29 @@ class SRC20MarketDataProcessor:
             validated_freq = self._validate_integer_field(update_freq, "update_frequency_minutes", 1, 1440)  # 1 min to 1 day
             validated_data["update_frequency_minutes"] = validated_freq or DEFAULT_UPDATE_FREQUENCY
 
+            # Validate multi-source metadata fields (optional)
+            if "source_count" in data:
+                source_count = self._validate_integer_field(data["source_count"], "source_count", 0, 10)
+                if source_count is not None:
+                    validated_data["source_count"] = source_count
+
+            if "sources" in data and data["sources"] is not None:
+                if isinstance(data["sources"], list) and all(isinstance(s, str) for s in data["sources"]):
+                    validated_data["sources"] = data["sources"]
+                else:
+                    logger.warning(f"Invalid sources format, skipping: {data['sources']}")
+
+            # Validate processing metadata (optional)
+            if "processing_time_ms" in data:
+                processing_time = self._validate_integer_field(data["processing_time_ms"], "processing_time_ms", 0, 30000)
+                if processing_time is not None:
+                    validated_data["processing_time_ms"] = processing_time
+
+            if "last_updated" in data:
+                timestamp = self._validate_timestamp_field(data["last_updated"], "last_updated")
+                if timestamp is not None:
+                    validated_data["last_updated"] = timestamp
+
             logger.debug(f"Validated SRC20 market data for tick: {tick}")
             return validated_data
 
