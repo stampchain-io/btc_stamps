@@ -293,7 +293,7 @@ class MarketDataService:
 
                     # Filter data to only include valid fields
                     valid_fields = {k: v for k, v in data.items() if k in field_mapping}
-                    
+
                     if not valid_fields:
                         logger.warning(f"No valid fields provided for stamp market data update: {cpid}")
                         return
@@ -301,7 +301,7 @@ class MarketDataService:
                     # Build column names and update fields
                     columns = [field_mapping[f] for f in valid_fields.keys()]
                     update_fields = [f"{col} = VALUES({col})" for col in columns]
-                    
+
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
 
@@ -372,7 +372,7 @@ class MarketDataService:
 
                     # Filter data to only include valid fields
                     valid_fields = {k: v for k, v in data.items() if k in field_mapping}
-                    
+
                     if not valid_fields:
                         logger.warning(f"No valid fields provided for SRC-20 market data update: {tick}")
                         return
@@ -380,7 +380,7 @@ class MarketDataService:
                     # Build column names and update fields
                     columns = [field_mapping[f] for f in valid_fields.keys()]
                     update_fields = [f"{col} = VALUES({col})" for col in columns]
-                    
+
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
 
@@ -441,7 +441,7 @@ class MarketDataService:
 
                     # Filter data to only include valid fields
                     valid_fields = {k: v for k, v in data.items() if k in field_mapping}
-                    
+
                     if not valid_fields:
                         logger.warning(f"No valid fields provided for collection market data update: {collection_id}")
                         return
@@ -449,7 +449,7 @@ class MarketDataService:
                     # Build column names and update fields
                     columns = [field_mapping[f] for f in valid_fields.keys()]
                     update_fields = [f"{col} = VALUES({col})" for col in columns]
-                    
+
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
 
