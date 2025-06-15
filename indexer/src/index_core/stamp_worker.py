@@ -470,6 +470,7 @@ class StampWorker:
             holder_count = market_data.get("holder_count") or 0
             if holder_count and holder_count > 0:
                 import math
+
                 holder_score = min(3.0, math.log10(holder_count + 1) * 1.5)  # Max 3 points
                 score += holder_score
 
