@@ -323,13 +323,11 @@ class MarketDataJobScheduler:
     def _get_stamps_needing_update(self, db) -> List[str]:
         """Get list of stamp CPIDs that need market data updates."""
         from index_core.database import get_stamps_needing_market_update
-        
+
         cpids = get_stamps_needing_market_update(
-            db, 
-            update_interval_minutes=STAMP_UPDATE_INTERVAL // 60,
-            limit=STAMP_SELECTION_LIMIT
+            db, update_interval_minutes=STAMP_UPDATE_INTERVAL // 60, limit=STAMP_SELECTION_LIMIT
         )
-        
+
         logger.info(
             f"Found {len(cpids)} valid Counterparty assets needing market data updates (limit: {STAMP_SELECTION_LIMIT})"
         )
@@ -412,13 +410,13 @@ class MarketDataJobScheduler:
                     if market_data:
                         # Extract holder cache data if present
                         holder_cache_data = market_data.pop("_holder_cache_data", None)
-                        
+
                         # Debug logging for holder cache data
                         if holder_cache_data:
                             logger.debug(f"Found holder cache data for {cpid}: {len(holder_cache_data)} holders")
                         else:
                             logger.debug(f"No holder cache data found for {cpid}")
-                        
+
                         # Store the detailed market data using the service
                         market_data_service.update_stamp_market_data(cpid, market_data)
                         processed_count += 1
@@ -494,12 +492,12 @@ class MarketDataJobScheduler:
         """Process collection market data aggregation."""
         try:
             logger.debug(f"Processing collection aggregation for {collection_id}")
-            
+
             # Get all stamps in this collection
             with db.cursor() as cursor:
                 # Get collection stamps with their market data
                 query = """
-                    SELECT 
+                    SELECT
                         s.cpid,
                         s.stamp,
                         smd.floor_price_btc,
@@ -515,13 +513,13 @@ class MarketDataJobScheduler:
                 """
                 cursor.execute(query, (collection_id,))
                 stamps = cursor.fetchall()
-                
+
                 if not stamps:
                     logger.debug(f"No stamps found for collection {collection_id}")
                     return
-                
+
                 logger.debug(f"Found {len(stamps)} stamps in collection {collection_id}")
-                
+
                 # Calculate aggregated metrics
                 floor_prices = []
                 volume_24h_values = []
@@ -530,14 +528,14 @@ class MarketDataJobScheduler:
                 total_volume_values = []
                 total_stamps = len(stamps)
                 unique_holders = set()
-                
+
                 for stamp in stamps:
                     cpid, stamp_num, floor_price, holder_count, vol_24h, vol_7d, vol_30d, total_vol = stamp
-                    
+
                     # Collect floor prices (only from stamps that have active markets)
                     if floor_price is not None and float(floor_price) > 0:
                         floor_prices.append(float(floor_price))
-                    
+
                     # Aggregate volume data
                     if vol_24h is not None:
                         volume_24h_values.append(float(vol_24h))
@@ -547,19 +545,19 @@ class MarketDataJobScheduler:
                         volume_30d_values.append(float(vol_30d))
                     if total_vol is not None:
                         total_volume_values.append(float(total_vol))
-                    
+
                     # Get unique holders for this stamp
                     if cpid:
                         holder_query = """
-                            SELECT DISTINCT address 
-                            FROM stamp_holder_cache 
+                            SELECT DISTINCT address
+                            FROM stamp_holder_cache
                             WHERE cpid = %s AND quantity > 0
                         """
                         cursor.execute(holder_query, (cpid,))
                         stamp_holders = cursor.fetchall()
                         for holder in stamp_holders:
                             unique_holders.add(holder[0])
-                
+
                 # Calculate collection metrics
                 collection_data = {
                     "total_stamps": total_stamps,
@@ -572,9 +570,11 @@ class MarketDataJobScheduler:
                     "total_volume_btc": sum(total_volume_values) if total_volume_values else 0,
                     "listed_stamps": len(floor_prices),  # Stamps with active markets
                 }
-                
-                logger.debug(f"Collection {collection_id} aggregation: {len(floor_prices)} listed stamps, "
-                             f"floor: {collection_data['floor_price_btc']}, holders: {collection_data['unique_holders']}")
+
+                logger.debug(
+                    f"Collection {collection_id} aggregation: {len(floor_prices)} listed stamps, "
+                    f"floor: {collection_data['floor_price_btc']}, holders: {collection_data['unique_holders']}"
+                )
 
             market_data_service.update_collection_market_data(collection_id, collection_data)
             logger.debug(f"Updated collection market data for {collection_id}")
@@ -589,7 +589,7 @@ class MarketDataJobScheduler:
     def _populate_holder_cache(self, db, cpid: str, holder_data: List[Dict]):
         """
         Populate the stamp_holder_cache table with individual holder data.
-        
+
         Args:
             db: Database connection
             cpid: Counterparty asset ID
@@ -599,65 +599,70 @@ class MarketDataJobScheduler:
             if not holder_data:
                 logger.debug(f"No holder data provided for {cpid}")
                 return
-                
+
             logger.debug(f"Populating holder cache for {cpid} with {len(holder_data)} holders")
-            
+
             # Sort holders by quantity (descending) to assign rank positions
             sorted_holders = sorted(holder_data, key=lambda x: x["quantity"], reverse=True)
             total_supply = sum(holder["quantity"] for holder in holder_data)
-            
+
             # Perform the database operations
             with db.cursor() as cursor:
                 # Clear existing cache for this stamp
                 cursor.execute("DELETE FROM stamp_holder_cache WHERE cpid = %s", (cpid,))
                 deleted_count = cursor.rowcount
                 logger.debug(f"Deleted {deleted_count} existing holder cache records for {cpid}")
-                
+
                 # Insert new holder records
                 insert_values = []
                 for rank, holder in enumerate(sorted_holders, 1):
                     address = holder["address"]
                     quantity = holder["quantity"]
                     percentage = (quantity / total_supply * 100) if total_supply > 0 else 0
-                    
-                    insert_values.append((
-                        cpid,
-                        address,
-                        quantity,
-                        percentage,
-                        rank,
-                        "counterparty",  # balance_source
-                        None  # last_tx_block (can be added later if needed)
-                    ))
-                
+
+                    insert_values.append(
+                        (
+                            cpid,
+                            address,
+                            quantity,
+                            percentage,
+                            rank,
+                            "counterparty",  # balance_source
+                            None,  # last_tx_block (can be added later if needed)
+                        )
+                    )
+
                 # Batch insert all holders
                 if insert_values:
-                    cursor.executemany("""
-                        INSERT INTO stamp_holder_cache 
+                    cursor.executemany(
+                        """
+                        INSERT INTO stamp_holder_cache
                         (cpid, address, quantity, percentage, rank_position, balance_source, last_tx_block)
                         VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """, insert_values)
-                    
+                    """,
+                        insert_values,
+                    )
+
                     inserted_count = cursor.rowcount
                     logger.debug(f"Inserted {inserted_count} holder cache records for {cpid}")
-                    
+
                     # Verify the insertion
                     cursor.execute("SELECT COUNT(*) FROM stamp_holder_cache WHERE cpid = %s", (cpid,))
                     final_count = cursor.fetchone()[0]
                     logger.debug(f"Final holder cache count for {cpid}: {final_count}")
-                    
+
                     if final_count != len(insert_values):
                         logger.warning(f"Expected {len(insert_values)} records but found {final_count} for {cpid}")
                 else:
                     logger.debug(f"No valid holder records to insert for {cpid}")
-                    
+
             # Commit the transaction if not in autocommit mode
             try:
                 db.commit()
                 logger.debug(f"Successfully committed holder cache for {cpid}")
             except Exception as commit_error:
                 logger.debug(f"Commit not needed (likely autocommit mode) for {cpid}: {commit_error}")
-            
+
         except Exception as e:
             # Rollback on error if possible
             try:
@@ -665,7 +670,7 @@ class MarketDataJobScheduler:
                 logger.debug(f"Rolled back holder cache transaction for {cpid}")
             except Exception as rollback_error:
                 logger.debug(f"Rollback not needed (likely autocommit mode) for {cpid}: {rollback_error}")
-                
+
             logger.error(f"Error populating holder cache for {cpid}: {e}")
             raise
 

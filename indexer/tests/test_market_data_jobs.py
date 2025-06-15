@@ -7,7 +7,7 @@ with special focus on the collection ID hex string handling.
 
 import os
 import sys
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
