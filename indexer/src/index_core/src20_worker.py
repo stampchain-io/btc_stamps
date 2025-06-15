@@ -45,7 +45,7 @@ class SRC20Worker:
     Initially focuses on KuCoin API for STAMP token with extensible design
     for additional exchanges and tokens.
     """
-    
+
     # Class-level shared processor to avoid repeated initialization
     _shared_processor = None
 
