@@ -28,7 +28,7 @@ KUCOIN_API_VERSION = "v1"
 
 # SRC-20 token mappings for exchanges
 SRC20_EXCHANGE_MAPPINGS = {
-    "STAMP": {"kucoin": "STAMP-BTC", "symbol": "STAMP", "base_currency": "BTC"}
+    "STAMP": {"kucoin": "STAMP-USDT", "symbol": "STAMP", "base_currency": "USDT"}
     # Future tokens can be added here
 }
 
