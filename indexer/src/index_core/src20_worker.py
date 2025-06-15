@@ -71,44 +71,63 @@ class SRC20Worker:
             logger.debug(f"Processing market data for SRC-20 token {tick}")
             start_time = time.time()
 
-            # Check if we have exchange mapping for this token
-            if tick not in SRC20_EXCHANGE_MAPPINGS:
-                logger.debug(f"No exchange mapping found for SRC-20 token {tick}")
-                return self._create_placeholder_data(tick)
+            # Fetch market data from ALL available sources
+            source_data = {}
+            
+            # Fetch from KuCoin if we have exchange mapping for this token
+            if tick in SRC20_EXCHANGE_MAPPINGS:
+                token_config = SRC20_EXCHANGE_MAPPINGS[tick]
+                if "kucoin" in token_config:
+                    logger.debug(f"Fetching KuCoin data for {tick}")
+                    kucoin_data = self._fetch_kucoin_data(tick, token_config)
+                    if kucoin_data:
+                        source_data["kucoin"] = kucoin_data
+                        logger.debug(f"Successfully fetched KuCoin data for {tick}")
 
-            token_config = SRC20_EXCHANGE_MAPPINGS[tick]
-
-            # Fetch market data from available exchanges
-            market_data = None
-
-            # Try KuCoin first (primary exchange for STAMP)
-            if "kucoin" in token_config:
-                market_data = self._fetch_kucoin_data(tick, token_config)
-
-            # Try OpenStamp API for all SRC-20 tokens (primary data source)
-            if not market_data:
-                market_data = self._fetch_openstamp_data(tick)
+            # Always try OpenStamp API for all SRC-20 tokens
+            logger.debug(f"Fetching OpenStamp data for {tick}")
+            openstamp_data = self._fetch_openstamp_data(tick)
+            if openstamp_data:
+                source_data["openstamp"] = openstamp_data
+                logger.debug(f"Successfully fetched OpenStamp data for {tick}")
 
             # TODO: Add StampScan and other exchanges here
-            # if not market_data and "stampscan" in token_config:
-            #     market_data = self._fetch_stampscan_data(tick, token_config)
+            # if tick in SRC20_EXCHANGE_MAPPINGS and "stampscan" in SRC20_EXCHANGE_MAPPINGS[tick]:
+            #     stampscan_data = self._fetch_stampscan_data(tick, token_config)
+            #     if stampscan_data:
+            #         source_data["stampscan"] = stampscan_data
 
-            if market_data:
+            # Check if we got any data from any source
+            if not source_data:
+                logger.warning(f"Failed to fetch market data for {tick} from all sources")
+                return None
+
+            # Aggregate multi-source data
+            logger.debug(f"Aggregating data from {len(source_data)} sources for {tick}: {list(source_data.keys())}")
+            aggregated_data = self._aggregate_multi_source_data(tick, source_data)
+            
+            if aggregated_data:
                 # Add processing metadata
-                market_data["processing_time_ms"] = int((time.time() - start_time) * 1000)
-                market_data["last_updated"] = datetime.now()
+                aggregated_data["processing_time_ms"] = int((time.time() - start_time) * 1000)
+                aggregated_data["last_updated"] = datetime.now()
+                aggregated_data["source_count"] = len(source_data)
+                aggregated_data["sources"] = list(source_data.keys())
 
-                # Validate the processed data
-                validated_data = self.processor.validate_src20_market_data(market_data)
+                # Validate the aggregated data
+                validated_data = self.processor.validate_src20_market_data(aggregated_data)
                 if validated_data:
-                    logger.debug(f"Successfully processed market data for {tick}")
+                    logger.debug(f"Successfully processed aggregated market data for {tick}")
+                    
+                    # Store individual source data for transparency
+                    self._store_source_data(tick, source_data)
+                    
                     return validated_data
                 else:
                     logger.warning(f"Market data validation failed for {tick}")
                     return None
             else:
-                logger.debug(f"No market data available for {tick}")
-                return self._create_placeholder_data(tick)
+                logger.warning(f"Failed to aggregate market data for {tick}")
+                return None
 
         except Exception as e:
             logger.error(f"Error processing market data for {tick}: {e}")
@@ -584,6 +603,208 @@ class SRC20Worker:
         except Exception as e:
             logger.error(f"Error getting all available tokens: {e}")
             return []
+
+    def _aggregate_multi_source_data(self, tick: str, source_data: Dict[str, Dict]) -> Optional[Dict]:
+        """
+        Aggregate market data from multiple sources with confidence weighting.
+
+        Args:
+            tick: SRC-20 token ticker
+            source_data: Dictionary mapping source names to their data
+
+        Returns:
+            Aggregated market data dictionary
+        """
+        try:
+            # Source confidence weights (higher = more trusted)
+            confidence_weights = {
+                "kucoin": 9.0,      # High - real exchange data
+                "openstamp": 8.0,   # High - comprehensive SRC-20 data
+                "stampscan": 7.0,   # Medium-High - specialized Bitcoin stamps
+                "placeholder": 1.0   # Low - fallback data
+            }
+
+            aggregated = {
+                "tick": tick,
+                "price_btc": None,
+                "price_usd": None,
+                "volume_24h_btc": None,
+                "volume_24h_usd": None,
+                "holder_count": None,
+                "market_cap_btc": None,
+                "price_change_24h_percent": None,
+                "price_change_7d_percent": None,
+                "circulating_supply": None,
+                "max_supply": None,
+                "data_quality_score": 0.0,
+                "confidence_level": 0.0,
+                "primary_exchange": None,
+                "exchange_sources": ",".join(source_data.keys()),
+                "update_frequency_minutes": 5,
+            }
+
+            # Weighted aggregation for numeric fields
+            price_values = []
+            volume_values = []
+            holder_counts = []
+            quality_scores = []
+            total_confidence = 0.0
+
+            for source, data in source_data.items():
+                weight = confidence_weights.get(source, 5.0)  # Default medium confidence
+                total_confidence += weight
+
+                # Collect price data with weights
+                if data.get("price_btc") is not None:
+                    price_values.append((float(data["price_btc"]), weight))
+                
+                # Collect volume data with weights  
+                if data.get("volume_24h_btc") is not None:
+                    volume_values.append((float(data["volume_24h_btc"]), weight))
+
+                # Collect holder counts (use highest confidence source)
+                if data.get("holder_count") is not None:
+                    holder_counts.append((int(data["holder_count"]), weight))
+
+                # Collect quality scores
+                if data.get("data_quality_score") is not None:
+                    quality_scores.append((float(data["data_quality_score"]), weight))
+
+            # Calculate weighted averages for prices
+            if price_values:
+                weighted_price = sum(price * weight for price, weight in price_values) / sum(weight for _, weight in price_values)
+                aggregated["price_btc"] = weighted_price
+                
+                # Set primary exchange to highest confidence source with price
+                primary_source = max(
+                    [(source, confidence_weights.get(source, 5.0)) for source in source_data.keys() 
+                     if source_data[source].get("price_btc") is not None],
+                    key=lambda x: x[1],
+                    default=(None, 0)
+                )[0]
+                if primary_source:
+                    aggregated["primary_exchange"] = primary_source
+
+            # Sum volumes (different exchanges = additive volume)
+            if volume_values:
+                total_volume = sum(volume for volume, _ in volume_values)
+                aggregated["volume_24h_btc"] = total_volume
+
+            # Use highest confidence holder count
+            if holder_counts:
+                best_holder_data = max(holder_counts, key=lambda x: x[1])
+                aggregated["holder_count"] = best_holder_data[0]
+
+            # Calculate weighted quality score
+            if quality_scores:
+                weighted_quality = sum(score * weight for score, weight in quality_scores) / sum(weight for _, weight in quality_scores)
+                aggregated["data_quality_score"] = weighted_quality
+
+            # Set confidence level based on source diversity and quality
+            if total_confidence > 0:
+                # Higher confidence for multiple high-quality sources
+                source_diversity_bonus = min(len(source_data) * 0.5, 2.0)
+                base_confidence = (total_confidence / len(source_data)) if source_data else 0
+                aggregated["confidence_level"] = min(base_confidence + source_diversity_bonus, 10.0)
+
+            # Copy other fields from highest confidence source
+            best_source = max(source_data.keys(), key=lambda x: confidence_weights.get(x, 5.0))
+            best_data = source_data[best_source]
+            
+            for field in ["price_usd", "volume_24h_usd", "market_cap_btc", "circulating_supply", 
+                         "max_supply", "price_change_24h_percent", "price_change_7d_percent"]:
+                if field in best_data and best_data[field] is not None:
+                    aggregated[field] = best_data[field]
+
+            logger.debug(f"Aggregated data for {tick}: price_btc={aggregated.get('price_btc')}, "
+                        f"volume_24h_btc={aggregated.get('volume_24h_btc')}, "
+                        f"sources={aggregated['exchange_sources']}")
+
+            return aggregated
+
+        except Exception as e:
+            logger.error(f"Error aggregating multi-source data for {tick}: {e}")
+            return None
+
+    def _store_source_data(self, tick: str, source_data: Dict[str, Dict]) -> None:
+        """
+        Store individual source data in market_data_sources table for transparency.
+
+        Args:
+            tick: SRC-20 token ticker
+            source_data: Dictionary mapping source names to their data
+        """
+        try:
+            from index_core.database import insert_market_data_source
+            
+            # Get database connection
+            db = self.processor.db_manager.get_long_running_connection()
+            
+            for source, data in source_data.items():
+                # Calculate source confidence based on data quality
+                confidence = self._calculate_source_confidence(source, data)
+                
+                # Store source data record
+                source_record = {
+                    "asset_type": "src20",
+                    "asset_id": tick,
+                    "source_name": source,
+                    "price_btc": data.get("price_btc"),
+                    "volume_24h_btc": data.get("volume_24h_btc"),
+                    "holder_count": data.get("holder_count"),
+                    "market_cap_btc": data.get("market_cap_btc"),
+                    "source_confidence": confidence,
+                    "api_response_time_ms": data.get("processing_time_ms", 0),
+                    "last_updated": data.get("last_updated") or datetime.now(),
+                    "success_rate_24h": 100.0,  # TODO: Track this over time
+                    "consecutive_failures": 0,   # TODO: Track this over time
+                    "last_success": datetime.now(),
+                    "last_failure": None,
+                }
+                
+                try:
+                    insert_market_data_source(db, source_record)
+                    logger.debug(f"Stored source data for {tick} from {source}")
+                except Exception as e:
+                    logger.warning(f"Failed to store source data for {tick} from {source}: {e}")
+            
+            db.close()
+            
+        except Exception as e:
+            logger.error(f"Error storing source data for {tick}: {e}")
+
+    def _calculate_source_confidence(self, source: str, data: Dict) -> float:
+        """
+        Calculate confidence score for a data source based on data quality.
+
+        Args:
+            source: Source name
+            data: Source data dictionary
+
+        Returns:
+            Confidence score (0-10)
+        """
+        base_confidence = {
+            "kucoin": 9.0,
+            "openstamp": 8.0,
+            "stampscan": 7.0,
+            "placeholder": 1.0
+        }.get(source, 5.0)
+
+        # Adjust based on data completeness
+        has_price = data.get("price_btc") is not None
+        has_volume = data.get("volume_24h_btc") is not None
+        has_holders = data.get("holder_count") is not None
+        
+        completeness_bonus = 0
+        if has_price:
+            completeness_bonus += 1.0
+        if has_volume:
+            completeness_bonus += 0.5
+        if has_holders:
+            completeness_bonus += 0.5
+
+        return min(base_confidence + completeness_bonus, 10.0)
 
     def get_active_tokens(self, min_volume: float = 0.0, min_holders: int = 1) -> List[str]:
         """
