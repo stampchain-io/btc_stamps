@@ -293,7 +293,7 @@ class TestMarketDataJobScheduler:
 
                     # Verify StampWorker was used
                     mock_worker_class.assert_called()
-                    
+
                     # Verify worker method was called for each CPID
                     assert mock_worker.process_stamp_market_data.call_count == 2
                     mock_worker.process_stamp_market_data.assert_any_call("CPID1")
