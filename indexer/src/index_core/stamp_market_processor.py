@@ -69,6 +69,11 @@ class StampMarketDataProcessor:
         try:
             validated_data = {}
 
+            # Preserve internal fields (those starting with _) without validation
+            for key in data:
+                if key.startswith("_"):
+                    validated_data[key] = data[key]
+
             # Validate CPID (required field)
             cpid = data.get("cpid")
             if not cpid or not isinstance(cpid, str):

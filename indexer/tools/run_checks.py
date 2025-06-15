@@ -158,6 +158,7 @@ def run_code_quality_checks(auto_fix=False):
             # Market data functionality tests
             "tests/test_market_data_service.py",
             "tests/test_market_data_jobs.py",
+            "tests/test_holder_cache_fix.py",
             # Reparse functionality tests
             "tests/test_reparse_snapshot.py",
             "tests/test_reparse_snapshot_db.py",
