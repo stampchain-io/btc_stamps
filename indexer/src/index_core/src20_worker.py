@@ -336,7 +336,7 @@ class SRC20Worker:
             logger.error(f"Error calculating KuCoin quality score: {e}")
             return 5.0  # Default medium quality
 
-    def _determine_kucoin_confidence_level(self, market_data: Dict) -> str:
+    def _determine_kucoin_confidence_level(self, market_data: Dict) -> float:
         """
         Determine confidence level for KuCoin data.
 
@@ -344,25 +344,25 @@ class SRC20Worker:
             market_data: Dictionary with market data
 
         Returns:
-            Confidence level string
+            Confidence level as float (0.0-10.0)
         """
         try:
             quality_score = market_data.get("quality_score", 0)
             volume_24h = market_data.get("volume_24h_btc", 0)
 
-            # Higher confidence for higher volume
+            # Higher confidence for higher volume (return numeric values)
             if quality_score >= 8.0 and volume_24h > 0.001:  # > 0.001 BTC volume
-                return "high"
+                return 9.0  # High confidence
             elif quality_score >= 6.0 and volume_24h > 0.0001:  # > 0.0001 BTC volume
-                return "medium"
+                return 7.0  # Medium confidence
             elif quality_score >= 4.0:
-                return "low"
+                return 5.0  # Low confidence
             else:
-                return "very_low"
+                return 3.0  # Very low confidence
 
         except Exception as e:
             logger.error(f"Error determining KuCoin confidence level: {e}")
-            return "medium"
+            return 5.0  # Default medium confidence
 
     def _create_placeholder_data(self, tick: str) -> Dict:
         """
