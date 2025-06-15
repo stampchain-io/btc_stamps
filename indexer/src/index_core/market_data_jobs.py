@@ -368,7 +368,7 @@ class MarketDataJobScheduler:
             try:
                 from index_core.src20_worker import get_all_src20_tokens
 
-                # Get complete list of all tokens available on OpenStamp  
+                # Get complete list of all tokens available on OpenStamp
                 openstamp_tokens = set(get_all_src20_tokens())
 
                 if openstamp_tokens:
