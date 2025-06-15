@@ -15,9 +15,10 @@ from typing import Dict, List, Optional
 
 import config
 from index_core.database import initialize_db
-from index_core.fetch_utils import RateLimiter, get_xcp_assets_by_cpids, is_valid_counterparty_asset
+from index_core.fetch_utils import RateLimiter, is_valid_counterparty_asset
 from index_core.market_data_service import market_data_service
-# Worker imports removed - using batch processing methods instead
+from index_core.src20_worker import SRC20Worker
+from index_core.stamp_worker import StampWorker
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,8 @@ STAMP_BATCH_SIZE = 100
 SRC20_BATCH_SIZE = 50
 MAX_WORKERS = 3
 
-# Rate limiting for external APIs
+# Rate limiting for external APIs (workers have their own rate limiters)
 COUNTERPARTY_RATE_LIMITER = RateLimiter(calls_per_second=2.0)
-EXCHANGE_RATE_LIMITER = RateLimiter(calls_per_second=1.0)
 
 
 class MarketDataJobScheduler:
@@ -387,7 +387,7 @@ class MarketDataJobScheduler:
             return []
 
     def _process_stamp_batch(self, db, stamp_cpids: List[str]):
-        """Process a batch of stamps for market data updates."""
+        """Process a batch of stamps for market data updates with detailed analysis."""
         try:
             # Filter out SRC-20 hash tokens that don't exist in Counterparty API
             # Separate valid Counterparty assets from SRC-20 hash tokens
@@ -403,28 +403,42 @@ class MarketDataJobScheduler:
                 logger.debug("No valid Counterparty assets in batch, skipping API call")
                 return
 
-            # Rate limiting for Counterparty API
-            COUNTERPARTY_RATE_LIMITER.acquire(len(valid_cpids))
+            logger.debug(f"Processing detailed market data for {len(valid_cpids)} valid stamps")
 
-            # Get asset details from Counterparty API (following existing pattern)
-            assets_details = get_xcp_assets_by_cpids(valid_cpids, chunk_size=50, delay_between_chunks=3, max_workers=2)
+            # Use StampWorker for detailed market data processing
+            # This provides comprehensive analysis: dispensers, dispenses, balances, volume metrics, etc.
+            stamp_worker = StampWorker()
+            processed_count = 0
+            error_count = 0
 
-            if assets_details:
-                # Process each asset and update market data
-                for asset in assets_details:
-                    if self.shutdown_event.is_set():
-                        break
+            for cpid in valid_cpids:
+                if self.shutdown_event.is_set():
+                    logger.info("Shutdown requested, stopping stamp processing")
+                    break
 
-                    cpid = asset.get("asset")
-                    if cpid:
-                        # Use the market data service to update stamp data
-                        market_data = self._transform_counterparty_asset_to_market_data(asset)
-                        if market_data:
-                            market_data_service.update_stamp_market_data(cpid, market_data)
+                try:
+                    # StampWorker.process_stamp_market_data() includes validation and comprehensive analysis
+                    market_data = stamp_worker.process_stamp_market_data(cpid)
 
-                logger.debug(f"Processed {len(assets_details)} stamps in batch")
-            else:
-                logger.warning("No asset details retrieved for stamp batch")
+                    if market_data:
+                        # Store the detailed market data using the service
+                        market_data_service.update_stamp_market_data(cpid, market_data)
+                        processed_count += 1
+
+                        if processed_count % 5 == 0:  # Log every 5 successful updates
+                            logger.debug(f"✅ Processed {processed_count}/{len(valid_cpids)} stamps in batch")
+                    else:
+                        error_count += 1
+                        logger.debug(f"No market data generated for {cpid}")
+
+                except Exception as e:
+                    error_count += 1
+                    logger.warning(f"Error processing detailed market data for {cpid}: {e}")
+
+            success_rate = (processed_count / len(valid_cpids) * 100) if valid_cpids else 0
+            logger.debug(
+                f"Batch complete: {processed_count}/{len(valid_cpids)} stamps processed ({success_rate:.1f}% success)"
+            )
 
         except Exception as e:
             logger.error(f"Error processing stamp batch: {e}")
@@ -432,29 +446,41 @@ class MarketDataJobScheduler:
     def _process_src20_batch(self, db, token_ticks: List[str]):
         """Process a batch of SRC-20 tokens for market data updates."""
         try:
-            # Rate limiting for exchange APIs
-            EXCHANGE_RATE_LIMITER.acquire(len(token_ticks))
+            logger.debug(f"Processing SRC-20 market data for {len(token_ticks)} tokens")
 
-            # TODO: Implement exchange API calls for SRC-20 tokens
-            # This will be implemented in subsequent subtasks (3.3)
-            # For now, create placeholder market data
+            # Use SRC20Worker for consistent processing pattern
+            src20_worker = SRC20Worker()
+            processed_count = 0
+            error_count = 0
 
             for tick in token_ticks:
                 if self.shutdown_event.is_set():
+                    logger.info("Shutdown requested, stopping SRC-20 processing")
                     break
 
-                # Placeholder market data (will be replaced with real exchange data)
-                market_data = {
-                    "floor_price_btc": None,
-                    "volume_24h_btc": None,
-                    "holder_count": None,
-                    "primary_exchange": "placeholder",
-                    "data_quality_score": 1.0,
-                }
+                try:
+                    # SRC20Worker currently has placeholder implementation
+                    # TODO: This will be enhanced with real exchange API integration
+                    market_data = src20_worker.process_src20_market_data(tick)
 
-                market_data_service.update_src20_market_data(tick, market_data)
+                    if market_data:
+                        market_data_service.update_src20_market_data(tick, market_data)
+                        processed_count += 1
 
-            logger.debug(f"Processed {len(token_ticks)} SRC-20 tokens in batch")
+                        if processed_count % 5 == 0:  # Log every 5 successful updates
+                            logger.debug(f"✅ Processed {processed_count}/{len(token_ticks)} SRC-20 tokens in batch")
+                    else:
+                        error_count += 1
+                        logger.debug(f"No market data generated for SRC-20 {tick}")
+
+                except Exception as e:
+                    error_count += 1
+                    logger.warning(f"Error processing SRC-20 market data for {tick}: {e}")
+
+            success_rate = (processed_count / len(token_ticks) * 100) if token_ticks else 0
+            logger.debug(
+                f"SRC-20 batch complete: {processed_count}/{len(token_ticks)} tokens processed ({success_rate:.1f}% success)"
+            )
 
         except Exception as e:
             logger.error(f"Error processing SRC-20 batch: {e}")
@@ -479,31 +505,7 @@ class MarketDataJobScheduler:
         except Exception as e:
             logger.error(f"Error processing collection {collection_id}: {e}")
 
-    def _transform_counterparty_asset_to_market_data(self, asset: Dict) -> Optional[Dict]:
-        """Transform Counterparty asset data to market data format."""
-        try:
-            # Extract relevant data from Counterparty asset
-            cpid = asset.get("asset")
-            if not cpid:
-                return None
-
-            # Basic market data structure
-            market_data = {
-                "floor_price_btc": None,  # Will be calculated from dispensers
-                "volume_24h_btc": None,  # Will be calculated from dispenses
-                "holder_count": None,  # Will be calculated from balances
-                "price_source": "counterparty",
-                "data_quality_score": 8.0,  # High quality for Counterparty data
-            }
-
-            # TODO: Add more sophisticated data transformation
-            # This will be enhanced in subsequent subtasks
-
-            return market_data
-
-        except Exception as e:
-            logger.error(f"Error transforming asset data: {e}")
-            return None
+    # Removed _transform_counterparty_asset_to_market_data method - now using StampWorker for detailed processing
 
     def _split_into_batches(self, items: List, batch_size: int) -> List[List]:
         """Split a list into batches of specified size."""
