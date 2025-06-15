@@ -173,6 +173,9 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_pipeline_executor_lifecycle.py",
             # SRC-20 thread safety and locking mechanism tests
             "tests/thread_safety/test_thread_safety.py",
+            # Filesize tracking and utility function tests
+            "tests/test_filesize_tracking.py",
+            "tests/test_util_functions.py",
         ]
 
         for test_file in test_files:
