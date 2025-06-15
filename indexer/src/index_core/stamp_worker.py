@@ -232,7 +232,7 @@ class StampWorker:
             if balances:
                 holder_metrics = self._calculate_holder_metrics(balances)
                 market_data.update(holder_metrics)
-                
+
                 # Store holder cache data separately for database population
                 if "holder_cache_data" in holder_metrics:
                     market_data["_holder_cache_data"] = holder_metrics.pop("holder_cache_data")
@@ -382,16 +382,13 @@ class StampWorker:
                     if quantity > 0 and address:
                         quantities.append(quantity)
                         total_supply += quantity
-                        valid_balances.append({
-                            "address": address,
-                            "quantity": quantity
-                        })
+                        valid_balances.append({"address": address, "quantity": quantity})
                 except (ValueError, TypeError):
                     continue
 
             # Use valid holder count (not raw balance count)
             holder_count = len(valid_balances)
-            
+
             logger.debug(f"Processed {len(balances)} raw balances, found {holder_count} valid holders with positive balance")
 
             holder_metrics: Dict[str, Any] = {

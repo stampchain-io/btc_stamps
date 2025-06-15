@@ -7,7 +7,7 @@ with special focus on the collection ID hex string handling.
 
 import os
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 
 import pytest
 
@@ -23,9 +23,12 @@ class TestMarketDataJobScheduler:
         """Set up test fixtures."""
         self.scheduler = MarketDataJobScheduler()
 
-        # Mock database
-        self.mock_db = Mock()
-        self.mock_cursor = Mock()
+        # Mock database connection with proper context manager support
+        self.mock_db = MagicMock()
+        self.mock_cursor = MagicMock()
+        self.mock_db.cursor.return_value.__enter__.return_value = self.mock_cursor
+        self.mock_db.cursor.return_value.__exit__.return_value = None
+        # Also support direct cursor access for backwards compatibility
         self.mock_db.cursor.return_value = self.mock_cursor
 
     def test_get_collections_needing_update_returns_hex_strings(self):
@@ -178,21 +181,21 @@ class TestMarketDataJobScheduler:
     def test_get_stamps_needing_update_calls_database_function(self):
         """Test that _get_stamps_needing_update uses the database function correctly."""
         expected_cpids = ["A1234567890123456789", "FUCKTHAT", "LEGENDARYBAR"]
-        
+
         # Patch the database function
         with patch("index_core.database.get_stamps_needing_market_update") as mock_get_stamps:
             mock_get_stamps.return_value = expected_cpids
-            
+
             # Call the method
             result = self.scheduler._get_stamps_needing_update(self.mock_db)
-            
+
             # Verify the database function was called with correct parameters
             mock_get_stamps.assert_called_once_with(
                 self.mock_db,
                 update_interval_minutes=15,  # STAMP_UPDATE_INTERVAL // 60
-                limit=10000  # STAMP_SELECTION_LIMIT (new value)
+                limit=10000,  # STAMP_SELECTION_LIMIT (new value)
             )
-            
+
             # Verify result is returned correctly
             assert result == expected_cpids
 
@@ -257,7 +260,7 @@ class TestMarketDataJobScheduler:
             # Mock the database function to return specific CPIDs
             with patch("index_core.database.get_stamps_needing_market_update") as mock_get_stamps:
                 mock_get_stamps.return_value = ["CPID1", "CPID2"]
-                
+
                 with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
                     with patch("index_core.market_data_jobs.market_data_service") as mock_service:
                         # Note: CPIDs are now pre-filtered with ident='STAMP' in SQL, no validation needed
