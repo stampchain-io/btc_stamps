@@ -2413,12 +2413,12 @@ def get_stamps_needing_market_update(db: Connection, update_interval_minutes: in
     """
     Get list of stamp CPIDs that need market data updates.
     Includes stamps with ident='STAMP' or ident='SRC-721'.
-    
+
     Args:
         db: Database connection
         update_interval_minutes: Minutes since last update
         limit: Maximum number of stamps to return
-        
+
     Returns:
         List of CPIDs needing updates
     """
@@ -2438,11 +2438,11 @@ def get_stamps_needing_market_update(db: Connection, update_interval_minutes: in
                 ORDER BY s.block_index DESC
                 LIMIT %s
             """  # nosec
-            
+
             cursor.execute(query, (update_interval_minutes, limit))
             results = cursor.fetchall()
             return [row[0] for row in results]
-            
+
     except Exception as e:
         logger.error(f"Error getting stamps needing market update: {e}")
         return []
