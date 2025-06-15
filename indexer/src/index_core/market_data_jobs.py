@@ -324,12 +324,18 @@ class MarketDataJobScheduler:
         """Get list of stamp CPIDs that need market data updates."""
         try:
             # Query for stamps that haven't been updated recently or have no market data
-            # OPTIMIZED: Filter for traditional stamps only (exclude SRC-20 tokens) using ident field
+            # OPTIMIZED: Filter for all valid Counterparty assets (including cursed named assets)
             query = """
             SELECT DISTINCT s.cpid
             FROM StampTableV4 s
             LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
-            WHERE s.ident = 'STAMP'                 -- Only traditional stamps with valid Counterparty CPIDs
+            WHERE (
+                -- Traditional Counterparty assets: A + digits (13+ chars)
+                (s.cpid LIKE 'A%' AND LENGTH(s.cpid) >= 13 AND SUBSTRING(s.cpid, 2) REGEXP '^[0-9]+$')
+                OR 
+                -- Named Counterparty assets: pure alphabetic (cursed stamps like FUCKTHAT, LEGENDARYBAR)
+                s.cpid REGEXP '^[A-Za-z]+$'
+            )
             AND (
                 smd.last_updated IS NULL
                 OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
@@ -344,7 +350,7 @@ class MarketDataJobScheduler:
             cursor.close()
 
             logger.info(
-                f"Found {len(results)} traditional stamps (ident=STAMP) needing market data updates (limit: {STAMP_SELECTION_LIMIT})"
+                f"Found {len(results)} valid Counterparty assets needing market data updates (limit: {STAMP_SELECTION_LIMIT})"
             )
             return [row[0] for row in results]
 
