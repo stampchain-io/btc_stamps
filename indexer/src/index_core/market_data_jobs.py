@@ -17,8 +17,7 @@ import config
 from index_core.database import initialize_db
 from index_core.fetch_utils import RateLimiter, get_xcp_assets_by_cpids, is_valid_counterparty_asset
 from index_core.market_data_service import market_data_service
-from index_core.src20_worker import SRC20Worker
-from index_core.stamp_worker import StampWorker
+# Worker imports removed - using batch processing methods instead
 
 logger = logging.getLogger(__name__)
 
@@ -589,50 +588,48 @@ def update_market_data_async(db):
                 start_time = time.time()
                 logger.info("🔄 Starting stamp market data update cycle")
 
-                # Process stamps in batches
-                processed_count = 0
-                error_count = 0
+                # Create a database connection for this job
+                task_db = initialize_db()
 
-                # Get stamps needing updates (simplified for example)
-                stamps_to_update = self._get_stamps_needing_update()
-                total_stamps = len(stamps_to_update)
+                try:
+                    # Get stamps needing updates
+                    stamps_to_update = self._get_stamps_needing_update(task_db)
+                    total_stamps = len(stamps_to_update)
 
-                logger.info(f"📊 Processing {total_stamps} stamps for market data updates")
+                    if not stamps_to_update:
+                        logger.info("No stamps need market data updates")
+                        time.sleep(self.stamp_interval * 60)
+                        continue
 
-                for batch_start in range(0, total_stamps, 50):  # Process in batches of 50
-                    batch = stamps_to_update[batch_start : batch_start + 50]
-                    batch_num = (batch_start // 50) + 1
-                    total_batches = (total_stamps + 49) // 50
+                    logger.info(f"📊 Processing {total_stamps} stamps for market data updates")
 
-                    logger.info(f"🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
+                    # Process in batches using the existing validated batch processing method
+                    batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
+                    total_batches = len(batches)
 
-                    for stamp in batch:
-                        try:
-                            worker = StampWorker()
-                            success = worker.process_stamp_market_data(stamp["cpid"])
+                    for batch_num, batch in enumerate(batches, 1):
+                        if self.shutdown_event.is_set():
+                            logger.info("Shutdown requested, stopping stamp updates")
+                            break
 
-                            if success:
-                                processed_count += 1
-                                if processed_count % 10 == 0:  # Log every 10 successful updates
-                                    logger.info(f"✅ Processed {processed_count}/{total_stamps} stamps successfully")
-                            else:
-                                error_count += 1
+                        logger.info(f"🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
 
-                        except Exception as e:
-                            error_count += 1
-                            logger.error(f"❌ Error processing stamp {stamp['cpid']}: {str(e)}")
+                        # Use the existing batch processing method (which includes validation)
+                        self._process_stamp_batch(task_db, batch)
 
-                    # Rate limiting between batches
-                    time.sleep(2.0)  # 2 second delay between batches
+                        # Rate limiting between batches
+                        if not self.shutdown_event.is_set():
+                            time.sleep(2.0)  # 2 second delay between batches
 
-                duration = time.time() - start_time
-                success_rate = (processed_count / total_stamps * 100) if total_stamps > 0 else 0
+                    duration = time.time() - start_time
+                    logger.info("📊 Stamp Update Cycle Complete:")
+                    logger.info(f"   📊 Total stamps processed: {total_stamps}")
+                    logger.info(f"   📦 Total batches: {total_batches}")
+                    logger.info(f"   ⏱️  Duration: {duration:.1f}s")
+                    logger.info(f"   🔄 Next cycle in {self.stamp_interval} minutes")
 
-                logger.info("📊 Stamp Update Cycle Complete:")
-                logger.info(f"   ✅ Processed: {processed_count}/{total_stamps} stamps ({success_rate:.1f}% success)")
-                logger.info(f"   ❌ Errors: {error_count}")
-                logger.info(f"   ⏱️  Duration: {duration:.1f}s")
-                logger.info(f"   🔄 Next cycle in {self.stamp_interval} minutes")
+                finally:
+                    task_db.close()
 
                 # Wait for next cycle
                 time.sleep(self.stamp_interval * 60)
@@ -650,41 +647,48 @@ def update_market_data_async(db):
                 start_time = time.time()
                 logger.info("🔄 Starting SRC-20 market data update cycle")
 
-                # Get SRC-20 tokens needing updates
-                tokens_to_update = self._get_src20_tokens_needing_update()
-                total_tokens = len(tokens_to_update)
+                # Create a database connection for this job
+                task_db = initialize_db()
 
-                logger.info(f"🪙 Processing {total_tokens} SRC-20 tokens for market data updates")
+                try:
+                    # Get SRC-20 tokens needing updates
+                    tokens_to_update = self._get_src20_tokens_needing_update(task_db)
+                    total_tokens = len(tokens_to_update)
 
-                processed_count = 0
-                error_count = 0
+                    if not tokens_to_update:
+                        logger.info("No SRC-20 tokens need market data updates")
+                        time.sleep(self.src20_interval * 60)
+                        continue
 
-                for token in tokens_to_update:
-                    try:
-                        worker = SRC20Worker()
-                        success = worker.process_src20_market_data(token["tick"])
+                    logger.info(f"🪙 Processing {total_tokens} SRC-20 tokens for market data updates")
 
-                        if success:
-                            processed_count += 1
-                            logger.info(f"✅ Updated {token['tick']} market data")
-                        else:
-                            error_count += 1
+                    # Process in batches using the existing batch processing method
+                    batches = self._split_into_batches(tokens_to_update, SRC20_BATCH_SIZE)
+                    total_batches = len(batches)
 
-                    except Exception as e:
-                        error_count += 1
-                        logger.error(f"❌ Error processing SRC-20 {token['tick']}: {str(e)}")
+                    for batch_num, batch in enumerate(batches, 1):
+                        if self.shutdown_event.is_set():
+                            logger.info("Shutdown requested, stopping SRC-20 updates")
+                            break
 
-                    # Rate limiting between tokens
-                    time.sleep(1.0 / self.exchange_rate_limit)
+                        logger.info(f"🔄 Processing SRC-20 batch {batch_num}/{total_batches} ({len(batch)} tokens)")
 
-                duration = time.time() - start_time
-                success_rate = (processed_count / total_tokens * 100) if total_tokens > 0 else 0
+                        # Use the existing batch processing method
+                        self._process_src20_batch(task_db, batch)
 
-                logger.info("🪙 SRC-20 Update Cycle Complete:")
-                logger.info(f"   ✅ Processed: {processed_count}/{total_tokens} tokens ({success_rate:.1f}% success)")
-                logger.info(f"   ❌ Errors: {error_count}")
-                logger.info(f"   ⏱️  Duration: {duration:.1f}s")
-                logger.info(f"   🔄 Next cycle in {self.src20_interval} minutes")
+                        # Rate limiting between batches
+                        if not self.shutdown_event.is_set():
+                            time.sleep(1.0)  # 1 second delay between batches
+
+                    duration = time.time() - start_time
+                    logger.info("🪙 SRC-20 Update Cycle Complete:")
+                    logger.info(f"   🪙 Total tokens processed: {total_tokens}")
+                    logger.info(f"   📦 Total batches: {total_batches}")
+                    logger.info(f"   ⏱️  Duration: {duration:.1f}s")
+                    logger.info(f"   🔄 Next cycle in {self.src20_interval} minutes")
+
+                finally:
+                    task_db.close()
 
                 # Wait for next cycle
                 time.sleep(self.src20_interval * 60)
