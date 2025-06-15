@@ -540,5 +540,199 @@ class TestMarketDataIntegration:
         assert result["floor_price_btc"] == Decimal("0.001")
 
 
+class TestMarketDataBugFixes:
+    """Test cases specifically for the SQL query construction and collection ID bugs fixed."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_db_manager = Mock()
+        self.mock_db = Mock()
+        self.mock_cursor = Mock()
+
+        # Setup mock database connection with context manager support
+        self.mock_db_manager.connect.return_value = self.mock_db
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = self.mock_cursor
+        cursor_context.__exit__.return_value = None
+        self.mock_db.cursor.return_value = cursor_context
+
+        # Create service instance with mocked dependencies
+        self.service = MarketDataService(self.mock_db_manager)
+
+    def test_update_src20_sql_query_construction(self):
+        """Test that SQL query uses VALUES() function correctly for ON DUPLICATE KEY UPDATE."""
+        tick = "TEST"
+        data = {
+            "floor_price_btc": Decimal("0.00001234"),
+            "volume_24h_btc": Decimal("0.123"),
+            "holder_count": 100,
+            "primary_exchange": "test_exchange",
+            "data_quality_score": 8.0,
+        }
+
+        with patch("index_core.caching.cache_manager.invalidate_cache_entry"):
+            self.service.update_src20_market_data(tick, data)
+
+        # Get the executed SQL query and parameters
+        execute_call = self.mock_cursor.execute.call_args
+        sql_query = execute_call[0][0]
+        sql_params = execute_call[0][1]
+
+        # Verify VALUES() function is used in UPDATE clause
+        assert "ON DUPLICATE KEY UPDATE" in sql_query
+        assert "floor_price_btc = VALUES(floor_price_btc)" in sql_query
+        assert "volume_24h_btc = VALUES(volume_24h_btc)" in sql_query
+        assert "holder_count = VALUES(holder_count)" in sql_query
+        assert "primary_exchange = VALUES(primary_exchange)" in sql_query
+        assert "data_quality_score = VALUES(data_quality_score)" in sql_query
+        assert "last_updated = NOW()" in sql_query
+
+        # Verify parameter count matches placeholders
+        # Should have: tick + 5 data fields = 6 parameters
+        assert len(sql_params) == 6
+        assert sql_params[0] == tick
+        assert sql_params[1] == Decimal("0.00001234")
+        assert sql_params[2] == Decimal("0.123")
+        assert sql_params[3] == 100
+        assert sql_params[4] == "test_exchange"
+        assert sql_params[5] == 8.0
+
+    def test_update_collection_hex_string_handling(self):
+        """Test that collection IDs are properly handled as hex strings with UNHEX()."""
+        collection_id = "EC179CF4CAA43C3A02C6C8B05F3DDAEE"
+        data = {
+            "floor_price_btc": Decimal("0.001"),
+            "total_volume_btc": Decimal("10.5"),
+            "unique_holders": 250,
+        }
+
+        with patch("index_core.caching.cache_manager.invalidate_cache_entry"):
+            self.service.update_collection_market_data(collection_id, data)
+
+        # Get the executed SQL query
+        execute_call = self.mock_cursor.execute.call_args
+        sql_query = execute_call[0][0]
+        sql_params = execute_call[0][1]
+
+        # Verify UNHEX is used for collection_id
+        assert "VALUES (UNHEX(%s)" in sql_query
+
+        # Verify first parameter is the hex string
+        assert sql_params[0] == collection_id
+        assert isinstance(sql_params[0], str)
+        assert len(sql_params[0]) == 32  # Hex string should be 32 chars
+
+    def test_field_filtering_removes_invalid_fields(self):
+        """Test that invalid fields are filtered out before SQL construction."""
+        data = {
+            "floor_price_btc": Decimal("0.001"),
+            "invalid_field1": "should_be_ignored",
+            "tick": "should_be_ignored",  # Primary key
+            "cpid": "should_be_ignored",  # Primary key
+            "collection_id": "should_be_ignored",  # Primary key
+            "holder_count": 100,
+            "last_updated": datetime.now(),  # Should be ignored - auto-set
+            "created_at": datetime.now(),  # Should be ignored - auto-set
+        }
+
+        with patch("index_core.caching.cache_manager.invalidate_cache_entry"):
+            self.service.update_src20_market_data("TEST", data)
+
+        # Get the executed SQL query
+        execute_call = self.mock_cursor.execute.call_args
+        sql_query = execute_call[0][0]
+        sql_params = execute_call[0][1]
+
+        # Verify invalid fields are not in query
+        assert "invalid_field1" not in sql_query
+        assert "tick" not in sql_query.split("(")[2]  # Not in column list
+
+        # Verify only valid fields are in parameters
+        # Should only have: tick + floor_price_btc + holder_count = 3 parameters
+        assert len(sql_params) == 3
+        assert sql_params[0] == "TEST"
+        assert sql_params[1] == Decimal("0.001")
+        assert sql_params[2] == 100
+
+    def test_empty_data_logs_warning(self):
+        """Test that empty data dict logs warning and returns without executing."""
+        with patch("index_core.market_data_service.logger") as mock_logger:
+            self.service.update_stamp_market_data("CPID", {})
+
+        # Verify warning was logged
+        mock_logger.warning.assert_called_once()
+        assert "No valid fields provided" in mock_logger.warning.call_args[0][0]
+
+        # Verify no SQL was executed
+        self.mock_cursor.execute.assert_not_called()
+
+    def test_get_collection_with_hex_query(self):
+        """Test that get_collection_market_data uses HEX() in SELECT query."""
+        collection_id = "EC179CF4CAA43C3A02C6C8B05F3DDAEE"
+
+        # Mock cache miss to force DB query
+        with patch("index_core.caching.cache_manager.get_cache_value", return_value=None):
+            self.mock_cursor.fetchone.return_value = None  # No data found
+            self.service.get_collection_market_data(collection_id)
+
+        # Get the executed SQL query
+        execute_call = self.mock_cursor.execute.call_args
+        sql_query = execute_call[0][0]
+        sql_params = execute_call[0][1]
+
+        # Verify HEX() is used in SELECT
+        assert "HEX(collection_id) as collection_id" in sql_query
+
+        # Verify UNHEX() is used in WHERE clause
+        assert "WHERE collection_id = UNHEX(%s)" in sql_query
+
+        # Verify parameter is hex string
+        assert sql_params[0] == collection_id
+
+    def test_decimal_precision_preserved(self):
+        """Test that Decimal precision is preserved through update."""
+        data = {
+            "floor_price_btc": Decimal("0.123456789012345678"),  # High precision
+            "volume_24h_btc": Decimal("1234567890.123456789"),  # Large number with decimals
+        }
+
+        with patch("index_core.caching.cache_manager.invalidate_cache_entry"):
+            self.service.update_stamp_market_data("CPID", data)
+
+        # Get the parameters passed to execute
+        execute_call = self.mock_cursor.execute.call_args
+        sql_params = execute_call[0][1]
+
+        # Find the Decimal values in parameters
+        decimal_values = [p for p in sql_params if isinstance(p, Decimal)]
+
+        # Verify precision is preserved
+        assert Decimal("0.123456789012345678") in decimal_values
+        assert Decimal("1234567890.123456789") in decimal_values
+
+    def test_null_values_handled_correctly(self):
+        """Test that None/NULL values are properly handled."""
+        data = {
+            "floor_price_btc": None,
+            "volume_24h_btc": None,
+            "holder_count": 0,  # Zero should be allowed
+            "data_quality_score": None,
+        }
+
+        with patch("index_core.caching.cache_manager.invalidate_cache_entry"):
+            self.service.update_stamp_market_data("CPID", data)
+
+        # Get the parameters
+        execute_call = self.mock_cursor.execute.call_args
+        sql_params = execute_call[0][1]
+
+        # Count None values (excluding the CPID)
+        none_count = sql_params[1:].count(None)
+        assert none_count == 3  # Three None values
+
+        # Verify zero is preserved
+        assert 0 in sql_params
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
