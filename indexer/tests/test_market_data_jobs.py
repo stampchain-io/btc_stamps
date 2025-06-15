@@ -177,7 +177,7 @@ class TestMarketDataJobScheduler:
 
     def test_get_stamps_needing_update_calls_database_function(self):
         """Test that _get_stamps_needing_update uses the database function correctly."""
-        expected_cpids = ["CPID1", "CPID2", "CPID3"]
+        expected_cpids = ["A1234567890123456789", "FUCKTHAT", "LEGENDARYBAR"]
         
         # Patch the database function
         with patch("index_core.database.get_stamps_needing_market_update") as mock_get_stamps:
