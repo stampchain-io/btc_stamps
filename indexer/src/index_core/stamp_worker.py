@@ -257,6 +257,7 @@ class StampWorker:
         try:
             active_dispensers = []
             total_dispensers = len(dispensers)
+            rates = []  # Initialize rates outside conditional block to avoid UnboundLocalError
 
             for dispenser in dispensers:
                 status = dispenser.get("status", 1)
@@ -268,7 +269,6 @@ class StampWorker:
             # Calculate floor price from active dispensers
             floor_price_btc = None
             if active_dispensers:
-                rates = []
                 for dispenser in active_dispensers:
                     satoshirate = dispenser.get("satoshirate")
                     if satoshirate and float(satoshirate) > 0:
