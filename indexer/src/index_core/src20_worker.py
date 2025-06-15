@@ -73,7 +73,7 @@ class SRC20Worker:
 
             # Fetch market data from ALL available sources
             source_data = {}
-            
+
             # Fetch from KuCoin if we have exchange mapping for this token
             if tick in SRC20_EXCHANGE_MAPPINGS:
                 token_config = SRC20_EXCHANGE_MAPPINGS[tick]
@@ -105,7 +105,7 @@ class SRC20Worker:
             # Aggregate multi-source data
             logger.debug(f"Aggregating data from {len(source_data)} sources for {tick}: {list(source_data.keys())}")
             aggregated_data = self._aggregate_multi_source_data(tick, source_data)
-            
+
             if aggregated_data:
                 # Add processing metadata
                 aggregated_data["processing_time_ms"] = int((time.time() - start_time) * 1000)
@@ -117,10 +117,10 @@ class SRC20Worker:
                 validated_data = self.processor.validate_src20_market_data(aggregated_data)
                 if validated_data:
                     logger.debug(f"Successfully processed aggregated market data for {tick}")
-                    
+
                     # Store individual source data for transparency
                     self._store_source_data(tick, source_data)
-                    
+
                     return validated_data
                 else:
                     logger.warning(f"Market data validation failed for {tick}")
@@ -618,10 +618,10 @@ class SRC20Worker:
         try:
             # Source confidence weights (higher = more trusted)
             confidence_weights = {
-                "kucoin": 9.0,      # High - real exchange data
-                "openstamp": 8.0,   # High - comprehensive SRC-20 data
-                "stampscan": 7.0,   # Medium-High - specialized Bitcoin stamps
-                "placeholder": 1.0   # Low - fallback data
+                "kucoin": 9.0,  # High - real exchange data
+                "openstamp": 8.0,  # High - comprehensive SRC-20 data
+                "stampscan": 7.0,  # Medium-High - specialized Bitcoin stamps
+                "placeholder": 1.0,  # Low - fallback data
             }
 
             aggregated = {
@@ -657,8 +657,8 @@ class SRC20Worker:
                 # Collect price data with weights
                 if data.get("price_btc") is not None:
                     price_values.append((float(data["price_btc"]), weight))
-                
-                # Collect volume data with weights  
+
+                # Collect volume data with weights
                 if data.get("volume_24h_btc") is not None:
                     volume_values.append((float(data["volume_24h_btc"]), weight))
 
@@ -672,15 +672,20 @@ class SRC20Worker:
 
             # Calculate weighted averages for prices
             if price_values:
-                weighted_price = sum(price * weight for price, weight in price_values) / sum(weight for _, weight in price_values)
+                weighted_price = sum(price * weight for price, weight in price_values) / sum(
+                    weight for _, weight in price_values
+                )
                 aggregated["price_btc"] = weighted_price
-                
+
                 # Set primary exchange to highest confidence source with price
                 primary_source = max(
-                    [(source, confidence_weights.get(source, 5.0)) for source in source_data.keys() 
-                     if source_data[source].get("price_btc") is not None],
+                    [
+                        (source, confidence_weights.get(source, 5.0))
+                        for source in source_data.keys()
+                        if source_data[source].get("price_btc") is not None
+                    ],
                     key=lambda x: x[1],
-                    default=(None, 0)
+                    default=(None, 0),
                 )[0]
                 if primary_source:
                     aggregated["primary_exchange"] = primary_source
@@ -697,7 +702,9 @@ class SRC20Worker:
 
             # Calculate weighted quality score
             if quality_scores:
-                weighted_quality = sum(score * weight for score, weight in quality_scores) / sum(weight for _, weight in quality_scores)
+                weighted_quality = sum(score * weight for score, weight in quality_scores) / sum(
+                    weight for _, weight in quality_scores
+                )
                 aggregated["data_quality_score"] = weighted_quality
 
             # Set confidence level based on source diversity and quality
@@ -710,15 +717,24 @@ class SRC20Worker:
             # Copy other fields from highest confidence source
             best_source = max(source_data.keys(), key=lambda x: confidence_weights.get(x, 5.0))
             best_data = source_data[best_source]
-            
-            for field in ["price_usd", "volume_24h_usd", "market_cap_btc", "circulating_supply", 
-                         "max_supply", "price_change_24h_percent", "price_change_7d_percent"]:
+
+            for field in [
+                "price_usd",
+                "volume_24h_usd",
+                "market_cap_btc",
+                "circulating_supply",
+                "max_supply",
+                "price_change_24h_percent",
+                "price_change_7d_percent",
+            ]:
                 if field in best_data and best_data[field] is not None:
                     aggregated[field] = best_data[field]
 
-            logger.debug(f"Aggregated data for {tick}: price_btc={aggregated.get('price_btc')}, "
-                        f"volume_24h_btc={aggregated.get('volume_24h_btc')}, "
-                        f"sources={aggregated['exchange_sources']}")
+            logger.debug(
+                f"Aggregated data for {tick}: price_btc={aggregated.get('price_btc')}, "
+                f"volume_24h_btc={aggregated.get('volume_24h_btc')}, "
+                f"sources={aggregated['exchange_sources']}"
+            )
 
             return aggregated
 
@@ -736,14 +752,14 @@ class SRC20Worker:
         """
         try:
             from index_core.database import insert_market_data_source
-            
+
             # Get database connection
             db = self.processor.db_manager.get_long_running_connection()
-            
+
             for source, data in source_data.items():
                 # Calculate source confidence based on data quality
                 confidence = self._calculate_source_confidence(source, data)
-                
+
                 # Store source data record
                 source_record = {
                     "asset_type": "src20",
@@ -757,19 +773,19 @@ class SRC20Worker:
                     "api_response_time_ms": data.get("processing_time_ms", 0),
                     "last_updated": data.get("last_updated") or datetime.now(),
                     "success_rate_24h": 100.0,  # TODO: Track this over time
-                    "consecutive_failures": 0,   # TODO: Track this over time
+                    "consecutive_failures": 0,  # TODO: Track this over time
                     "last_success": datetime.now(),
                     "last_failure": None,
                 }
-                
+
                 try:
                     insert_market_data_source(db, source_record)
                     logger.debug(f"Stored source data for {tick} from {source}")
                 except Exception as e:
                     logger.warning(f"Failed to store source data for {tick} from {source}: {e}")
-            
+
             db.close()
-            
+
         except Exception as e:
             logger.error(f"Error storing source data for {tick}: {e}")
 
@@ -784,19 +800,14 @@ class SRC20Worker:
         Returns:
             Confidence score (0-10)
         """
-        base_confidence = {
-            "kucoin": 9.0,
-            "openstamp": 8.0,
-            "stampscan": 7.0,
-            "placeholder": 1.0
-        }.get(source, 5.0)
+        base_confidence = {"kucoin": 9.0, "openstamp": 8.0, "stampscan": 7.0, "placeholder": 1.0}.get(source, 5.0)
 
         # Adjust based on data completeness
         has_price = data.get("price_btc") is not None
         has_volume = data.get("volume_24h_btc") is not None
         has_holders = data.get("holder_count") is not None
-        
-        completeness_bonus = 0
+
+        completeness_bonus = 0.0
         if has_price:
             completeness_bonus += 1.0
         if has_volume:

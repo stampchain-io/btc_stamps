@@ -691,7 +691,7 @@ class MarketDataEffectivenessAnalyzer:
         # Multi-Source Performance Analysis
         print("\n## 🔄 Multi-Source Data Analysis")
         multi_source = data.get("multi_source_performance", {})
-        
+
         if "source_performance" in multi_source:
             source_perf = multi_source["source_performance"]
             print("\n### Data Source Performance")
@@ -703,7 +703,7 @@ class MarketDataEffectivenessAnalyzer:
                 confidence = source.get("avg_confidence", 0)
                 response_time = source.get("avg_response_time", 0)
                 fresh = source.get("fresh_records", 0)
-                
+
                 print(f"\n**{name.upper()}:**")
                 print(f"- Assets: {total} | Price: {with_price} | Volume: {with_volume} | Fresh: {fresh}")
                 print(f"- Confidence: {confidence:.1f}/10 | Response: {response_time:.0f}ms")
@@ -716,7 +716,7 @@ class MarketDataEffectivenessAnalyzer:
             with_volume = agg_stats.get("tokens_with_aggregated_volume", 0)
             multi_source_tokens = agg_stats.get("tokens_with_multiple_sources", 0)
             total_sources = agg_stats.get("total_source_records", 0)
-            
+
             print(f"- **Aggregated Tokens:** {total_agg}")
             print(f"- **With Price Data:** {with_price} ({with_price/total_agg*100:.1f}%)")
             print(f"- **With Volume Data:** {with_volume} ({with_volume/total_agg*100:.1f}%)")
@@ -738,7 +738,7 @@ class MarketDataEffectivenessAnalyzer:
         # Cache Freshness Issues Analysis
         print("\n## ⏰ Cache Freshness Analysis")
         freshness_issues = data.get("cache_freshness_issues", {})
-        
+
         if "update_intervals" in freshness_issues:
             intervals = freshness_issues["update_intervals"]
             print("\n### Update Frequency by Asset Type")
@@ -749,7 +749,7 @@ class MarketDataEffectivenessAnalyzer:
                 updated_1hour = interval.get("updated_1hour", 0)
                 stale_6hour = interval.get("stale_6hour", 0)
                 avg_age = interval.get("avg_age_minutes", 0)
-                
+
                 print(f"\n**{asset_type.upper()}:**")
                 print(f"- Recent (< 5min): {updated_5min} ({updated_5min/total*100:.1f}%)")
                 print(f"- Fresh (< 1hr): {updated_1hour} ({updated_1hour/total*100:.1f}%)")
@@ -772,7 +772,7 @@ class MarketDataEffectivenessAnalyzer:
         print("\n## 💡 Recommendations")
         cache_coverage = quality.get("data_completeness", {}).get("cache_coverage_percent", 0)
         hot_cache_percent = performance.get("cache_efficiency", {}).get("hot_cache", 0) / total * 100 if total > 0 else 0
-        
+
         # Multi-source recommendations
         multi_source = data.get("multi_source_performance", {})
         agg_stats = multi_source.get("aggregation_effectiveness", {})
@@ -780,52 +780,52 @@ class MarketDataEffectivenessAnalyzer:
         with_price = agg_stats.get("tokens_with_aggregated_price", 0)
         with_volume = agg_stats.get("tokens_with_aggregated_volume", 0)
         multi_source_tokens = agg_stats.get("tokens_with_multiple_sources", 0)
-        
+
         # Freshness recommendations
         freshness_issues = data.get("cache_freshness_issues", {})
         src20_interval = next((x for x in freshness_issues.get("update_intervals", []) if x.get("asset_type") == "src20"), {})
         src20_stale_percent = src20_interval.get("stale_6hour", 0) / max(src20_interval.get("total_records", 1), 1) * 100
 
         print("\n### 🚀 **Priority Actions:**")
-        
+
         # Critical issues first
         if with_price == 0 and total_agg > 0:
             print("- 🔴 **CRITICAL: No price data** - SRC-20 worker fixes need deployment")
         elif with_price < total_agg * 0.5:
             print(f"- 🟡 **Low price coverage** - Only {with_price}/{total_agg} tokens have price data")
-            
+
         if with_volume == 0 and total_agg > 0:
             print("- 🟡 **No volume data** - Expected for new token ecosystem, monitor for trading activity")
-            
+
         if src20_stale_percent > 50:
             print(f"- 🟠 **High staleness** - {src20_stale_percent:.1f}% of SRC-20 data is >6hrs old")
             print("  - Consider reducing update interval from 5min to 2-3min")
             print("  - Check if market data jobs are running consistently")
 
         print("\n### 📈 **Optimization Opportunities:**")
-        
+
         if multi_source_tokens < total_agg * 0.1 and total_agg > 0:
             print(f"- **Expand source coverage** - Only {multi_source_tokens}/{total_agg} tokens have multiple sources")
             print("  - Add more KuCoin token mappings beyond just STAMP")
             print("  - Integrate additional exchanges (Binance, Gate.io, etc.)")
-            
+
         if cache_coverage < 80:
             print("- **Low cache coverage** - Consider expanding market data collection")
-            
+
         if hot_cache_percent < 50:
             print("- **Cold cache issue** - Consider increasing update frequency")
 
         print("\n### ✅ **System Health:**")
-        
+
         if multi_source_tokens > 0:
             print(f"- **Multi-source aggregation working** - {multi_source_tokens} tokens using multiple sources")
-            
+
         if src20_stale_percent < 20:
             print("- **SRC-20 freshness good** - Most data updated within target intervals")
-            
+
         if cache_coverage > 90 and hot_cache_percent > 70:
             print("- **Overall system performing well** - Cache coverage and freshness are good")
-            
+
         if with_price > 0:
             print(f"- **Price data flowing** - {with_price} tokens have price information")
 
@@ -833,7 +833,7 @@ class MarketDataEffectivenessAnalyzer:
         print("- **Zero volume is expected** - SRC-20 ecosystem is new, most tokens don't trade yet")
         print("- **OpenStamp provides holder counts** - This is valuable for token analysis")
         print("- **KuCoin provides real trading data** - High confidence when available")
-        
+
         # Show update frequency analysis
         if src20_interval:
             avg_age = src20_interval.get("avg_age_minutes", 0)
