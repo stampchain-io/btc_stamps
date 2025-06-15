@@ -734,5 +734,237 @@ class TestMarketDataBugFixes:
         assert 0 in sql_params
 
 
+class TestOpenStampIntegration:
+    """Test cases for OpenStamp API integration."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        # Mock environment for testing
+        import os
+
+        self.original_api_key = os.environ.get("OPENSTAMP_API_KEY")
+        os.environ["OPENSTAMP_API_KEY"] = "test_api_key_for_testing"
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import os
+
+        if self.original_api_key:
+            os.environ["OPENSTAMP_API_KEY"] = self.original_api_key
+        else:
+            os.environ.pop("OPENSTAMP_API_KEY", None)
+
+    def test_openstamp_token_data_creation(self):
+        """Test OpenStampTokenData object creation and conversion."""
+        from decimal import Decimal
+
+        from index_core.types import OpenStampTokenData
+
+        # Sample data from OpenStamp API
+        raw_data = {
+            "tokenId": 1,
+            "name": "KEVIN",
+            "totalSupply": 690000000,
+            "holdersCount": 2134,
+            "price": "2.25",
+            "amount24": "0",
+            "volume24": "1000",
+            "volume24Change": "0.1",
+            "change24": "-0.2241",
+            "change7d": "0.4516",
+        }
+
+        token_data = OpenStampTokenData(raw_data)
+
+        # Test object properties
+        assert token_data.token_id == 1
+        assert token_data.name == "KEVIN"
+        assert token_data.total_supply == 690000000
+        assert token_data.holders_count == 2134
+        assert token_data.price == Decimal("2.25")
+        assert token_data.volume_24h == Decimal("1000")
+        assert token_data.change_24h == Decimal("-0.2241")
+        assert token_data.change_7d == Decimal("0.4516")
+
+    def test_openstamp_token_data_to_market_data(self):
+        """Test conversion to market data dictionary format."""
+        from decimal import Decimal
+
+        from index_core.types import OpenStampTokenData
+
+        raw_data = {
+            "tokenId": 2,
+            "name": "STAMP",
+            "totalSupply": 1000000000,
+            "holdersCount": 13494,
+            "price": "5.8",
+            "amount24": "0",
+            "volume24": "500",
+            "volume24Change": "-1",
+            "change24": "-0.1077",
+            "change7d": "-0.42",
+        }
+
+        token_data = OpenStampTokenData(raw_data)
+        market_data = token_data.to_market_data_dict()
+
+        # Test required fields
+        assert market_data["tick"] == "STAMP"
+        assert market_data["price_btc"] == Decimal("5.8") / Decimal("100000000")  # Convert satoshis to BTC
+        assert market_data["volume_24h_btc"] == Decimal("500") / Decimal("100000000")  # Convert satoshis to BTC
+        assert market_data["holder_count"] == 13494
+        assert market_data["circulating_supply"] == Decimal("1000000000")
+        assert market_data["max_supply"] == Decimal("1000000000")
+
+        # Test percentage conversions
+        assert market_data["price_change_24h_percent"] == Decimal("-10.77")  # -0.1077 * 100
+        assert market_data["price_change_7d_percent"] == Decimal("-42.0")  # -0.42 * 100
+
+        # Test metadata
+        assert market_data["primary_exchange"] == "openstamp"
+        assert market_data["exchange_sources"] == "openstamp"
+        assert market_data["data_quality_score"] == Decimal("8.0")
+        assert market_data["confidence_level"] == Decimal("8.0")
+        assert market_data["update_frequency_minutes"] == 5
+
+    def test_openstamp_api_response_creation(self):
+        """Test OpenStampApiResponse object creation."""
+        from index_core.types import OpenStampApiResponse
+
+        response_data = {
+            "code": 200,
+            "data": [
+                {
+                    "tokenId": 1,
+                    "name": "KEVIN",
+                    "totalSupply": 690000000,
+                    "holdersCount": 2134,
+                    "price": "2.25",
+                    "amount24": "0",
+                    "volume24": "0",
+                    "volume24Change": "0",
+                    "change24": "-0.2241",
+                    "change7d": "0.4516",
+                },
+                {
+                    "tokenId": 2,
+                    "name": "STAMP",
+                    "totalSupply": 1000000000,
+                    "holdersCount": 13494,
+                    "price": "5.8",
+                    "amount24": "0",
+                    "volume24": "0",
+                    "volume24Change": "-1",
+                    "change24": "-0.1077",
+                    "change7d": "-0.42",
+                },
+            ],
+        }
+
+        api_response = OpenStampApiResponse(response_data)
+
+        # Test response properties
+        assert api_response.code == 200
+        assert len(api_response.tokens) == 2
+
+        # Test token retrieval
+        kevin_token = api_response.get_token_by_name("KEVIN")
+        assert kevin_token is not None
+        assert kevin_token.name == "KEVIN"
+
+        stamp_token = api_response.get_token_by_name("STAMP")
+        assert stamp_token is not None
+        assert stamp_token.name == "STAMP"
+
+        # Test case insensitive retrieval
+        kevin_lower = api_response.get_token_by_name("kevin")
+        assert kevin_lower is not None
+        assert kevin_lower.name == "KEVIN"
+
+        # Test non-existent token
+        missing_token = api_response.get_token_by_name("NONEXISTENT")
+        assert missing_token is None
+
+        # Test get all tickers
+        all_tickers = api_response.get_all_tickers()
+        assert "KEVIN" in all_tickers
+        assert "STAMP" in all_tickers
+        assert len(all_tickers) == 2
+
+    @patch("index_core.openstamp_client.requests.Session.get")
+    def test_openstamp_client_mock_response(self, mock_get):
+        """Test OpenStamp client with mocked API response."""
+        from unittest.mock import Mock
+
+        from index_core.openstamp_client import OpenStampClient
+
+        # Mock successful API response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 200,
+            "data": [
+                {
+                    "tokenId": 1,
+                    "name": "TEST",
+                    "totalSupply": 1000000,
+                    "holdersCount": 100,
+                    "price": "1.5",
+                    "amount24": "0",
+                    "volume24": "100",
+                    "volume24Change": "0",
+                    "change24": "0.05",
+                    "change7d": "0.1",
+                }
+            ],
+        }
+        mock_get.return_value = mock_response
+
+        # Test client
+        client = OpenStampClient(api_key="test_key")
+        api_response = client.fetch_all_market_data()
+
+        # Verify API call was made
+        mock_get.assert_called_once()
+
+        # Verify response processing
+        assert len(api_response.tokens) == 1
+        test_token = api_response.get_token_by_name("TEST")
+        assert test_token is not None
+        assert test_token.price == Decimal("1.5")
+
+    def test_src20_worker_openstamp_integration(self):
+        """Test SRC20Worker integration with OpenStamp (mocked)."""
+        from unittest.mock import Mock, patch
+
+        from index_core.src20_worker import SRC20Worker
+
+        # Mock OpenStamp client
+        with patch("index_core.src20_worker.get_openstamp_client") as mock_get_client:
+            mock_client = Mock()
+            mock_token_data = Mock()
+            mock_token_data.to_market_data_dict.return_value = {
+                "tick": "TEST",
+                "price_btc": Decimal("1.5"),
+                "volume_24h_btc": Decimal("100"),
+                "holder_count": 100,
+                "primary_exchange": "openstamp",
+                "data_quality_score": Decimal("8.0"),
+                "confidence_level": Decimal("8.0"),
+            }
+            mock_client.fetch_token_data.return_value = mock_token_data
+            mock_get_client.return_value = mock_client
+
+            # Test worker
+            worker = SRC20Worker()
+            result = worker._fetch_openstamp_data("TEST")
+
+            # Verify result
+            assert result is not None
+            assert result["tick"] == "TEST"
+            assert result["data_source"] == "openstamp"
+            assert result["exchange_symbol"] == "TEST"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
