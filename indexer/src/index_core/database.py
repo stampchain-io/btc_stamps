@@ -2424,23 +2424,24 @@ def get_stamps_needing_market_update(db: Connection, update_interval_minutes: in
     """
     try:
         with db.cursor() as cursor:
-            # Use simpler approach without regex to avoid string formatting issues
+            # IMPORTANT: Double %% to escape percent signs in LIKE patterns
+            # This prevents Python string formatting from interpreting them as format specifiers
             query = """
                 SELECT DISTINCT s.cpid
                 FROM StampTableV4 s
                 LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
                 WHERE (
                     -- Traditional Counterparty assets: A + at least 12 digits
-                    (s.cpid LIKE 'A%' AND LENGTH(s.cpid) >= 13)
+                    (s.cpid LIKE 'A%%' AND LENGTH(s.cpid) >= 13)
                     OR 
                     -- Named Counterparty assets: Any non-A starting alphabetic
                     -- We check by excluding numeric patterns
-                    (s.cpid NOT LIKE 'A%' 
-                     AND s.cpid NOT LIKE '%0%' AND s.cpid NOT LIKE '%1%' 
-                     AND s.cpid NOT LIKE '%2%' AND s.cpid NOT LIKE '%3%' 
-                     AND s.cpid NOT LIKE '%4%' AND s.cpid NOT LIKE '%5%' 
-                     AND s.cpid NOT LIKE '%6%' AND s.cpid NOT LIKE '%7%' 
-                     AND s.cpid NOT LIKE '%8%' AND s.cpid NOT LIKE '%9%')
+                    (s.cpid NOT LIKE 'A%%' 
+                     AND s.cpid NOT LIKE '%%0%%' AND s.cpid NOT LIKE '%%1%%' 
+                     AND s.cpid NOT LIKE '%%2%%' AND s.cpid NOT LIKE '%%3%%' 
+                     AND s.cpid NOT LIKE '%%4%%' AND s.cpid NOT LIKE '%%5%%' 
+                     AND s.cpid NOT LIKE '%%6%%' AND s.cpid NOT LIKE '%%7%%' 
+                     AND s.cpid NOT LIKE '%%8%%' AND s.cpid NOT LIKE '%%9%%')
                 )
                 AND (
                     smd.last_updated IS NULL
