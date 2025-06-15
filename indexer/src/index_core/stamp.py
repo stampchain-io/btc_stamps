@@ -14,7 +14,7 @@ from index_core.database import check_reissue, get_next_stamp_number
 from index_core.exceptions import DataConversionError, InvalidInputDataError
 from index_core.files import store_files
 from index_core.models import StampData, ValidStamp
-from index_core.util import check_valid_base64_string, convert_to_dict_or_string
+from index_core.util import calculate_file_size, check_valid_base64_string, convert_to_dict_or_string
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -179,7 +179,7 @@ def get_src_or_img_from_data(stamp, block_index):
 def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimetype):
     """
     Encodes the decoded_base64 string to utf-8 (if it's a string or a dict), constructs the filename,
-    and stores the file.
+    calculates file size, and stores the file.
 
     Args:
         db: The database connection object.
@@ -189,16 +189,23 @@ def encode_and_store_file(db, tx_hash, file_suffix, decoded_base64, stamp_mimety
         stamp_mimetype (str): The MIME type of the stamp.
 
     Returns:
-        The result of the file storage operation.
+        tuple: (file_obj_md5, filename, file_size_bytes)
     """
     if file_suffix:
         if isinstance(decoded_base64, dict):
             decoded_base64 = json.dumps(decoded_base64)
         if isinstance(decoded_base64, str):
             decoded_base64 = decoded_base64.encode("utf-8")
+
+        # Calculate file size before storage
+        file_size_bytes = calculate_file_size(decoded_base64)
+
         filename = f"{tx_hash}.{file_suffix}"
-        return store_files(db, filename, decoded_base64, stamp_mimetype)
-    return None, None
+        file_obj_md5, stored_filename = store_files(db, filename, decoded_base64, stamp_mimetype)
+
+        return file_obj_md5, stored_filename, file_size_bytes
+
+    return None, None, 0
 
 
 def create_valid_stamp_dict(

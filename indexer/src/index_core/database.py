@@ -553,8 +553,8 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     stamp_mimetype, stamp_url, supply, block_time,
                     tx_hash, tx_index, ident, src_data,
                     stamp_hash, is_btc_stamp,
-                    file_hash, is_valid_base64
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    file_hash, is_valid_base64, file_size_bytes
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """  # nosec
 
             data = [
@@ -581,6 +581,7 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     parsed.is_btc_stamp,
                     parsed.file_hash,
                     parsed.is_valid_base64,
+                    parsed.file_size_bytes,
                 )
                 for parsed in parsed_stamps
             ]
