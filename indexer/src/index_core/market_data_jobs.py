@@ -413,6 +413,12 @@ class MarketDataJobScheduler:
                         # Extract holder cache data if present
                         holder_cache_data = market_data.pop("_holder_cache_data", None)
                         
+                        # Debug logging for holder cache data
+                        if holder_cache_data:
+                            logger.debug(f"Found holder cache data for {cpid}: {len(holder_cache_data)} holders")
+                        else:
+                            logger.debug(f"No holder cache data found for {cpid}")
+                        
                         # Store the detailed market data using the service
                         market_data_service.update_stamp_market_data(cpid, market_data)
                         processed_count += 1
@@ -422,7 +428,10 @@ class MarketDataJobScheduler:
 
                         # Populate holder cache if we have holder data
                         if holder_cache_data and isinstance(holder_cache_data, list):
+                            logger.debug(f"Populating holder cache for {cpid} with {len(holder_cache_data)} holders")
                             self._populate_holder_cache(db, cpid, holder_cache_data)
+                        else:
+                            logger.debug(f"Skipping holder cache population for {cpid} - no valid data")
                     else:
                         error_count += 1
                         logger.debug(f"No market data generated for {cpid}")
@@ -588,6 +597,7 @@ class MarketDataJobScheduler:
         """
         try:
             if not holder_data:
+                logger.debug(f"No holder data provided for {cpid}")
                 return
                 
             logger.debug(f"Populating holder cache for {cpid} with {len(holder_data)} holders")
@@ -596,9 +606,12 @@ class MarketDataJobScheduler:
             sorted_holders = sorted(holder_data, key=lambda x: x["quantity"], reverse=True)
             total_supply = sum(holder["quantity"] for holder in holder_data)
             
-            # Clear existing cache for this stamp
+            # Perform the database operations
             with db.cursor() as cursor:
+                # Clear existing cache for this stamp
                 cursor.execute("DELETE FROM stamp_holder_cache WHERE cpid = %s", (cpid,))
+                deleted_count = cursor.rowcount
+                logger.debug(f"Deleted {deleted_count} existing holder cache records for {cpid}")
                 
                 # Insert new holder records
                 insert_values = []
@@ -625,11 +638,34 @@ class MarketDataJobScheduler:
                         VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, insert_values)
                     
-            db.commit()
-            logger.debug(f"Successfully populated holder cache for {cpid} with {len(insert_values)} holders")
+                    inserted_count = cursor.rowcount
+                    logger.debug(f"Inserted {inserted_count} holder cache records for {cpid}")
+                    
+                    # Verify the insertion
+                    cursor.execute("SELECT COUNT(*) FROM stamp_holder_cache WHERE cpid = %s", (cpid,))
+                    final_count = cursor.fetchone()[0]
+                    logger.debug(f"Final holder cache count for {cpid}: {final_count}")
+                    
+                    if final_count != len(insert_values):
+                        logger.warning(f"Expected {len(insert_values)} records but found {final_count} for {cpid}")
+                else:
+                    logger.debug(f"No valid holder records to insert for {cpid}")
+                    
+            # Commit the transaction if not in autocommit mode
+            try:
+                db.commit()
+                logger.debug(f"Successfully committed holder cache for {cpid}")
+            except Exception as commit_error:
+                logger.debug(f"Commit not needed (likely autocommit mode) for {cpid}: {commit_error}")
             
         except Exception as e:
-            db.rollback()
+            # Rollback on error if possible
+            try:
+                db.rollback()
+                logger.debug(f"Rolled back holder cache transaction for {cpid}")
+            except Exception as rollback_error:
+                logger.debug(f"Rollback not needed (likely autocommit mode) for {cpid}: {rollback_error}")
+                
             logger.error(f"Error populating holder cache for {cpid}: {e}")
             raise
 
@@ -736,7 +772,7 @@ def update_market_data_async(db):
                             logger.info("Shutdown requested, stopping stamp updates")
                             break
 
-                        logger.info(f"�� Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
+                        logger.info(f"🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
 
                         # Use the existing batch processing method (which includes validation)
                         self._process_stamp_batch(task_db, batch)

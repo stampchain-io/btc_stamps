@@ -63,6 +63,7 @@ class StampWorker:
             dispensers_data = self._fetch_dispensers(cpid)
             dispenses_data = self._fetch_dispenses(cpid)
             balances_data = self._fetch_balances(cpid)
+            logger.debug(f"Fetched {len(balances_data) if balances_data else 0} balance records for {cpid}")
 
             # Process the raw data into market metrics
             market_data = self._calculate_market_metrics(cpid, dispensers_data, dispenses_data, balances_data)
@@ -369,7 +370,6 @@ class StampWorker:
             Dictionary with holder metrics
         """
         try:
-            holder_count = len(balances)
             total_supply = 0.0
             quantities = []
 
@@ -389,14 +389,25 @@ class StampWorker:
                 except (ValueError, TypeError):
                     continue
 
+            # Use valid holder count (not raw balance count)
+            holder_count = len(valid_balances)
+            
+            logger.debug(f"Processed {len(balances)} raw balances, found {holder_count} valid holders with positive balance")
+
             holder_metrics: Dict[str, Any] = {
                 "holder_count": holder_count,
                 "total_supply": total_supply,
                 "avg_holding": 0.0,
                 "median_holding": 0.0,
                 "gini_coefficient": 0.0,
-                "holder_cache_data": valid_balances,  # Store for cache population
             }
+
+            # Only add holder cache data if we have valid holders
+            if valid_balances:
+                holder_metrics["holder_cache_data"] = valid_balances
+                logger.debug(f"Generated holder cache data with {len(valid_balances)} valid holders")
+            else:
+                logger.debug("No valid holders found for holder cache data")
 
             if quantities:
                 # Calculate basic statistics
