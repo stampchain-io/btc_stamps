@@ -77,8 +77,13 @@ class StampMarketDataProcessor:
             if not cpid or not isinstance(cpid, str):
                 raise exceptions.InvalidInputDataError("CPID is required and must be a string")
 
-            # Validate CPID format (should be Counterparty asset ID)
-            if not (cpid.startswith("A") and len(cpid) >= 13):
+            # Validate CPID format (Counterparty asset ID or SRC-20 hash token)
+            # Traditional Counterparty asset IDs: Start with 'A' followed by digits (min 13 chars)
+            # SRC-20 hash tokens: 20-character alphanumeric strings
+            is_traditional_cpid = cpid.startswith("A") and len(cpid) >= 13 and cpid[1:].isdigit()
+            is_src20_hash = len(cpid) == 20 and cpid.isalnum()
+            
+            if not (is_traditional_cpid or is_src20_hash):
                 raise exceptions.InvalidInputDataError(f"Invalid CPID format: {cpid}")
 
             validated_data["cpid"] = cpid

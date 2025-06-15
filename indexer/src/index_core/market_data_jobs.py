@@ -14,7 +14,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import config
-from index_core.database import initialize_db
+
+from index_core.database_manager import DatabaseManager
 from index_core.fetch_utils import RateLimiter, is_valid_counterparty_asset
 from index_core.market_data_service import market_data_service
 from index_core.src20_worker import SRC20Worker
@@ -51,6 +52,7 @@ class MarketDataJobScheduler:
         self.job_futures: Dict[str, concurrent.futures.Future] = {}
         self.last_run_times: Dict[str, datetime] = {}
         self._lock = threading.Lock()
+        self.database_manager = DatabaseManager()
 
     def start(self, max_workers: int = MAX_WORKERS):
         """Start the job scheduler with the specified number of workers."""
@@ -188,8 +190,8 @@ class MarketDataJobScheduler:
         start_time = time.time()
 
         try:
-            # Create a new database connection for this job
-            task_db = initialize_db()
+            # Use existing database connection without initialization
+            task_db = self.database_manager.connect()
 
             try:
                 # Get stamps that need market data updates
@@ -234,8 +236,8 @@ class MarketDataJobScheduler:
         start_time = time.time()
 
         try:
-            # Create a new database connection for this job
-            task_db = initialize_db()
+            # Use existing database connection without initialization
+            task_db = self.database_manager.connect()
 
             try:
                 # Get SRC-20 tokens that need market data updates
@@ -280,8 +282,8 @@ class MarketDataJobScheduler:
         start_time = time.time()
 
         try:
-            # Create a new database connection for this job
-            task_db = initialize_db()
+            # Use existing database connection without initialization
+            task_db = self.database_manager.connect()
 
             try:
                 # Get collections that need market data updates
@@ -590,8 +592,8 @@ def update_market_data_async(db):
                 start_time = time.time()
                 logger.info("🔄 Starting stamp market data update cycle")
 
-                # Create a database connection for this job
-                task_db = initialize_db()
+                # Use existing database connection without initialization
+                task_db = self.database_manager.connect()
 
                 try:
                     # Get stamps needing updates
@@ -649,8 +651,8 @@ def update_market_data_async(db):
                 start_time = time.time()
                 logger.info("🔄 Starting SRC-20 market data update cycle")
 
-                # Create a database connection for this job
-                task_db = initialize_db()
+                # Use existing database connection without initialization
+                task_db = self.database_manager.connect()
 
                 try:
                     # Get SRC-20 tokens needing updates
