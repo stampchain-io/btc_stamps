@@ -1327,13 +1327,6 @@ def follow(
                     db.rollback()
                     continue
 
-                # Already caught up check - use debug level and slow down polling if caught up
-                if block_index > block_tip:
-                    logger.debug(f"Current block_index {block_index} is ahead of chain tip {block_tip}, waiting...")
-                    db.rollback()
-                    time.sleep(config.BACKEND_POLL_INTERVAL * 2)  # Longer interval when caught up
-                    continue
-
                 # Check if we've just caught up to the blockchain tip
                 if block_index == block_tip:
                     logger.debug(f"Processing the latest block {block_index} at the chain tip")
@@ -1804,6 +1797,10 @@ def follow(
                             time.sleep(5)
 
                 else:
+                    # Indexer is caught up (block_index > block_tip), wait for new blocks
+                    logger.debug(f"Indexer caught up at block {block_index} (tip: {block_tip}), waiting for new blocks...")
+                    db.rollback()  # Rollback any uncommitted transaction before waiting
+                    
                     if server.shutdown_flag.is_set():
                         logger.info("Shutdown flag detected, completing current block processing...")
                         # Ensure current block processing completes
