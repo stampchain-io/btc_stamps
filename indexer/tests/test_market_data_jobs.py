@@ -191,12 +191,13 @@ class TestMarketDataJobScheduler:
         sql_query = execute_call[0][0]
         sql_params = execute_call[0][1]
 
-        # Check query components - updated for new Counterparty asset filter structure
+        # Check query components - updated for simplified LIKE-based filter structure
         assert "SELECT DISTINCT s.cpid" in sql_query
         assert "FROM StampTableV4 s" in sql_query
         assert "LEFT JOIN stamp_market_data smd" in sql_query
         assert "s.cpid LIKE 'A%'" in sql_query  # Traditional assets filter
-        assert "s.cpid REGEXP '^[B-Z][A-Za-z]*$'" in sql_query  # Named assets filter (B-Z start)
+        assert "s.cpid LIKE 'B%'" in sql_query  # Named assets filter (B-Z start)
+        assert "s.cpid LIKE 'F%'" in sql_query  # Check for FUCKTHAT pattern
         assert "smd.last_updated IS NULL" in sql_query  # Now in AND clause
         assert "OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)" in sql_query
 
