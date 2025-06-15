@@ -333,8 +333,8 @@ class MarketDataJobScheduler:
                 -- Traditional Counterparty assets: A + digits (13+ chars)
                 (s.cpid LIKE 'A%' AND LENGTH(s.cpid) >= 13 AND SUBSTRING(s.cpid, 2) REGEXP '^[0-9]+$')
                 OR 
-                -- Named Counterparty assets: pure alphabetic (cursed stamps like FUCKTHAT, LEGENDARYBAR)
-                s.cpid REGEXP '^[A-Za-z]+$'
+                -- Named Counterparty assets: B-Z + alphabetic chars (cursed stamps like FUCKTHAT, LEGENDARYBAR)
+                s.cpid REGEXP '^[B-Z][A-Za-z]*$'
             )
             AND (
                 smd.last_updated IS NULL

@@ -196,7 +196,7 @@ class TestMarketDataJobScheduler:
         assert "FROM StampTableV4 s" in sql_query
         assert "LEFT JOIN stamp_market_data smd" in sql_query
         assert "s.cpid LIKE 'A%'" in sql_query  # Traditional assets filter
-        assert "s.cpid REGEXP '^[A-Za-z]+$'" in sql_query  # Named assets filter
+        assert "s.cpid REGEXP '^[B-Z][A-Za-z]*$'" in sql_query  # Named assets filter (B-Z start)
         assert "smd.last_updated IS NULL" in sql_query  # Now in AND clause
         assert "OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)" in sql_query
 
