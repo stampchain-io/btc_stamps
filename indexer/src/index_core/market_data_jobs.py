@@ -410,12 +410,19 @@ class MarketDataJobScheduler:
                     market_data = stamp_worker.process_stamp_market_data(cpid)
 
                     if market_data:
+                        # Extract holder cache data if present
+                        holder_cache_data = market_data.pop("_holder_cache_data", None)
+                        
                         # Store the detailed market data using the service
                         market_data_service.update_stamp_market_data(cpid, market_data)
                         processed_count += 1
 
                         if processed_count % 5 == 0:  # Log every 5 successful updates
                             logger.debug(f"✅ Processed {processed_count}/{len(stamp_cpids)} stamps in batch")
+
+                        # Populate holder cache if we have holder data
+                        if holder_cache_data and isinstance(holder_cache_data, list):
+                            self._populate_holder_cache(db, cpid, holder_cache_data)
                     else:
                         error_count += 1
                         logger.debug(f"No market data generated for {cpid}")
@@ -477,16 +484,88 @@ class MarketDataJobScheduler:
     def _process_collection_update(self, db, collection_id: str):
         """Process collection market data aggregation."""
         try:
-            # TODO: Implement collection aggregation logic
-            # This will aggregate individual stamp/token data into collection metrics
-            # For now, create placeholder data
-
-            collection_data = {
-                "floor_price_btc": None,
-                "total_volume_btc": None,
-                "unique_holders": None,
-                "quality_score": 1.0,
-            }
+            logger.debug(f"Processing collection aggregation for {collection_id}")
+            
+            # Get all stamps in this collection
+            with db.cursor() as cursor:
+                # Get collection stamps with their market data
+                query = """
+                    SELECT 
+                        s.cpid,
+                        s.stamp,
+                        smd.floor_price_btc,
+                        smd.holder_count,
+                        smd.volume_24h_btc,
+                        smd.volume_7d_btc,
+                        smd.volume_30d_btc,
+                        smd.total_volume_btc
+                    FROM collection_stamps cs
+                    JOIN StampTableV4 s ON cs.stamp = s.stamp
+                    LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
+                    WHERE cs.collection_id = UNHEX(%s)
+                """
+                cursor.execute(query, (collection_id,))
+                stamps = cursor.fetchall()
+                
+                if not stamps:
+                    logger.debug(f"No stamps found for collection {collection_id}")
+                    return
+                
+                logger.debug(f"Found {len(stamps)} stamps in collection {collection_id}")
+                
+                # Calculate aggregated metrics
+                floor_prices = []
+                volume_24h_values = []
+                volume_7d_values = []
+                volume_30d_values = []
+                total_volume_values = []
+                total_stamps = len(stamps)
+                unique_holders = set()
+                
+                for stamp in stamps:
+                    cpid, stamp_num, floor_price, holder_count, vol_24h, vol_7d, vol_30d, total_vol = stamp
+                    
+                    # Collect floor prices (only from stamps that have active markets)
+                    if floor_price is not None and float(floor_price) > 0:
+                        floor_prices.append(float(floor_price))
+                    
+                    # Aggregate volume data
+                    if vol_24h is not None:
+                        volume_24h_values.append(float(vol_24h))
+                    if vol_7d is not None:
+                        volume_7d_values.append(float(vol_7d))
+                    if vol_30d is not None:
+                        volume_30d_values.append(float(vol_30d))
+                    if total_vol is not None:
+                        total_volume_values.append(float(total_vol))
+                    
+                    # Get unique holders for this stamp
+                    if cpid:
+                        holder_query = """
+                            SELECT DISTINCT address 
+                            FROM stamp_holder_cache 
+                            WHERE cpid = %s AND quantity > 0
+                        """
+                        cursor.execute(holder_query, (cpid,))
+                        stamp_holders = cursor.fetchall()
+                        for holder in stamp_holders:
+                            unique_holders.add(holder[0])
+                
+                # Calculate collection metrics
+                collection_data = {
+                    "total_stamps": total_stamps,
+                    "floor_price_btc": min(floor_prices) if floor_prices else None,
+                    "avg_price_btc": sum(floor_prices) / len(floor_prices) if floor_prices else None,
+                    "unique_holders": len(unique_holders) if unique_holders else 0,
+                    "volume_24h_btc": sum(volume_24h_values) if volume_24h_values else 0,
+                    "volume_7d_btc": sum(volume_7d_values) if volume_7d_values else 0,
+                    "volume_30d_btc": sum(volume_30d_values) if volume_30d_values else 0,
+                    "total_volume_btc": sum(total_volume_values) if total_volume_values else 0,
+                    "listed_stamps": len(floor_prices),  # Stamps with active markets
+                }
+                
+                logger.debug(f"Collection {collection_id} aggregation: {len(floor_prices)} listed stamps, "
+                             f"floor: {collection_data['floor_price_btc']}, holders: {collection_data['unique_holders']}")
 
             market_data_service.update_collection_market_data(collection_id, collection_data)
             logger.debug(f"Updated collection market data for {collection_id}")
@@ -494,11 +573,65 @@ class MarketDataJobScheduler:
         except Exception as e:
             logger.error(f"Error processing collection {collection_id}: {e}")
 
-    # Removed _transform_counterparty_asset_to_market_data method - now using StampWorker for detailed processing
-
     def _split_into_batches(self, items: List, batch_size: int) -> List[List]:
         """Split a list into batches of specified size."""
         return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
+
+    def _populate_holder_cache(self, db, cpid: str, holder_data: List[Dict]):
+        """
+        Populate the stamp_holder_cache table with individual holder data.
+        
+        Args:
+            db: Database connection
+            cpid: Counterparty asset ID
+            holder_data: List of holder dictionaries with address and quantity
+        """
+        try:
+            if not holder_data:
+                return
+                
+            logger.debug(f"Populating holder cache for {cpid} with {len(holder_data)} holders")
+            
+            # Sort holders by quantity (descending) to assign rank positions
+            sorted_holders = sorted(holder_data, key=lambda x: x["quantity"], reverse=True)
+            total_supply = sum(holder["quantity"] for holder in holder_data)
+            
+            # Clear existing cache for this stamp
+            with db.cursor() as cursor:
+                cursor.execute("DELETE FROM stamp_holder_cache WHERE cpid = %s", (cpid,))
+                
+                # Insert new holder records
+                insert_values = []
+                for rank, holder in enumerate(sorted_holders, 1):
+                    address = holder["address"]
+                    quantity = holder["quantity"]
+                    percentage = (quantity / total_supply * 100) if total_supply > 0 else 0
+                    
+                    insert_values.append((
+                        cpid,
+                        address,
+                        quantity,
+                        percentage,
+                        rank,
+                        "counterparty",  # balance_source
+                        None  # last_tx_block (can be added later if needed)
+                    ))
+                
+                # Batch insert all holders
+                if insert_values:
+                    cursor.executemany("""
+                        INSERT INTO stamp_holder_cache 
+                        (cpid, address, quantity, percentage, rank_position, balance_source, last_tx_block)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, insert_values)
+                    
+            db.commit()
+            logger.debug(f"Successfully populated holder cache for {cpid} with {len(insert_values)} holders")
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error populating holder cache for {cpid}: {e}")
+            raise
 
 
 # Global job scheduler instance
@@ -603,7 +736,7 @@ def update_market_data_async(db):
                             logger.info("Shutdown requested, stopping stamp updates")
                             break
 
-                        logger.info(f"🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
+                        logger.info(f"�� Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
 
                         # Use the existing batch processing method (which includes validation)
                         self._process_stamp_batch(task_db, batch)

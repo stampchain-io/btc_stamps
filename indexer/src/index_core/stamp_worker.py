@@ -231,6 +231,10 @@ class StampWorker:
             if balances:
                 holder_metrics = self._calculate_holder_metrics(balances)
                 market_data.update(holder_metrics)
+                
+                # Store holder cache data separately for database population
+                if "holder_cache_data" in holder_metrics:
+                    market_data["_holder_cache_data"] = holder_metrics.pop("holder_cache_data")
 
             # Calculate derived metrics
             market_data["liquidity_score"] = self._calculate_liquidity_score(market_data)
@@ -356,7 +360,7 @@ class StampWorker:
 
     def _calculate_holder_metrics(self, balances: List[Dict]) -> Dict:
         """
-        Calculate holder distribution metrics.
+        Calculate holder distribution metrics and populate holder cache.
 
         Args:
             balances: List of balance data
@@ -369,12 +373,19 @@ class StampWorker:
             total_supply = 0.0
             quantities = []
 
+            # First pass: collect data and calculate totals
+            valid_balances = []
             for balance in balances:
                 try:
                     quantity = float(balance.get("quantity", 0))
-                    if quantity > 0:
+                    address = balance.get("address", "")
+                    if quantity > 0 and address:
                         quantities.append(quantity)
                         total_supply += quantity
+                        valid_balances.append({
+                            "address": address,
+                            "quantity": quantity
+                        })
                 except (ValueError, TypeError):
                     continue
 
@@ -384,6 +395,7 @@ class StampWorker:
                 "avg_holding": 0.0,
                 "median_holding": 0.0,
                 "gini_coefficient": 0.0,
+                "holder_cache_data": valid_balances,  # Store for cache population
             }
 
             if quantities:
