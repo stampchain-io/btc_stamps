@@ -504,7 +504,7 @@ class StampMarketDataProcessor:
         try:
             str_val = str(value).lower()
             valid_levels = ["very_low", "low", "medium", "high", "very_high"]
-            
+
             if str_val in valid_levels:
                 return str_val
             else:

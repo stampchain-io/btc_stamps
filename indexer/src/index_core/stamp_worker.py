@@ -34,8 +34,13 @@ class StampWorker:
     comprehensive market metrics for Bitcoin Stamps.
     """
 
+    # Class-level shared processor to avoid repeated initialization
+    _shared_processor = None
+
     def __init__(self):
-        self.processor = StampMarketDataProcessor()
+        if StampWorker._shared_processor is None:
+            StampWorker._shared_processor = StampMarketDataProcessor()
+        self.processor = StampWorker._shared_processor
         self.rate_limiter = COUNTERPARTY_RATE_LIMITER
 
     def process_stamp_market_data(self, cpid: str) -> Optional[Dict]:

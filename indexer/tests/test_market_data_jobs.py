@@ -267,40 +267,40 @@ class TestMarketDataJobScheduler:
         assert len(batches[0]) == 5
         assert len(batches[1]) == 5
 
-    @patch("index_core.market_data_jobs.initialize_db")
-    def test_update_stamp_market_data_job_integration(self, mock_init_db):
+    def test_update_stamp_market_data_job_integration(self):
         """Test the full stamp market data update job flow."""
-        # Setup mocks
-        mock_init_db.return_value = self.mock_db
+        # Setup mocks - mock the database manager connection instead of initialize_db
         self.mock_cursor.fetchall.return_value = [("CPID1",), ("CPID2",)]
+        
+        # Mock the database manager connection
+        with patch.object(self.scheduler.database_manager, 'connect', return_value=self.mock_db):
+            with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
+                with patch("index_core.market_data_jobs.market_data_service") as mock_service:
+                    with patch("index_core.market_data_jobs.is_valid_counterparty_asset", return_value=True):
+                        # Mock StampWorker instance and its method
+                        mock_worker = Mock()
+                        mock_worker_class.return_value = mock_worker
+                        mock_worker.process_stamp_market_data.return_value = {
+                            "floor_price_btc": 0.001,
+                            "volume_24h_btc": 0.05,
+                            "holder_count": 10,
+                            "data_source": "counterparty",
+                            "data_quality_score": 8.0,
+                        }
 
-        with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
-            with patch("index_core.market_data_jobs.market_data_service") as mock_service:
-                with patch("index_core.market_data_jobs.is_valid_counterparty_asset", return_value=True):
-                    # Mock StampWorker instance and its method
-                    mock_worker = Mock()
-                    mock_worker_class.return_value = mock_worker
-                    mock_worker.process_stamp_market_data.return_value = {
-                        "floor_price_btc": 0.001,
-                        "volume_24h_btc": 0.05,
-                        "holder_count": 10,
-                        "data_source": "counterparty",
-                        "data_quality_score": 8.0,
-                    }
+                        # Run the job
+                        self.scheduler._update_stamp_market_data_job()
 
-                    # Run the job
-                    self.scheduler._update_stamp_market_data_job()
+                        # Verify StampWorker was used
+                        mock_worker_class.assert_called()
 
-                    # Verify StampWorker was used
-                    mock_worker_class.assert_called()
+                        # Verify worker method was called for each CPID
+                        assert mock_worker.process_stamp_market_data.call_count == 2
+                        mock_worker.process_stamp_market_data.assert_any_call("CPID1")
+                        mock_worker.process_stamp_market_data.assert_any_call("CPID2")
 
-                    # Verify worker method was called for each CPID
-                    assert mock_worker.process_stamp_market_data.call_count == 2
-                    mock_worker.process_stamp_market_data.assert_any_call("CPID1")
-                    mock_worker.process_stamp_market_data.assert_any_call("CPID2")
-
-                    # Verify service was called for each asset
-                    assert mock_service.update_stamp_market_data.call_count == 2
+                        # Verify service was called for each asset
+                        assert mock_service.update_stamp_market_data.call_count == 2
 
 
 if __name__ == "__main__":
