@@ -332,6 +332,10 @@ def run_integration_tests():
         "poetry run pytest tests/test_reorg_handling.py -v",
         "poetry run pytest tests/test_aws_integration.py -v",
         "poetry run pytest tests/test_shutdown_callbacks.py -v",
+        # Market data API integration tests
+        "poetry run pytest tests/test_kucoin_integration.py -v -m integration",
+        "poetry run pytest tests/test_openstamp_integration.py -v -m integration",
+        "poetry run pytest tests/test_src20_worker_integration.py -v -m integration",
     ]
 
     all_passed = True

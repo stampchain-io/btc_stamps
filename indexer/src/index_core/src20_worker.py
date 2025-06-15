@@ -2,18 +2,19 @@
 SRC-20 Processing Worker for Bitcoin Stamps Indexer
 
 This module provides specialized worker functions for fetching and processing
-SRC-20 token market data from exchange APIs, with initial focus on KuCoin API
-for the STAMP token and extensible design for other exchanges.
+SRC-20 token market data from exchange APIs, including KuCoin API for the STAMP
+token and OpenStamp API for comprehensive SRC-20 market data.
 """
 
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import requests
 
 from index_core.fetch_utils import RateLimiter
+from index_core.openstamp_client import OpenStampApiError, get_openstamp_client
 from index_core.src20_market_processor import SRC20MarketDataProcessor
 
 logger = logging.getLogger(__name__)
@@ -84,9 +85,13 @@ class SRC20Worker:
             if "kucoin" in token_config:
                 market_data = self._fetch_kucoin_data(tick, token_config)
 
-            # TODO: Add other exchanges here (OpenStamp, StampScan, etc.)
-            # if not market_data and "openstamp" in token_config:
-            #     market_data = self._fetch_openstamp_data(tick, token_config)
+            # Try OpenStamp API for all SRC-20 tokens (primary data source)
+            if not market_data:
+                market_data = self._fetch_openstamp_data(tick)
+
+            # TODO: Add StampScan and other exchanges here
+            # if not market_data and "stampscan" in token_config:
+            #     market_data = self._fetch_stampscan_data(tick, token_config)
 
             if market_data:
                 # Add processing metadata
@@ -200,6 +205,41 @@ class SRC20Worker:
             logger.error(f"Error in KuCoin API call: {e}")
             return None
 
+    def _fetch_openstamp_data(self, tick: str) -> Optional[Dict]:
+        """
+        Fetch market data from OpenStamp API.
+
+        Args:
+            tick: SRC-20 token ticker
+
+        Returns:
+            Dictionary with market data or None if failed
+        """
+        try:
+            logger.debug(f"Fetching OpenStamp data for {tick}")
+
+            # Get OpenStamp client and fetch token data
+            openstamp_client = get_openstamp_client()
+            token_data = openstamp_client.fetch_token_data(tick)
+
+            if token_data:
+                market_data = token_data.to_market_data_dict()
+                market_data["data_source"] = "openstamp"
+                market_data["exchange_symbol"] = tick
+
+                logger.debug(f"Successfully fetched OpenStamp data for {tick}")
+                return market_data
+            else:
+                logger.debug(f"Token {tick} not found in OpenStamp data")
+                return None
+
+        except OpenStampApiError as e:
+            logger.error(f"OpenStamp API error for {tick}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching OpenStamp data for {tick}: {e}")
+            return None
+
     def _process_kucoin_data(
         self, tick: str, ticker_data: Optional[Dict], orderbook_data: Optional[Dict], klines_data: Optional[List]
     ) -> Optional[Dict]:
@@ -232,43 +272,96 @@ class SRC20Worker:
                 "confidence_level": "medium",
             }
 
+            # Get BTC/USDT rate for volume conversion
+            btc_usdt_rate = self._get_btc_usdt_rate()
+
+            # If we can't get BTC/USDT rate, log warning but continue with USDT values
+            if not btc_usdt_rate:
+                logger.warning(f"Could not fetch BTC/USDT rate for {tick}, using USDT values without conversion")
+
             # Process ticker data (24h statistics)
             if ticker_data:
-                market_data["price_btc"] = self._safe_float(ticker_data.get("last"))
-                market_data["volume_24h_btc"] = self._safe_float(ticker_data.get("vol"))
-                market_data["high_24h_btc"] = self._safe_float(ticker_data.get("high"))
-                market_data["low_24h_btc"] = self._safe_float(ticker_data.get("low"))
+                # Price is in USDT, convert to BTC if rate available
+                price_usdt = self._safe_float(ticker_data.get("last"))
+                if price_usdt:
+                    market_data["price_usd"] = price_usdt
+                    if btc_usdt_rate:
+                        market_data["price_btc"] = price_usdt / btc_usdt_rate
+                    else:
+                        # Store USDT price as BTC equivalent for now
+                        market_data["price_btc"] = price_usdt
+
+                # Volume is in USDT, convert to BTC if rate available
+                volume_usdt = self._safe_float(ticker_data.get("vol"))
+                if volume_usdt:
+                    market_data["volume_24h_usd"] = volume_usdt
+                    if btc_usdt_rate:
+                        market_data["volume_24h_btc"] = volume_usdt / btc_usdt_rate
+                    else:
+                        # Store USDT volume as BTC equivalent for now
+                        market_data["volume_24h_btc"] = volume_usdt
+
+                # High/Low prices in USDT, convert to BTC if rate available
+                high_usdt = self._safe_float(ticker_data.get("high"))
+                low_usdt = self._safe_float(ticker_data.get("low"))
+                if high_usdt:
+                    if btc_usdt_rate:
+                        market_data["high_24h_btc"] = high_usdt / btc_usdt_rate
+                    else:
+                        market_data["high_24h_btc"] = high_usdt
+                if low_usdt:
+                    if btc_usdt_rate:
+                        market_data["low_24h_btc"] = low_usdt / btc_usdt_rate
+                    else:
+                        market_data["low_24h_btc"] = low_usdt
 
                 # Calculate price change
-                current_price = self._safe_float(ticker_data.get("last"))
+                current_price_usdt = self._safe_float(ticker_data.get("last"))
                 change_rate = self._safe_float(ticker_data.get("changeRate"))
 
-                if current_price and change_rate:
+                if current_price_usdt and change_rate:
                     market_data["price_change_24h_percent"] = change_rate * 100
-                    market_data["price_change_24h"] = current_price * change_rate
+                    price_change_usdt = current_price_usdt * change_rate
+                    if btc_usdt_rate:
+                        market_data["price_change_24h"] = price_change_usdt / btc_usdt_rate
+                    else:
+                        market_data["price_change_24h"] = price_change_usdt
 
             # Process order book data (current best prices)
             if orderbook_data:
                 # Use best bid/ask if available, fallback to ticker price
-                best_bid = self._safe_float(orderbook_data.get("bestBid"))
-                best_ask = self._safe_float(orderbook_data.get("bestAsk"))
+                best_bid_usdt = self._safe_float(orderbook_data.get("bestBid"))
+                best_ask_usdt = self._safe_float(orderbook_data.get("bestAsk"))
 
-                if best_bid and best_ask:
+                if best_bid_usdt and best_ask_usdt:
                     # Use mid-price for more accurate current price
-                    market_data["price_btc"] = (best_bid + best_ask) / 2
-                elif best_bid:
-                    market_data["price_btc"] = best_bid
-                elif best_ask:
-                    market_data["price_btc"] = best_ask
+                    mid_price_usdt = (best_bid_usdt + best_ask_usdt) / 2
+                    if btc_usdt_rate:
+                        market_data["price_btc"] = mid_price_usdt / btc_usdt_rate
+                    else:
+                        market_data["price_btc"] = mid_price_usdt
+                elif best_bid_usdt:
+                    if btc_usdt_rate:
+                        market_data["price_btc"] = best_bid_usdt / btc_usdt_rate
+                    else:
+                        market_data["price_btc"] = best_bid_usdt
+                elif best_ask_usdt:
+                    if btc_usdt_rate:
+                        market_data["price_btc"] = best_ask_usdt / btc_usdt_rate
+                    else:
+                        market_data["price_btc"] = best_ask_usdt
 
             # Process klines data for additional metrics
             if klines_data and len(klines_data) > 0:
                 # KuCoin klines format: [time, open, close, high, low, volume, turnover]
                 latest_kline = klines_data[0]  # Most recent
                 if len(latest_kline) >= 7:
-                    kline_volume = self._safe_float(latest_kline[5])
-                    if kline_volume:
-                        market_data["volume_24h_btc"] = kline_volume
+                    kline_volume_usdt = self._safe_float(latest_kline[5])
+                    if kline_volume_usdt:
+                        if btc_usdt_rate:
+                            market_data["volume_24h_btc"] = kline_volume_usdt / btc_usdt_rate
+                        else:
+                            market_data["volume_24h_btc"] = kline_volume_usdt
 
             # Calculate derived metrics
             market_data["quality_score"] = self._calculate_kucoin_quality_score(market_data)
@@ -281,6 +374,47 @@ class SRC20Worker:
 
         except Exception as e:
             logger.error(f"Error processing KuCoin data for {tick}: {e}")
+            return None
+
+    def _get_btc_usdt_rate(self) -> Optional[float]:
+        """
+        Get current BTC/USDT exchange rate from KuCoin.
+
+        Returns:
+            BTC/USDT rate or None if fetch fails
+        """
+        try:
+            # Use cached rate if available and fresh (< 5 minutes old)
+            cache_key = "btc_usdt_rate"
+            cached_rate = getattr(self, "_btc_usdt_cache", {})
+
+            if cache_key in cached_rate and time.time() - cached_rate[cache_key]["timestamp"] < 300:  # 5 minutes
+                return cached_rate[cache_key]["rate"]
+
+            # Fetch fresh rate
+            response = self._kucoin_api_call("/api/v1/market/orderbook/level1", {"symbol": "BTC-USDT"})
+
+            if response:
+                # KuCoin API returns data directly, not wrapped in code/data structure
+                best_bid = self._safe_float(response.get("bestBid"))
+                best_ask = self._safe_float(response.get("bestAsk"))
+
+                if best_bid and best_ask:
+                    rate = (best_bid + best_ask) / 2
+
+                    # Cache the rate
+                    if not hasattr(self, "_btc_usdt_cache"):
+                        self._btc_usdt_cache = {}
+                    self._btc_usdt_cache[cache_key] = {"rate": rate, "timestamp": time.time()}
+
+                    logger.debug(f"Fetched BTC/USDT rate: {rate}")
+                    return rate
+
+            logger.warning("Failed to fetch BTC/USDT rate from KuCoin")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching BTC/USDT rate: {e}")
             return None
 
     def _safe_float(self, value) -> Optional[float]:
@@ -327,7 +461,9 @@ class SRC20Worker:
             if market_data.get("high_24h_btc") is not None and market_data.get("low_24h_btc") is not None:
                 score += 1.0
 
-            if market_data.get("volume_24h_btc", 0) > 0:
+            # Safe volume check
+            volume_24h_btc = market_data.get("volume_24h_btc")
+            if volume_24h_btc is not None and volume_24h_btc > 0:
                 score += 1.0
 
             return max(0.0, min(10.0, score))
@@ -349,6 +485,10 @@ class SRC20Worker:
         try:
             quality_score = market_data.get("quality_score", 0)
             volume_24h = market_data.get("volume_24h_btc", 0)
+
+            # Handle None volume safely
+            if volume_24h is None:
+                volume_24h = 0
 
             # Higher confidence for higher volume (return numeric values)
             if quality_score >= 8.0 and volume_24h > 0.001:  # > 0.001 BTC volume
@@ -391,6 +531,83 @@ class SRC20Worker:
             "quality_score": 1.0,  # Low quality for placeholder
             "confidence_level": "very_low",
         }
+
+    def discover_new_tokens(self, known_tokens: Set[str]) -> Set[str]:
+        """
+        Discover new SRC-20 tokens from OpenStamp API.
+
+        Since OpenStamp returns all tokens in one call, this just compares
+        the complete list against known tokens.
+
+        Args:
+            known_tokens: Set of already known token tickers
+
+        Returns:
+            Set of newly discovered token tickers
+        """
+        try:
+            logger.debug(f"Discovering new tokens. Known tokens: {len(known_tokens)}")
+
+            # Get all available tokens from OpenStamp
+            all_openstamp_tokens = set(self.get_all_available_tokens())
+
+            # Find new tokens
+            new_tokens = all_openstamp_tokens - known_tokens
+
+            if new_tokens:
+                logger.info(
+                    f"Discovered {len(new_tokens)} new SRC-20 tokens: {', '.join(sorted(list(new_tokens)[:10]))}{'...' if len(new_tokens) > 10 else ''}"
+                )
+            else:
+                logger.debug("No new tokens discovered")
+
+            return new_tokens
+
+        except Exception as e:
+            logger.error(f"Error discovering new tokens: {e}")
+            return set()
+
+    def get_all_available_tokens(self) -> List[str]:
+        """
+        Get all available SRC-20 tokens from OpenStamp API.
+
+        Returns:
+            List of all available token tickers
+        """
+        try:
+            openstamp_client = get_openstamp_client()
+            all_tokens = openstamp_client.get_all_available_tokens()
+
+            logger.info(f"Retrieved {len(all_tokens)} total SRC-20 tokens from OpenStamp")
+            return all_tokens
+
+        except Exception as e:
+            logger.error(f"Error getting all available tokens: {e}")
+            return []
+
+    def get_active_tokens(self, min_volume: float = 0.0, min_holders: int = 1) -> List[str]:
+        """
+        Get active SRC-20 tokens based on criteria.
+
+        Args:
+            min_volume: Minimum 24h volume requirement
+            min_holders: Minimum number of holders requirement
+
+        Returns:
+            List of active token tickers
+        """
+        try:
+            from decimal import Decimal
+
+            openstamp_client = get_openstamp_client()
+            active_tokens = openstamp_client.get_active_tokens(min_volume=Decimal(str(min_volume)), min_holders=min_holders)
+
+            logger.info(f"Found {len(active_tokens)} active SRC-20 tokens")
+            return active_tokens
+
+        except Exception as e:
+            logger.error(f"Error getting active tokens: {e}")
+            return []
 
 
 # Global worker instance
@@ -458,3 +675,40 @@ def get_supported_src20_tokens() -> List[str]:
         List of supported token tickers
     """
     return list(SRC20_EXCHANGE_MAPPINGS.keys())
+
+
+def discover_new_src20_tokens(known_tokens: Set[str]) -> Set[str]:
+    """
+    Discover new SRC-20 tokens using the global worker instance.
+
+    Args:
+        known_tokens: Set of already known token tickers
+
+    Returns:
+        Set of newly discovered token tickers
+    """
+    return src20_worker.discover_new_tokens(known_tokens)
+
+
+def get_all_src20_tokens() -> List[str]:
+    """
+    Get all available SRC-20 tokens using the global worker instance.
+
+    Returns:
+        List of all available token tickers
+    """
+    return src20_worker.get_all_available_tokens()
+
+
+def get_active_src20_tokens(min_volume: float = 0.0, min_holders: int = 1) -> List[str]:
+    """
+    Get active SRC-20 tokens using the global worker instance.
+
+    Args:
+        min_volume: Minimum 24h volume requirement
+        min_holders: Minimum number of holders requirement
+
+    Returns:
+        List of active token tickers
+    """
+    return src20_worker.get_active_tokens(min_volume, min_holders)

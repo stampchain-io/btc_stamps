@@ -334,10 +334,9 @@ class MarketDataJobScheduler:
         return cpids
 
     def _get_src20_tokens_needing_update(self, db) -> List[str]:
-        """Get list of SRC-20 token ticks that need market data updates."""
+        """Get list of SRC-20 token ticks that need market data updates with smart discovery."""
         try:
-            # Query for SRC-20 tokens that haven't been updated recently
-            # IMPROVED: Much larger selection limit for comprehensive processing
+            # First, get tokens from our database that need updates
             query = """
             SELECT DISTINCT s.tick
             FROM SRC20Valid s
@@ -350,11 +349,59 @@ class MarketDataJobScheduler:
 
             cursor = db.cursor()
             cursor.execute(query, (SRC20_UPDATE_INTERVAL // 60, SRC20_SELECTION_LIMIT))
-            results = cursor.fetchall()
+            db_results = cursor.fetchall()
+
+            # Get known tokens from database
+            known_query = "SELECT DISTINCT tick FROM SRC20Valid"
+            cursor.execute(known_query)
+            known_tokens_results = cursor.fetchall()
             cursor.close()
 
-            logger.info(f"Found {len(results)} SRC-20 tokens needing market data updates (limit: {SRC20_SELECTION_LIMIT})")
-            return [row[0] for row in results]
+            db_tokens = [row[0] for row in db_results]
+            known_tokens = {row[0] for row in known_tokens_results}
+
+            logger.info(f"Found {len(db_tokens)} SRC-20 tokens from DB needing updates")
+            logger.debug(f"Known tokens in database: {len(known_tokens)}")
+
+            # CRITICAL: Only process tokens that exist in our local database
+            # Processing tokens that don't exist locally would be a critical error for SRC-20 on Bitcoin
+            try:
+                from index_core.src20_worker import get_all_src20_tokens
+
+                # Get complete list of all tokens available on OpenStamp  
+                openstamp_tokens = set(get_all_src20_tokens())
+
+                if openstamp_tokens:
+                    # Find tokens that exist on OpenStamp but not in our database - LOG ONLY
+                    new_tokens = openstamp_tokens - known_tokens
+
+                    if new_tokens:
+                        logger.warning(
+                            f"⚠️ Found {len(new_tokens)} tokens on OpenStamp that don't exist in local DB: {', '.join(sorted(list(new_tokens)[:10]))}{'...' if len(new_tokens) > 10 else ''}"
+                        )
+                        logger.warning("These tokens will be SKIPPED as they don't exist in our SRC-20 database")
+
+                    # ONLY process tokens that exist in BOTH OpenStamp AND our local database
+                    valid_tokens = openstamp_tokens & known_tokens  # Intersection only
+                    final_tokens = list(valid_tokens)
+                    logger.info(f"📊 Processing market data for {len(final_tokens)} validated SRC-20 tokens")
+                else:
+                    logger.warning("No tokens retrieved from OpenStamp, falling back to database tokens")
+                    final_tokens = db_tokens
+
+            except Exception as discovery_error:
+                logger.warning(f"OpenStamp token retrieval failed, using database tokens only: {discovery_error}")
+                final_tokens = db_tokens
+
+            # Limit the final list to our processing capacity
+            if len(final_tokens) > SRC20_SELECTION_LIMIT:
+                logger.info(f"Limiting token list from {len(final_tokens)} to {SRC20_SELECTION_LIMIT} tokens")
+                final_tokens = final_tokens[:SRC20_SELECTION_LIMIT]
+
+            logger.info(
+                f"Total SRC-20 tokens for market data updates: {len(final_tokens)} (DB: {len(db_tokens)}, New: {len(final_tokens) - len(db_tokens)})"
+            )
+            return final_tokens
 
         except Exception as e:
             logger.error(f"Error getting SRC-20 tokens needing update: {e}")

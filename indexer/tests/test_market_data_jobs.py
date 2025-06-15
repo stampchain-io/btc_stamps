@@ -207,20 +207,26 @@ class TestMarketDataJobScheduler:
             ("TICK3",),
         ]
 
-        # Call the method to test the query
-        self.scheduler._get_src20_tokens_needing_update(self.mock_db)
+        # Mock the OpenStamp call to avoid API dependency
+        with patch("index_core.src20_worker.get_all_src20_tokens", return_value=[]):
+            # Call the method to test the query
+            self.scheduler._get_src20_tokens_needing_update(self.mock_db)
 
-        # Verify SQL query structure
-        execute_call = self.mock_cursor.execute.call_args
-        sql_query = execute_call[0][0]
-        sql_params = execute_call[0][1]
+        # Verify SQL query structure - now there are multiple execute calls
+        execute_calls = self.mock_cursor.execute.call_args_list
+        assert len(execute_calls) >= 2  # At least the main query and known tokens query
+
+        # Check the first query (main SRC-20 query)
+        first_call = execute_calls[0]
+        sql_query = first_call[0][0]
+        sql_params = first_call[0][1] if len(first_call[0]) > 1 else ()
 
         # Check query components
         assert "SELECT DISTINCT s.tick" in sql_query
         assert "FROM SRC20Valid s" in sql_query
         assert "LEFT JOIN src20_market_data smd" in sql_query
 
-        # Verify parameters
+        # Verify parameters for main query
         assert len(sql_params) == 2
         assert sql_params[0] == 5  # SRC20_UPDATE_INTERVAL // 60
         assert sql_params[1] == 1000  # SRC20_SELECTION_LIMIT (new value)
