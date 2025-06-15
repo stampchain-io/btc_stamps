@@ -72,9 +72,10 @@ class StampWorker:
                 market_data["data_source"] = "counterparty"
 
                 # Validate the processed data
-                if self.processor.validate_market_data(market_data):
+                validated_data = self.processor.validate_stamp_market_data(market_data)
+                if validated_data:
                     logger.debug(f"Successfully processed market data for {cpid}")
-                    return market_data
+                    return validated_data
                 else:
                     logger.warning(f"Market data validation failed for {cpid}")
                     return None
@@ -452,13 +453,13 @@ class StampWorker:
             score = 0.0
 
             # Score based on open dispensers
-            open_dispensers = market_data.get("open_dispensers_count", 0)
-            if open_dispensers > 0:
+            open_dispensers = market_data.get("open_dispensers_count") or 0
+            if open_dispensers and open_dispensers > 0:
                 score += min(3.0, open_dispensers * 0.5)  # Max 3 points
 
             # Score based on recent volume
-            volume_24h = market_data.get("volume_24h_btc", 0)
-            if volume_24h > 0:
+            volume_24h = market_data.get("volume_24h_btc") or 0
+            if volume_24h and volume_24h > 0:
                 # Logarithmic scaling for volume
                 import math
 
@@ -466,8 +467,9 @@ class StampWorker:
                 score += volume_score
 
             # Score based on holder count
-            holder_count = market_data.get("holder_count", 0)
-            if holder_count > 0:
+            holder_count = market_data.get("holder_count") or 0
+            if holder_count and holder_count > 0:
+                import math
                 holder_score = min(3.0, math.log10(holder_count + 1) * 1.5)  # Max 3 points
                 score += holder_score
 
@@ -491,27 +493,27 @@ class StampWorker:
             score = 0.0
 
             # Score based on recent dispenses
-            recent_dispenses = market_data.get("recent_dispenses_count", 0)
-            if recent_dispenses > 0:
+            recent_dispenses = market_data.get("recent_dispenses_count") or 0
+            if recent_dispenses and recent_dispenses > 0:
                 import math
 
                 dispense_score = min(5.0, math.log10(recent_dispenses + 1) * 2.0)  # Max 5 points
                 score += dispense_score
 
             # Score based on volume ratio (24h vs 7d)
-            volume_24h = market_data.get("volume_24h_btc", 0)
-            volume_7d = market_data.get("volume_7d_btc", 0)
+            volume_24h = market_data.get("volume_24h_btc") or 0
+            volume_7d = market_data.get("volume_7d_btc") or 0
 
-            if volume_7d > 0:
+            if volume_7d and volume_7d > 0:
                 volume_ratio = volume_24h / (volume_7d / 7)  # Daily average
                 ratio_score = min(3.0, volume_ratio * 1.5)  # Max 3 points
                 score += ratio_score
 
             # Score based on dispenser activity
-            open_dispensers = market_data.get("open_dispensers_count", 0)
-            total_dispensers = market_data.get("total_dispensers_count", 0)
+            open_dispensers = market_data.get("open_dispensers_count") or 0
+            total_dispensers = market_data.get("total_dispensers_count") or 0
 
-            if total_dispensers > 0:
+            if total_dispensers and total_dispensers > 0:
                 activity_ratio = open_dispensers / total_dispensers
                 activity_score = min(2.0, activity_ratio * 2.0)  # Max 2 points
                 score += activity_score
@@ -543,13 +545,16 @@ class StampWorker:
                 score -= missing_fields * 2.0  # Deduct 2 points per missing field
 
             # Bonus for rich data
-            if market_data.get("open_dispensers_count", 0) > 0:
+            open_dispensers = market_data.get("open_dispensers_count") or 0
+            if open_dispensers and open_dispensers > 0:
                 score += 1.0
 
-            if market_data.get("volume_7d_btc", 0) > 0:
+            volume_7d = market_data.get("volume_7d_btc") or 0
+            if volume_7d and volume_7d > 0:
                 score += 0.5
 
-            if market_data.get("gini_coefficient", 0) > 0:
+            gini_coeff = market_data.get("gini_coefficient") or 0
+            if gini_coeff and gini_coeff > 0:
                 score += 0.5
 
             return max(0.0, min(10.0, score))

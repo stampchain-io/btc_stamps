@@ -89,9 +89,10 @@ class SRC20Worker:
                 market_data["last_updated"] = datetime.now()
 
                 # Validate the processed data
-                if self.processor.validate_market_data(market_data):
+                validated_data = self.processor.validate_src20_market_data(market_data)
+                if validated_data:
                     logger.debug(f"Successfully processed market data for {tick}")
-                    return market_data
+                    return validated_data
                 else:
                     logger.warning(f"Market data validation failed for {tick}")
                     return None
