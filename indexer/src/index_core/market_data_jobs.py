@@ -608,7 +608,7 @@ def update_market_data_async(db):
 
                     for stamp in batch:
                         try:
-                            worker = StampWorker(self.database_manager, self.rate_limiter)
+                            worker = StampWorker()
                             success = worker.process_stamp_market_data(stamp["cpid"])
 
                             if success:
@@ -661,7 +661,7 @@ def update_market_data_async(db):
 
                 for token in tokens_to_update:
                     try:
-                        worker = SRC20Worker(self.database_manager, self.rate_limiter)
+                        worker = SRC20Worker()
                         success = worker.process_src20_market_data(token["tick"])
 
                         if success:
