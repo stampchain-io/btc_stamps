@@ -1800,7 +1800,7 @@ def follow(
                     # Indexer is caught up (block_index > block_tip), wait for new blocks
                     logger.debug(f"Indexer caught up at block {block_index} (tip: {block_tip}), waiting for new blocks...")
                     db.rollback()  # Rollback any uncommitted transaction before waiting
-                    
+
                     if server.shutdown_flag.is_set():
                         logger.info("Shutdown flag detected, completing current block processing...")
                         # Ensure current block processing completes
