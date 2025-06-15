@@ -117,73 +117,63 @@ class TestMarketDataJobScheduler:
         """Test that stamp batch processing uses StampWorker for detailed analysis."""
         stamp_cpids = ["A1234567890123456789", "A9876543210987654321"]
 
-        with patch("index_core.market_data_jobs.is_valid_counterparty_asset", return_value=True):
-            with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
-                with patch("index_core.market_data_jobs.market_data_service") as mock_service:
-                    # Mock StampWorker instance and its method
-                    mock_worker = Mock()
-                    mock_worker_class.return_value = mock_worker
-                    mock_worker.process_stamp_market_data.return_value = {
-                        "floor_price_btc": 0.001,
-                        "volume_24h_btc": 0.05,
-                        "holder_count": 10,
-                        "data_source": "counterparty",
-                        "data_quality_score": 8.0,
-                    }
+        # Note: CPIDs are now pre-filtered with ident='STAMP' in SQL, no validation needed
+        with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
+            with patch("index_core.market_data_jobs.market_data_service") as mock_service:
+                # Mock StampWorker instance and its method
+                mock_worker = Mock()
+                mock_worker_class.return_value = mock_worker
+                mock_worker.process_stamp_market_data.return_value = {
+                    "floor_price_btc": 0.001,
+                    "volume_24h_btc": 0.05,
+                    "holder_count": 10,
+                    "data_source": "counterparty",
+                    "data_quality_score": 8.0,
+                }
 
-                    self.scheduler._process_stamp_batch(self.mock_db, stamp_cpids)
+                self.scheduler._process_stamp_batch(self.mock_db, stamp_cpids)
 
-                    # Verify StampWorker was created
-                    mock_worker_class.assert_called_once()
+                # Verify StampWorker was created
+                mock_worker_class.assert_called_once()
 
-                    # Verify worker method was called for each valid CPID
-                    assert mock_worker.process_stamp_market_data.call_count == 2
-                    mock_worker.process_stamp_market_data.assert_any_call("A1234567890123456789")
-                    mock_worker.process_stamp_market_data.assert_any_call("A9876543210987654321")
+                # Verify worker method was called for each CPID
+                assert mock_worker.process_stamp_market_data.call_count == 2
+                mock_worker.process_stamp_market_data.assert_any_call("A1234567890123456789")
+                mock_worker.process_stamp_market_data.assert_any_call("A9876543210987654321")
 
-                    # Verify service was called for each processed stamp
-                    assert mock_service.update_stamp_market_data.call_count == 2
+                # Verify service was called for each processed stamp
+                assert mock_service.update_stamp_market_data.call_count == 2
 
-    def test_process_stamp_batch_filters_invalid_assets(self):
-        """Test that invalid Counterparty assets are filtered out before StampWorker processing."""
-        # Mix of valid and invalid CPIDs
-        stamp_cpids = ["A1234567890123456789", "fRtHhxqWhHtLhEvSGCJi", "A9876543210987654321", "wsyDPyMkNMBYDoyHfcER"]
+    def test_process_stamp_batch_processes_all_cpids(self):
+        """Test that all provided CPIDs are processed (since they're pre-filtered by SQL)."""
+        # CPIDs are now pre-filtered by ident='STAMP' in SQL query, so all should be valid
+        stamp_cpids = ["A1234567890123456789", "A9876543210987654321"]
 
-        def mock_validation(cpid):
-            # Simulate is_valid_counterparty_asset behavior
-            return cpid.startswith("A") and cpid[1:].isdigit()
+        with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
+            with patch("index_core.market_data_jobs.market_data_service") as mock_service:
+                # Mock StampWorker instance and its method
+                mock_worker = Mock()
+                mock_worker_class.return_value = mock_worker
+                mock_worker.process_stamp_market_data.return_value = {
+                    "floor_price_btc": 0.001,
+                    "volume_24h_btc": 0.05,
+                    "holder_count": 10,
+                    "data_source": "counterparty",
+                    "data_quality_score": 8.0,
+                }
 
-        with patch("index_core.market_data_jobs.is_valid_counterparty_asset", side_effect=mock_validation):
-            with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
-                with patch("index_core.market_data_jobs.market_data_service") as mock_service:
-                    # Mock StampWorker instance and its method
-                    mock_worker = Mock()
-                    mock_worker_class.return_value = mock_worker
-                    mock_worker.process_stamp_market_data.return_value = {
-                        "floor_price_btc": 0.001,
-                        "volume_24h_btc": 0.05,
-                        "holder_count": 10,
-                        "data_source": "counterparty",
-                        "data_quality_score": 8.0,
-                    }
+                self.scheduler._process_stamp_batch(self.mock_db, stamp_cpids)
 
-                    self.scheduler._process_stamp_batch(self.mock_db, stamp_cpids)
+                # Verify StampWorker was created
+                mock_worker_class.assert_called_once()
 
-                    # Verify StampWorker was created
-                    mock_worker_class.assert_called_once()
+                # Verify worker method was called for all CPIDs (no filtering needed)
+                assert mock_worker.process_stamp_market_data.call_count == 2
+                mock_worker.process_stamp_market_data.assert_any_call("A1234567890123456789")
+                mock_worker.process_stamp_market_data.assert_any_call("A9876543210987654321")
 
-                    # Verify worker method was called only for valid CPIDs (2 out of 4)
-                    assert mock_worker.process_stamp_market_data.call_count == 2
-                    mock_worker.process_stamp_market_data.assert_any_call("A1234567890123456789")
-                    mock_worker.process_stamp_market_data.assert_any_call("A9876543210987654321")
-
-                    # Verify invalid CPIDs were NOT processed
-                    calls = [call[0][0] for call in mock_worker.process_stamp_market_data.call_args_list]
-                    assert "fRtHhxqWhHtLhEvSGCJi" not in calls
-                    assert "wsyDPyMkNMBYDoyHfcER" not in calls
-
-                    # Verify service was called only for valid assets
-                    assert mock_service.update_stamp_market_data.call_count == 2
+                # Verify service was called for all assets
+                assert mock_service.update_stamp_market_data.call_count == 2
 
     def test_get_stamps_needing_update_query(self):
         """Test the SQL query for getting stamps needing updates."""
@@ -201,17 +191,18 @@ class TestMarketDataJobScheduler:
         sql_query = execute_call[0][0]
         sql_params = execute_call[0][1]
 
-        # Check query components
+        # Check query components - updated for new optimized query structure
         assert "SELECT DISTINCT s.cpid" in sql_query
         assert "FROM StampTableV4 s" in sql_query
         assert "LEFT JOIN stamp_market_data smd" in sql_query
-        assert "WHERE smd.last_updated IS NULL" in sql_query
+        assert "WHERE s.ident = 'STAMP'" in sql_query  # New ident filter
+        assert "smd.last_updated IS NULL" in sql_query  # Now in AND clause
         assert "OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)" in sql_query
 
-        # Verify parameters
+        # Verify parameters - updated for new limits
         assert len(sql_params) == 2
         assert sql_params[0] == 15  # STAMP_UPDATE_INTERVAL // 60
-        assert sql_params[1] == 500  # STAMP_BATCH_SIZE * 5
+        assert sql_params[1] == 10000  # STAMP_SELECTION_LIMIT (new value)
 
     def test_get_src20_tokens_needing_update_query(self):
         """Test the SQL query for getting SRC-20 tokens needing updates."""
@@ -237,7 +228,7 @@ class TestMarketDataJobScheduler:
         # Verify parameters
         assert len(sql_params) == 2
         assert sql_params[0] == 5  # SRC20_UPDATE_INTERVAL // 60
-        assert sql_params[1] == 150  # SRC20_BATCH_SIZE * 3
+        assert sql_params[1] == 1000  # SRC20_SELECTION_LIMIT (new value)
 
     def test_error_handling_in_get_collections(self):
         """Test error handling when database query fails."""
@@ -276,31 +267,31 @@ class TestMarketDataJobScheduler:
         with patch.object(self.scheduler.database_manager, "connect", return_value=self.mock_db):
             with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
                 with patch("index_core.market_data_jobs.market_data_service") as mock_service:
-                    with patch("index_core.market_data_jobs.is_valid_counterparty_asset", return_value=True):
-                        # Mock StampWorker instance and its method
-                        mock_worker = Mock()
-                        mock_worker_class.return_value = mock_worker
-                        mock_worker.process_stamp_market_data.return_value = {
-                            "floor_price_btc": 0.001,
-                            "volume_24h_btc": 0.05,
-                            "holder_count": 10,
-                            "data_source": "counterparty",
-                            "data_quality_score": 8.0,
-                        }
+                    # Note: CPIDs are now pre-filtered with ident='STAMP' in SQL, no validation needed
+                    # Mock StampWorker instance and its method
+                    mock_worker = Mock()
+                    mock_worker_class.return_value = mock_worker
+                    mock_worker.process_stamp_market_data.return_value = {
+                        "floor_price_btc": 0.001,
+                        "volume_24h_btc": 0.05,
+                        "holder_count": 10,
+                        "data_source": "counterparty",
+                        "data_quality_score": 8.0,
+                    }
 
-                        # Run the job
-                        self.scheduler._update_stamp_market_data_job()
+                    # Run the job
+                    self.scheduler._update_stamp_market_data_job()
 
-                        # Verify StampWorker was used
-                        mock_worker_class.assert_called()
+                    # Verify StampWorker was used
+                    mock_worker_class.assert_called()
 
-                        # Verify worker method was called for each CPID
-                        assert mock_worker.process_stamp_market_data.call_count == 2
-                        mock_worker.process_stamp_market_data.assert_any_call("CPID1")
-                        mock_worker.process_stamp_market_data.assert_any_call("CPID2")
+                    # Verify worker method was called for each CPID
+                    assert mock_worker.process_stamp_market_data.call_count == 2
+                    mock_worker.process_stamp_market_data.assert_any_call("CPID1")
+                    mock_worker.process_stamp_market_data.assert_any_call("CPID2")
 
-                        # Verify service was called for each asset
-                        assert mock_service.update_stamp_market_data.call_count == 2
+                    # Verify service was called for each asset
+                    assert mock_service.update_stamp_market_data.call_count == 2
 
 
 if __name__ == "__main__":
