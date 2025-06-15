@@ -2409,6 +2409,56 @@ def insert_market_data_source(db: Connection, source_data: Dict[str, Any]) -> No
         raise DatabaseInsertError(f"Failed to insert market data source: {e}")
 
 
+def get_stamps_needing_market_update(db: Connection, update_interval_minutes: int, limit: int) -> List[str]:
+    """
+    Get list of stamp CPIDs that need market data updates.
+    Includes both traditional (A + digits) and named (pure alphabetic) Counterparty assets.
+    
+    Args:
+        db: Database connection
+        update_interval_minutes: Minutes since last update
+        limit: Maximum number of stamps to return
+        
+    Returns:
+        List of CPIDs needing updates
+    """
+    try:
+        with db.cursor() as cursor:
+            # Use simpler approach without regex to avoid string formatting issues
+            query = """
+                SELECT DISTINCT s.cpid
+                FROM StampTableV4 s
+                LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
+                WHERE (
+                    -- Traditional Counterparty assets: A + at least 12 digits
+                    (s.cpid LIKE 'A%' AND LENGTH(s.cpid) >= 13)
+                    OR 
+                    -- Named Counterparty assets: Any non-A starting alphabetic
+                    -- We check by excluding numeric patterns
+                    (s.cpid NOT LIKE 'A%' 
+                     AND s.cpid NOT LIKE '%0%' AND s.cpid NOT LIKE '%1%' 
+                     AND s.cpid NOT LIKE '%2%' AND s.cpid NOT LIKE '%3%' 
+                     AND s.cpid NOT LIKE '%4%' AND s.cpid NOT LIKE '%5%' 
+                     AND s.cpid NOT LIKE '%6%' AND s.cpid NOT LIKE '%7%' 
+                     AND s.cpid NOT LIKE '%8%' AND s.cpid NOT LIKE '%9%')
+                )
+                AND (
+                    smd.last_updated IS NULL
+                    OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+                )
+                ORDER BY s.block_index DESC
+                LIMIT %s
+            """  # nosec
+            
+            cursor.execute(query, (update_interval_minutes, limit))
+            results = cursor.fetchall()
+            return [row[0] for row in results]
+            
+    except Exception as e:
+        logger.error(f"Error getting stamps needing market update: {e}")
+        return []
+
+
 def get_trending_stamps(db: Connection, limit: int = 20) -> List[Tuple]:
     """
     Get trending stamps using the optimized view.
