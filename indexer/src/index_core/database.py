@@ -2412,7 +2412,7 @@ def insert_market_data_source(db: Connection, source_data: Dict[str, Any]) -> No
 def get_stamps_needing_market_update(db: Connection, update_interval_minutes: int, limit: int) -> List[str]:
     """
     Get list of stamp CPIDs that need market data updates.
-    Includes both traditional (A + digits) and named (pure alphabetic) Counterparty assets.
+    Includes stamps with ident='STAMP' or ident='SRC-721'.
     
     Args:
         db: Database connection
@@ -2424,25 +2424,13 @@ def get_stamps_needing_market_update(db: Connection, update_interval_minutes: in
     """
     try:
         with db.cursor() as cursor:
-            # IMPORTANT: Double %% to escape percent signs in LIKE patterns
-            # This prevents Python string formatting from interpreting them as format specifiers
+            # Include stamps with ident='STAMP' or 'SRC-721'
+            # Named assets like FUCKTHAT already have ident='STAMP'
             query = """
                 SELECT DISTINCT s.cpid
                 FROM StampTableV4 s
                 LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
-                WHERE (
-                    -- Traditional Counterparty assets: A + at least 12 digits
-                    (s.cpid LIKE 'A%%' AND LENGTH(s.cpid) >= 13)
-                    OR 
-                    -- Named Counterparty assets: Any non-A starting alphabetic
-                    -- We check by excluding numeric patterns
-                    (s.cpid NOT LIKE 'A%%' 
-                     AND s.cpid NOT LIKE '%%0%%' AND s.cpid NOT LIKE '%%1%%' 
-                     AND s.cpid NOT LIKE '%%2%%' AND s.cpid NOT LIKE '%%3%%' 
-                     AND s.cpid NOT LIKE '%%4%%' AND s.cpid NOT LIKE '%%5%%' 
-                     AND s.cpid NOT LIKE '%%6%%' AND s.cpid NOT LIKE '%%7%%' 
-                     AND s.cpid NOT LIKE '%%8%%' AND s.cpid NOT LIKE '%%9%%')
-                )
+                WHERE s.ident IN ('STAMP', 'SRC-721')
                 AND (
                     smd.last_updated IS NULL
                     OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
