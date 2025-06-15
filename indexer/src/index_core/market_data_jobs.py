@@ -14,7 +14,6 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import config
-
 from index_core.database_manager import DatabaseManager
 from index_core.fetch_utils import RateLimiter, is_valid_counterparty_asset
 from index_core.market_data_service import market_data_service
@@ -409,6 +408,7 @@ class MarketDataJobScheduler:
 
             # Use StampWorker for detailed market data processing
             # This provides comprehensive analysis: dispensers, dispenses, balances, volume metrics, etc.
+            # StampWorker now uses a shared processor instance to avoid repeated initialization
             stamp_worker = StampWorker()
             processed_count = 0
             error_count = 0

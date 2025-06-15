@@ -34,12 +34,9 @@ MIN_VOLUME = D("0")
 MAX_VOLUME = D("21000000")
 MIN_QUALITY_SCORE = D("0.0")
 MAX_QUALITY_SCORE = D("10.0")
-MIN_CONFIDENCE_LEVEL = D("0.0")
-MAX_CONFIDENCE_LEVEL = D("10.0")
 
 # Default values for missing data
 DEFAULT_QUALITY_SCORE = D("5.0")
-DEFAULT_CONFIDENCE_LEVEL = D("5.0")
 DEFAULT_UPDATE_FREQUENCY = 30  # minutes
 
 
@@ -82,7 +79,7 @@ class StampMarketDataProcessor:
             # SRC-20 hash tokens: 20-character alphanumeric strings
             is_traditional_cpid = cpid.startswith("A") and len(cpid) >= 13 and cpid[1:].isdigit()
             is_src20_hash = len(cpid) == 20 and cpid.isalnum()
-            
+
             if not (is_traditional_cpid or is_src20_hash):
                 raise exceptions.InvalidInputDataError(f"Invalid CPID format: {cpid}")
 
@@ -155,11 +152,10 @@ class StampMarketDataProcessor:
             )
             validated_data["data_quality_score"] = validated_quality or DEFAULT_QUALITY_SCORE
 
-            confidence_level = data.get("confidence_level", DEFAULT_CONFIDENCE_LEVEL)
-            validated_confidence = self._validate_decimal_field(
-                confidence_level, "confidence_level", MIN_CONFIDENCE_LEVEL, MAX_CONFIDENCE_LEVEL
-            )
-            validated_data["confidence_level"] = validated_confidence or DEFAULT_CONFIDENCE_LEVEL
+            # Validate confidence level (string field)
+            confidence_level = data.get("confidence_level", "medium")
+            validated_confidence = self._validate_confidence_level_field(confidence_level, "confidence_level")
+            validated_data["confidence_level"] = validated_confidence or "medium"
 
             # Validate block numbers (optional)
             for field in ["last_dispenser_block", "last_balance_block"]:
@@ -302,7 +298,7 @@ class StampMarketDataProcessor:
             transformed_data["price_source"] = "counterparty"
             transformed_data["volume_sources"] = "counterparty"
             transformed_data["data_quality_score"] = D("8.0")  # High quality for Counterparty data
-            transformed_data["confidence_level"] = D("9.0")  # High confidence for official API
+            transformed_data["confidence_level"] = "high"  # High confidence for official API (string)
             transformed_data["last_price_update"] = datetime.now()
             transformed_data["update_frequency_minutes"] = 30
 
@@ -499,6 +495,24 @@ class StampMarketDataProcessor:
         except (ValueError, TypeError, OSError):
             logger.warning(f"Invalid timestamp value for {field_name}: {value}")
             return None
+
+    def _validate_confidence_level_field(self, value: Any, field_name: str) -> Optional[str]:
+        """Validate a confidence level field (string)."""
+        if value is None:
+            return None
+
+        try:
+            str_val = str(value).lower()
+            valid_levels = ["very_low", "low", "medium", "high", "very_high"]
+            
+            if str_val in valid_levels:
+                return str_val
+            else:
+                logger.warning(f"Invalid confidence level for {field_name}: {value}. Valid values: {valid_levels}")
+                return "medium"  # Default fallback
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid confidence level value for {field_name}: {value}")
+            return "medium"  # Default fallback
 
 
 # Global processor instance for easy access

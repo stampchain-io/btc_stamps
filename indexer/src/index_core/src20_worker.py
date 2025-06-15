@@ -45,9 +45,14 @@ class SRC20Worker:
     Initially focuses on KuCoin API for STAMP token with extensible design
     for additional exchanges and tokens.
     """
+    
+    # Class-level shared processor to avoid repeated initialization
+    _shared_processor = None
 
     def __init__(self):
-        self.processor = SRC20MarketDataProcessor()
+        if SRC20Worker._shared_processor is None:
+            SRC20Worker._shared_processor = SRC20MarketDataProcessor()
+        self.processor = SRC20Worker._shared_processor
         self.kucoin_rate_limiter = KUCOIN_RATE_LIMITER
         self.exchange_rate_limiter = EXCHANGE_RATE_LIMITER
 
