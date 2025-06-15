@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
-  INDEX `cpid_index` (`cpid`(20)),
+  INDEX `cpid_index` (`cpid`),
   INDEX `ident_index` (`ident`),
   INDEX `creator_index` (`creator`(42)),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
@@ -73,12 +73,12 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   INDEX `idx_creator_tx_index` (`creator`(42), `tx_index`),
   INDEX `idx_stamp_url_mimetype` (`stamp_url`(97), `stamp_mimetype`),
   INDEX `idx_stamp_file` (`stamp_hash`, `stamp_mimetype`, `stamp_url`(97)),
-  INDEX `idx_cpid_ident` (`cpid`(20), `ident`),
+  INDEX `idx_cpid_ident` (`cpid`, `ident`),
   INDEX `idx_stamp_count` (`is_btc_stamp`, `ident`, `creator`(42)),
   INDEX `idx_stamp_details` (
     `stamp`,
     `block_index`,
-    `cpid`(20),
+    `cpid`,
     `creator`(42),
     `stamp_url`(97),
     `stamp_mimetype`,
@@ -478,7 +478,7 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   `update_frequency_minutes` INTEGER DEFAULT 30 COMMENT 'How often this stamp should be updated (adaptive)',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
   
-  -- Foreign Key Constraint (works with existing cpid prefix index)
+  -- Foreign Key Constraint (works with existing cpid index)
   CONSTRAINT `fk_stamp_market_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
   
   -- Performance Indexes
@@ -506,7 +506,7 @@ CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
   `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last update time',
   `last_tx_block` INTEGER NULL COMMENT 'Block of last transaction affecting this balance',
   
-  -- Foreign Key Constraint (works with existing cpid prefix index)
+  -- Foreign Key Constraint (works with existing cpid index)
   CONSTRAINT `fk_stamp_holder_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
   
   -- Ensure one record per stamp-address combination
