@@ -125,11 +125,7 @@ class MarketDataJobScheduler:
 
                 # Check if SRC-20 market data update is due
                 src20_is_due = self._is_job_due("src20_update", SRC20_UPDATE_INTERVAL, current_time)
-                logger.info(f"SRC-20 job due check: {src20_is_due} (interval: {SRC20_UPDATE_INTERVAL}s)")
-                logger.info(f"Last run times: {self.last_run_times}")
-                logger.info(f"Current jobs: {list(self.job_futures.keys())}")
                 if src20_is_due:
-                    logger.info("=== SRC-20 JOB IS DUE, SUBMITTING ===")
                     self._submit_job("src20_update", self._update_src20_market_data_job)
 
                 # Check if collection market data update is due
@@ -139,13 +135,11 @@ class MarketDataJobScheduler:
                 # Clean up completed jobs
                 self._cleanup_completed_jobs()
 
-                # Log active jobs status
+                # Track active jobs (without verbose logging)
                 active_jobs = []
                 for job_name, future in self.job_futures.items():
                     if not future.done():
                         active_jobs.append(job_name)
-                if active_jobs:
-                    logger.info(f"Active jobs: {active_jobs}")
 
                 # Sleep for a short interval before checking again
                 self.shutdown_event.wait(timeout=5)  # Check every 5 seconds for faster updates
@@ -183,21 +177,18 @@ class MarketDataJobScheduler:
 
                 # Submit the job
                 if self.executor and self.running:
-                    logger.info(f"=== SUBMITTING JOB: {job_name} ===")
-                    logger.info(f"Executor state: {self.executor}")
-                    logger.info(f"Running state: {self.running}")
+                    logger.debug(f"Submitting job: {job_name}")
 
                     try:
                         # Add debug wrapper to ensure job starts
                         def job_wrapper():
-                            logger.info(f"=== JOB WRAPPER STARTING: {job_name} ===")
+                            logger.debug(f"Starting job: {job_name}")
                             try:
                                 result = job_function()
-                                logger.info(f"=== JOB WRAPPER COMPLETED: {job_name} ===")
+                                logger.debug(f"Completed job: {job_name}")
                                 return result
                             except Exception as job_error:
-                                logger.error(f"=== JOB WRAPPER ERROR: {job_name} ===")
-                                logger.error(f"Job error: {job_error}")
+                                logger.error(f"Error in job {job_name}: {job_error}")
                                 import traceback
 
                                 logger.error(f"Job traceback: {traceback.format_exc()}")
@@ -206,10 +197,7 @@ class MarketDataJobScheduler:
                         future = self.executor.submit(job_wrapper)
                         self.job_futures[job_name] = future
                         self.last_run_times[job_name] = datetime.now()
-                        logger.info(f"Job {job_name} submitted successfully, future: {future}")
-                        logger.info(
-                            f"Current executor stats: {self.executor._threads} threads, {len(self.job_futures)} tracked jobs"
-                        )
+                        logger.debug(f"Job {job_name} submitted successfully")
                     except Exception as submit_error:
                         logger.error(f"Failed to submit job {job_name}: {submit_error}")
                         import traceback
@@ -251,10 +239,7 @@ class MarketDataJobScheduler:
 
         Follows the pattern from update_cpids_async in blocks.py.
         """
-        logger.info("=== STAMP JOB ENTRY POINT ===")
-        logger.info("Starting stamp market data update job")
-        logger.info(f"Thread ID: {threading.current_thread().ident}")
-        logger.info(f"Thread Name: {threading.current_thread().name}")
+        logger.info("🔄 Starting stamp market data update cycle")
         start_time = time.time()
 
         try:
@@ -281,7 +266,8 @@ class MarketDataJobScheduler:
                         logger.info("Shutdown requested, stopping stamp updates")
                         break
 
-                    logger.info(f"Processing stamp batch {batch_num}/{total_batches}")
+                    if batch_num % 10 == 0 or batch_num == 1 or batch_num == total_batches:
+                        logger.info(f"Stamp update progress: {batch_num}/{total_batches} batches")
                     self._process_stamp_batch(task_db, batch)
 
                     # Rate limiting between batches
@@ -289,7 +275,11 @@ class MarketDataJobScheduler:
                         time.sleep(2)  # 2 second delay between batches
 
                 elapsed_time = time.time() - start_time
-                logger.info(f"Stamp market data update completed in {elapsed_time:.2f} seconds")
+                logger.info("📊 Stamp Update Cycle Complete:")
+                logger.info(f"   📊 Total stamps processed: {len(stamps_to_update)}")
+                logger.info(f"   📦 Total batches: {total_batches}")
+                logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
+                logger.info(f"   🔄 Next cycle in {STAMP_UPDATE_INTERVAL // 60} minutes")
 
             finally:
                 task_db.close()
@@ -306,27 +296,21 @@ class MarketDataJobScheduler:
         Uses exchange APIs for SRC-20 token data.
         """
         try:
-            logger.info("=== SRC-20 JOB ENTRY POINT ===")
-            logger.info("Starting SRC-20 market data update job")
-            logger.info(f"Thread ID: {threading.current_thread().ident}")
-            logger.info(f"Thread Name: {threading.current_thread().name}")
+            logger.info("🔄 Starting SRC-20 market data update cycle")
             start_time = time.time()
 
             # Use existing database connection without initialization
-            logger.info("SRC-20 job: Attempting database connection...")
             task_db = self.database_manager.connect()
-            logger.info("SRC-20 job: Database connection established successfully")
 
             try:
                 # Create a single worker instance
                 src20_worker = SRC20Worker()
 
                 # Fetch ALL market data from OpenStamp in ONE call
-                logger.info("SRC-20 job: Fetching all market data from OpenStamp")
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
 
                 if openstamp_tokens:
-                    logger.info(f"SRC-20 job: Retrieved {len(openstamp_tokens)} tokens from OpenStamp")
+                    logger.info(f"OpenStamp: Retrieved {len(openstamp_tokens)} tokens")
 
                     # Process each token from OpenStamp
                     processed_count = 0
@@ -355,32 +339,35 @@ class MarketDataJobScheduler:
                             error_count += 1
                             logger.warning(f"Error processing token data: {e}")
 
-                    logger.info(f"SRC-20 job: Processed {processed_count} tokens from OpenStamp ({error_count} errors)")
+                    if error_count > 0:
+                        logger.warning(f"OpenStamp: Processed {processed_count} tokens ({error_count} errors)")
+                    else:
+                        logger.info(f"OpenStamp: Processed {processed_count} tokens successfully")
                 else:
-                    logger.warning("SRC-20 job: No data retrieved from OpenStamp")
+                    logger.warning("OpenStamp: No data retrieved")
 
                 # Update STAMP token from KuCoin (only token we track there)
-                logger.info("SRC-20 job: Updating STAMP token from KuCoin")
                 try:
                     stamp_data = src20_worker.process_src20_market_data("STAMP")
                     if stamp_data:
                         market_data_service.update_src20_market_data("STAMP", stamp_data)
-                        logger.info("SRC-20 job: Successfully updated STAMP from KuCoin")
+                        logger.info("KuCoin: Updated STAMP token")
                     else:
-                        logger.warning("SRC-20 job: No market data returned for STAMP from KuCoin")
+                        logger.warning("KuCoin: No market data returned for STAMP")
                 except Exception as e:
-                    logger.error(f"SRC-20 job: Error updating STAMP from KuCoin: {e}")
+                    logger.error(f"Error updating STAMP from KuCoin: {e}")
 
                 elapsed_time = time.time() - start_time
-                logger.info(f"SRC-20 market data update completed in {elapsed_time:.2f} seconds")
+                logger.info("🪙 SRC-20 Update Cycle Complete:")
+                logger.info(f"   🪙 Total tokens processed: {processed_count}")
+                logger.info(f"   📦 Sources: OpenStamp (bulk), KuCoin (STAMP)")
+                logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
+                logger.info(f"   🔄 Next cycle in {SRC20_UPDATE_INTERVAL // 60} minutes")
 
             finally:
-                logger.info("SRC-20 job: Closing database connection")
                 task_db.close()
-                logger.info("SRC-20 job: Database connection closed")
 
         except Exception as e:
-            logger.error("=== SRC-20 JOB EXCEPTION ===")
             logger.error(f"Error in SRC-20 market data update job: {e}")
             import traceback
 
@@ -394,10 +381,7 @@ class MarketDataJobScheduler:
 
         Aggregates individual asset data into collection-level metrics.
         """
-        logger.info("=== COLLECTION JOB ENTRY POINT ===")
-        logger.info("Starting collection market data update job")
-        logger.info(f"Thread ID: {threading.current_thread().ident}")
-        logger.info(f"Thread Name: {threading.current_thread().name}")
+        logger.info("🔄 Starting collection market data update cycle")
         start_time = time.time()
 
         try:
@@ -423,7 +407,10 @@ class MarketDataJobScheduler:
                     self._process_collection_update(task_db, collection_id)
 
                 elapsed_time = time.time() - start_time
-                logger.info(f"Collection market data update completed in {elapsed_time:.2f} seconds")
+                logger.info("📊 Collection Update Cycle Complete:")
+                logger.info(f"   📊 Total collections processed: {len(collections_to_update)}")
+                logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
+                logger.info(f"   🔄 Next cycle in {COLLECTION_UPDATE_INTERVAL // 60} minutes")
 
             finally:
                 task_db.close()
@@ -809,157 +796,3 @@ def update_market_data_async(db):
         if not config.FORCE:
             raise
 
-    def start_background_jobs(self):
-        """Start all background market data jobs"""
-        if self.running:
-            logger.warning("Background jobs already running")
-            return
-
-        self.running = True
-        logger.info("🚀 Starting Market Data Background Jobs")
-        logger.info(
-            f"📊 Job Schedule: Stamps={self.stamp_interval}min, SRC-20={self.src20_interval}min, Collections={self.collection_interval}min"
-        )
-        logger.info(
-            f"⚡ Rate Limits: Counterparty={self.counterparty_rate_limit}/sec, Exchange={self.exchange_rate_limit}/sec"
-        )
-
-        # Schedule initial jobs
-        self.executor.submit(self._schedule_stamp_jobs)
-        self.executor.submit(self._schedule_src20_jobs)
-        self.executor.submit(self._schedule_collection_jobs)
-
-        logger.info("✅ All background job schedulers started successfully")
-
-    def _schedule_stamp_jobs(self):
-        """Schedule stamp market data jobs"""
-        logger.info("📈 Stamp Market Data Scheduler: Starting")
-
-        while self.running:
-            try:
-                start_time = time.time()
-                logger.info("🔄 Starting stamp market data update cycle")
-
-                # Use existing database connection without initialization
-                task_db = self.database_manager.connect()
-
-                try:
-                    # Get stamps needing updates
-                    stamps_to_update = self._get_stamps_needing_update(task_db)
-                    total_stamps = len(stamps_to_update)
-
-                    if not stamps_to_update:
-                        logger.info("No stamps need market data updates")
-                        time.sleep(self.stamp_interval * 60)
-                        continue
-
-                    logger.info(f"📊 Processing {total_stamps} stamps for market data updates")
-
-                    # Process in batches using the existing validated batch processing method
-                    batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
-                    total_batches = len(batches)
-
-                    for batch_num, batch in enumerate(batches, 1):
-                        if self.shutdown_event.is_set():
-                            logger.info("Shutdown requested, stopping stamp updates")
-                            break
-
-                        logger.info(f"🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} stamps)")
-
-                        # Use the existing batch processing method (which includes validation)
-                        self._process_stamp_batch(task_db, batch)
-
-                        # Rate limiting between batches
-                        if not self.shutdown_event.is_set():
-                            time.sleep(2.0)  # 2 second delay between batches
-
-                    duration = time.time() - start_time
-                    logger.info("📊 Stamp Update Cycle Complete:")
-                    logger.info(f"   📊 Total stamps processed: {total_stamps}")
-                    logger.info(f"   📦 Total batches: {total_batches}")
-                    logger.info(f"   ⏱️  Duration: {duration:.1f}s")
-                    logger.info(f"   🔄 Next cycle in {self.stamp_interval} minutes")
-
-                finally:
-                    task_db.close()
-
-                # Wait for next cycle
-                time.sleep(self.stamp_interval * 60)
-
-            except Exception as e:
-                logger.error(f"❌ Stamp scheduler error: {str(e)}")
-                time.sleep(60)  # Wait 1 minute before retry
-
-    def _schedule_src20_jobs(self):
-        """Schedule SRC-20 market data jobs"""
-        logger.info("🪙 SRC-20 Market Data Scheduler: Starting")
-
-        while self.running:
-            try:
-                start_time = time.time()
-                logger.info("🔄 Starting SRC-20 market data update cycle")
-
-                # Use existing database connection without initialization
-                task_db = self.database_manager.connect()
-
-                try:
-                    # Get SRC-20 tokens needing updates
-                    tokens_to_update = self._get_src20_tokens_needing_update(task_db)
-                    total_tokens = len(tokens_to_update)
-
-                    if not tokens_to_update:
-                        logger.info("No SRC-20 tokens need market data updates")
-                        time.sleep(self.src20_interval * 60)
-                        continue
-
-                    logger.info(f"🪙 Processing {total_tokens} SRC-20 tokens for market data updates")
-
-                    # Process in batches using the existing batch processing method
-                    batches = self._split_into_batches(tokens_to_update, SRC20_BATCH_SIZE)
-                    total_batches = len(batches)
-
-                    for batch_num, batch in enumerate(batches, 1):
-                        if self.shutdown_event.is_set():
-                            logger.info("Shutdown requested, stopping SRC-20 updates")
-                            break
-
-                        logger.info(f"🔄 Processing SRC-20 batch {batch_num}/{total_batches} ({len(batch)} tokens)")
-
-                        # Use the existing batch processing method
-                        self._process_src20_batch(task_db, batch)
-
-                        # Rate limiting between batches
-                        if not self.shutdown_event.is_set():
-                            time.sleep(1.0)  # 1 second delay between batches
-
-                    duration = time.time() - start_time
-                    logger.info("🪙 SRC-20 Update Cycle Complete:")
-                    logger.info(f"   🪙 Total tokens processed: {total_tokens}")
-                    logger.info(f"   📦 Total batches: {total_batches}")
-                    logger.info(f"   ⏱️  Duration: {duration:.1f}s")
-                    logger.info(f"   🔄 Next cycle in {self.src20_interval} minutes")
-
-                finally:
-                    task_db.close()
-
-                # Wait for next cycle
-                time.sleep(self.src20_interval * 60)
-
-            except Exception as e:
-                logger.error(f"❌ SRC-20 scheduler error: {str(e)}")
-                time.sleep(60)  # Wait 1 minute before retry
-
-    def stop_background_jobs(self):
-        """Stop all background jobs gracefully"""
-        if not self.running:
-            logger.warning("Background jobs not running")
-            return
-
-        logger.info("🛑 Stopping Market Data Background Jobs...")
-        self.running = False
-
-        # Wait for current jobs to complete
-        logger.info("⏳ Waiting for current jobs to complete...")
-        self.executor.shutdown(wait=True)
-
-        logger.info("✅ All background jobs stopped successfully")
