@@ -85,7 +85,7 @@ class CPBlocksPipeline:
             update_healthy_nodes()
         except Exception as e:
             logger.error(f"Error initializing node health: {e}")
-            logger.warning("Proceeding with potentially unavailable nodes - may affect block fetching")
+            raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
 
         # Start the worker thread
         if self.worker_thread and self.worker_thread.is_alive():
@@ -100,13 +100,29 @@ class CPBlocksPipeline:
         self.worker_thread.start()
         logger.debug(f"Started CP blocks pipeline from block {start_block}")
 
-        # Wait for initial batch of blocks with appropriate timeout
-        # Use a shorter timeout to start processing sooner
-        timeout = 10  # Reduced from 20 seconds to 10 seconds
-        if not self.wait_for_initial_blocks(timeout=timeout):
-            logger.warning(f"Timeout waiting for initial blocks after {timeout}s, continuing anyway")
-            # Always set the flag, even on timeout, to prevent hanging
-            self.initial_blocks_ready.set()
+        # Wait for initial batch of blocks with proper retry logic
+        max_retries = 3
+        base_timeout = 30  # Increased base timeout for CP data
+        
+        for attempt in range(max_retries):
+            timeout = base_timeout * (2 ** attempt)  # Exponential backoff
+            logger.info(f"Waiting for initial Counterparty blocks (attempt {attempt + 1}/{max_retries}, timeout: {timeout}s)")
+            
+            if self.wait_for_initial_blocks(timeout=timeout):
+                logger.info("Successfully obtained initial Counterparty blocks")
+                return
+            else:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Failed to get initial blocks on attempt {attempt + 1}, retrying with backup nodes...")
+                    # Try to update nodes and retry
+                    try:
+                        update_healthy_nodes()
+                    except Exception as e:
+                        logger.error(f"Failed to update healthy nodes: {e}")
+                else:
+                    logger.error(f"Failed to get initial Counterparty blocks after {max_retries} attempts")
+                    self.stop()
+                    raise RuntimeError("Cannot proceed without Counterparty block data - all nodes failed")
 
     def wait_for_initial_blocks(self, timeout=20, min_blocks=None):
         """
@@ -162,15 +178,17 @@ class CPBlocksPipeline:
                     critical_blocks = [b for b in missing_blocks if b in [820662, 820668]]
                     if critical_blocks:
                         logger.error(f"Critical blocks missing: {critical_blocks}")
+                        return False
 
-                    # Be more lenient - if we have at least half of what we wanted, proceed
-                    if len(missing_blocks) > consecutive_needed // 2:
-                        logger.warning(
-                            f"Too many blocks missing ({len(missing_blocks)}/{consecutive_needed}), but continuing anyway"
+                    # Only proceed if we have most of the required blocks
+                    if len(missing_blocks) > consecutive_needed // 3:  # Allow missing up to 1/3
+                        logger.error(
+                            f"Too many blocks missing ({len(missing_blocks)}/{consecutive_needed}) - cannot proceed without Counterparty data"
                         )
+                        return False
 
-                # Return true as long as we have at least min_blocks
-                return blocks_available >= min_blocks
+                # Return true only if we have sufficient consecutive blocks
+                return blocks_available >= min_blocks and len(missing_blocks) <= consecutive_needed // 3
         else:
             logger.warning(f"Timeout waiting for initial blocks after {adjusted_timeout}s")
             return False

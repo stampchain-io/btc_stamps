@@ -360,7 +360,7 @@ class MarketDataJobScheduler:
                 elapsed_time = time.time() - start_time
                 logger.info("🪙 SRC-20 Update Cycle Complete:")
                 logger.info(f"   🪙 Total tokens processed: {processed_count}")
-                logger.info(f"   📦 Sources: OpenStamp (bulk), KuCoin (STAMP)")
+                logger.info("   📦 Sources: OpenStamp (bulk), KuCoin (STAMP)")
                 logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
                 logger.info(f"   🔄 Next cycle in {SRC20_UPDATE_INTERVAL // 60} minutes")
 

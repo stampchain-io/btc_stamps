@@ -987,7 +987,7 @@ class TestOpenStampIntegration:
                     },
                 ),
             ]
-            mock_client.fetch_all_src20_market_data.return_value = mock_response
+            mock_client.fetch_all_market_data.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             # Test worker
