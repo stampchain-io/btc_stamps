@@ -445,30 +445,44 @@ class MarketDataJobScheduler:
             logger.info(f"Found {len(db_tokens)} SRC-20 tokens from DB needing updates")
             logger.info(f"Known tokens in database: {len(known_tokens)}")
 
-            # CRITICAL: Only process tokens that exist in our local database
-            # Processing tokens that don't exist locally would be a critical error for SRC-20 on Bitcoin
+            # Process tokens from our database, OpenStamp only has tokens with market activity
             try:
                 from index_core.src20_worker import get_all_src20_tokens
 
-                # Get complete list of all tokens available on OpenStamp
-                openstamp_tokens = set(get_all_src20_tokens())
-
-                if openstamp_tokens:
-                    # Find tokens that exist on OpenStamp but not in our database - LOG ONLY
-                    new_tokens = openstamp_tokens - known_tokens
-
-                    if new_tokens:
-                        logger.warning(
-                            f"⚠️ Found {len(new_tokens)} tokens on OpenStamp that don't exist in local DB: {', '.join(sorted(list(new_tokens)[:10]))}{'...' if len(new_tokens) > 10 else ''}"
+                # Get tokens available on OpenStamp (these have market activity)
+                openstamp_tokens_raw = get_all_src20_tokens()
+                # Convert to lowercase set for case-insensitive comparison
+                openstamp_tokens_lower = {t.lower() for t in openstamp_tokens_raw}
+                known_tokens_lower = {t.lower() for t in known_tokens}
+                
+                if openstamp_tokens_lower:
+                    # Calculate statistics with case-insensitive comparison
+                    tokens_with_market_data = known_tokens_lower & openstamp_tokens_lower
+                    tokens_without_market_data = known_tokens_lower - openstamp_tokens_lower
+                    
+                    # For tokens in OpenStamp but not in DB, preserve original case for logging
+                    openstamp_only_tokens = []
+                    for token in openstamp_tokens_raw:
+                        if token.lower() not in known_tokens_lower:
+                            openstamp_only_tokens.append(token)
+                    
+                    logger.info(f"📊 SRC-20 Market Data Coverage:")
+                    logger.info(f"  - Total tokens in DB: {len(known_tokens)}")
+                    logger.info(f"  - Tokens with market activity (in OpenStamp): {len(tokens_with_market_data)}")
+                    logger.info(f"  - Tokens without market activity: {len(tokens_without_market_data)}")
+                    logger.info(f"  - OpenStamp tokens: {len(openstamp_tokens_raw)}")
+                    
+                    if openstamp_only_tokens:
+                        # This is informational, not a warning - these may be new tokens
+                        logger.info(
+                            f"ℹ️ Found {len(openstamp_only_tokens)} tokens on OpenStamp not in local DB (may be new): {', '.join(sorted(openstamp_only_tokens[:10]))}{'...' if len(openstamp_only_tokens) > 10 else ''}"
                         )
-                        logger.warning("These tokens will be SKIPPED as they don't exist in our SRC-20 database")
-
-                    # ONLY process tokens that exist in BOTH OpenStamp AND our local database
-                    valid_tokens = openstamp_tokens & known_tokens  # Intersection only
-                    final_tokens = list(valid_tokens)
-                    logger.info(f"📊 Processing market data for {len(final_tokens)} validated SRC-20 tokens")
+                    
+                    # Use all tokens from our database
+                    final_tokens = db_tokens
+                    logger.info(f"📊 Processing market data updates for {len(final_tokens)} SRC-20 tokens")
                 else:
-                    logger.warning("No tokens retrieved from OpenStamp, falling back to database tokens")
+                    logger.warning("No tokens retrieved from OpenStamp, using all database tokens")
                     final_tokens = db_tokens
 
             except Exception as discovery_error:

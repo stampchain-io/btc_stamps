@@ -76,14 +76,22 @@ class SRC20Worker:
             source_data = {}
 
             # Fetch from KuCoin if we have exchange mapping for this token
+            # Check both original case and uppercase for KuCoin mappings
+            token_config = None
             if tick in SRC20_EXCHANGE_MAPPINGS:
                 token_config = SRC20_EXCHANGE_MAPPINGS[tick]
-                if "kucoin" in token_config:
-                    logger.debug(f"Fetching KuCoin data for {tick}")
-                    kucoin_data = self._fetch_kucoin_data(tick, token_config)
-                    if kucoin_data:
-                        source_data["kucoin"] = kucoin_data
-                        logger.debug(f"Successfully fetched KuCoin data for {tick}")
+            elif tick.upper() in SRC20_EXCHANGE_MAPPINGS:
+                token_config = SRC20_EXCHANGE_MAPPINGS[tick.upper()]
+                logger.debug(f"Found KuCoin mapping for {tick} using uppercase: {tick.upper()}")
+            
+            if token_config and "kucoin" in token_config:
+                logger.debug(f"Fetching KuCoin data for {tick} (symbol: {token_config['kucoin']})")
+                kucoin_data = self._fetch_kucoin_data(tick, token_config)
+                if kucoin_data:
+                    source_data["kucoin"] = kucoin_data
+                    logger.info(f"Successfully fetched KuCoin data for {tick}")
+                else:
+                    logger.warning(f"Failed to fetch KuCoin data for {tick}")
 
             # Always try OpenStamp API for all SRC-20 tokens
             logger.debug(f"Fetching OpenStamp data for {tick}")
@@ -239,8 +247,47 @@ class SRC20Worker:
             logger.debug(f"Fetching OpenStamp data for {tick}")
 
             # Get OpenStamp client and fetch token data
+            # Handle case sensitivity and emoji encoding differences
             openstamp_client = get_openstamp_client()
-            token_data = openstamp_client.fetch_token_data(tick)
+            token_data = None
+            
+            # Try multiple variations to handle case and encoding differences
+            variations_to_try = [
+                tick,  # Original from database
+                tick.upper(),  # Uppercase version
+                tick.lower(),  # Lowercase version  
+            ]
+            
+            # For emoji tokens, also try with normalized encoding
+            if any(ord(c) > 127 for c in tick):  # Contains non-ASCII (likely emoji)
+                import unicodedata
+                # Try NFC (composed) and NFD (decomposed) forms
+                variations_to_try.extend([
+                    unicodedata.normalize('NFC', tick),
+                    unicodedata.normalize('NFD', tick),
+                    unicodedata.normalize('NFC', tick.upper()),
+                    unicodedata.normalize('NFD', tick.upper()),
+                ])
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_variations = []
+            for v in variations_to_try:
+                if v not in seen:
+                    seen.add(v)
+                    unique_variations.append(v)
+            
+            # Try each variation
+            for variant in unique_variations:
+                if not token_data:
+                    logger.debug(f"Trying to fetch OpenStamp data for {tick} as: {repr(variant)}")
+                    try:
+                        token_data = openstamp_client.fetch_token_data(variant)
+                        if token_data:
+                            logger.debug(f"Found token data for {tick} using variant: {repr(variant)}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch {variant}: {e}")
 
             if token_data:
                 market_data = token_data.to_market_data_dict()
