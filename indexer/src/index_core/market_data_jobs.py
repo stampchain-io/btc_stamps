@@ -125,6 +125,8 @@ class MarketDataJobScheduler:
                 # Check if SRC-20 market data update is due
                 src20_is_due = self._is_job_due("src20_update", SRC20_UPDATE_INTERVAL, current_time)
                 logger.info(f"SRC-20 job due check: {src20_is_due} (interval: {SRC20_UPDATE_INTERVAL}s)")
+                logger.info(f"Last run times: {self.last_run_times}")
+                logger.info(f"Current jobs: {list(self.job_futures.keys())}")
                 if src20_is_due:
                     logger.info("=== SRC-20 JOB IS DUE, SUBMITTING ===")
                     self._submit_job("src20_update", self._update_src20_market_data_job)
@@ -135,6 +137,14 @@ class MarketDataJobScheduler:
 
                 # Clean up completed jobs
                 self._cleanup_completed_jobs()
+                
+                # Log active jobs status
+                active_jobs = []
+                for job_name, future in self.job_futures.items():
+                    if not future.done():
+                        active_jobs.append(job_name)
+                if active_jobs:
+                    logger.info(f"Active jobs: {active_jobs}")
 
                 # Sleep for a short interval before checking again
                 self.shutdown_event.wait(timeout=30)  # Check every 30 seconds
@@ -150,10 +160,14 @@ class MarketDataJobScheduler:
         """Check if a job is due to run based on its interval."""
         last_run = self.last_run_times.get(job_name)
         if last_run is None:
+            logger.info(f"Job {job_name} has never run before, marking as due")
             return True  # Never run before
 
         time_since_last_run = (current_time - last_run).total_seconds()
-        return time_since_last_run >= interval
+        is_due = time_since_last_run >= interval
+        if not is_due:
+            logger.debug(f"Job {job_name} not due yet: {time_since_last_run:.1f}s since last run (interval: {interval}s)")
+        return is_due
 
     def _submit_job(self, job_name: str, job_function):
         """Submit a job to the executor if it's not already running."""
@@ -173,7 +187,21 @@ class MarketDataJobScheduler:
                     logger.info(f"Running state: {self.running}")
                     
                     try:
-                        future = self.executor.submit(job_function)
+                        # Add debug wrapper to ensure job starts
+                        def job_wrapper():
+                            logger.info(f"=== JOB WRAPPER STARTING: {job_name} ===")
+                            try:
+                                result = job_function()
+                                logger.info(f"=== JOB WRAPPER COMPLETED: {job_name} ===")
+                                return result
+                            except Exception as job_error:
+                                logger.error(f"=== JOB WRAPPER ERROR: {job_name} ===")
+                                logger.error(f"Job error: {job_error}")
+                                import traceback
+                                logger.error(f"Job traceback: {traceback.format_exc()}")
+                                raise
+                        
+                        future = self.executor.submit(job_wrapper)
                         self.job_futures[job_name] = future
                         self.last_run_times[job_name] = datetime.now()
                         logger.info(f"Job {job_name} submitted successfully, future: {future}")
@@ -199,9 +227,11 @@ class MarketDataJobScheduler:
                     try:
                         # Check for exceptions
                         future.result()
-                        logger.debug(f"Job {job_name} completed successfully")
+                        logger.info(f"Job {job_name} completed successfully")
                     except Exception as e:
                         logger.error(f"Job {job_name} failed with error: {e}")
+                        import traceback
+                        logger.error(f"Job {job_name} traceback: {traceback.format_exc()}")
                     completed_jobs.append(job_name)
 
             for job_name in completed_jobs:
@@ -213,7 +243,10 @@ class MarketDataJobScheduler:
 
         Follows the pattern from update_cpids_async in blocks.py.
         """
+        logger.info("=== STAMP JOB ENTRY POINT ===")
         logger.info("Starting stamp market data update job")
+        logger.info(f"Thread ID: {threading.current_thread().ident}")
+        logger.info(f"Thread Name: {threading.current_thread().name}")
         start_time = time.time()
 
         try:
@@ -262,6 +295,8 @@ class MarketDataJobScheduler:
         try:
             logger.info("=== SRC-20 JOB ENTRY POINT ===")
             logger.info("Starting SRC-20 market data update job")
+            logger.info(f"Thread ID: {threading.current_thread().ident}")
+            logger.info(f"Thread Name: {threading.current_thread().name}")
             start_time = time.time()
 
             # Use existing database connection without initialization
@@ -277,6 +312,7 @@ class MarketDataJobScheduler:
 
                 if not tokens_to_update:
                     logger.info("No SRC-20 tokens need market data updates")
+                    logger.info("SRC-20 job completed (no tokens to process)")
                     return
 
                 logger.info(f"Updating market data for {len(tokens_to_update)} SRC-20 tokens")
@@ -315,7 +351,10 @@ class MarketDataJobScheduler:
 
         Aggregates individual asset data into collection-level metrics.
         """
+        logger.info("=== COLLECTION JOB ENTRY POINT ===")
         logger.info("Starting collection market data update job")
+        logger.info(f"Thread ID: {threading.current_thread().ident}")
+        logger.info(f"Thread Name: {threading.current_thread().name}")
         start_time = time.time()
 
         try:

@@ -1227,7 +1227,7 @@ def follow(
         if not single_block and not reparse_mode:
             try:
                 logger.info("Starting market data job scheduler...")
-                start_market_data_jobs(max_workers=2)  # Use 2 workers for market data jobs
+                start_market_data_jobs(max_workers=3)  # Use 3 workers for market data jobs (stamp, src20, collection)
                 market_data_scheduler_started = True
                 logger.info("Market data job scheduler started successfully")
             except Exception as e:
