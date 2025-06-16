@@ -517,15 +517,15 @@ class StampMarketDataProcessor:
                 else:
                     logger.warning(f"Confidence level {value} out of range 0-10 for {field_name}")
                     return D("5.0")  # Default fallback
-            
+
             # Convert string values to numeric
             str_val = str(value).lower()
             confidence_mapping = {
                 "very_low": D("2.0"),
-                "low": D("3.0"), 
+                "low": D("3.0"),
                 "medium": D("5.0"),
                 "high": D("8.0"),
-                "very_high": D("9.0")
+                "very_high": D("9.0"),
             }
 
             if str_val in confidence_mapping:
