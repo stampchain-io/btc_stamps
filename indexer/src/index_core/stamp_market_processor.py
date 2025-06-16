@@ -81,10 +81,10 @@ class StampMarketDataProcessor:
 
             # Validate CPID format (Counterparty asset ID or SRC-20 hash token)
             # Traditional Counterparty asset IDs: Start with 'A' followed by digits (min 13 chars)
-            # Named assets: Pure alphabetic strings (e.g., PEPECASH, FUCKTHAT, LEGENDARYBAR)
+            # Named assets: Alphabetic strings with optional dots (e.g., PEPECASH, NAKAMOTOCARD.STAMP)
             # SRC-20 hash tokens: 20-character alphanumeric strings
             is_traditional_cpid = cpid.startswith("A") and len(cpid) >= 13 and cpid[1:].isdigit()
-            is_named_asset = cpid.isalpha()  # Pure alphabetic strings
+            is_named_asset = cpid.replace(".", "").isalpha() and len(cpid) <= 255  # Allow dots in named assets
             is_src20_hash = len(cpid) == 20 and cpid.isalnum()
 
             if not (is_traditional_cpid or is_named_asset or is_src20_hash):
