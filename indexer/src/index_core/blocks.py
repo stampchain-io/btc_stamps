@@ -1865,7 +1865,7 @@ def follow(
                                     except UnicodeDecodeError:
                                         topic_str = topic.decode("utf-8", errors="replace")
                                         logger.debug(f"Non-UTF-8 topic received in blocks.py: {topic_str}")
-                                    
+
                                     if topic_str in ["hashblock", "rawblock"]:
                                         logger.info(f"Processing new block notification via ZMQ: {topic_str}")
                                         # Invalidate the blockcount cache first to ensure fresh block height

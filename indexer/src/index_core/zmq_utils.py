@@ -73,20 +73,19 @@ class ZMQNotifier:
                 body: bytes
                 seq: bytes
                 topic, body, seq = self.socket.recv_multipart()
-                
+
                 # Safely decode topic and sequence, handling potential binary data
                 try:
                     topic_str: str = topic.decode("utf-8")
                 except UnicodeDecodeError:
-                    topic_str: str = topic.decode("utf-8", errors="replace")
+                    topic_str = topic.decode("utf-8", errors="replace")
                     logger.debug(f"Non-UTF-8 topic received, using replacement characters: {topic_str}")
-                
+
                 try:
                     seq_str: str = seq.decode("utf-8")
                 except UnicodeDecodeError:
-                    seq_str: str = seq.decode("utf-8", errors="replace")
+                    seq_str = seq.decode("utf-8", errors="replace")
                     logger.debug(f"Non-UTF-8 sequence received, using replacement characters: {seq_str}")
-                
                 logger.info(f"Received ZMQ notification - Topic: {topic_str}, Sequence: {seq_str}")
                 return topic, body, seq
         except zmq.error.ZMQError as e:

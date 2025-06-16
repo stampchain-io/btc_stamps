@@ -123,7 +123,10 @@ class MarketDataJobScheduler:
                     self._submit_job("stamp_update", self._update_stamp_market_data_job)
 
                 # Check if SRC-20 market data update is due
-                if self._is_job_due("src20_update", SRC20_UPDATE_INTERVAL, current_time):
+                src20_is_due = self._is_job_due("src20_update", SRC20_UPDATE_INTERVAL, current_time)
+                logger.info(f"SRC-20 job due check: {src20_is_due} (interval: {SRC20_UPDATE_INTERVAL}s)")
+                if src20_is_due:
+                    logger.info("=== SRC-20 JOB IS DUE, SUBMITTING ===")
                     self._submit_job("src20_update", self._update_src20_market_data_job)
 
                 # Check if collection market data update is due
@@ -154,20 +157,38 @@ class MarketDataJobScheduler:
 
     def _submit_job(self, job_name: str, job_function):
         """Submit a job to the executor if it's not already running."""
-        with self._lock:
-            # Check if job is already running
-            if job_name in self.job_futures:
-                future = self.job_futures[job_name]
-                if not future.done():
-                    logger.debug(f"Job {job_name} is already running, skipping")
-                    return
+        try:
+            with self._lock:
+                # Check if job is already running
+                if job_name in self.job_futures:
+                    future = self.job_futures[job_name]
+                    if not future.done():
+                        logger.debug(f"Job {job_name} is already running, skipping")
+                        return
 
-            # Submit the job
-            if self.executor and self.running:
-                logger.info(f"Submitting job: {job_name}")
-                future = self.executor.submit(job_function)
-                self.job_futures[job_name] = future
-                self.last_run_times[job_name] = datetime.now()
+                # Submit the job
+                if self.executor and self.running:
+                    logger.info(f"=== SUBMITTING JOB: {job_name} ===")
+                    logger.info(f"Executor state: {self.executor}")
+                    logger.info(f"Running state: {self.running}")
+                    
+                    try:
+                        future = self.executor.submit(job_function)
+                        self.job_futures[job_name] = future
+                        self.last_run_times[job_name] = datetime.now()
+                        logger.info(f"Job {job_name} submitted successfully, future: {future}")
+                    except Exception as submit_error:
+                        logger.error(f"Failed to submit job {job_name}: {submit_error}")
+                        import traceback
+                        logger.error(f"Submit traceback: {traceback.format_exc()}")
+                        raise
+                else:
+                    logger.warning(f"Cannot submit job {job_name}: executor={self.executor}, running={self.running}")
+        except Exception as e:
+            logger.error(f"Error in _submit_job for {job_name}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
 
     def _cleanup_completed_jobs(self):
         """Remove completed jobs from the tracking dictionary."""
@@ -238,16 +259,21 @@ class MarketDataJobScheduler:
 
         Uses exchange APIs for SRC-20 token data.
         """
-        logger.info("Starting SRC-20 market data update job")
-        start_time = time.time()
-
         try:
+            logger.info("=== SRC-20 JOB ENTRY POINT ===")
+            logger.info("Starting SRC-20 market data update job")
+            start_time = time.time()
+
             # Use existing database connection without initialization
+            logger.info("SRC-20 job: Attempting database connection...")
             task_db = self.database_manager.connect()
+            logger.info("SRC-20 job: Database connection established successfully")
 
             try:
                 # Get SRC-20 tokens that need market data updates
+                logger.info("SRC-20 job: Getting tokens needing updates")
                 tokens_to_update = self._get_src20_tokens_needing_update(task_db)
+                logger.info(f"SRC-20 job: Retrieved {len(tokens_to_update)} tokens for processing")
 
                 if not tokens_to_update:
                     logger.info("No SRC-20 tokens need market data updates")
@@ -271,10 +297,15 @@ class MarketDataJobScheduler:
                 logger.info(f"SRC-20 market data update completed in {elapsed_time:.2f} seconds")
 
             finally:
+                logger.info("SRC-20 job: Closing database connection")
                 task_db.close()
+                logger.info("SRC-20 job: Database connection closed")
 
         except Exception as e:
+            logger.error(f"=== SRC-20 JOB EXCEPTION ===")
             logger.error(f"Error in SRC-20 market data update job: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             if not config.FORCE:
                 raise
 
