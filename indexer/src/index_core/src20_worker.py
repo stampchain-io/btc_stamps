@@ -59,7 +59,7 @@ class SRC20Worker:
         self.exchange_rate_limiter = EXCHANGE_RATE_LIMITER
         self._openstamp_cache = None  # Cache the full OpenStamp response
         self._openstamp_cache_time = 0
-        self._openstamp_cache_ttl = 60  # Cache for 60 seconds
+        self._openstamp_cache_ttl = 300  # Cache for 5 minutes (300 seconds)
 
     def process_src20_market_data(self, tick: str) -> Optional[Dict]:
         """
@@ -111,7 +111,7 @@ class SRC20Worker:
 
             # Check if we got any data from any source
             if not source_data:
-                logger.warning(f"Failed to fetch market data for {tick} from all sources")
+                logger.debug(f"No market data available for {tick} - token may not be listed on any exchange")
                 return None
 
             # Aggregate multi-source data

@@ -299,8 +299,8 @@ class TestMarketDataJobScheduler:
     def test_src20_case_sensitivity_handling(self):
         """Test that SRC-20 tokens are matched case-insensitively with OpenStamp."""
         # Database returns lowercase tokens including 'stamp'
-        db_tokens = [("stamp",), ("pepe",), ("biao",), ("lumi💫",)]
-        known_tokens = [("stamp",), ("pepe",), ("biao",), ("lumi💫",), ("test",)]
+        db_tokens = [("stamp",), ("pepe",), ("biao",), ("lumi\\U0001f4ab",)]  # Escape sequence in DB
+        known_tokens = [("stamp",), ("pepe",), ("biao",), ("lumi\\U0001f4ab",), ("test",)]
 
         # First query returns tokens needing update
         # Second query returns all known tokens
@@ -317,7 +317,7 @@ class TestMarketDataJobScheduler:
         assert "stamp" in result
         assert "pepe" in result
         assert "biao" in result
-        assert "lumi💫" in result
+        assert "lumi\\U0001f4ab" in result  # Escape sequence from DB
 
     def test_stamp_kucoin_case_matching(self):
         """Test that STAMP token matches KuCoin exchange mapping regardless of case."""
@@ -339,6 +339,101 @@ class TestMarketDataJobScheduler:
                 assert result is not None
                 assert result.get("primary_exchange") == "kucoin"
                 assert "kucoin" in result.get("sources", [])
+
+    def test_src20_emoji_escape_sequence_handling(self):
+        """Test that emoji tokens with escape sequences are handled correctly."""
+        # Set up environment for test
+        import os
+
+        from index_core.src20_worker import SRC20Worker
+        from index_core.types import OpenStampApiResponse
+
+        os.environ["OPENSTAMP_API_KEY"] = "test_key"
+
+        try:
+            worker = SRC20Worker()
+
+            # Database has escape sequence
+            db_token = "lumi\\U0001f4ab"
+
+            # Mock OpenStamp response with actual emoji
+            mock_response_data = {
+                "code": 200,
+                "data": [
+                    {
+                        "tokenId": 1,
+                        "name": "lumi💫",  # Actual emoji
+                        "totalSupply": 1000000,
+                        "holdersCount": 50,
+                        "price": "100000000",
+                        "amount24": "0",
+                        "volume24": "5000000000",
+                        "volume24Change": "0.1",
+                        "change24": "0.05",
+                        "change7d": "0.15",
+                    }
+                ],
+            }
+
+            mock_api_response = OpenStampApiResponse(mock_response_data)
+
+            # Set up the cache to avoid API calls
+            worker._openstamp_cache = mock_api_response
+            worker._openstamp_cache_time = 9999999999  # Far future
+
+            # Test the fetch
+            result = worker._fetch_openstamp_data(db_token)
+
+            # Should find the token despite encoding difference
+            assert result is not None
+            assert result["tick"] == "lumi💫"
+            assert result["data_source"] == "openstamp"
+
+        finally:
+            # Clean up
+            if "OPENSTAMP_API_KEY" in os.environ:
+                del os.environ["OPENSTAMP_API_KEY"]
+
+    def test_openstamp_api_caching_prevents_repeated_calls(self):
+        """Test that OpenStamp API caching prevents repeated API calls."""
+        # Set up environment
+        import os
+
+        from index_core.src20_worker import SRC20Worker
+
+        os.environ["OPENSTAMP_API_KEY"] = "test_key"
+
+        try:
+            worker = SRC20Worker()
+
+            # Mock the OpenStamp client
+            with patch("index_core.src20_worker.get_openstamp_client") as mock_client:
+                mock_response = Mock()
+                mock_response.get_all_tickers.return_value = ["STAMP", "PEPE", "RARE"]
+                mock_client.return_value.fetch_all_market_data.return_value = mock_response
+
+                # First call should fetch from API
+                result1 = worker.get_all_available_tokens()
+                assert len(result1) == 3
+                assert mock_client.return_value.fetch_all_market_data.call_count == 1
+
+                # Second call should use cache
+                result2 = worker.get_all_available_tokens()
+                assert len(result2) == 3
+                # Should still be 1 call, not 2
+                assert mock_client.return_value.fetch_all_market_data.call_count == 1
+
+                # Force cache expiry
+                worker._openstamp_cache_time = 0
+
+                # Third call should fetch again
+                result3 = worker.get_all_available_tokens()
+                assert len(result3) == 3
+                assert mock_client.return_value.fetch_all_market_data.call_count == 2
+
+        finally:
+            if "OPENSTAMP_API_KEY" in os.environ:
+                del os.environ["OPENSTAMP_API_KEY"]
 
 
 if __name__ == "__main__":

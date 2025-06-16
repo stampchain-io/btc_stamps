@@ -27,7 +27,7 @@ log.set_logger(logger)
 D = Decimal
 
 # Validation constants for SRC20 market data
-MIN_PRICE = D("0.000000001")  # 0.1 satoshi in BTC (allow smaller fractions)
+MIN_PRICE = D("0.0000000001")  # 0.01 satoshi in BTC (allow very small fractions for low-value tokens)
 MAX_PRICE = D("21000000")  # Max possible BTC
 MIN_MARKET_CAP = D("0")
 MAX_MARKET_CAP = D("21000000000")  # 21M BTC * 1000 for max supply
