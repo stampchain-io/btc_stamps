@@ -223,6 +223,32 @@ class TestZMQUtils(unittest.TestCase):
         # Should be clamped to 1000ms
         mock_socket.poll.assert_called_with(1000)
 
+    @patch('index_core.zmq_utils.config.QUICKNODE_ENDPOINT', None)
+    def test_exact_production_error_scenario(self):
+        """Test the exact UTF-8 error scenario from production logs."""
+        # The exact error: "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte"
+        mock_socket = Mock()
+        mock_socket.poll.return_value = zmq.POLLIN
+        mock_socket.recv_multipart.return_value = [
+            b"\x80rawblock",  # Byte 0x80 at position 0 - exact error from logs
+            b"binary_block_data", 
+            b"12345"
+        ]
+        
+        self.zmq_notifier.socket = mock_socket
+        self.zmq_notifier._is_active = True
+        
+        # This should handle the exact production error gracefully
+        result = self.zmq_notifier.wait_for_notification()
+        
+        # Should return the notification successfully
+        self.assertIsNotNone(result)
+        topic, body, seq = result
+        self.assertEqual(topic, b"\x80rawblock")
+        self.assertEqual(body, b"binary_block_data")
+        self.assertEqual(seq, b"12345")
+        self.assertTrue(self.zmq_notifier._is_active)
+
 
 if __name__ == "__main__":
     unittest.main()
