@@ -49,27 +49,26 @@ sequenceDiagram
 
     %% SRC-20 Market Data Flow (Every 5 min)
     loop Every 5 minutes
-        Scheduler->>DB: get_src20_tokens_needing_update(limit=1000)
-        DB-->>Scheduler: List of token ticks needing updates
+        Scheduler->>SRC20Worker: Create single worker instance
         
-        loop For each batch of 50 tokens
-            Scheduler->>SRC20Worker: process_src20_batch(ticks)
-            
-            loop For each tick in batch
-                par Parallel API calls
-                    SRC20Worker->>KuCoin: Get STAMP-USDT price
-                    SRC20Worker->>OpenStamp: Get SRC-20 data
-                    SRC20Worker->>OpenStamp: Get additional metrics
-                end
-                
-                SRC20Worker->>SRC20Worker: Aggregate multi-source data
-                SRC20Worker->>Cache: Update src20_market_data
-                SRC20Worker->>Cache: Track market_data_sources
-            end
-            
-            SRC20Worker-->>Scheduler: Batch complete
-            Note over Scheduler: 1 second delay between batches
+        %% Fetch all OpenStamp data in one call
+        SRC20Worker->>OpenStamp: fetch_all_market_data()
+        OpenStamp-->>SRC20Worker: All 304+ tokens data
+        SRC20Worker->>SRC20Worker: Cache OpenStamp response
+        
+        %% Process each token from OpenStamp
+        loop For each token in OpenStamp response
+            SRC20Worker->>SRC20Worker: Transform token data
+            SRC20Worker->>Cache: Update src20_market_data
         end
+        
+        %% Update STAMP from KuCoin
+        SRC20Worker->>KuCoin: Get STAMP-USDT price
+        KuCoin-->>SRC20Worker: STAMP market data
+        SRC20Worker->>SRC20Worker: Process STAMP data
+        SRC20Worker->>Cache: Update STAMP in src20_market_data
+        
+        Note over SRC20Worker: Total API calls: 2 (1 OpenStamp + 1 KuCoin)
     end
 
     %% Collection Aggregation (Every 30 min)
@@ -107,15 +106,15 @@ sequenceDiagram
 6. **Rate Limiting**: 2-second delay between batches to respect API limits
 
 ### SRC-20 Token Processing (Every 5 minutes)
-1. **Selection Query**: Get up to 1,000 SRC-20 tokens needing updates
-2. **Batch Processing**: Process tokens in batches of 50 for efficient API usage
-3. **Multi-Source Fetching**: For each token, make parallel API calls to:
-   - KuCoin API for STAMP-USDT trading data
-   - OpenStamp API for SRC-20 market metrics
-   - StampScan API for additional data points
-4. **Data Aggregation**: Combine multi-source data with confidence weighting
-5. **Cache Update**: Store results in `src20_market_data` and `market_data_sources` tables
-6. **Rate Limiting**: 1-second delay between batches for faster SRC-20 updates
+1. **Single Worker Instance**: Create one SRC20Worker instance to maintain API cache
+2. **OpenStamp Bulk Fetch**: Make ONE API call to fetch all 304+ tokens from OpenStamp
+3. **Data Processing**: Transform each token's data and update database:
+   - Extract token ticker and market data
+   - Calculate derived metrics
+   - Store in `src20_market_data` table
+4. **STAMP Token Update**: Make ONE KuCoin API call specifically for STAMP token
+5. **Efficiency**: Only 2 total API calls per 5-minute cycle (vs 1000+ previously)
+6. **Cache Management**: OpenStamp response cached for 5 minutes to prevent redundant calls
 
 ### Collection Aggregation (Every 30 minutes)
 1. **Selection Query**: Get up to 50 collections needing metric updates
@@ -149,9 +148,9 @@ sequenceDiagram
 
 ### Processing Scale
 - **10,000 stamps** processed every 15 minutes
-- **1,000 SRC-20 tokens** processed every 5 minutes
+- **304+ SRC-20 tokens** processed every 5 minutes (all tokens from OpenStamp)
 - **50 collections** aggregated every 30 minutes
-- **100+ API calls per minute** during peak processing
+- **Optimized API usage**: Only 2 API calls for SRC-20 updates (down from 1000+)
 
 ### Response Times
 - **Cache Queries**: Sub-millisecond response times

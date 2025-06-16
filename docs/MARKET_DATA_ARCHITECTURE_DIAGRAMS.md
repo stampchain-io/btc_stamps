@@ -60,7 +60,6 @@ graph TB
     %% Selection Queries
     subgraph "Selection Logic"
         GSU[get_stamps_needing_update<br/>LIMIT 10,000]
-        GSTU[get_src20_tokens_needing_update<br/>LIMIT 1,000]
         GCU[get_collections_needing_update<br/>LIMIT 50]
     end
 
@@ -71,12 +70,12 @@ graph TB
     SW -->|Update cache| SMD
     SW -->|Populate holders| SHC
 
-    SRC20J --> GSTU
-    GSTU -->|Token ticks| SRC20W
-    SRC20W -->|API calls| KC
-    SRC20W -->|API calls| OS
-    SRC20W -->|API calls| SS
-    SRC20W -->|Update cache| SRC20MD
+    SRC20J -->|Single worker| SRC20W
+    SRC20W -->|One bulk call| OS
+    OS -->|All 304+ tokens| SRC20W
+    SRC20W -->|One call for STAMP| KC
+    KC -->|STAMP-USDT data| SRC20W
+    SRC20W -->|Update all tokens| SRC20MD
 
     CJ --> GCU
     GCU -->|Collection IDs| CJ

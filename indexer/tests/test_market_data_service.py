@@ -935,7 +935,7 @@ class TestOpenStampIntegration:
         assert test_token.price == Decimal("1.5")
 
     def test_src20_worker_openstamp_integration(self):
-        """Test SRC20Worker integration with OpenStamp (mocked)."""
+        """Test SRC20Worker integration with OpenStamp bulk fetch (mocked)."""
         from unittest.mock import Mock, patch
 
         from index_core.src20_worker import SRC20Worker
@@ -943,28 +943,73 @@ class TestOpenStampIntegration:
         # Mock OpenStamp client
         with patch("index_core.src20_worker.get_openstamp_client") as mock_get_client:
             mock_client = Mock()
-            mock_token_data = Mock()
-            mock_token_data.to_market_data_dict.return_value = {
-                "tick": "TEST",
-                "price_btc": Decimal("1.5"),
-                "volume_24h_btc": Decimal("100"),
-                "holder_count": 100,
-                "primary_exchange": "openstamp",
-                "data_quality_score": Decimal("8.0"),
-                "confidence_level": Decimal("8.0"),
-            }
-            mock_client.fetch_token_data.return_value = mock_token_data
+            # Mock the bulk fetch response
+            mock_response = Mock()
+            mock_response.tokens = [
+                Mock(
+                    name="TEST",
+                    price=Decimal("150000000"),  # 1.5 BTC in satoshis
+                    volume_24h=Decimal("10000000000"),  # 100 BTC in satoshis
+                    holders_count=100,
+                    total_supply=1000000,
+                    change_24h=Decimal("0.05"),
+                    change_7d=Decimal("0.10"),
+                    volume_24h_change=Decimal("0.02"),
+                    to_dict=lambda: {
+                        "name": "TEST",
+                        "price": "150000000",
+                        "volume24": "10000000000",
+                        "holdersCount": 100,
+                        "totalSupply": 1000000,
+                        "change24": "0.05",
+                        "change7d": "0.10",
+                        "volume24Change": "0.02",
+                    },
+                ),
+                Mock(
+                    name="PEPE",
+                    price=Decimal("50000000"),  # 0.5 BTC in satoshis
+                    volume_24h=Decimal("5000000000"),  # 50 BTC in satoshis
+                    holders_count=200,
+                    total_supply=2000000,
+                    change_24h=Decimal("-0.03"),
+                    change_7d=Decimal("0.15"),
+                    volume_24h_change=Decimal("0.01"),
+                    to_dict=lambda: {
+                        "name": "PEPE",
+                        "price": "50000000",
+                        "volume24": "5000000000",
+                        "holdersCount": 200,
+                        "totalSupply": 2000000,
+                        "change24": "-0.03",
+                        "change7d": "0.15",
+                        "volume24Change": "0.01",
+                    },
+                ),
+            ]
+            mock_client.fetch_all_src20_market_data.return_value = mock_response
             mock_get_client.return_value = mock_client
 
             # Test worker
             worker = SRC20Worker()
-            result = worker._fetch_openstamp_data("TEST")
 
-            # Verify result
-            assert result is not None
-            assert result["tick"] == "TEST"
-            assert result["data_source"] == "openstamp"
-            assert result["exchange_symbol"] == "TEST"
+            # Test bulk fetch
+            results = worker.fetch_all_openstamp_data()
+
+            # Verify results
+            assert results is not None
+            assert len(results) == 2
+            assert results[0]["name"] == "TEST"
+            assert results[1]["name"] == "PEPE"
+
+            # Test transform method
+            transformed = worker.transform_openstamp_data(results[0])
+            assert transformed is not None
+            assert transformed["tick"] == "TEST"
+            assert transformed["price_btc"] == Decimal("1.5")  # Converted from satoshis
+            assert transformed["volume_24h_btc"] == Decimal("100")  # Converted from satoshis
+            assert transformed["holder_count"] == 100
+            assert transformed["primary_exchange"] == "openstamp"
 
 
 if __name__ == "__main__":

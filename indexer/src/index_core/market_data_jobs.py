@@ -795,4 +795,3 @@ def update_market_data_async(db):
         logger.error(f"Error in update_market_data_async: {e}")
         if not config.FORCE:
             raise
-
