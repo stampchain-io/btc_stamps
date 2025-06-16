@@ -61,6 +61,21 @@ class OpenStampTokenData:
             "update_frequency_minutes": 5,  # More frequent for exchange data
         }
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to raw dictionary format."""
+        return {
+            "tokenId": self.token_id,
+            "name": self.name,
+            "totalSupply": self.total_supply,
+            "holdersCount": self.holders_count,
+            "price": str(self.price),
+            "amount24": str(self.amount_24h),
+            "volume24": str(self.volume_24h),
+            "volume24Change": str(self.volume_24h_change),
+            "change24": str(self.change_24h),
+            "change7d": str(self.change_7d),
+        }
+
 
 class OpenStampApiResponse:
     """Type definition for complete OpenStamp API response."""

@@ -721,7 +721,7 @@ class SRC20Worker:
 
             # Return raw token data
             if self._openstamp_cache:
-                return [token.to_dict() for token in self._openstamp_cache.data]
+                return [token.to_dict() for token in self._openstamp_cache.tokens]
             else:
                 return []
 
@@ -741,16 +741,17 @@ class SRC20Worker:
         """
         try:
             # Create a token info object for transformation
-            from index_core.types import OpenStampTokenInfo
-            token_info = OpenStampTokenInfo(token_data)
-            
+            from index_core.types import OpenStampTokenData
+
+            token_info = OpenStampTokenData(token_data)
+
             # Convert to market data format
             market_data = token_info.to_market_data_dict()
             market_data["data_source"] = "openstamp"
-            
+
             # Use the processor to validate and calculate derived metrics
             processed_data = self.processor.calculate_derived_metrics(market_data)
-            
+
             return processed_data
 
         except Exception as e:

@@ -320,23 +320,23 @@ class MarketDataJobScheduler:
             try:
                 # Create a single worker instance
                 src20_worker = SRC20Worker()
-                
+
                 # Fetch ALL market data from OpenStamp in ONE call
                 logger.info("SRC-20 job: Fetching all market data from OpenStamp")
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
-                
+
                 if openstamp_tokens:
                     logger.info(f"SRC-20 job: Retrieved {len(openstamp_tokens)} tokens from OpenStamp")
-                    
+
                     # Process each token from OpenStamp
                     processed_count = 0
                     error_count = 0
-                    
+
                     for token_data in openstamp_tokens:
                         if self.shutdown_event.is_set():
                             logger.info("Shutdown requested, stopping SRC-20 updates")
                             break
-                            
+
                         try:
                             # Extract tick from token data
                             tick = token_data.get("name", "").upper()
@@ -346,7 +346,7 @@ class MarketDataJobScheduler:
                                 if market_data:
                                     market_data_service.update_src20_market_data(tick, market_data)
                                     processed_count += 1
-                                    
+
                                     if processed_count % 50 == 0:
                                         logger.debug(f"Processed {processed_count} tokens...")
                                 else:
@@ -354,11 +354,11 @@ class MarketDataJobScheduler:
                         except Exception as e:
                             error_count += 1
                             logger.warning(f"Error processing token data: {e}")
-                    
+
                     logger.info(f"SRC-20 job: Processed {processed_count} tokens from OpenStamp ({error_count} errors)")
                 else:
                     logger.warning("SRC-20 job: No data retrieved from OpenStamp")
-                
+
                 # Update STAMP token from KuCoin (only token we track there)
                 logger.info("SRC-20 job: Updating STAMP token from KuCoin")
                 try:
@@ -625,7 +625,7 @@ class MarketDataJobScheduler:
         except Exception as e:
             logger.error(f"Error processing stamp batch: {e}")
 
-    def _process_src20_batch(self, db, token_ticks: List[str], src20_worker: Optional['SRC20Worker'] = None):
+    def _process_src20_batch(self, db, token_ticks: List[str], src20_worker: Optional["SRC20Worker"] = None):
         """Process a batch of SRC-20 tokens for market data updates."""
         try:
             logger.debug(f"Processing SRC-20 market data for {len(token_ticks)} tokens")
