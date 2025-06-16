@@ -211,7 +211,7 @@ class TestMarketDataJobScheduler:
         # Mock the OpenStamp call to avoid API dependency
         with patch("index_core.src20_worker.get_all_src20_tokens", return_value=[]):
             # Call the method to test the query
-            self.scheduler._get_src20_tokens_needing_update(self.mock_db)
+            self.scheduler._get_src20_tokens_needing_update_DEPRECATED(self.mock_db)
 
         # Verify SQL query structure - now there are multiple execute calls
         execute_calls = self.mock_cursor.execute.call_args_list
@@ -310,7 +310,7 @@ class TestMarketDataJobScheduler:
         openstamp_tokens = ["STAMP", "PEPE", "RARE", "BIAO"]
 
         with patch("index_core.src20_worker.get_all_src20_tokens", return_value=openstamp_tokens):
-            result = self.scheduler._get_src20_tokens_needing_update(self.mock_db)
+            result = self.scheduler._get_src20_tokens_needing_update_DEPRECATED(self.mock_db)
 
         # Should return all database tokens regardless of OpenStamp coverage
         assert len(result) == 4

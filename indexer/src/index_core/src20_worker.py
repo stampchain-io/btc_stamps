@@ -699,6 +699,64 @@ class SRC20Worker:
             logger.error(f"Error getting all available tokens: {e}")
             return []
 
+    def fetch_all_openstamp_data(self) -> List[Dict]:
+        """
+        Fetch all market data from OpenStamp API in one call.
+
+        Returns:
+            List of token data dictionaries
+        """
+        try:
+            # Use cached data if available
+            current_time = time.time()
+            if self._openstamp_cache is None or (current_time - self._openstamp_cache_time) > self._openstamp_cache_ttl:
+                logger.info("Fetching fresh OpenStamp data for all tokens")
+                openstamp_client = get_openstamp_client()
+                try:
+                    self._openstamp_cache = openstamp_client.fetch_all_market_data()
+                    self._openstamp_cache_time = current_time
+                except Exception as e:
+                    logger.error(f"Failed to fetch OpenStamp data: {e}")
+                    return []
+
+            # Return raw token data
+            if self._openstamp_cache:
+                return [token.to_dict() for token in self._openstamp_cache.data]
+            else:
+                return []
+
+        except Exception as e:
+            logger.error(f"Error fetching all OpenStamp data: {e}")
+            return []
+
+    def transform_openstamp_data(self, token_data: Dict) -> Optional[Dict]:
+        """
+        Transform raw OpenStamp token data into standardized market data format.
+
+        Args:
+            token_data: Raw token data from OpenStamp API
+
+        Returns:
+            Transformed market data dictionary or None if failed
+        """
+        try:
+            # Create a token info object for transformation
+            from index_core.types import OpenStampTokenInfo
+            token_info = OpenStampTokenInfo(token_data)
+            
+            # Convert to market data format
+            market_data = token_info.to_market_data_dict()
+            market_data["data_source"] = "openstamp"
+            
+            # Use the processor to validate and calculate derived metrics
+            processed_data = self.processor.calculate_derived_metrics(market_data)
+            
+            return processed_data
+
+        except Exception as e:
+            logger.error(f"Error transforming OpenStamp data: {e}")
+            return None
+
     def _aggregate_multi_source_data(self, tick: str, source_data: Dict[str, Dict]) -> Optional[Dict]:
         """
         Aggregate market data from multiple sources with confidence weighting.
