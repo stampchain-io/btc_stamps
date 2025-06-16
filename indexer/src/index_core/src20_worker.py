@@ -6,6 +6,7 @@ SRC-20 token market data from exchange APIs, including KuCoin API for the STAMP
 token and OpenStamp API for comprehensive SRC-20 market data.
 """
 
+import json
 import logging
 import time
 from datetime import datetime
@@ -639,7 +640,7 @@ class SRC20Worker:
                 "data_quality_score": 0.0,
                 "confidence_level": 0.0,
                 "primary_exchange": None,
-                "exchange_sources": ",".join(source_data.keys()),
+                "exchange_sources": json.dumps(list(source_data.keys())),
                 "update_frequency_minutes": 5,
             }
 

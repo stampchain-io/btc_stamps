@@ -5,6 +5,7 @@ This module tests the MarketDataService class and related database functions
 for the Bitcoin Stamps Market Data Cache System.
 """
 
+import json
 import os
 
 # Import the modules to test
@@ -822,7 +823,7 @@ class TestOpenStampIntegration:
 
         # Test metadata
         assert market_data["primary_exchange"] == "openstamp"
-        assert market_data["exchange_sources"] == "openstamp"
+        assert json.loads(market_data["exchange_sources"]) == ["openstamp"]
         assert market_data["data_quality_score"] == Decimal("8.0")
         assert market_data["confidence_level"] == Decimal("8.0")
         assert market_data["update_frequency_minutes"] == 5

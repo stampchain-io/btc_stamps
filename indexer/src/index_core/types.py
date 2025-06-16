@@ -1,5 +1,6 @@
 """Type definitions for the indexer."""
 
+import json
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,7 +55,7 @@ class OpenStampTokenData:
             "price_change_7d_percent": self.change_7d * Decimal("100"),  # Convert to percentage
             "volume_24h_change_percent": self.volume_24h_change * Decimal("100"),
             "primary_exchange": "openstamp",
-            "exchange_sources": "openstamp",
+            "exchange_sources": json.dumps(["openstamp"]),
             "data_quality_score": Decimal("8.0"),  # High quality for OpenStamp
             "confidence_level": Decimal("8.0"),
             "update_frequency_minutes": 5,  # More frequent for exchange data

@@ -6,6 +6,7 @@ introduced to fetch data from multiple APIs (KuCoin, OpenStamp) and aggregate
 them with confidence weighting.
 """
 
+import json
 import os
 import sys
 from datetime import datetime
@@ -50,7 +51,7 @@ class TestSRC20MultiSourceAggregation:
             "price_change_24h_percent": Decimal("-10.77"),
             "price_change_7d_percent": Decimal("-42.0"),
             "primary_exchange": "openstamp",
-            "exchange_sources": "openstamp",
+            "exchange_sources": json.dumps(["openstamp"]),
             "data_quality_score": Decimal("8.0"),
             "confidence_level": Decimal("8.0"),
             "data_source": "openstamp",
@@ -83,9 +84,10 @@ class TestSRC20MultiSourceAggregation:
         # Primary exchange should be highest confidence source with price
         assert result["primary_exchange"] == "kucoin"  # Higher confidence
 
-        # Exchange sources should list both
-        assert "kucoin" in result["exchange_sources"]
-        assert "openstamp" in result["exchange_sources"]
+        # Exchange sources should list both (now as JSON array)
+        exchange_sources = json.loads(result["exchange_sources"])
+        assert "kucoin" in exchange_sources
+        assert "openstamp" in exchange_sources
 
     def test_aggregate_multi_source_data_openstamp_only(self):
         """Test aggregation when only OpenStamp provides data."""
@@ -101,7 +103,7 @@ class TestSRC20MultiSourceAggregation:
         assert result["volume_24h_btc"] == self.mock_openstamp_data["volume_24h_btc"]
         assert result["holder_count"] == self.mock_openstamp_data["holder_count"]
         assert result["primary_exchange"] == "openstamp"
-        assert result["exchange_sources"] == "openstamp"
+        assert json.loads(result["exchange_sources"]) == ["openstamp"]
 
     def test_aggregate_multi_source_data_no_price_data(self):
         """Test aggregation when no sources have price data."""

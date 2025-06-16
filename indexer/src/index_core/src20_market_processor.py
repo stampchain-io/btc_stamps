@@ -9,6 +9,7 @@ logging, and database operations.
 """
 
 import decimal
+import json
 import logging
 import math
 from datetime import datetime
@@ -280,7 +281,7 @@ class SRC20MarketDataProcessor:
 
             # Add metadata
             transformed_data["primary_exchange"] = exchange_name
-            transformed_data["exchange_sources"] = exchange_name
+            transformed_data["exchange_sources"] = json.dumps([exchange_name])
 
             # Set quality and confidence based on exchange reliability
             exchange_quality = {
