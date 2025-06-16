@@ -296,53 +296,49 @@ class TestMarketDataJobScheduler:
                         # Verify service was called for each asset
                         assert mock_service.update_stamp_market_data.call_count == 2
 
-
     def test_src20_case_sensitivity_handling(self):
         """Test that SRC-20 tokens are matched case-insensitively with OpenStamp."""
         # Database returns lowercase tokens including 'stamp'
         db_tokens = [("stamp",), ("pepe",), ("biao",), ("lumi💫",)]
         known_tokens = [("stamp",), ("pepe",), ("biao",), ("lumi💫",), ("test",)]
-        
+
         # First query returns tokens needing update
         # Second query returns all known tokens
         self.mock_cursor.fetchall.side_effect = [db_tokens, known_tokens]
-        
+
         # OpenStamp returns uppercase tokens and fewer tokens (only those with market activity)
         openstamp_tokens = ["STAMP", "PEPE", "RARE", "BIAO"]
-        
+
         with patch("index_core.src20_worker.get_all_src20_tokens", return_value=openstamp_tokens):
             result = self.scheduler._get_src20_tokens_needing_update(self.mock_db)
-        
+
         # Should return all database tokens regardless of OpenStamp coverage
         assert len(result) == 4
         assert "stamp" in result
         assert "pepe" in result
         assert "biao" in result
         assert "lumi💫" in result
-        
+
     def test_stamp_kucoin_case_matching(self):
         """Test that STAMP token matches KuCoin exchange mapping regardless of case."""
         from index_core.src20_worker import SRC20Worker
-        
+
         worker = SRC20Worker()
-        
+
         # Mock the KuCoin API calls
         with patch.object(worker, "_fetch_kucoin_data") as mock_kucoin:
             with patch.object(worker, "_fetch_openstamp_data") as mock_openstamp:
-                mock_kucoin.return_value = {
-                    "price_btc": 0.00001,
-                    "volume_24h_btc": 10.5,
-                    "data_source": "kucoin"
-                }
+                mock_kucoin.return_value = {"price_btc": 0.00001, "volume_24h_btc": 10.5, "data_source": "kucoin"}
                 mock_openstamp.return_value = None
-                
+
                 # Test with lowercase 'stamp' from database
                 result = worker.process_src20_market_data("stamp")
-                
+
                 # Should have called KuCoin fetch despite case difference
                 mock_kucoin.assert_called_once()
                 assert result is not None
-                assert "kucoin" in result.get("data_source", "")
+                assert result.get("primary_exchange") == "kucoin"
+                assert "kucoin" in result.get("sources", [])
 
 
 if __name__ == "__main__":

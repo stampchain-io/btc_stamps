@@ -57,6 +57,9 @@ class SRC20Worker:
         self.processor = SRC20Worker._shared_processor
         self.kucoin_rate_limiter = KUCOIN_RATE_LIMITER
         self.exchange_rate_limiter = EXCHANGE_RATE_LIMITER
+        self._openstamp_cache = None  # Cache the full OpenStamp response
+        self._openstamp_cache_time = 0
+        self._openstamp_cache_ttl = 60  # Cache for 60 seconds
 
     def process_src20_market_data(self, tick: str) -> Optional[Dict]:
         """
@@ -83,7 +86,7 @@ class SRC20Worker:
             elif tick.upper() in SRC20_EXCHANGE_MAPPINGS:
                 token_config = SRC20_EXCHANGE_MAPPINGS[tick.upper()]
                 logger.debug(f"Found KuCoin mapping for {tick} using uppercase: {tick.upper()}")
-            
+
             if token_config and "kucoin" in token_config:
                 logger.debug(f"Fetching KuCoin data for {tick} (symbol: {token_config['kucoin']})")
                 kucoin_data = self._fetch_kucoin_data(tick, token_config)
@@ -250,25 +253,47 @@ class SRC20Worker:
             # Handle case sensitivity and emoji encoding differences
             openstamp_client = get_openstamp_client()
             token_data = None
-            
+
             # Try multiple variations to handle case and encoding differences
             variations_to_try = [
                 tick,  # Original from database
                 tick.upper(),  # Uppercase version
-                tick.lower(),  # Lowercase version  
+                tick.lower(),  # Lowercase version
             ]
-            
+
+            # Handle emoji encoding - convert escape sequences to actual emojis
+            # Database stores 'lumi\U0001f4ab' but API uses 'lumi💫'
+            if "\\U" in repr(tick) or "\\u" in repr(tick) or r"\U" in tick or r"\u" in tick:
+                try:
+                    # Try to decode the escape sequence
+                    # Handle both Python escape sequences and literal backslash sequences
+                    if r"\U" in tick or r"\u" in tick:
+                        # Literal backslash in the string - need to interpret it
+                        decoded_tick = tick.encode("utf-8").decode("unicode-escape")
+                    else:
+                        # Already has Unicode characters, just ensure proper encoding
+                        decoded_tick = tick.encode("utf-8", errors="ignore").decode("utf-8")
+
+                    if decoded_tick != tick:
+                        variations_to_try.extend([decoded_tick, decoded_tick.upper(), decoded_tick.lower()])
+                        logger.debug(f"Added decoded emoji variants for {repr(tick)}: {repr(decoded_tick)}")
+                except Exception as e:
+                    logger.debug(f"Failed to decode emoji for {repr(tick)}: {e}")
+
             # For emoji tokens, also try with normalized encoding
             if any(ord(c) > 127 for c in tick):  # Contains non-ASCII (likely emoji)
                 import unicodedata
+
                 # Try NFC (composed) and NFD (decomposed) forms
-                variations_to_try.extend([
-                    unicodedata.normalize('NFC', tick),
-                    unicodedata.normalize('NFD', tick),
-                    unicodedata.normalize('NFC', tick.upper()),
-                    unicodedata.normalize('NFD', tick.upper()),
-                ])
-            
+                variations_to_try.extend(
+                    [
+                        unicodedata.normalize("NFC", tick),
+                        unicodedata.normalize("NFD", tick),
+                        unicodedata.normalize("NFC", tick.upper()),
+                        unicodedata.normalize("NFD", tick.upper()),
+                    ]
+                )
+
             # Remove duplicates while preserving order
             seen = set()
             unique_variations = []
@@ -276,18 +301,27 @@ class SRC20Worker:
                 if v not in seen:
                     seen.add(v)
                     unique_variations.append(v)
-            
-            # Try each variation
+
+            # Use cached OpenStamp data if available
+            current_time = time.time()
+            if self._openstamp_cache is None or (current_time - self._openstamp_cache_time) > self._openstamp_cache_ttl:
+                logger.debug("Fetching fresh OpenStamp data for cache")
+                openstamp_client = get_openstamp_client()
+                try:
+                    self._openstamp_cache = openstamp_client.fetch_all_market_data()
+                    self._openstamp_cache_time = current_time
+                except Exception as e:
+                    logger.error(f"Failed to fetch OpenStamp data: {e}")
+                    self._openstamp_cache = None
+
+            # Try each variation against the cached data
             for variant in unique_variations:
-                if not token_data:
-                    logger.debug(f"Trying to fetch OpenStamp data for {tick} as: {repr(variant)}")
-                    try:
-                        token_data = openstamp_client.fetch_token_data(variant)
-                        if token_data:
-                            logger.debug(f"Found token data for {tick} using variant: {repr(variant)}")
-                            break
-                    except Exception as e:
-                        logger.debug(f"Failed to fetch {variant}: {e}")
+                if not token_data and self._openstamp_cache:
+                    logger.debug(f"Trying to find {tick} in cache as: {repr(variant)}")
+                    token_data = self._openstamp_cache.get_token_by_name(variant)
+                    if token_data:
+                        logger.debug(f"Found token data for {tick} using variant: {repr(variant)}")
+                        break
 
             if token_data:
                 market_data = token_data.to_market_data_dict()
@@ -636,17 +670,30 @@ class SRC20Worker:
 
     def get_all_available_tokens(self) -> List[str]:
         """
-        Get all available SRC-20 tokens from OpenStamp API.
+        Get all available SRC-20 tokens from OpenStamp API (uses cache).
 
         Returns:
             List of all available token tickers
         """
         try:
-            openstamp_client = get_openstamp_client()
-            all_tokens = openstamp_client.get_all_available_tokens()
+            # Use cached OpenStamp data if available
+            current_time = time.time()
+            if self._openstamp_cache is None or (current_time - self._openstamp_cache_time) > self._openstamp_cache_ttl:
+                logger.debug("Fetching fresh OpenStamp data for token list")
+                openstamp_client = get_openstamp_client()
+                try:
+                    self._openstamp_cache = openstamp_client.fetch_all_market_data()
+                    self._openstamp_cache_time = current_time
+                except Exception as e:
+                    logger.error(f"Failed to fetch OpenStamp data: {e}")
+                    return []
 
-            logger.info(f"Retrieved {len(all_tokens)} total SRC-20 tokens from OpenStamp")
-            return all_tokens
+            if self._openstamp_cache:
+                all_tokens = self._openstamp_cache.get_all_tickers()
+                logger.info(f"Retrieved {len(all_tokens)} total SRC-20 tokens from OpenStamp")
+                return all_tokens
+            else:
+                return []
 
         except Exception as e:
             logger.error(f"Error getting all available tokens: {e}")

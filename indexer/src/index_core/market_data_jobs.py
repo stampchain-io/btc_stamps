@@ -138,7 +138,7 @@ class MarketDataJobScheduler:
 
                 # Clean up completed jobs
                 self._cleanup_completed_jobs()
-                
+
                 # Log active jobs status
                 active_jobs = []
                 for job_name, future in self.job_futures.items():
@@ -186,7 +186,7 @@ class MarketDataJobScheduler:
                     logger.info(f"=== SUBMITTING JOB: {job_name} ===")
                     logger.info(f"Executor state: {self.executor}")
                     logger.info(f"Running state: {self.running}")
-                    
+
                     try:
                         # Add debug wrapper to ensure job starts
                         def job_wrapper():
@@ -199,17 +199,21 @@ class MarketDataJobScheduler:
                                 logger.error(f"=== JOB WRAPPER ERROR: {job_name} ===")
                                 logger.error(f"Job error: {job_error}")
                                 import traceback
+
                                 logger.error(f"Job traceback: {traceback.format_exc()}")
                                 raise
-                        
+
                         future = self.executor.submit(job_wrapper)
                         self.job_futures[job_name] = future
                         self.last_run_times[job_name] = datetime.now()
                         logger.info(f"Job {job_name} submitted successfully, future: {future}")
-                        logger.info(f"Current executor stats: {self.executor._threads} threads, {len(self.job_futures)} tracked jobs")
+                        logger.info(
+                            f"Current executor stats: {self.executor._threads} threads, {len(self.job_futures)} tracked jobs"
+                        )
                     except Exception as submit_error:
                         logger.error(f"Failed to submit job {job_name}: {submit_error}")
                         import traceback
+
                         logger.error(f"Submit traceback: {traceback.format_exc()}")
                         raise
                 else:
@@ -217,6 +221,7 @@ class MarketDataJobScheduler:
         except Exception as e:
             logger.error(f"Error in _submit_job for {job_name}: {e}")
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
 
@@ -233,6 +238,7 @@ class MarketDataJobScheduler:
                     except Exception as e:
                         logger.error(f"Job {job_name} failed with error: {e}")
                         import traceback
+
                         logger.error(f"Job {job_name} traceback: {traceback.format_exc()}")
                     completed_jobs.append(job_name)
 
@@ -269,7 +275,7 @@ class MarketDataJobScheduler:
                 batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
                 total_batches = len(batches)
                 logger.info(f"Processing {len(stamps_to_update)} stamps in {total_batches} batches of {STAMP_BATCH_SIZE}")
-                
+
                 for batch_num, batch in enumerate(batches, 1):
                     if self.shutdown_event.is_set():
                         logger.info("Shutdown requested, stopping stamp updates")
@@ -345,9 +351,10 @@ class MarketDataJobScheduler:
                 logger.info("SRC-20 job: Database connection closed")
 
         except Exception as e:
-            logger.error(f"=== SRC-20 JOB EXCEPTION ===")
+            logger.error("=== SRC-20 JOB EXCEPTION ===")
             logger.error(f"Error in SRC-20 market data update job: {e}")
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
             if not config.FORCE:
                 raise
@@ -454,30 +461,30 @@ class MarketDataJobScheduler:
                 # Convert to lowercase set for case-insensitive comparison
                 openstamp_tokens_lower = {t.lower() for t in openstamp_tokens_raw}
                 known_tokens_lower = {t.lower() for t in known_tokens}
-                
+
                 if openstamp_tokens_lower:
                     # Calculate statistics with case-insensitive comparison
                     tokens_with_market_data = known_tokens_lower & openstamp_tokens_lower
                     tokens_without_market_data = known_tokens_lower - openstamp_tokens_lower
-                    
+
                     # For tokens in OpenStamp but not in DB, preserve original case for logging
                     openstamp_only_tokens = []
                     for token in openstamp_tokens_raw:
                         if token.lower() not in known_tokens_lower:
                             openstamp_only_tokens.append(token)
-                    
-                    logger.info(f"📊 SRC-20 Market Data Coverage:")
+
+                    logger.info("📊 SRC-20 Market Data Coverage:")
                     logger.info(f"  - Total tokens in DB: {len(known_tokens)}")
                     logger.info(f"  - Tokens with market activity (in OpenStamp): {len(tokens_with_market_data)}")
                     logger.info(f"  - Tokens without market activity: {len(tokens_without_market_data)}")
                     logger.info(f"  - OpenStamp tokens: {len(openstamp_tokens_raw)}")
-                    
+
                     if openstamp_only_tokens:
                         # This is informational, not a warning - these may be new tokens
                         logger.info(
                             f"ℹ️ Found {len(openstamp_only_tokens)} tokens on OpenStamp not in local DB (may be new): {', '.join(sorted(openstamp_only_tokens[:10]))}{'...' if len(openstamp_only_tokens) > 10 else ''}"
                         )
-                    
+
                     # Use all tokens from our database
                     final_tokens = db_tokens
                     logger.info(f"📊 Processing market data updates for {len(final_tokens)} SRC-20 tokens")
