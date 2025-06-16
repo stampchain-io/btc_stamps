@@ -1859,7 +1859,13 @@ def follow(
 
                                 if notification:
                                     topic, body, seq = notification
-                                    topic_str = topic.decode("utf-8")
+                                    # Safely decode topic, handling potential binary data
+                                    try:
+                                        topic_str = topic.decode("utf-8")
+                                    except UnicodeDecodeError:
+                                        topic_str = topic.decode("utf-8", errors="replace")
+                                        logger.debug(f"Non-UTF-8 topic received in blocks.py: {topic_str}")
+                                    
                                     if topic_str in ["hashblock", "rawblock"]:
                                         logger.info(f"Processing new block notification via ZMQ: {topic_str}")
                                         # Invalidate the blockcount cache first to ensure fresh block height
