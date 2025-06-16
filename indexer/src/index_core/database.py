@@ -2428,7 +2428,7 @@ def get_stamps_needing_market_update(db: Connection, update_interval_minutes: in
             # Include stamps with ident='STAMP' or 'SRC-721'
             # Named assets like FUCKTHAT already have ident='STAMP'
             query = """
-                SELECT DISTINCT s.cpid
+                SELECT DISTINCT s.cpid, s.block_index
                 FROM StampTableV4 s
                 LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
                 WHERE s.ident IN ('STAMP', 'SRC-721')
