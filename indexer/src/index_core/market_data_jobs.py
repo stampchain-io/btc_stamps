@@ -338,7 +338,7 @@ class MarketDataJobScheduler:
         try:
             # First, get tokens from our database that need updates
             query = """
-            SELECT DISTINCT s.tick
+            SELECT DISTINCT s.tick, s.block_index
             FROM SRC20Valid s
             LEFT JOIN src20_market_data smd ON s.tick = smd.tick
             WHERE smd.last_updated IS NULL

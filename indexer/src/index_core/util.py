@@ -57,6 +57,21 @@ CP_BLOCK_COUNT = None
 CURRENT_BLOCK_INDEX: Optional[int] = None  # resolves to database.last_db_index(db)
 
 
+def calculate_file_size(binary_data: bytes) -> int:
+    """
+    Calculate the size of binary data in bytes.
+
+    Args:
+        binary_data: The binary data to measure
+
+    Returns:
+        int: Size in bytes, 0 if data is None or empty
+    """
+    if binary_data is None:
+        return 0
+    return len(binary_data)
+
+
 def chunkify(lst, n):
     """
     Splits a list into smaller chunks of size n.

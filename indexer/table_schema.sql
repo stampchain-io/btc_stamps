@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `is_reissue` tinyint(1) DEFAULT NULL,
   `file_hash` varchar(255) DEFAULT NULL,
   `is_valid_base64` tinyint(1) DEFAULT NULL,
+  `file_size_bytes` int DEFAULT NULL COMMENT 'Size of the decoded stamp file in bytes',
   PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),

@@ -108,6 +108,7 @@ class StampData:
     is_cursed: Optional[bool] = None
     file_hash: Optional[str] = None
     is_valid_base64: Optional[bool] = None
+    file_size_bytes: Optional[int] = None
     file_suffix: Optional[str] = None
     decoded_base64: Optional[Union[str, bytes]] = None
     src20_dict: Optional[dict] = None
@@ -715,7 +716,7 @@ class StampData:
 
         self.normalize_mime_and_suffix()
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
-        self.file_hash, filename = encode_and_store_file(
+        self.file_hash, filename, self.file_size_bytes = encode_and_store_file(
             db,
             self.tx_hash,
             self.file_suffix,

@@ -226,6 +226,7 @@ def log_enhanced_block_status(
     eta_seconds: float = 0,
     is_zmq: bool = False,
     display_mode: str = "enhanced",
+    start_block: int = 0,
 ) -> None:
     """
     Log block status with enhanced formatting.
@@ -241,13 +242,19 @@ def log_enhanced_block_status(
         eta_seconds: Estimated time to completion
         is_zmq: Whether this is from ZMQ feed
         display_mode: Display mode (compact, enhanced, detailed)
+        start_block: Starting block for progress calculation (defaults to 0)
     """
     # Calculate progress
-    if block_tip > 0:
-        current_progress = block_index / block_tip
+    if block_tip > start_block and block_index >= start_block:
+        total_blocks = block_tip - start_block
+        processed_blocks = block_index - start_block
+        current_progress = processed_blocks / total_blocks
+    elif block_index < start_block:
+        # If we're before the start block, progress is 0
+        current_progress = 0.0
     else:
         current_progress = 0.0
-    current_progress = min(1.0, current_progress)
+    current_progress = min(1.0, max(0.0, current_progress))
 
     # Determine if we're at the tip (within 5 blocks)
     at_tip = (block_tip - block_index) <= 5

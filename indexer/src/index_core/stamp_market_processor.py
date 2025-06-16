@@ -159,10 +159,10 @@ class StampMarketDataProcessor:
             )
             validated_data["data_quality_score"] = validated_quality or DEFAULT_QUALITY_SCORE
 
-            # Validate confidence level (string field)
-            confidence_level = data.get("confidence_level", "medium")
+            # Validate confidence level (decimal field)
+            confidence_level = data.get("confidence_level", D("5.0"))
             validated_confidence = self._validate_confidence_level_field(confidence_level, "confidence_level")
-            validated_data["confidence_level"] = validated_confidence or "medium"
+            validated_data["confidence_level"] = validated_confidence or D("5.0")
 
             # Validate block numbers (optional)
             for field in ["last_dispenser_block", "last_balance_block"]:
@@ -305,7 +305,7 @@ class StampMarketDataProcessor:
             transformed_data["price_source"] = "counterparty"
             transformed_data["volume_sources"] = "counterparty"
             transformed_data["data_quality_score"] = D("8.0")  # High quality for Counterparty data
-            transformed_data["confidence_level"] = "high"  # High confidence for official API (string)
+            transformed_data["confidence_level"] = D("8.0")  # High confidence for official API
             transformed_data["last_price_update"] = datetime.now()
             transformed_data["update_frequency_minutes"] = 30
 
@@ -503,23 +503,39 @@ class StampMarketDataProcessor:
             logger.warning(f"Invalid timestamp value for {field_name}: {value}")
             return None
 
-    def _validate_confidence_level_field(self, value: Any, field_name: str) -> Optional[str]:
-        """Validate a confidence level field (string)."""
+    def _validate_confidence_level_field(self, value: Any, field_name: str) -> Optional[D]:
+        """Validate a confidence level field (converts to decimal 0-10 scale)."""
         if value is None:
             return None
 
         try:
-            str_val = str(value).lower()
-            valid_levels = ["very_low", "low", "medium", "high", "very_high"]
+            # If it's already a number, validate it's in range
+            if isinstance(value, (int, float, D)):
+                decimal_val = D(str(value))
+                if 0 <= decimal_val <= 10:
+                    return decimal_val
+                else:
+                    logger.warning(f"Confidence level {value} out of range 0-10 for {field_name}")
+                    return D("5.0")  # Default fallback
 
-            if str_val in valid_levels:
-                return str_val
+            # Convert string values to numeric
+            str_val = str(value).lower()
+            confidence_mapping = {
+                "very_low": D("2.0"),
+                "low": D("3.0"),
+                "medium": D("5.0"),
+                "high": D("8.0"),
+                "very_high": D("9.0"),
+            }
+
+            if str_val in confidence_mapping:
+                return confidence_mapping[str_val]
             else:
-                logger.warning(f"Invalid confidence level for {field_name}: {value}. Valid values: {valid_levels}")
-                return "medium"  # Default fallback
+                logger.warning(f"Invalid confidence level for {field_name}: {value}. Converting to medium (5.0)")
+                return D("5.0")  # Default fallback
         except (ValueError, TypeError):
             logger.warning(f"Invalid confidence level value for {field_name}: {value}")
-            return "medium"  # Default fallback
+            return D("5.0")  # Default fallback
 
 
 # Global processor instance for easy access
