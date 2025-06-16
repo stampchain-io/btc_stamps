@@ -337,7 +337,7 @@ class MarketDataJobScheduler:
         """Get list of SRC-20 token ticks that need market data updates with smart discovery."""
         try:
             logger.info("Starting SRC-20 token discovery for market data updates")
-            
+
             # First, get tokens from our database that need updates
             query = """
             SELECT DISTINCT s.tick, s.block_index
@@ -349,7 +349,9 @@ class MarketDataJobScheduler:
             LIMIT %s
             """
 
-            logger.debug(f"Executing SRC-20 query with params: interval={SRC20_UPDATE_INTERVAL // 60} min, limit={SRC20_SELECTION_LIMIT}")
+            logger.debug(
+                f"Executing SRC-20 query with params: interval={SRC20_UPDATE_INTERVAL // 60} min, limit={SRC20_SELECTION_LIMIT}"
+            )
             cursor = db.cursor()
             cursor.execute(query, (SRC20_UPDATE_INTERVAL // 60, SRC20_SELECTION_LIMIT))
             db_results = cursor.fetchall()

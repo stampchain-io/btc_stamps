@@ -176,6 +176,10 @@ def run_code_quality_checks(auto_fix=False):
             # Filesize tracking and utility function tests
             "tests/test_filesize_tracking.py",
             "tests/test_util_functions.py",
+            # Additional utility function tests for enhanced coverage
+            "tests/test_base64_utils.py",
+            "tests/test_enhanced_mime_detection.py",
+            "tests/test_files_utils.py",
         ]
 
         for test_file in test_files:
