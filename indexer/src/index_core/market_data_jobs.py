@@ -68,6 +68,7 @@ class MarketDataJobScheduler:
 
         logger.info(f"Starting market data job scheduler with {max_workers} workers")
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        logger.info(f"ThreadPoolExecutor created with max_workers={self.executor._max_workers}")
         self.running = True
         self.shutdown_event.clear()
 
@@ -147,7 +148,7 @@ class MarketDataJobScheduler:
                     logger.info(f"Active jobs: {active_jobs}")
 
                 # Sleep for a short interval before checking again
-                self.shutdown_event.wait(timeout=30)  # Check every 30 seconds
+                self.shutdown_event.wait(timeout=5)  # Check every 5 seconds for faster updates
 
             except Exception as e:
                 logger.error(f"Error in job scheduler loop: {e}")
@@ -205,6 +206,7 @@ class MarketDataJobScheduler:
                         self.job_futures[job_name] = future
                         self.last_run_times[job_name] = datetime.now()
                         logger.info(f"Job {job_name} submitted successfully, future: {future}")
+                        logger.info(f"Current executor stats: {self.executor._threads} threads, {len(self.job_futures)} tracked jobs")
                     except Exception as submit_error:
                         logger.error(f"Failed to submit job {job_name}: {submit_error}")
                         import traceback
@@ -264,11 +266,16 @@ class MarketDataJobScheduler:
                 logger.info(f"Updating market data for {len(stamps_to_update)} stamps")
 
                 # Process stamps in batches to avoid overwhelming external APIs
-                for batch in self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE):
+                batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
+                total_batches = len(batches)
+                logger.info(f"Processing {len(stamps_to_update)} stamps in {total_batches} batches of {STAMP_BATCH_SIZE}")
+                
+                for batch_num, batch in enumerate(batches, 1):
                     if self.shutdown_event.is_set():
                         logger.info("Shutdown requested, stopping stamp updates")
                         break
 
+                    logger.info(f"Processing stamp batch {batch_num}/{total_batches}")
                     self._process_stamp_batch(task_db, batch)
 
                     # Rate limiting between batches
