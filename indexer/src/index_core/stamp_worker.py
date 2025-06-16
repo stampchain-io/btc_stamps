@@ -214,7 +214,7 @@ class StampWorker:
                 "liquidity_score": None,
                 "market_activity_score": None,
                 "quality_score": 0.0,
-                "confidence_level": "low",
+                "confidence_level": 3.0,
             }
 
             # Calculate floor price from active dispensers

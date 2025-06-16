@@ -714,6 +714,7 @@ def log_block_info(
             eta_seconds=eta_seconds,
             is_zmq=is_zmq,
             display_mode=display_mode,
+            start_block=config.CP_STAMP_GENESIS_BLOCK,
         )
 
     except Exception as e:
