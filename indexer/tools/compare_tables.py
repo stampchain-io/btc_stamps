@@ -412,9 +412,16 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
     if not show_json:
         print_comparison_header("SRC101Valid")
 
-    # Create dictionaries with tx_hash as key and full record as value
-    prod_dict = {row[0]: row for row in prod_src101}
-    dev_dict = {row[0]: row for row in dev_src101}
+    # Filter out records with None tx_hash or create dictionaries safely
+    prod_dict = {}
+    for row in prod_src101:
+        if row[0] is not None:  # tx_hash should not be None
+            prod_dict[row[0]] = row
+    
+    dev_dict = {}
+    for row in dev_src101:
+        if row[0] is not None:  # tx_hash should not be None
+            dev_dict[row[0]] = row
 
     # Find differences
     only_in_prod = set(prod_dict.keys()) - set(dev_dict.keys())
@@ -440,35 +447,46 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
             print(colored(f"\n→ Only in Production ({len(only_in_prod)} records):", "yellow"))
             # Create a list of records with their block numbers for sorting
             prod_records = [(tx_hash, prod_dict[tx_hash]) for tx_hash in only_in_prod]
-            # Sort by block number (index 4 in the record tuple)
-            prod_records.sort(key=lambda x: x[1][4])
+            # Sort by block number (index 4 in the record tuple), handle None values
+            prod_records.sort(key=lambda x: x[1][4] if x[1][4] is not None else 0)
 
             for tx_hash, record in prod_records[:5]:
-                print(f"  Block[{record[4]}] TX:{tx_hash[:8]}... Owner={record[1][:20]}... TokenID={record[2]}")
+                block_idx = record[4] if record[4] is not None else "NULL"
+                owner_display = (record[1][:20] + "...") if record[1] is not None and len(record[1]) > 20 else (record[1] or "NULL")
+                tokenid_display = record[2] if record[2] is not None else "NULL"
+                print(f"  Block[{block_idx}] TX:{tx_hash[:8]}... Owner={owner_display} TokenID={tokenid_display}")
 
         if only_in_dev:
             print(colored(f"\n→ Only in Development ({len(only_in_dev)} records):", "yellow"))
             # Create a list of records with their block numbers for sorting
             dev_records = [(tx_hash, dev_dict[tx_hash]) for tx_hash in only_in_dev]
-            # Sort by block number (index 4 in the record tuple)
-            dev_records.sort(key=lambda x: x[1][4])
+            # Sort by block number (index 4 in the record tuple), handle None values
+            dev_records.sort(key=lambda x: x[1][4] if x[1][4] is not None else 0)
 
             for tx_hash, record in dev_records[:5]:
-                print(f"  Block[{record[4]}] TX:{tx_hash[:8]}... Owner={record[1][:20]}... TokenID={record[2]}")
+                block_idx = record[4] if record[4] is not None else "NULL"
+                owner_display = (record[1][:20] + "...") if record[1] is not None and len(record[1]) > 20 else (record[1] or "NULL")
+                tokenid_display = record[2] if record[2] is not None else "NULL"
+                print(f"  Block[{block_idx}] TX:{tx_hash[:8]}... Owner={owner_display} TokenID={tokenid_display}")
 
         if mismatched:
             print(colored(f"\n→ Mismatched records ({len(mismatched)} records):", "yellow"))
             # Create a list of records with their block numbers for sorting
             mismatched_records = [(tx_hash, prod_dict[tx_hash], dev_dict[tx_hash]) for tx_hash in mismatched]
-            # Sort by block number from production record
-            mismatched_records.sort(key=lambda x: x[1][4])
+            # Sort by block number from production record, handle None values
+            mismatched_records.sort(key=lambda x: x[1][4] if x[1][4] is not None else 0)
 
             for tx_hash, prod_record, dev_record in mismatched_records[:5]:
-                print(f"  TX:{tx_hash[:8]}... Block[{prod_record[4]}]")
+                block_idx = prod_record[4] if prod_record[4] is not None else "NULL"
+                print(f"  TX:{tx_hash[:8]}... Block[{block_idx}]")
                 if prod_record[1] != dev_record[1]:
-                    print(f"    Owner: Prod[{prod_record[1][:20]}...] Dev[{dev_record[1][:20]}...]")
+                    prod_owner = (prod_record[1][:20] + "...") if prod_record[1] is not None and len(prod_record[1]) > 20 else (prod_record[1] or "NULL")
+                    dev_owner = (dev_record[1][:20] + "...") if dev_record[1] is not None and len(dev_record[1]) > 20 else (dev_record[1] or "NULL")
+                    print(f"    Owner: Prod[{prod_owner}] Dev[{dev_owner}]")
                 if prod_record[2] != dev_record[2]:
-                    print(f"    TokenID: Prod[{prod_record[2]}] Dev[{dev_record[2]}]")
+                    prod_tokenid = prod_record[2] if prod_record[2] is not None else "NULL"
+                    dev_tokenid = dev_record[2] if dev_record[2] is not None else "NULL"
+                    print(f"    TokenID: Prod[{prod_tokenid}] Dev[{dev_tokenid}]")
 
     return bool(only_in_prod or only_in_dev or mismatched)
 
