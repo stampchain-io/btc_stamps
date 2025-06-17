@@ -23,7 +23,7 @@ from index_core.database import update_block_hashes
 from index_core.exceptions import BlockUpdateError
 from index_core.models import ValidStamp
 from index_core.node_health import is_shutdown_requested
-from index_core.transaction_utils import quick_filter_src20_transaction, backend_instance
+from index_core.transaction_utils import backend_instance, quick_filter_src20_transaction
 
 # Module logger
 logger = logging.getLogger(__name__)

@@ -154,6 +154,7 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_src20_update_valid.py",
             "tests/test_src20_validator.py",
             "tests/test_src20.py",
+            "tests/test_high_risk_src20.py",  # Comprehensive high-risk SRC-20 test suite
             "tests/test_config.py",
             # Market data functionality tests
             "tests/test_market_data_service.py",
@@ -177,7 +178,7 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_blocks_fallback_integration.py",
             # Transaction processing function tests (refactored modules)
             "tests/test_transaction_processing.py",
-            # Block validation function tests (refactored modules) 
+            # Block validation function tests (refactored modules)
             "tests/test_block_validation.py",
             # SRC-20 thread safety and locking mechanism tests
             "tests/thread_safety/test_thread_safety.py",

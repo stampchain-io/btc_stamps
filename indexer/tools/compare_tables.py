@@ -1,6 +1,6 @@
+import json
 import os
 import sys
-import json
 from datetime import datetime
 
 import pymysql as mysql
@@ -477,10 +477,12 @@ def print_final_summary(comparison_results, show_json=False):
     """Print a concise final summary of all comparisons."""
     total_issues = sum(1 for r in comparison_results.values() if r["has_issues"])
     total_tables = len(comparison_results)
-    
+
     # Calculate severity
-    total_errors = sum(r.get('diff_count', 0) + r.get('mismatch_count', 0) for r in comparison_results.values() if r['has_issues'])
-    
+    total_errors = sum(
+        r.get("diff_count", 0) + r.get("mismatch_count", 0) for r in comparison_results.values() if r["has_issues"]
+    )
+
     if show_json:
         # JSON output for CI/testing
         summary = {
@@ -488,11 +490,11 @@ def print_final_summary(comparison_results, show_json=False):
             "tables_with_issues": total_issues,
             "total_errors": total_errors,
             "exit_code": 1 if total_issues > 0 else 0,
-            "tables": comparison_results
+            "tables": comparison_results,
         }
         print(json.dumps(summary, indent=2))
         return
-    
+
     print("\n" + "═" * 60)
     print(colored("  FINAL REPORT  ", "white", "on_blue", attrs=["bold"]))
     print("═" * 60)
@@ -540,11 +542,12 @@ def print_final_summary(comparison_results, show_json=False):
 
 def main():
     # Check for command line arguments
-    show_json = '--json' in sys.argv
-    show_help = '--help' in sys.argv or '-h' in sys.argv
-    
+    show_json = "--json" in sys.argv
+    show_help = "--help" in sys.argv or "-h" in sys.argv
+
     if show_help:
-        print("""
+        print(
+            """
 Database Comparison Tool
 
 Usage: python compare_tables.py [options]
@@ -557,9 +560,10 @@ Exit Codes:
   0 - All tables match perfectly
   1 - One or more tables have discrepancies
   2 - Error during execution
-        """)
+        """
+        )
         return 0
-    
+
     if os.getcwd().endswith("/indexer"):
         sys.path.append(os.getcwd())
         dotenv_path = os.path.join(os.getcwd(), ".env")
@@ -783,7 +787,7 @@ Exit Codes:
             dev_cursor.execute("SELECT COUNT(*) FROM StampTableV4 WHERE block_index < %s AND stamp > 0", (block_index,))
             dev_count = dev_cursor.fetchone()[0]
             stamp_diff_count = abs(prod_count - dev_count)
-            
+
         comparison_results["StampTableV4"] = {"has_issues": stamp_has_issues, "diff_count": stamp_diff_count}
         comparison_results["Cursed Stamps"] = {"has_issues": cursed_has_issues}
 
@@ -878,14 +882,14 @@ Exit Codes:
 
     # Return appropriate exit code based on mismatches
     exit_code = 1 if has_mismatches else 0
-    
+
     if not show_json:
         print(f"\n📊 Exit Code: {exit_code}")
         if exit_code == 0:
             print("   ✓ All validations passed - safe to proceed")
         else:
             print("   ✗ Validation failures detected - review differences above")
-    
+
     return exit_code
 
 
