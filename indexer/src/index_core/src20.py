@@ -1140,7 +1140,8 @@ def update_balance_table(db, balance_updates, block_index, block_time):
         if id_list:
             placeholders = ",".join(["%s"] * len(id_list))
             cursor.execute(
-                f"SELECT id, amt, locked_amt FROM {SRC20_BALANCES_TABLE} WHERE id IN ({placeholders})", tuple(id_list)
+                f"SELECT id, amt, locked_amt FROM {SRC20_BALANCES_TABLE} WHERE id IN ({placeholders})",  # nosec B608 - SRC20_BALANCES_TABLE is a static constant from config.py
+                tuple(id_list),
             )
 
             # Update with current balances

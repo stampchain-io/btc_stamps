@@ -490,7 +490,7 @@ class TestTransactionProcessingErrorHandling:
         mock_vout = Mock()
         mock_vout.scriptPubKey = b"test_script"
         mock_vout.nValue = 12345
-        
+
         mock_ctx = Mock()
         mock_ctx.vin = [mock_vin]
         mock_ctx.vout = [mock_vout]
@@ -498,9 +498,7 @@ class TestTransactionProcessingErrorHandling:
         # Create invalid decrypted chunk that will cause data length error
         invalid_chunk = b"\x00\x10" + config.PREFIX + b"short"  # Length says 16 but data is shorter
 
-        with patch("index_core.arc4.init_arc4") as mock_init_arc4, patch(
-            "index_core.arc4.arc4_decrypt_chunk"
-        ) as mock_decrypt:
+        with patch("index_core.arc4.init_arc4") as mock_init_arc4, patch("index_core.arc4.arc4_decrypt_chunk") as mock_decrypt:
             mock_init_arc4.return_value = "test_key"
             mock_decrypt.return_value = invalid_chunk
 

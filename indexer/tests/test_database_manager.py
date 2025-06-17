@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import pymysql
 import pytest
+from pymysql.connections import Connection
 
 from index_core.database_manager import ConnectionPool, DatabaseManager, PooledConnection
 
@@ -409,18 +410,24 @@ class TestDatabaseManager:
         db_manager = DatabaseManager()
         db_manager.max_retries = 2
 
+        # Create initial cursor that fails
         mock_cursor = Mock()
         mock_cursor.execute.side_effect = pymysql.OperationalError("Persistent error")
 
         with patch.object(db_manager, "connect") as mock_connect:
-            # Mock connect to return a connection with cursor
+            # Mock connect to return a connection with cursor that also fails
             mock_connection = Mock()
             mock_new_cursor = Mock()
+            # Make the new cursor also fail with the same error
+            mock_new_cursor.execute.side_effect = pymysql.OperationalError("Persistent error")
             mock_connection.cursor.return_value = mock_new_cursor
             mock_connect.return_value = mock_connection
 
             with pytest.raises(RuntimeError, match="Query execution failed after .* attempts"):
                 db_manager.execute_with_retry(mock_cursor, "SELECT * FROM test")
+
+            # Verify connect was called to get a new connection after first failure
+            assert mock_connect.call_count == 1  # Called once for retry
 
     def test_check_connection_valid(self):
         """Test check_connection() with valid connection"""
@@ -467,11 +474,16 @@ class TestDatabaseManager:
         """Test ensure_connection() with valid connection"""
         db_manager = DatabaseManager()
 
-        mock_connection = Mock()
+        # Create a mock that looks like a Connection
+        mock_connection = Mock(spec=Connection)
 
-        with patch.object(db_manager, "check_connection", return_value=mock_connection) as mock_check:
+        # Mock the check_connection method to return the same connection
+        with patch.object(db_manager, "check_connection") as mock_check:
+            mock_check.return_value = mock_connection
+
             result = db_manager.ensure_connection(mock_connection)
 
+            # Should return the same connection
             assert result == mock_connection
             mock_check.assert_called_once_with(mock_connection)
 

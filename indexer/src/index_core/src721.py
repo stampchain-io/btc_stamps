@@ -277,7 +277,7 @@ def fetch_collection_details(collection_cpid: str, db: Any) -> str:
     try:
         with db.cursor() as cursor:
             cursor.execute(
-                f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s",
+                f"SELECT src_data FROM {config.STAMP_TABLE} WHERE cpid = %s",  # nosec B608 - STAMP_TABLE is a static constant from config.py
                 (collection_cpid,),
             )  # nosec
             result = cursor.fetchone()

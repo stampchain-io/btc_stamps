@@ -215,12 +215,20 @@ Examples:
             print(f"   📊 HTML: {Path('htmlcov/index.html').absolute()}")
 
             if args.open:
-                if sys.platform == "darwin":
-                    subprocess.run(["open", "htmlcov/index.html"])
-                elif sys.platform == "linux":
-                    subprocess.run(["xdg-open", "htmlcov/index.html"])
-                elif sys.platform == "win32":
-                    subprocess.run(["start", "htmlcov/index.html"], shell=True)
+                html_path = "htmlcov/index.html"
+                try:
+                    if sys.platform == "darwin":
+                        subprocess.run(["open", html_path], check=True)
+                    elif sys.platform == "linux":
+                        subprocess.run(["xdg-open", html_path], check=True)
+                    elif sys.platform == "win32":
+                        # Use os.startfile for Windows - safer than shell=True
+                        os.startfile(html_path)
+                    else:
+                        print_info(f"Please open {Path(html_path).absolute()} in your browser")
+                except (subprocess.CalledProcessError, OSError) as e:
+                    print_error(f"Could not open HTML report: {e}")
+                    print_info(f"Please manually open {Path(html_path).absolute()}")
 
         if "xml" in report_formats and Path("coverage.xml").exists():
             print(f"   📄 XML: {Path('coverage.xml').absolute()}")
