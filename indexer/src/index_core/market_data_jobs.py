@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import config
 from index_core.database_manager import DatabaseManager
@@ -289,9 +289,30 @@ class MarketDataJobScheduler:
             if not config.FORCE:
                 raise
 
+    def _get_src20_tokens_from_database(self, db) -> Set[str]:
+        """Get all SRC-20 tokens that exist in the database."""
+        try:
+            with db.cursor() as cursor:
+                cursor.execute("""
+                    SELECT DISTINCT tick 
+                    FROM SRC20Valid 
+                    WHERE tick IS NOT NULL 
+                    AND tick != ''
+                    ORDER BY tick
+                """)
+                
+                results = cursor.fetchall()
+                tokens = {row[0] for row in results}
+                logger.info(f"Found {len(tokens)} unique SRC-20 tokens in database")
+                return tokens
+                
+        except Exception as e:
+            logger.error(f"Error fetching SRC-20 tokens from database: {e}")
+            return set()
+
     def _update_src20_market_data_job(self):
         """
-        Background job to update SRC-20 token market data.
+        Background job to update SRC-20 market data with external exchange data.
 
         Uses exchange APIs for SRC-20 token data.
         """
@@ -303,6 +324,13 @@ class MarketDataJobScheduler:
             task_db = self.database_manager.connect()
 
             try:
+                # First, get all SRC-20 tokens that exist in our database
+                database_tokens = self._get_src20_tokens_from_database(task_db)
+                
+                if not database_tokens:
+                    logger.warning("No SRC-20 tokens found in database")
+                    return
+
                 # Create a single worker instance
                 src20_worker = SRC20Worker()
 
@@ -310,34 +338,59 @@ class MarketDataJobScheduler:
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
 
                 if openstamp_tokens:
-                    logger.info(f"OpenStamp: Retrieved {len(openstamp_tokens)} tokens")
+                    # Convert OpenStamp data to a lookup dict by token name
+                    openstamp_lookup = {}
+                    for token_data in openstamp_tokens:
+                        tick = token_data.get("name", "").upper()
+                        if tick:
+                            openstamp_lookup[tick] = token_data
+                    
+                    openstamp_token_set = set(openstamp_lookup.keys())
+                    logger.info(f"OpenStamp: Retrieved {len(openstamp_token_set)} tokens")
+                    
+                    # Create case-insensitive mappings for matching
+                    database_tokens_upper = {token.upper(): token for token in database_tokens}
+                    openstamp_tokens_upper = set(openstamp_lookup.keys())  # Already uppercase
+                    
+                    # Find intersection using case-insensitive matching
+                    matching_tokens_upper = database_tokens_upper.keys() & openstamp_tokens_upper
+                    
+                    # Convert back to original database case for processing
+                    tokens_to_process = {database_tokens_upper[token_upper] for token_upper in matching_tokens_upper}
+                    
+                    logger.info(f"🎯 Processing {len(tokens_to_process)} tokens (intersection of database and OpenStamp)")
+                    logger.info(f"📊 Database tokens: {len(database_tokens)}")
+                    logger.info(f"🌐 OpenStamp tokens: {len(openstamp_token_set)}")
+                    logger.info(f"❌ Database-only tokens: {len(database_tokens - openstamp_token_set)}")
+                    logger.info(f"❌ OpenStamp-only tokens: {len(openstamp_token_set - database_tokens)}")
 
-                    # Process each token from OpenStamp
+                    # Process each token from the intersection
                     processed_count = 0
                     error_count = 0
 
-                    for token_data in openstamp_tokens:
+                    for tick in tokens_to_process:
                         if self.shutdown_event.is_set():
                             logger.info("Shutdown requested, stopping SRC-20 updates")
                             break
 
                         try:
-                            # Extract tick from token data
-                            tick = token_data.get("name", "").upper()
-                            if tick:
-                                # Transform and store the market data
-                                market_data = src20_worker.transform_openstamp_data(token_data)
-                                if market_data:
-                                    market_data_service.update_src20_market_data(tick, market_data)
-                                    processed_count += 1
+                            # Get the OpenStamp data for this token (using uppercase for lookup)
+                            tick_upper = tick.upper()
+                            token_data = openstamp_lookup[tick_upper]
+                            
+                            # Transform and store the market data
+                            market_data = src20_worker.transform_openstamp_data(token_data)
+                            if market_data:
+                                market_data_service.update_src20_market_data(tick, market_data)
+                                processed_count += 1
 
-                                    if processed_count % 50 == 0:
-                                        logger.debug(f"Processed {processed_count} tokens...")
-                                else:
-                                    error_count += 1
+                                if processed_count % 50 == 0:
+                                    logger.debug(f"Processed {processed_count} tokens...")
+                            else:
+                                error_count += 1
                         except Exception as e:
                             error_count += 1
-                            logger.warning(f"Error processing token data: {e}")
+                            logger.warning(f"Error processing token {tick}: {e}")
 
                     if error_count > 0:
                         logger.warning(f"OpenStamp: Processed {processed_count} tokens ({error_count} errors)")

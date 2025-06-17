@@ -175,6 +175,10 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_fallback_mode.py",
             # Fallback mode integration tests for blocks.py
             "tests/test_blocks_fallback_integration.py",
+            # Transaction processing function tests (pre-refactor validation)
+            "tests/test_transaction_processing.py",
+            # Block validation function tests (pre-refactor validation)
+            "tests/test_block_validation.py",
             # SRC-20 thread safety and locking mechanism tests
             "tests/thread_safety/test_thread_safety.py",
             # Filesize tracking and utility function tests
