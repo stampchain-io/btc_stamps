@@ -500,6 +500,37 @@ class TestTransactionProcessingErrorHandling:
 class TestTransactionProcessingEdgeCases:
     """Test edge cases in transaction processing functions"""
 
+    def test_process_vout_with_non_multisig_script(self):
+        """Test process_vout with non-multisig scripts that would cause IndexError"""
+        from index_core.transaction_utils import process_vout
+
+        # Create mock transaction context with various script types
+        mock_vout1 = Mock()
+        mock_vout1.scriptPubKey = b"\x76\xa9\x14"  # P2PKH script (too short for multisig)
+        mock_vout1.nValue = 1000
+
+        mock_vout2 = Mock()
+        mock_vout2.scriptPubKey = b"\x00\x14"  # P2WPKH script (too short)
+        mock_vout2.nValue = 500
+
+        mock_ctx = Mock()
+        mock_ctx.vout = [mock_vout1, mock_vout2]
+
+        with patch("index_core.script.get_asm") as mock_get_asm:
+            # Return short ASM arrays that would cause IndexError in get_checkmultisig
+            mock_get_asm.side_effect = [
+                ["OP_DUP", "OP_HASH160"],  # Only 2 elements
+                ["OP_0", "hash"],  # Only 2 elements
+            ]
+
+            # This should not raise IndexError
+            result = process_vout(mock_ctx, 900001)
+
+            # Verify results - no multisig data should be found
+            assert result.pubkeys_compiled == []
+            assert result.keyburn == 0
+            assert result.fee == 1500
+
     def test_process_vout_empty_vouts(self):
         """Test process_vout with transaction having no outputs"""
         from index_core.transaction_utils import process_vout

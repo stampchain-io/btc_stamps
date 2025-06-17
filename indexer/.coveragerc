@@ -1,0 +1,65 @@
+# Coverage.py configuration file
+# This file is used by pytest-cov for local coverage reporting
+
+[run]
+source = src/
+branch = True
+parallel = True
+omit = 
+    */tests/*
+    */__pycache__/*
+    */migrations/*
+    */test_*.py
+    */conftest.py
+    tools/debug/*
+    src/rust_parser/*
+    .venv/*
+    venv/*
+    */site-packages/*
+
+[report]
+# Regexes for lines to exclude from consideration
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug-only code:
+    def __repr__
+    if self\.debug
+    if settings\.DEBUG
+
+    # Don't complain if tests don't hit defensive assertion code:
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run:
+    if 0:
+    if __name__ == .__main__.:
+    
+    # Don't complain about abstract methods
+    @(abc\.)?abstractmethod
+    
+    # Type checking
+    if TYPE_CHECKING:
+    
+    # Protocol classes
+    class .*\bProtocol\):
+    
+    # Defensive programming
+    ^\s*\.\.\.$
+
+precision = 2
+show_missing = True
+skip_covered = False
+sort = Cover
+
+[html]
+directory = htmlcov
+show_contexts = True
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+show_contexts = True

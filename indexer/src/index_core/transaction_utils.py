@@ -18,6 +18,7 @@ import logging
 from collections import namedtuple
 
 import config
+import exceptions
 import index_core.arc4 as arc4
 import index_core.script as script
 import index_core.util as util
@@ -97,10 +98,17 @@ def process_vout(ctx, block_index, stamp_issuance=None):
             is_op_return = True
 
         # Check for CHECKMULTISIG
-        pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
-        if pubkeys_list:
-            pubkeys_compiled.extend(pubkeys_list)
-            keyburn += keyburn_amount
+        try:
+            pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
+            if pubkeys_list:
+                pubkeys_compiled.extend(pubkeys_list)
+                keyburn += keyburn_amount
+        except exceptions.DecodeError:
+            # Not a valid CHECKMULTISIG script, continue
+            pass
+        except IndexError:
+            # ASM doesn't have enough elements for CHECKMULTISIG
+            pass
 
         # Check for P2WSH and collect data chunks if stamp issuance
         if stamp_issuance and stamp_issuance.get("p2wsh_data_required", False):
@@ -557,7 +565,11 @@ def quick_filter_src20_transaction(ctx):
                 continue
 
             asm = script.get_asm(script_pubkey)
-            pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
+            try:
+                pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
+            except (exceptions.DecodeError, IndexError):
+                # Not a valid CHECKMULTISIG script
+                continue
 
             if pubkeys_list and keyburn_amount > 0:
                 # Check if any pubkey contains valid data
