@@ -364,7 +364,7 @@ def compare_ownerstable(prod_cursor, dev_cursor, block_index, show_json=False):
     )
 
     if len(prod_records) != len(dev_records):
-        print(colored(f"\n⚠️  WARNING: Record count mismatch!", "red", attrs=["bold"]))
+        print(colored("\n⚠️  WARNING: Record count mismatch!", "red", attrs=["bold"]))
         print(colored(f"    Difference: {abs(len(prod_records) - len(dev_records))} records", "red", attrs=["bold"]))
 
     if only_in_prod or only_in_dev or mismatched:
