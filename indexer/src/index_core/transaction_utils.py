@@ -86,7 +86,6 @@ def process_vout(ctx, block_index, stamp_issuance=None):
     script_token_values = 0
     p2wsh_data_chunks = []
     is_olga = False
-    fee = 0
 
     pubkeys_compiled = []
 
