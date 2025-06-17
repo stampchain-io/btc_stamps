@@ -68,6 +68,9 @@ DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
+# Market Data Configuration
+ENABLE_MARKET_DATA_SCHEDULER = os.getenv("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+
 # Logging display configuration
 # Options: "compact", "enhanced", "detailed", "flashy"
 LOG_DISPLAY_MODE = os.environ.get("LOG_DISPLAY_MODE", "enhanced")

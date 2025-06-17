@@ -570,9 +570,9 @@ def follow(
                 logger.info("Pipeline initialized with strict mode - will stop if CP nodes fail")
 
         # Initialize market data job scheduler for time-based updates
-        # Only start if not in single block mode or reparse mode
+        # Only start if enabled and not in single block mode or reparse mode
         market_data_scheduler_started = False
-        if not single_block and not reparse_mode:
+        if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
             try:
                 logger.info("Starting market data job scheduler...")
                 start_market_data_jobs(max_workers=3)  # Use 3 workers for market data jobs (stamp, src20, collection)
@@ -581,6 +581,8 @@ def follow(
             except Exception as e:
                 logger.warning(f"Failed to start market data scheduler: {e}")
                 market_data_scheduler_started = False
+        elif not config.ENABLE_MARKET_DATA_SCHEDULER:
+            logger.info("Market data scheduler disabled by configuration")
 
         # Set up signal handler with resources that need to be cleaned up
         setup_signal_handler(profiler_instance=profiler, cp_pipeline=cp_pipeline_instance)
