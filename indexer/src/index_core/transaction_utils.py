@@ -122,6 +122,10 @@ def process_vout(ctx, block_index, stamp_issuance=None):
         ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
     )
 
+    # Handle edge case where transaction has no outputs (should not happen in real Bitcoin transactions)
+    if "fee" not in locals():
+        fee = 0
+
     return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga, p2wsh_data_chunks)
 
 
@@ -240,7 +244,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 destinations = str(src_destination)
 
         if not data:
-            raise exceptions.BTCOnlyError("no data, not a stamp", ctx)
+            raise BTCOnlyError("no data, not a stamp", ctx)
 
         vin = ctx.vin[0]
 
