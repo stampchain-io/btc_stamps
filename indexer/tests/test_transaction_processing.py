@@ -228,33 +228,58 @@ class TestTransactionProcessing:
 
         mock_db = Mock()
         test_tx_hash = "test_hash"
-        test_tx_hex = "0100000001..."
+        test_tx_hex = "0100000001abcd1234" * 20  # Valid hex
 
-        with patch("index_core.transaction_utils.get_tx_info") as mock_get_tx_info, patch(
-            "index_core.util.CURRENT_BLOCK_INDEX", 900001
-        ):
+        with patch("index_core.transaction_utils.backend_instance") as mock_backend, patch(
+            "index_core.transaction_utils.process_vout"
+        ) as mock_process_vout, patch("index_core.util.CURRENT_BLOCK_INDEX", 900001), patch(
+            "index_core.util.decode_address"
+        ) as mock_decode_address, patch(
+            "index_core.util.ib2h"
+        ) as mock_ib2h:
 
-            # Mock get_tx_info result
-            mock_tx_info = Mock()
-            mock_tx_info.source = "source_address"
-            mock_tx_info.destination = "dest_address"
-            mock_tx_info.btc_amount = 1000
-            mock_tx_info.fee = 546
-            mock_tx_info.data = b"test_data"
-            mock_tx_info.keyburn = 0
-            mock_get_tx_info.return_value = mock_tx_info
+            # Mock transaction context
+            mock_ctx = Mock()
+            mock_vin = Mock()
+            mock_vin.prevout.hash = b"prev_hash"
+            mock_vin.prevout.n = 0
+            mock_ctx.vin = [mock_vin]
+            mock_ctx.vout = [Mock()]
 
-            result = list_tx(mock_db, 900001, test_tx_hash, test_tx_hex)
+            # Mock backend deserialize
+            mock_backend.deserialize.return_value = mock_ctx
+            mock_backend.getrawtransaction.return_value = "source_tx_hex"
 
-            # Verify result tuple structure (original order)
-            assert len(result) == 11
-            assert result[0] == "source_address"  # source
-            assert result[1] is None  # prev_tx_hash
-            assert result[2] == "dest_address"  # destination
-            assert result[3] is None  # destination_nvalue
-            assert result[4] == 1000  # btc_amount
-            assert result[5] == 546  # fee
-            assert result[6] == b"test_data"  # data
+            # Mock ib2h for prev_tx_hash
+            mock_ib2h.return_value = "prev_tx_hash"
+
+            # Mock decode_address
+            mock_decode_address.return_value = "source_address"
+
+            # Mock process_vout result
+            mock_vout_info = Mock()
+            mock_vout_info.pubkeys_compiled = ["pubkey_data"]
+            mock_vout_info.keyburn = 546
+            mock_vout_info.is_op_return = False
+            mock_vout_info.fee = 1000
+            mock_vout_info.p2wsh_data_chunks = []
+            mock_process_vout.return_value = mock_vout_info
+
+            # Mock decode_checkmultisig
+            with patch("index_core.transaction_utils.decode_checkmultisig") as mock_decode:
+                mock_decode.return_value = ("dest_address", 5000, b"test_data")
+
+                result = list_tx(mock_db, 900001, test_tx_hash, test_tx_hex)
+
+                # Verify result tuple structure (original order)
+                assert len(result) == 11
+                assert result[0] == "source_address"  # source
+                assert result[1] == "prev_tx_hash"  # prev_tx_hash
+                assert result[2] == "dest_address"  # destination
+                assert result[3] == 5000  # destination_nvalue
+                assert result[4] == 0  # btc_amount
+                assert result[5] == 1000  # fee
+                assert result[6] == b"test_data"  # data
 
     def test_list_tx_no_data_transaction(self):
         """Test list_tx with transaction that has no relevant data"""
@@ -262,14 +287,28 @@ class TestTransactionProcessing:
 
         mock_db = Mock()
         test_tx_hash = "test_hash"
-        test_tx_hex = "0100000001..."
+        test_tx_hex = "0100000001abcd1234" * 20  # Valid hex
 
-        with patch("index_core.transaction_utils.get_tx_info") as mock_get_tx_info, patch(
-            "index_core.util.CURRENT_BLOCK_INDEX", 900001
-        ):
+        with patch("index_core.transaction_utils.backend_instance") as mock_backend, patch(
+            "index_core.transaction_utils.process_vout"
+        ) as mock_process_vout, patch("index_core.util.CURRENT_BLOCK_INDEX", 900001):
 
-            # Mock get_tx_info to return None (no relevant data)
-            mock_get_tx_info.return_value = None
+            # Mock transaction context with no vin (no source)
+            mock_ctx = Mock()
+            mock_ctx.vin = []
+            mock_ctx.vout = [Mock()]
+
+            # Mock backend deserialize
+            mock_backend.deserialize.return_value = mock_ctx
+
+            # Mock process_vout result with no relevant data
+            mock_vout_info = Mock()
+            mock_vout_info.pubkeys_compiled = []
+            mock_vout_info.keyburn = 0
+            mock_vout_info.is_op_return = None
+            mock_vout_info.fee = 0
+            mock_vout_info.p2wsh_data_chunks = []
+            mock_process_vout.return_value = mock_vout_info
 
             result = list_tx(mock_db, 900001, test_tx_hash, test_tx_hex)
 
@@ -424,7 +463,7 @@ class TestTransactionProcessingErrorHandling:
 
         with pytest.raises(DecodeError):
             decode_checkmultisig(mock_ctx, test_chunk)
-    
+
     def test_decode_checkmultisig_no_inputs(self):
         """Test decode_checkmultisig with transaction that has no inputs"""
         from exceptions import DecodeError
@@ -432,7 +471,7 @@ class TestTransactionProcessingErrorHandling:
 
         mock_ctx = Mock()
         mock_ctx.vin = []  # Empty inputs (like coinbase transaction)
-        
+
         # Valid chunk structure but no inputs for ARC4 key
         test_chunk = config.PREFIX + b"\x20" + b"A" * 32 + b"\x00\x00\x00\x41" + b"test_data"
 

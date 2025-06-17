@@ -31,21 +31,26 @@ logger = logging.getLogger(__name__)
 # Backend instance for transaction operations
 backend_instance = Backend()
 
-# Transaction result structure
+# Transaction result structure - matches original blocks.py
 TxResult = namedtuple(
     "TxResult",
     [
+        "tx_index",
         "source",
+        "prev_tx_hash",
         "destination",
+        "destination_nvalue",
         "btc_amount",
         "fee",
         "data",
+        "decoded_tx",
         "keyburn",
+        "is_op_return",
         "tx_hash",
-        "op",
-        "tx_index",
-        "supported",
-        "tx_hex",
+        "block_index",
+        "block_hash",
+        "block_time",
+        "p2wsh_data",
     ],
 )
 
@@ -302,45 +307,103 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
     Returns:
         tuple or Generator: Transaction data or generator of None values.
     """
+    if not isinstance(tx_hash, str):
+        raise TypeError("tx_hash must be a string")
+
     # Get transaction hex if not provided
     if tx_hex is None:
-        try:
-            tx_hex = backend_instance.getrawtransaction(tx_hash)
-        except Exception as e:
-            logger.error(f"Failed to get transaction {tx_hash}: {e}")
-            return (None,) * 11
+        logger.debug(f"Fetching raw transaction for tx_hash: {tx_hash}")
+        tx_hex = backend_instance.getrawtransaction(tx_hash, verbose=False, skip_missing=False, current_block=block_index)
 
-    # Check if block index matches current processing
+    # Parse transaction to get context
+    try:
+        ctx = backend_instance.deserialize(tx_hex)
+    except Exception as e:
+        logger.error(f"Failed to deserialize transaction {tx_hash}: {e}")
+        return tuple(None for _ in range(11))
+
+    # Process vout to get initial transaction data
+    vout_info = process_vout(ctx, block_index, stamp_issuance)
+
+    # Initialize return values
+    source = None
+    prev_tx_hash = None
+    destination = None
+    destination_nvalue = None
+    btc_amount = 0
+    fee = vout_info.fee
+    data = None
+    decoded_tx = ctx
+    keyburn = vout_info.keyburn
+    is_op_return = vout_info.is_op_return
+    p2wsh_data = None
+
+    # Extract source from first input
+    if ctx.vin:
+        try:
+            vin = ctx.vin[0]
+            if hasattr(vin, "prevout"):
+                prev_tx_hash = util.ib2h(vin.prevout.hash)
+                source_tx = backend_instance.getrawtransaction(prev_tx_hash)
+                source_ctx = backend_instance.deserialize(source_tx)
+                if vin.prevout.n < len(source_ctx.vout):
+                    source_script = source_ctx.vout[vin.prevout.n].scriptPubKey
+                    source = util.decode_address(source_script)
+        except Exception as e:
+            logger.debug(f"Failed to extract source for {tx_hash}: {e}")
+
+    # Process CHECKMULTISIG if present
+    if vout_info.pubkeys_compiled:
+        for pubkey in vout_info.pubkeys_compiled:
+            try:
+                destination, destination_nvalue, data = decode_checkmultisig(ctx, pubkey)
+                if destination:
+                    break
+            except DecodeError:
+                continue
+
+    # Process P2WSH data if present
+    if vout_info.p2wsh_data_chunks:
+        combined_data = b"".join(vout_info.p2wsh_data_chunks)
+        if combined_data.startswith(config.PREFIX):
+            p2wsh_data = combined_data[len(config.PREFIX) :]
+            data = p2wsh_data
+
+    # Check block index (matching original behavior)
     if hasattr(util, "CURRENT_BLOCK_INDEX") and util.CURRENT_BLOCK_INDEX is not None:
         if block_index != util.CURRENT_BLOCK_INDEX:
-            logger.debug(f"Block index mismatch: {block_index} vs {util.CURRENT_BLOCK_INDEX}")
+            raise ValueError(
+                f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}"
+            )
 
-    # Get transaction info
-    try:
-        tx_info = get_tx_info(tx_hex, block_index, db, stamp_issuance)
-        if tx_info is None:
-            # No relevant data found
-            return (None,) * 11
+    # Handle stamp issuance override (matching original)
+    if stamp_issuance is not None:
+        source = str(stamp_issuance.get("source", source) or source)
+        destination = str(stamp_issuance.get("issuer", destination) or destination)
+        data = str(stamp_issuance)
 
-        # Return in the original order expected by process_tx
-        # Original list_tx returns: source, prev_tx_hash, destination, destination_nvalue,
-        # btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
-        return (
-            tx_info.source,          # source
-            None,                    # prev_tx_hash (not in refactored version)
-            tx_info.destination,     # destination
-            None,                    # destination_nvalue (not in refactored version)
-            tx_info.btc_amount,      # btc_amount
-            tx_info.fee,            # fee
-            tx_info.data,           # data
-            None,                    # decoded_tx (not in refactored version)
-            tx_info.keyburn,        # keyburn
-            None,                    # is_op_return (not in refactored version)
-            None,                    # p2wsh_data (not in refactored version)
+    # Check if we have enough data to process
+    if source and (data or destination):
+        logger.debug(
+            "Processing transaction: {} DATA: {} KEYBURN: {} OP_RETURN: {}".format(tx_hash, data, keyburn, is_op_return)
         )
-    except Exception as e:
-        logger.error(f"Failed to process transaction {tx_hash}: {e}")
-        return (None,) * 11
+
+        return (
+            source,
+            prev_tx_hash,
+            destination,
+            destination_nvalue,
+            btc_amount,
+            fee,
+            data,
+            decoded_tx,
+            keyburn,
+            is_op_return,
+            p2wsh_data,
+        )
+    else:
+        # skip_logger.debug("Skipping transaction: {}".format(tx_hash))
+        return tuple(None for _ in range(11))
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
@@ -370,59 +433,76 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
         tx_data = list_tx(db, block_index, tx_hash, tx_hex, issuance)
 
         # Convert generator to tuple if necessary (maintaining original behavior)
-        if hasattr(tx_data, '__iter__') and not isinstance(tx_data, (tuple, list)):
+        if hasattr(tx_data, "__iter__") and not isinstance(tx_data, (tuple, list)):
             tx_data = tuple(tx_data)
 
         # Check if tx_data is a valid tuple with 11 elements
         if not isinstance(tx_data, tuple) or len(tx_data) != 11:
-            logger.error(f"Unexpected tx_data format for {tx_hash}: type={type(tx_data)}, len={len(tx_data) if hasattr(tx_data, '__len__') else 'N/A'}")
+            logger.error(
+                f"Unexpected tx_data format for {tx_hash}: type={type(tx_data)}, len={len(tx_data) if hasattr(tx_data, '__len__') else 'N/A'}"
+            )
             raise ValueError("Invalid tx_data format")
 
         # Map the original list_tx return values to TxResult
         # tx_data order: source, prev_tx_hash, destination, destination_nvalue,
         # btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
         return TxResult(
-            source=tx_data[0],         # source
-            destination=tx_data[2],    # destination (index 2, not 1)
-            btc_amount=tx_data[4],     # btc_amount (index 4, not 2)
-            fee=tx_data[5],           # fee (index 5, not 3)
-            data=tx_data[6],          # data (index 6, not 4)
-            keyburn=tx_data[8],       # keyburn (index 8, not 5)
-            tx_hash=tx_hash,          # Use the tx_hash parameter
-            op=None,                  # op (not in original list_tx)
-            tx_index=None,            # tx_index (not in original list_tx)
-            supported=True,           # Default to True
-            tx_hex=tx_hex,           # Use the tx_hex we already have
+            tx_index=None,  # tx_index (field 0)
+            source=tx_data[0],  # source (field 1)
+            prev_tx_hash=tx_data[1],  # prev_tx_hash (field 2)
+            destination=tx_data[2],  # destination (field 3)
+            destination_nvalue=tx_data[3],  # destination_nvalue (field 4)
+            btc_amount=tx_data[4],  # btc_amount (field 5)
+            fee=tx_data[5],  # fee (field 6)
+            data=tx_data[6],  # data (field 7)
+            decoded_tx=tx_data[7],  # decoded_tx (field 8)
+            keyburn=tx_data[8],  # keyburn (field 9)
+            is_op_return=tx_data[9],  # is_op_return (field 10)
+            tx_hash=tx_hash,  # tx_hash (field 11)
+            block_index=block_index,  # block_index (field 12)
+            block_hash=None,  # block_hash (field 13)
+            block_time=None,  # block_time (field 14)
+            p2wsh_data=tx_data[10],  # p2wsh_data (field 15)
         )
     except IndexError as e:
         logger.error(f"Failed to process transaction {tx_hash} - IndexError: {e}", exc_info=True)
         return TxResult(
+            tx_index=None,
             source=None,
+            prev_tx_hash=None,
             destination=None,
+            destination_nvalue=None,
             btc_amount=None,
             fee=None,
             data=None,
+            decoded_tx=None,
             keyburn=None,
+            is_op_return=None,
             tx_hash=tx_hash,
-            op=None,
-            tx_index=None,
-            supported=False,
-            tx_hex=None,
+            block_index=block_index,
+            block_hash=None,
+            block_time=None,
+            p2wsh_data=None,
         )
     except Exception as e:
         logger.error(f"Failed to process transaction {tx_hash}: {e}")
         return TxResult(
+            tx_index=None,
             source=None,
+            prev_tx_hash=None,
             destination=None,
+            destination_nvalue=None,
             btc_amount=None,
             fee=None,
             data=None,
+            decoded_tx=None,
             keyburn=None,
+            is_op_return=None,
             tx_hash=tx_hash,
-            op=None,
-            tx_index=None,
-            supported=False,
-            tx_hex=None,
+            block_index=block_index,
+            block_hash=None,
+            block_time=None,
+            p2wsh_data=None,
         )
 
 
