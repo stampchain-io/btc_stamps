@@ -425,18 +425,29 @@ class TestAsyncUpload:
         """Test that file objects are properly seeked."""
         # Setup
         file_obj = BytesIO(b"test content")
-        file_obj.read(5)  # Move position
+        file_obj.read(5)  # Move position to 5
+        initial_position = file_obj.tell()
+        assert initial_position == 5  # Verify we moved the position
 
         task = UploadTask("test.png", "image/png", file_obj, "hash")
 
         with patch("index_core.async_upload.upload_file_to_s3") as mock_upload:
             with patch("index_core.async_upload.config") as mock_config:
-                mock_config.S3_OBJECTS = {}
+                with patch("index_core.async_upload.update_s3_db_objects"):
+                    with patch("index_core.async_upload.upload_db_manager") as mock_db_manager:
+                        # Setup mocks
+                        mock_config.S3_OBJECTS = {}
+                        mock_config.AWS_S3_BUCKETNAME = "test-bucket"
+                        mock_config.AWS_S3_CLIENT = Mock()
+                        mock_config.AWS_CLOUDFRONT_DISTRIBUTION_ID = None  # Disable CloudFront to simplify
+                        
+                        # Mock database connection
+                        mock_db = Mock()
+                        mock_db_manager.connect.return_value = mock_db
 
-                async_upload._process_upload_task(task)
+                        async_upload._process_upload_task(task)
 
-        # Assert
-        # Verify file was seeked to beginning
+        # Assert - file should be at position 0 after seek(0) call in _process_upload_task
         assert file_obj.tell() == 0
 
     def test_max_concurrent_uploads_configuration(self):

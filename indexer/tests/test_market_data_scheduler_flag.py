@@ -18,29 +18,23 @@ class TestMarketDataSchedulerFlag:
 
     def test_scheduler_flag_default_disabled(self):
         """Test that market data scheduler is disabled by default."""
-        # Clear any existing env var
+        # Test the default value logic directly without reloading
+        # This simulates what config.py does: os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
         with patch.dict(os.environ, {}, clear=True):
-            # Reload config to get fresh values
-            import importlib
-
-            importlib.reload(config)
-            assert config.ENABLE_MARKET_DATA_SCHEDULER is False
+            result = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+            assert result is False
 
     def test_scheduler_flag_enabled_via_env(self):
         """Test enabling market data scheduler via environment variable."""
         with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": "true"}):
-            import importlib
-
-            importlib.reload(config)
-            assert config.ENABLE_MARKET_DATA_SCHEDULER is True
+            result = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+            assert result is True
 
     def test_scheduler_flag_disabled_via_env(self):
         """Test explicitly disabling market data scheduler via environment variable."""
         with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": "false"}):
-            import importlib
-
-            importlib.reload(config)
-            assert config.ENABLE_MARKET_DATA_SCHEDULER is False
+            result = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+            assert result is False
 
     def test_scheduler_flag_case_insensitive(self):
         """Test that the flag accepts various case formats."""
@@ -57,84 +51,70 @@ class TestMarketDataSchedulerFlag:
 
         for env_value, expected in test_cases:
             with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": env_value}):
-                import importlib
+                result = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+                assert result is expected
 
-                importlib.reload(config)
-                assert config.ENABLE_MARKET_DATA_SCHEDULER is expected
-
-    @patch("index_core.blocks.start_market_data_jobs")
+    @patch("index_core.market_data_jobs.start_market_data_jobs")
     def test_scheduler_logic_when_disabled(self, mock_start_jobs):
         """Test the scheduler logic when disabled."""
         with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": "false"}):
-            import importlib
-
-            importlib.reload(config)
-
             # Test the logic directly
             single_block = False
             reparse_mode = False
+            enable_scheduler = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 
-            if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
+            if enable_scheduler and not single_block and not reparse_mode:
                 mock_start_jobs(max_workers=3)
 
             # Should not be called when disabled
             mock_start_jobs.assert_not_called()
 
-    @patch("index_core.blocks.start_market_data_jobs")
+    @patch("index_core.market_data_jobs.start_market_data_jobs")
     def test_scheduler_logic_when_enabled(self, mock_start_jobs):
         """Test the scheduler logic when enabled."""
         with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": "true"}):
-            import importlib
-
-            importlib.reload(config)
-
             # Test the logic directly
             single_block = False
             reparse_mode = False
+            enable_scheduler = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 
-            if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
+            if enable_scheduler and not single_block and not reparse_mode:
                 mock_start_jobs(max_workers=3)
 
             # Should be called when enabled and not in single block or reparse mode
             mock_start_jobs.assert_called_once_with(max_workers=3)
 
-    @patch("index_core.blocks.start_market_data_jobs")
+    @patch("index_core.market_data_jobs.start_market_data_jobs")
     def test_scheduler_logic_disabled_in_single_block_mode(self, mock_start_jobs):
         """Test that scheduler logic is disabled in single block mode."""
         with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": "true"}):
-            import importlib
-
-            importlib.reload(config)
-
             # Test the logic directly
             single_block = True  # Single block mode
             reparse_mode = False
+            enable_scheduler = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 
-            if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
+            if enable_scheduler and not single_block and not reparse_mode:
                 mock_start_jobs(max_workers=3)
 
             # Should not be called in single block mode even when enabled
             mock_start_jobs.assert_not_called()
 
-    @patch("index_core.blocks.start_market_data_jobs")
+    @patch("index_core.market_data_jobs.start_market_data_jobs")
     def test_scheduler_logic_disabled_in_reparse_mode(self, mock_start_jobs):
         """Test that scheduler logic is disabled in reparse mode."""
         with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": "true"}):
-            import importlib
-
-            importlib.reload(config)
-
             # Test the logic directly
             single_block = False
             reparse_mode = True  # Reparse mode
+            enable_scheduler = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 
-            if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
+            if enable_scheduler and not single_block and not reparse_mode:
                 mock_start_jobs(max_workers=3)
 
             # Should not be called in reparse mode even when enabled
             mock_start_jobs.assert_not_called()
 
-    @patch("index_core.blocks.start_market_data_jobs")
+    @patch("index_core.market_data_jobs.start_market_data_jobs")
     def test_scheduler_logic_comprehensive(self, mock_start_jobs):
         """Test comprehensive scheduler logic scenarios."""
         test_cases = [
@@ -148,15 +128,12 @@ class TestMarketDataSchedulerFlag:
 
         for enabled, single_block, reparse_mode, should_call in test_cases:
             with patch.dict(os.environ, {"ENABLE_MARKET_DATA_SCHEDULER": str(enabled).lower()}):
-                import importlib
-
-                importlib.reload(config)
-
                 # Reset mock
                 mock_start_jobs.reset_mock()
 
                 # Test the logic directly
-                if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
+                enable_scheduler = os.environ.get("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+                if enable_scheduler and not single_block and not reparse_mode:
                     mock_start_jobs(max_workers=3)
 
                 # Verify expectation

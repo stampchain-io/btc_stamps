@@ -58,7 +58,7 @@ class TestBlocksFallbackIntegration:
             config.CP_FALLBACK_MODE = True
 
             # Mock blocks.py imports to avoid importing the massive file
-            with patch("index_core.blocks.CPBlocksPipeline") as mock_pipeline_class:
+            with patch("index_core.pipeline_utils.CPBlocksPipeline") as mock_pipeline_class:
                 mock_pipeline = Mock()
                 mock_pipeline_class.return_value = mock_pipeline
 

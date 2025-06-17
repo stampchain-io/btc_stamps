@@ -603,22 +603,39 @@ class TestTransactionProcessingEdgeCases:
         assert result.keyburn is None  # Original behavior: None, not 0
         assert result.fee == 0
 
-    @pytest.mark.skip(reason="Original function requires GetHash method")
-    def test_quick_filter_with_dict_context(self):
-        """Test quick_filter_src20_transaction with dict context instead of CTransaction"""
+    def test_quick_filter_with_mock_gethash(self):
+        """Test quick_filter_src20_transaction with mocked GetHash method"""
         from index_core.transaction_utils import quick_filter_src20_transaction
+        import config
 
-        # Test with dict-style context (as might come from different sources)
-        dict_ctx = {"vout": [{"scriptPubKey": b"\x00\x20" + b"\x12\x34" * 16}]}
+        # Create a mock transaction object with GetHash method
+        mock_ctx = Mock()
+        mock_ctx.GetHash.return_value = b"test_transaction_hash_12345678"
+        
+        # Create P2WSH data that includes the STAMP: prefix
+        # The prefix is b"stamp:" according to config
+        stamp_data = b"stamp:test_data_here"
+        # Pad to 32 bytes if needed
+        p2wsh_data = stamp_data.ljust(32, b'\x00')
+        
+        # Create a proper scriptPubKey mock with hex method
+        mock_script_pubkey = Mock()
+        # P2WSH pattern: 0x00 0x20 followed by 32 bytes of data containing "stamp:"
+        mock_script_pubkey.hex.return_value = "0020" + p2wsh_data.hex()
+        
+        # Create vout with proper structure
+        mock_vout = Mock()
+        mock_vout.scriptPubKey = mock_script_pubkey
+        mock_ctx.vout = [mock_vout]
 
-        with patch("index_core.script.get_asm") as mock_get_asm, patch("index_core.script.get_p2wsh") as mock_get_p2wsh:
-
-            mock_get_asm.return_value = ["OP_0", "0" * 64]  # 32-byte hash as hex string
-            mock_get_p2wsh.return_value = ["data_chunk"]
-
-            # Should handle dict context
-            result = quick_filter_src20_transaction(dict_ctx)
+        # Mock config.PREFIX to ensure it matches what we're testing
+        with patch.object(config, 'PREFIX', b'stamp:'):
+            # Should handle transaction with GetHash method
+            result = quick_filter_src20_transaction(mock_ctx)
             assert result is True
+            
+            # Verify GetHash was called
+            mock_ctx.GetHash.assert_called_once()
 
 
 if __name__ == "__main__":
