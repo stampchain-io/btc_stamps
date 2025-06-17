@@ -16,6 +16,7 @@ import requests
 
 from index_core.fetch_utils import RateLimiter
 from index_core.openstamp_client import OpenStampApiError, get_openstamp_client
+from index_core.source_reliability_service import create_reliability_tracker, record_call_metrics
 from index_core.src20_market_processor import SRC20MarketDataProcessor
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ class SRC20Worker:
 
     def _fetch_kucoin_data(self, tick: str, token_config: Dict) -> Optional[Dict]:
         """
-        Fetch market data from KuCoin API.
+        Fetch market data from KuCoin API with reliability tracking.
 
         Args:
             tick: SRC-20 token ticker
@@ -169,6 +170,9 @@ class SRC20Worker:
         Returns:
             Dictionary with market data or None if failed
         """
+        tracker = create_reliability_tracker("kucoin", "src20", tick)
+        tracker.start_tracking()
+
         try:
             symbol = token_config["kucoin"]
             logger.debug(f"Fetching KuCoin data for {tick} (symbol: {symbol})")
@@ -192,10 +196,21 @@ class SRC20Worker:
                 market_data["data_source"] = "kucoin"
                 market_data["exchange_symbol"] = symbol
 
-            return market_data
+                # Record successful API call
+                tracker.record_success(market_data.get("quality_score"))
+                record_call_metrics(tracker)
+
+                return market_data
+            else:
+                # Data processing failed
+                tracker.record_failure("Data processing failed")
+                record_call_metrics(tracker)
+                return None
 
         except Exception as e:
             logger.error(f"Error fetching KuCoin data for {tick}: {e}")
+            tracker.record_failure(str(e))
+            record_call_metrics(tracker)
             return None
 
     def _kucoin_api_call(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
@@ -251,7 +266,7 @@ class SRC20Worker:
 
     def _fetch_openstamp_data(self, tick: str) -> Optional[Dict]:
         """
-        Fetch market data from OpenStamp API.
+        Fetch market data from OpenStamp API with reliability tracking.
 
         Args:
             tick: SRC-20 token ticker
@@ -259,6 +274,9 @@ class SRC20Worker:
         Returns:
             Dictionary with market data or None if failed
         """
+        tracker = create_reliability_tracker("openstamp", "src20", tick)
+        tracker.start_tracking()
+
         try:
             logger.debug(f"Fetching OpenStamp data for {tick}")
 
@@ -342,21 +360,32 @@ class SRC20Worker:
                 market_data["exchange_symbol"] = tick
 
                 logger.debug(f"Successfully fetched OpenStamp data for {tick}")
+
+                # Record successful API call
+                tracker.record_success(market_data.get("quality_score"))
+                record_call_metrics(tracker)
+
                 return market_data
             else:
                 logger.debug(f"Token {tick} not found in OpenStamp data")
+                tracker.record_failure("Token not found in response")
+                record_call_metrics(tracker)
                 return None
 
         except OpenStampApiError as e:
             logger.error(f"OpenStamp API error for {tick}: {e}")
+            tracker.record_failure(f"OpenStamp API error: {e}")
+            record_call_metrics(tracker)
             return None
         except Exception as e:
             logger.error(f"Error fetching OpenStamp data for {tick}: {e}")
+            tracker.record_failure(str(e))
+            record_call_metrics(tracker)
             return None
 
     def _fetch_stampscan_data(self, tick: str) -> Optional[Dict]:
         """
-        Fetch market data from StampScan API (listingSummary endpoint only).
+        Fetch market data from StampScan API (listingSummary endpoint only) with reliability tracking.
 
         Args:
             tick: SRC-20 token ticker
@@ -364,6 +393,9 @@ class SRC20Worker:
         Returns:
             Dictionary with market data or None if failed
         """
+        tracker = create_reliability_tracker("stampscan", "src20", tick)
+        tracker.start_tracking()
+
         try:
             logger.debug(f"Fetching StampScan data for {tick}")
 
@@ -401,19 +433,32 @@ class SRC20Worker:
                         market_data["data_source"] = "stampscan"
                         market_data["exchange_symbol"] = tick
                         logger.debug(f"Successfully fetched StampScan data for {tick}")
+
+                        # Record successful API call
+                        tracker.record_success(market_data.get("quality_score"))
+                        record_call_metrics(tracker)
+
                         return market_data
                     else:
                         logger.debug(f"Failed to process StampScan data for {tick}")
+                        tracker.record_failure("Data processing failed")
+                        record_call_metrics(tracker)
                         return None
                 else:
                     logger.debug(f"Token {tick} not found in StampScan data")
+                    tracker.record_failure("Token not found in response")
+                    record_call_metrics(tracker)
                     return None
             else:
                 logger.debug("No StampScan cache available")
+                tracker.record_failure("No cache data available")
+                record_call_metrics(tracker)
                 return None
 
         except Exception as e:
             logger.error(f"Error fetching StampScan data for {tick}: {e}")
+            tracker.record_failure(str(e))
+            record_call_metrics(tracker)
             return None
 
     def _stampscan_api_call(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:

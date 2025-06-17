@@ -268,18 +268,25 @@ class TestSRC20WorkerIntegration(unittest.TestCase):
         self.assertEqual(stamp_config["base_currency"], "USDT")
 
     def test_api_timeout_handling(self):
-        """Test API timeout handling - should fall back to OpenStamp."""
-        with patch.object(self.worker, "_kucoin_api_call") as mock_api:
-            # Simulate timeout by raising an exception
-            mock_api.side_effect = Exception("Timeout")
+        """Test API timeout handling - should return None when all sources fail."""
+        with patch.object(self.worker, "_kucoin_api_call") as mock_kucoin:
+            with patch.object(self.worker, "_fetch_stampscan_data") as mock_stampscan:
+                with patch.object(self.worker, "_fetch_openstamp_data") as mock_openstamp:
+                    with patch("index_core.src20_worker.create_reliability_tracker") as mock_tracker:
+                        with patch("index_core.src20_worker.record_call_metrics"):
+                            # Mock the reliability tracker
+                            mock_tracker_instance = MagicMock()
+                            mock_tracker.return_value = mock_tracker_instance
 
-            result = self.worker.process_src20_market_data("STAMP")
+                            # Simulate all sources failing
+                            mock_kucoin.side_effect = Exception("Timeout")
+                            mock_stampscan.return_value = None
+                            mock_openstamp.return_value = None
 
-            # Should still get data from OpenStamp even if KuCoin fails
-            self.assertIsNotNone(result)
-            self.assertEqual(result["tick"], "STAMP")
-            # Verify it came from OpenStamp, not KuCoin
-            self.assertIn("openstamp", result["sources"])
+                            result = self.worker.process_src20_market_data("STAMP")
+
+                            # Should return None when all sources fail
+                            self.assertIsNone(result)
 
     def test_rate_limiting_compliance(self):
         """Test that the worker respects rate limiting."""

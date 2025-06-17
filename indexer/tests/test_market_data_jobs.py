@@ -377,20 +377,28 @@ class TestMarketDataJobScheduler:
 
         worker = SRC20Worker()
 
-        # Mock the KuCoin API calls
+        # Mock the KuCoin API calls and reliability tracking
         with patch.object(worker, "_fetch_kucoin_data") as mock_kucoin:
             with patch.object(worker, "_fetch_openstamp_data") as mock_openstamp:
-                mock_kucoin.return_value = {"price_btc": 0.00001, "volume_24h_btc": 10.5, "data_source": "kucoin"}
-                mock_openstamp.return_value = None
+                with patch.object(worker, "_fetch_stampscan_data") as mock_stampscan:
+                    with patch("index_core.src20_worker.create_reliability_tracker") as mock_tracker:
+                        with patch("index_core.src20_worker.record_call_metrics"):
+                            # Mock the reliability tracker
+                            mock_tracker_instance = MagicMock()
+                            mock_tracker.return_value = mock_tracker_instance
 
-                # Test with lowercase 'stamp' from database
-                result = worker.process_src20_market_data("stamp")
+                            mock_kucoin.return_value = {"price_btc": 0.00001, "volume_24h_btc": 10.5, "data_source": "kucoin"}
+                            mock_openstamp.return_value = None
+                            mock_stampscan.return_value = None
 
-                # Should have called KuCoin fetch despite case difference
-                mock_kucoin.assert_called_once()
-                assert result is not None
-                assert result.get("primary_exchange") == "kucoin"
-                assert "kucoin" in result.get("sources", [])
+                            # Test with lowercase 'stamp' from database
+                            result = worker.process_src20_market_data("stamp")
+
+                            # Should have called KuCoin fetch despite case difference
+                            mock_kucoin.assert_called_once()
+                            assert result is not None
+                            assert result.get("primary_exchange") == "kucoin"
+                            assert "kucoin" in result.get("sources", [])
 
     def test_src20_emoji_escape_sequence_handling(self):
         """Test that emoji tokens with escape sequences are handled correctly."""
@@ -403,43 +411,49 @@ class TestMarketDataJobScheduler:
         os.environ["OPENSTAMP_API_KEY"] = "test_key"
 
         try:
-            worker = SRC20Worker()
+            with patch("index_core.src20_worker.create_reliability_tracker") as mock_tracker:
+                with patch("index_core.src20_worker.record_call_metrics"):
+                    # Mock the reliability tracker
+                    mock_tracker_instance = MagicMock()
+                    mock_tracker.return_value = mock_tracker_instance
 
-            # Database has escape sequence
-            db_token = "lumi\\U0001f4ab"
+                    worker = SRC20Worker()
 
-            # Mock OpenStamp response with actual emoji
-            mock_response_data = {
-                "code": 200,
-                "data": [
-                    {
-                        "tokenId": 1,
-                        "name": "lumi💫",  # Actual emoji
-                        "totalSupply": 1000000,
-                        "holdersCount": 50,
-                        "price": "100000000",
-                        "amount24": "0",
-                        "volume24": "5000000000",
-                        "volume24Change": "0.1",
-                        "change24": "0.05",
-                        "change7d": "0.15",
+                    # Database has escape sequence
+                    db_token = "lumi\\U0001f4ab"
+
+                    # Mock OpenStamp response with actual emoji
+                    mock_response_data = {
+                        "code": 200,
+                        "data": [
+                            {
+                                "tokenId": 1,
+                                "name": "lumi💫",  # Actual emoji
+                                "totalSupply": 1000000,
+                                "holdersCount": 50,
+                                "price": "100000000",
+                                "amount24": "0",
+                                "volume24": "5000000000",
+                                "volume24Change": "0.1",
+                                "change24": "0.05",
+                                "change7d": "0.15",
+                            }
+                        ],
                     }
-                ],
-            }
 
-            mock_api_response = OpenStampApiResponse(mock_response_data)
+                    mock_api_response = OpenStampApiResponse(mock_response_data)
 
-            # Set up the cache to avoid API calls
-            worker._openstamp_cache = mock_api_response
-            worker._openstamp_cache_time = 9999999999  # Far future
+                    # Set up the cache to avoid API calls
+                    worker._openstamp_cache = mock_api_response
+                    worker._openstamp_cache_time = 9999999999  # Far future
 
-            # Test the fetch
-            result = worker._fetch_openstamp_data(db_token)
+                    # Test the fetch
+                    result = worker._fetch_openstamp_data(db_token)
 
-            # Should find the token despite encoding difference
-            assert result is not None
-            assert result["tick"] == "lumi💫"
-            assert result["data_source"] == "openstamp"
+                    # Should find the token despite encoding difference
+                    assert result is not None
+                    assert result["tick"] == "lumi💫"
+                    assert result["data_source"] == "openstamp"
 
         finally:
             # Clean up

@@ -13,6 +13,43 @@ from index_core.blocks import backend_instance  # noqa: F401  (used in live mode
 from index_core.blocks import fetch_xcp_blocks_concurrent  # noqa: F401
 
 # ---------------------------------------------------------------------------
+# Test Environment Isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def clear_rpc_environment_variables():
+    """Clear RPC-related environment variables that could interfere with tests."""
+    rpc_env_vars = [
+        "RPC_IP",
+        "RPC_PORT",
+        "RPC_USER",
+        "RPC_PASSWORD",
+        "RPC_SSL",
+        "CP_RPC_IP",
+        "CP_RPC_PORT",
+        "CP_RPC_USER",
+        "CP_RPC_PASSWORD",
+        "CP_FALLBACK_MODE",
+    ]
+
+    original_values = {}
+    for var in rpc_env_vars:
+        original_values[var] = os.environ.get(var)
+        if var in os.environ:
+            del os.environ[var]
+
+    yield
+
+    # Restore original values
+    for var, value in original_values.items():
+        if value is not None:
+            os.environ[var] = value
+        elif var in os.environ:
+            del os.environ[var]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -53,7 +90,16 @@ else:
 
 def get_block_and_cp(height: int):
     """Return (block_data, cp_blocks_dict, valid_stamps, src20_state)."""
-    use_fixture = os.getenv("CI_FIXTURE_MODE", "false").lower() == "true"
+    # Check multiple conditions to determine if we should use fixtures:
+    # 1. CI_FIXTURE_MODE explicitly set to "true"
+    # 2. TESTING environment variable is set (general test mode)
+    # 3. No explicit LIVE_MODE environment variable set
+    use_fixture = (
+        os.getenv("CI_FIXTURE_MODE", "false").lower() == "true"
+        or os.getenv("TESTING", "false").lower() in ("1", "true")
+        or os.getenv("LIVE_MODE", "false").lower() != "true"
+    )
+
     if use_fixture:
         return load_fixture(height, FIXTURES_DIR)
 

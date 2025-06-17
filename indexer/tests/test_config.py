@@ -4,6 +4,39 @@ import sys
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def clear_rpc_environment_variables():
+    """Clear RPC-related environment variables that could interfere with tests."""
+    rpc_env_vars = [
+        "RPC_IP",
+        "RPC_PORT",
+        "RPC_USER",
+        "RPC_PASSWORD",
+        "RPC_SSL",
+        "CP_RPC_IP",
+        "CP_RPC_PORT",
+        "CP_RPC_USER",
+        "CP_RPC_PASSWORD",
+        "CP_FALLBACK_MODE",
+    ]
+
+    original_values = {}
+    for var in rpc_env_vars:
+        original_values[var] = os.environ.get(var)
+        if var in os.environ:
+            del os.environ[var]
+
+    yield
+
+    # Restore original values
+    for var, value in original_values.items():
+        if value is not None:
+            os.environ[var] = value
+        elif var in os.environ:
+            del os.environ[var]
+
+
 # Ensure we import from the src directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
@@ -52,6 +85,12 @@ def test_standard_rpc_tls(monkeypatch):
     # Ensure Quicknode is disabled (no URL or API key)
     monkeypatch.delenv("QUICKNODE_URL", raising=False)
     monkeypatch.delenv("QUICKNODE_API_KEY", raising=False)
+    # Remove any custom RPC credentials to ensure test uses defaults
+    monkeypatch.delenv("RPC_USER", raising=False)
+    monkeypatch.delenv("RPC_PASSWORD", raising=False)
+    monkeypatch.delenv("RPC_IP", raising=False)
+    monkeypatch.delenv("RPC_PORT", raising=False)
+    monkeypatch.delenv("CP_RPC_URL", raising=False)
 
     config = reload_config()
     # Standard RPC URL should use https scheme when RPC_TLS is truthy
