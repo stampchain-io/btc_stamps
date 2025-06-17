@@ -605,35 +605,35 @@ class TestTransactionProcessingEdgeCases:
 
     def test_quick_filter_with_mock_gethash(self):
         """Test quick_filter_src20_transaction with mocked GetHash method"""
-        from index_core.transaction_utils import quick_filter_src20_transaction
         import config
+        from index_core.transaction_utils import quick_filter_src20_transaction
 
         # Create a mock transaction object with GetHash method
         mock_ctx = Mock()
         mock_ctx.GetHash.return_value = b"test_transaction_hash_12345678"
-        
+
         # Create P2WSH data that includes the STAMP: prefix
         # The prefix is b"stamp:" according to config
         stamp_data = b"stamp:test_data_here"
         # Pad to 32 bytes if needed
-        p2wsh_data = stamp_data.ljust(32, b'\x00')
-        
+        p2wsh_data = stamp_data.ljust(32, b"\x00")
+
         # Create a proper scriptPubKey mock with hex method
         mock_script_pubkey = Mock()
         # P2WSH pattern: 0x00 0x20 followed by 32 bytes of data containing "stamp:"
         mock_script_pubkey.hex.return_value = "0020" + p2wsh_data.hex()
-        
+
         # Create vout with proper structure
         mock_vout = Mock()
         mock_vout.scriptPubKey = mock_script_pubkey
         mock_ctx.vout = [mock_vout]
 
         # Mock config.PREFIX to ensure it matches what we're testing
-        with patch.object(config, 'PREFIX', b'stamp:'):
+        with patch.object(config, "PREFIX", b"stamp:"):
             # Should handle transaction with GetHash method
             result = quick_filter_src20_transaction(mock_ctx)
             assert result is True
-            
+
             # Verify GetHash was called
             mock_ctx.GetHash.assert_called_once()
 

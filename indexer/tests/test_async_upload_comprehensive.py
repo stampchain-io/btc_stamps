@@ -440,7 +440,7 @@ class TestAsyncUpload:
                         mock_config.AWS_S3_BUCKETNAME = "test-bucket"
                         mock_config.AWS_S3_CLIENT = Mock()
                         mock_config.AWS_CLOUDFRONT_DISTRIBUTION_ID = None  # Disable CloudFront to simplify
-                        
+
                         # Mock database connection
                         mock_db = Mock()
                         mock_db_manager.connect.return_value = mock_db
