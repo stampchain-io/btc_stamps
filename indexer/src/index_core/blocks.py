@@ -8,8 +8,6 @@ import concurrent.futures
 import decimal
 import http
 import logging
-import os
-import subprocess
 import sys
 import threading
 import time
@@ -20,27 +18,15 @@ import pymysql as mysql
 from pymysql.connections import Connection
 
 import config
-import index_core.arc4 as arc4
 import index_core.backend as backend
-import index_core.check as check
 import index_core.log as log
-import index_core.script as script
 import index_core.server as server
 import index_core.util as util
 from index_core.backend import Backend
-from index_core.transaction_utils import (
-    vOutInfo,
-    process_vout,
-    get_tx_info,
-    decode_checkmultisig,
-    list_tx,
-    process_tx,
-    quick_filter_src20_transaction,
-)
 from index_core.block_validation import (
     create_check_hashes,
-    validate_block_against_production,
     filter_block_transactions,
+    validate_block_against_production,
 )
 from index_core.caching import cache_manager, clear_all_caches
 from index_core.database import (
@@ -58,22 +44,17 @@ from index_core.database import (
     rebuild_balances,
     rebuild_owners,
     update_assets_in_db,
-    update_block_hashes,
     update_parsed_block,
     update_src20_token_stats,
 )
 from index_core.exceptions import (
     BlockAlreadyExistsError,
-    BlockUpdateError,
-    BTCOnlyError,
     CriticalBlockFetchError,
     DatabaseInsertError,
-    DecodeError,
     LedgerMismatchError,
 )
 from index_core.fetch_utils import (
     fetch_xcp_blocks_concurrent,
-    find_issuance_by_tx_hash,
     get_xcp_assets_by_cpids,
     get_xcp_block_hash,
     is_valid_counterparty_asset,
@@ -97,6 +78,9 @@ from index_core.src20 import (
 )
 from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
+from index_core.transaction_utils import (
+    process_tx,
+)
 from index_core.zmq_utils import ZMQNotifier
 
 D = decimal.Decimal
@@ -131,7 +115,6 @@ TxResult = namedtuple(
         "p2wsh_data",
     ],
 )
-
 
 
 class BlockProcessor:
@@ -250,16 +233,6 @@ class BlockProcessor:
 
     def insert_transactions(self, tx_results):
         insert_transactions(self.db, tx_results)
-
-
-
-
-
-
-
-
-
-
 
 
 def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
@@ -399,12 +372,6 @@ def log_block_info(
 
     except Exception as e:
         logger.error(f"Error in log_block_info: {e}")
-
-
-
-
-
-
 
 
 def calculate_rollback_depth(block_index: int, reason: str) -> int:
@@ -1427,8 +1394,6 @@ def follow(
 
         # Cleanup all resources
         cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started)
-
-
 
 
 def update_cpids_async(db):

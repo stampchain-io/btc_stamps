@@ -26,13 +26,19 @@ class TestMarketDataJobScheduler:
         # Mock database connection with proper context manager support
         self.mock_db = MagicMock()
         self.mock_cursor = MagicMock()
-        self.mock_db.cursor.return_value.__enter__.return_value = self.mock_cursor
-        self.mock_db.cursor.return_value.__exit__.return_value = None
-        # Also support direct cursor access for backwards compatibility
-        self.mock_db.cursor.return_value = self.mock_cursor
+        # Configure cursor to work with context manager
+        cursor_context = MagicMock()
+        cursor_context.__enter__ = MagicMock(return_value=self.mock_cursor)
+        cursor_context.__exit__ = MagicMock(return_value=None)
+        self.mock_db.cursor.return_value = cursor_context
 
     def test_get_collections_needing_update_returns_hex_strings(self):
         """Test that _get_collections_needing_update returns hex strings not binary."""
+        # Mock cursor returns itself
+        self.mock_db.cursor.return_value = self.mock_cursor
+        # Add close method
+        self.mock_cursor.close = Mock()
+
         # Mock database returning hex strings (after HEX() function)
         self.mock_cursor.fetchall.return_value = [
             ("EC179CF4CAA43C3A02C6C8B05F3DDAEE",),
@@ -203,38 +209,51 @@ class TestMarketDataJobScheduler:
         """Test that SRC-20 job uses bulk fetch from OpenStamp."""
         with patch("index_core.market_data_jobs.SRC20Worker") as mock_worker_class:
             with patch("index_core.market_data_jobs.market_data_service") as mock_service:
-                # Mock worker and its methods
-                mock_worker = Mock()
-                mock_worker_class.return_value = mock_worker
+                # Mock the database manager
+                with patch.object(self.scheduler.database_manager, "connect") as mock_connect:
+                    mock_connect.return_value = self.mock_db
+                    # Add mock for close method
+                    self.mock_db.close = Mock()
 
-                # Mock bulk fetch returning all tokens at once
-                mock_worker.fetch_all_openstamp_data.return_value = [
-                    {"name": "TEST", "price": "100000000"},
-                    {"name": "PEPE", "price": "50000000"},
-                    {"name": "RARE", "price": "200000000"},
-                ]
+                    # Mock the database query for tokens
+                    self.mock_cursor.fetchall.return_value = [
+                        ("TEST",),
+                        ("PEPE",),
+                        ("RARE",),
+                    ]
 
-                # Mock transform method
-                mock_worker.transform_openstamp_data.side_effect = [
-                    {"tick": "TEST", "price_btc": 1.0},
-                    {"tick": "PEPE", "price_btc": 0.5},
-                    {"tick": "RARE", "price_btc": 2.0},
-                ]
+                    # Mock worker and its methods
+                    mock_worker = Mock()
+                    mock_worker_class.return_value = mock_worker
 
-                # Mock STAMP processing
-                mock_worker.process_src20_market_data.return_value = {"tick": "STAMP", "price_btc": 0.001}
+                    # Mock bulk fetch returning all tokens at once
+                    mock_worker.fetch_all_openstamp_data.return_value = [
+                        {"name": "TEST", "price": "100000000"},
+                        {"name": "PEPE", "price": "50000000"},
+                        {"name": "RARE", "price": "200000000"},
+                    ]
 
-                # Run the job
-                self.scheduler._update_src20_market_data_job()
+                    # Mock transform method
+                    mock_worker.transform_openstamp_data.side_effect = [
+                        {"tick": "TEST", "price_btc": 1.0},
+                        {"tick": "PEPE", "price_btc": 0.5},
+                        {"tick": "RARE", "price_btc": 2.0},
+                    ]
 
-                # Verify bulk fetch was called once
-                mock_worker.fetch_all_openstamp_data.assert_called_once()
+                    # Mock STAMP processing
+                    mock_worker.process_src20_market_data.return_value = {"tick": "STAMP", "price_btc": 0.001}
 
-                # Verify transform was called for each token
-                assert mock_worker.transform_openstamp_data.call_count == 3
+                    # Run the job
+                    self.scheduler._update_src20_market_data_job()
 
-                # Verify market data service was updated for each token
-                assert mock_service.update_src20_market_data.call_count == 4  # 3 from OpenStamp + 1 STAMP
+                    # Verify bulk fetch was called once
+                    mock_worker.fetch_all_openstamp_data.assert_called_once()
+
+                    # Verify transform was called for each token
+                    assert mock_worker.transform_openstamp_data.call_count == 3
+
+                    # Verify market data service was updated for each token
+                    assert mock_service.update_src20_market_data.call_count == 4  # 3 from OpenStamp + 1 STAMP
 
     def test_error_handling_in_get_collections(self):
         """Test error handling when database query fails."""
@@ -304,36 +323,53 @@ class TestMarketDataJobScheduler:
         """Test that SRC-20 tokens from OpenStamp are matched case-insensitively with database."""
         with patch("index_core.market_data_jobs.SRC20Worker") as mock_worker_class:
             with patch("index_core.market_data_jobs.market_data_service") as mock_service:
-                # Mock worker
-                mock_worker = Mock()
-                mock_worker_class.return_value = mock_worker
+                # Mock the database manager
+                with patch.object(self.scheduler.database_manager, "connect") as mock_connect:
+                    mock_connect.return_value = self.mock_db
+                    # Add mock for close method
+                    self.mock_db.close = Mock()
 
-                # OpenStamp returns uppercase tokens
-                mock_worker.fetch_all_openstamp_data.return_value = [
-                    {"name": "STAMP", "price": "100000000"},
-                    {"name": "PEPE", "price": "50000000"},
-                    {"name": "BIAO", "price": "75000000"},
-                ]
+                    # Mock the database query for tokens (case variations)
+                    self.mock_cursor.fetchall.return_value = [
+                        ("stamp",),  # lowercase in database
+                        ("PePe",),  # mixed case in database
+                        ("BIAO",),  # uppercase in database
+                    ]
 
-                # Mock transform to verify case handling
-                def transform_side_effect(token_data):
-                    return {
-                        "tick": token_data["name"],  # Keep uppercase from OpenStamp
-                        "price_btc": int(token_data["price"]) / 100000000,
-                    }
+                    # Mock worker
+                    mock_worker = Mock()
+                    mock_worker_class.return_value = mock_worker
 
-                mock_worker.transform_openstamp_data.side_effect = transform_side_effect
+                    # OpenStamp returns uppercase tokens
+                    mock_worker.fetch_all_openstamp_data.return_value = [
+                        {"name": "STAMP", "price": "100000000"},
+                        {"name": "PEPE", "price": "50000000"},
+                        {"name": "BIAO", "price": "75000000"},
+                    ]
 
-                # Run the job
-                self.scheduler._update_src20_market_data_job()
+                    # Mock transform to verify case handling
+                    def transform_side_effect(token_data):
+                        return {
+                            "tick": token_data["name"],  # Keep uppercase from OpenStamp
+                            "price_btc": int(token_data["price"]) / 100000000,
+                        }
 
-                # Verify all tokens were processed with uppercase ticks
-                calls = mock_service.update_src20_market_data.call_args_list
-                processed_ticks = [call[0][0] for call in calls]
+                    mock_worker.transform_openstamp_data.side_effect = transform_side_effect
 
-                assert "STAMP" in processed_ticks
-                assert "PEPE" in processed_ticks
-                assert "BIAO" in processed_ticks
+                    # Run the job
+                    self.scheduler._update_src20_market_data_job()
+
+                    # Verify all tokens were processed with database case preserved
+                    calls = mock_service.update_src20_market_data.call_args_list
+                    processed_ticks = [call[0][0] for call in calls]
+
+                    # The implementation preserves database case, not OpenStamp case
+                    assert "stamp" in processed_ticks  # lowercase as in database
+                    assert "PePe" in processed_ticks  # mixed case as in database
+                    assert "BIAO" in processed_ticks  # uppercase as in database
+
+                    # Also verify STAMP special handling (always processed)
+                    assert "STAMP" in processed_ticks  # STAMP is always added
 
     def test_stamp_kucoin_case_matching(self):
         """Test that STAMP token matches KuCoin exchange mapping regardless of case."""

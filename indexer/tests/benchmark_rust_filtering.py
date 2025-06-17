@@ -20,8 +20,8 @@ import config
 from index_core import util
 from index_core.backend import Backend
 from index_core.block_validation import filter_block_transactions
-from index_core.transaction_utils import quick_filter_src20_transaction
 from index_core.parser import Parser
+from index_core.transaction_utils import quick_filter_src20_transaction
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

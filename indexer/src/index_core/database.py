@@ -17,7 +17,10 @@ try:
     from pymysql.connections import Connection
 except ImportError:
     Connection = Any  # type: ignore
-from pymysql.cursors import Cursor
+try:
+    from pymysql.cursors import Cursor
+except ImportError:
+    Cursor = Any  # type: ignore
 
 import config
 import index_core.exceptions as exceptions

@@ -25,14 +25,14 @@ from dotenv import load_dotenv
 
 import index_core.caching as reparse_caching
 import index_core.util as util
+from index_core.block_validation import (
+    create_check_hashes,
+    filter_block_transactions,
+)
 from index_core.blocks import (
     BlockProcessor,
     backend_instance,
     fetch_xcp_blocks_concurrent,
-)
-from index_core.block_validation import (
-    create_check_hashes,
-    filter_block_transactions,
 )
 from index_core.transaction_utils import process_tx
 

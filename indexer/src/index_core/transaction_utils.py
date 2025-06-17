@@ -16,13 +16,12 @@ Functions:
 
 import logging
 from collections import namedtuple
-from typing import Generator, Optional, Union
 
 import config
 import index_core.arc4 as arc4
 import index_core.script as script
 import index_core.util as util
-from exceptions import BTCOnlyError, DecodeError
+from exceptions import DecodeError
 from index_core.backend import Backend
 from index_core.fetch_utils import find_issuance_by_tx_hash
 
@@ -37,7 +36,7 @@ TxResult = namedtuple(
     "TxResult",
     [
         "source",
-        "destination", 
+        "destination",
         "btc_amount",
         "fee",
         "data",
@@ -50,12 +49,12 @@ TxResult = namedtuple(
     ],
 )
 
-# vOut information structure  
+# vOut information structure
 vOutInfo = namedtuple(
     "vOutInfo",
     [
         "pubkeys_compiled",
-        "keyburn", 
+        "keyburn",
         "is_op_return",
         "fee",
         "is_olga",
@@ -87,23 +86,23 @@ def process_vout(ctx, block_index, stamp_issuance=None):
 
     for vout in ctx.vout:
         asm = script.get_asm(vout.scriptPubKey)
-        
+
         # Check for OP_RETURN
         if len(asm) >= 1 and asm[0] == "OP_RETURN":
             is_op_return = True
-        
+
         # Check for CHECKMULTISIG
         pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
         if pubkeys_list:
             pubkeys_compiled.extend(pubkeys_list)
             keyburn += keyburn_amount
-        
+
         # Check for P2WSH and collect data chunks if stamp issuance
-        if stamp_issuance and stamp_issuance.get('p2wsh_data_required', False):
+        if stamp_issuance and stamp_issuance.get("p2wsh_data_required", False):
             p2wsh_chunks = script.get_p2wsh(asm)
             if p2wsh_chunks:
                 p2wsh_data_chunks.extend(p2wsh_chunks)
-        
+
         fee += vout.nValue
 
     return vOutInfo(
@@ -136,7 +135,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
 
     # Process vout to get transaction data
     vout_info = process_vout(ctx, block_index or 0, stamp_issuance)
-    
+
     # Skip if no relevant data found
     if not vout_info.pubkeys_compiled and not vout_info.p2wsh_data_chunks and not vout_info.is_op_return:
         return None
@@ -153,7 +152,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         try:
             # Get source address from first input
             vin = ctx.vin[0]
-            if hasattr(vin, 'prevout'):
+            if hasattr(vin, "prevout"):
                 source_tx = backend_instance.getrawtransaction(util.ib2h(vin.prevout.hash))
                 source_ctx = backend_instance.deserialize(source_tx)
                 if vin.prevout.n < len(source_ctx.vout):
@@ -187,9 +186,9 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
     if vout_info.p2wsh_data_chunks:
         try:
             # Combine P2WSH data chunks
-            combined_data = b''.join(vout_info.p2wsh_data_chunks)
+            combined_data = b"".join(vout_info.p2wsh_data_chunks)
             if combined_data.startswith(config.PREFIX):
-                data = combined_data[len(config.PREFIX):]
+                data = combined_data[len(config.PREFIX) :]
         except Exception:
             # P2WSH processing failed
             pass
@@ -199,7 +198,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         "TransactionInfo",
         [
             "source",
-            "destination", 
+            "destination",
             "btc_amount",
             "fee",
             "data",
@@ -256,12 +255,12 @@ def decode_checkmultisig(ctx, chunk):
         raise DecodeError("Insufficient data for address and value")
 
     # Extract address
-    address_bytes = chunk[offset:offset + address_length]
+    address_bytes = chunk[offset : offset + address_length]
     offset += address_length
 
     # Extract value (4 bytes, big-endian)
-    nvalue_bytes = chunk[offset:offset + 4]
-    nvalue = int.from_bytes(nvalue_bytes, byteorder='big')
+    nvalue_bytes = chunk[offset : offset + 4]
+    nvalue = int.from_bytes(nvalue_bytes, byteorder="big")
     offset += 4
 
     # Extract encrypted data
@@ -308,7 +307,7 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
             return (None,) * 11
 
     # Check if block index matches current processing
-    if hasattr(util, 'CURRENT_BLOCK_INDEX') and util.CURRENT_BLOCK_INDEX is not None:
+    if hasattr(util, "CURRENT_BLOCK_INDEX") and util.CURRENT_BLOCK_INDEX is not None:
         if block_index != util.CURRENT_BLOCK_INDEX:
             logger.debug(f"Block index mismatch: {block_index} vs {util.CURRENT_BLOCK_INDEX}")
 
@@ -318,7 +317,7 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
         if tx_info is None:
             # No relevant data found
             return (None,) * 11
-        
+
         return (
             tx_info.source,
             tx_info.destination,
@@ -359,10 +358,10 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
 
         # Get transaction hex
         tx_hex = raw_transactions.get(tx_hash)
-        
+
         # Process transaction
         tx_data = list_tx(db, block_index, tx_hash, tx_hex, issuance)
-        
+
         return TxResult(
             source=tx_data[0],
             destination=tx_data[1],
@@ -405,25 +404,25 @@ def quick_filter_src20_transaction(ctx):
     """
     try:
         # Handle both CTransaction objects and dict contexts
-        if hasattr(ctx, 'vout'):
+        if hasattr(ctx, "vout"):
             vouts = ctx.vout
-        elif isinstance(ctx, dict) and 'vout' in ctx:
-            vouts = ctx['vout']
+        elif isinstance(ctx, dict) and "vout" in ctx:
+            vouts = ctx["vout"]
         else:
             return False
 
         # Check for P2WSH outputs first (faster check)
         p2wsh_data_chunks = []
         for vout in vouts:
-            if hasattr(vout, 'scriptPubKey'):
+            if hasattr(vout, "scriptPubKey"):
                 script_pubkey = vout.scriptPubKey
-            elif isinstance(vout, dict) and 'scriptPubKey' in vout:
-                script_pubkey = vout['scriptPubKey']
+            elif isinstance(vout, dict) and "scriptPubKey" in vout:
+                script_pubkey = vout["scriptPubKey"]
             else:
                 continue
 
             asm = script.get_asm(script_pubkey)
-            
+
             # Check for P2WSH pattern (OP_0 followed by 32-byte hash)
             if len(asm) == 2 and asm[0] == "OP_0" and len(asm[1]) == 64:
                 p2wsh_chunks = script.get_p2wsh(asm)
@@ -436,31 +435,31 @@ def quick_filter_src20_transaction(ctx):
 
         # Check for CHECKMULTISIG outputs with keyburn
         for vout in vouts:
-            if hasattr(vout, 'scriptPubKey'):
+            if hasattr(vout, "scriptPubKey"):
                 script_pubkey = vout.scriptPubKey
-            elif isinstance(vout, dict) and 'scriptPubKey' in vout:
-                script_pubkey = vout['scriptPubKey']
+            elif isinstance(vout, dict) and "scriptPubKey" in vout:
+                script_pubkey = vout["scriptPubKey"]
             else:
                 continue
 
             asm = script.get_asm(script_pubkey)
             pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
-            
+
             if pubkeys_list and keyburn_amount > 0:
                 # Check if any pubkey contains valid data
                 for pubkey in pubkeys_list:
                     try:
                         # Try to decrypt and check for PREFIX
-                        if hasattr(ctx, 'vin') and ctx.vin:
+                        if hasattr(ctx, "vin") and ctx.vin:
                             key_hash = ctx.vin[0].prevout.hash
-                        elif isinstance(ctx, dict) and 'vin' in ctx and ctx['vin']:
-                            key_hash = ctx['vin'][0]['prevout']['hash']
+                        elif isinstance(ctx, dict) and "vin" in ctx and ctx["vin"]:
+                            key_hash = ctx["vin"][0]["prevout"]["hash"]
                         else:
                             continue
 
                         arc4_key = arc4.init_arc4(key_hash)
                         decrypted = arc4.arc4_decrypt_chunk(pubkey, arc4_key)
-                        
+
                         if decrypted.startswith(config.PREFIX):
                             return True
                     except Exception:
