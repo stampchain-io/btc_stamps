@@ -18,12 +18,11 @@ import logging
 from collections import namedtuple
 
 import config
-import exceptions
 import index_core.arc4 as arc4
 import index_core.script as script
 import index_core.util as util
-from exceptions import DecodeError
 from index_core.backend import Backend
+from index_core.exceptions import BTCOnlyError, DecodeError
 from index_core.fetch_utils import find_issuance_by_tx_hash
 
 # Module logger
@@ -70,327 +69,278 @@ vOutInfo = namedtuple(
 
 
 def process_vout(ctx, block_index, stamp_issuance=None):
-    """
-    Process the vout of a transaction to extract relevant data.
+    """Process a decoded transaction's outputs, capturing relevant data and addresses.
 
     Args:
-        ctx: The transaction context.
+        ctx (ctx): The decoded transaction context.
         block_index (int): The block index.
-        stamp_issuance: The stamp issuance data (optional).
+        stamp_issuance (dict, optional): Stamp issuance information. Defaults to None.
 
     Returns:
-        vOutInfo: A named tuple containing the extracted data.
+        namedtuple: vOutInfo containing pubkeys_compiled, keyburn, is_op_return, fee, is_olga, p2wsh_data_chunks
     """
-    pubkeys_compiled = []
-    keyburn = 0
+    # Get scripts
+    vouts = ctx.vout
+    keyburn = None
     is_op_return = None
-    fee = 0
+    script_token_values = 0
     p2wsh_data_chunks = []
+    is_olga = False
+    fee = 0
 
-    # Check if this is a OLGA block
-    is_olga = block_index >= config.BTC_SRC20_OLGA_BLOCK
+    pubkeys_compiled = []
 
-    for vout in ctx.vout:
+    for idx, vout in enumerate(vouts):
         asm = script.get_asm(vout.scriptPubKey)
+        n_value = vout.nValue
+        script_token_values += n_value
+        fee = script_token_values
 
-        # Check for OP_RETURN
-        if len(asm) >= 1 and asm[0] == "OP_RETURN":
+        if asm[-1] == "OP_CHECKMULTISIG":
+            # Multisig outputs encoded with SRC-20 data
+            pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm)
+            if keyburn_vout is not None:
+                keyburn = keyburn_vout
+            pubkeys_compiled += pubkeys
+        elif asm[0] == "OP_RETURN":
             is_op_return = True
+        elif stamp_issuance is not None and asm[0] == 0 and len(asm[1]) == 32:
+            # Pay-to-Witness-Script-Hash (P2WSH) on CPID transactions
+            pubkeys = script.get_p2wsh(asm)
+            pubkeys_compiled += pubkeys
+            is_olga = True
+        elif asm[0] == 0 and len(asm[1]) == 32:
+            # Pay-to-Witness-Script-Hash (P2WSH) on SRC-20 transactions
+            # Only process outputs after the first one (idx > 0)
+            if block_index >= config.BTC_SRC20_OLGA_BLOCK and idx > 0:
+                data_bytes = asm[1]
+                p2wsh_data_chunks.append(data_bytes)
+                is_olga = True
+                logger.debug(f"Found P2WSH output at index {idx} with bytes: {data_bytes.hex()[:20]}...")
 
-        # Check for CHECKMULTISIG
-        try:
-            pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
-            if pubkeys_list:
-                pubkeys_compiled.extend(pubkeys_list)
-                keyburn += keyburn_amount
-        except exceptions.DecodeError:
-            # Not a valid CHECKMULTISIG script, continue
-            pass
-        except IndexError:
-            # ASM doesn't have enough elements for CHECKMULTISIG
-            pass
-
-        # Check for P2WSH and collect data chunks if stamp issuance
-        if stamp_issuance and stamp_issuance.get("p2wsh_data_required", False):
-            p2wsh_chunks = script.get_p2wsh(asm)
-            if p2wsh_chunks:
-                p2wsh_data_chunks.extend(p2wsh_chunks)
-
-        fee += vout.nValue
-
-    return vOutInfo(
-        pubkeys_compiled=pubkeys_compiled,
-        keyburn=keyburn,
-        is_op_return=is_op_return,
-        fee=fee,
-        is_olga=is_olga,
-        p2wsh_data_chunks=p2wsh_data_chunks,
+    vOutInfo = namedtuple(
+        "vOutInfo",
+        ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
     )
+
+    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga, p2wsh_data_chunks)
 
 
 def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
     """
-    Extract transaction information for Bitcoin Stamps processing.
+    Get transaction information.
 
     Args:
-        tx_hex (str): The transaction hex.
-        block_index (int, optional): The block index.
-        db: Database connection (optional).
-        stamp_issuance: Stamp issuance data (optional).
+        tx_hex (str): The hexadecimal representation of the transaction.
+        block_index (int, optional): The index of the block.
+        db (object, optional): The database object.
+        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance.
 
     Returns:
-        TransactionInfo or None: Transaction information or None if not relevant.
+        TransactionInfo: A named tuple containing the transaction information.
     """
-    try:
-        ctx = backend_instance.deserialize(tx_hex)
-    except Exception as e:
-        raise DecodeError(f"Transaction deserialization failed: {e}")
-
-    # Process vout to get transaction data
-    vout_info = process_vout(ctx, block_index or 0, stamp_issuance)
-
-    # Skip if no relevant data found
-    if not vout_info.pubkeys_compiled and not vout_info.p2wsh_data_chunks and not vout_info.is_op_return:
-        return None
-
-    # Extract basic transaction info
-    tx_hash = util.ib2h(ctx.hash)
-    source = None
-    destination = None
-    btc_amount = 0
-    data = None
-
-    # Process first input for source
-    if ctx.vin:
-        try:
-            # Get source address from first input
-            vin = ctx.vin[0]
-            if hasattr(vin, "prevout"):
-                source_tx = backend_instance.getrawtransaction(util.ib2h(vin.prevout.hash))
-                source_ctx = backend_instance.deserialize(source_tx)
-                if vin.prevout.n < len(source_ctx.vout):
-                    source_script = source_ctx.vout[vin.prevout.n].scriptPubKey
-                    source = util.decode_address(source_script)
-        except Exception:
-            # Source extraction failed, continue without source
-            pass
-
-    # Process multisig data if present
-    if vout_info.pubkeys_compiled:
-        try:
-            # Find the CHECKMULTISIG chunk
-            for vout in ctx.vout:
-                asm = script.get_asm(vout.scriptPubKey)
-                pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
-                if pubkeys_list:
-                    # Try to decode the data
-                    for chunk in pubkeys_list:
-                        try:
-                            destination, btc_amount, data = decode_checkmultisig(ctx, chunk)
-                            break
-                        except DecodeError:
-                            continue
-                    break
-        except Exception:
-            # CHECKMULTISIG processing failed
-            pass
-
-    # Process P2WSH data if present
-    if vout_info.p2wsh_data_chunks:
-        try:
-            # Combine P2WSH data chunks
-            combined_data = b"".join(vout_info.p2wsh_data_chunks)
-            if combined_data.startswith(config.PREFIX):
-                data = combined_data[len(config.PREFIX) :]
-        except Exception:
-            # P2WSH processing failed
-            pass
-
-    # Create transaction info structure
     TransactionInfo = namedtuple(
         "TransactionInfo",
         [
             "source",
-            "destination",
+            "prev_tx_hash",
+            "destinations",
+            "destination_nvalue",
             "btc_amount",
             "fee",
             "data",
+            "ctx",
             "keyburn",
-            "tx_hash",
-            "op",
-            "tx_index",
-            "supported",
-            "tx_hex",
+            "is_op_return",
+            "p2wsh_data",
         ],
     )
 
-    return TransactionInfo(
-        source=source,
-        destination=destination,
-        btc_amount=btc_amount,
-        fee=vout_info.fee,
-        data=data,
-        keyburn=vout_info.keyburn,
-        tx_hash=tx_hash,
-        op=None,  # Operation type determined later
-        tx_index=None,  # Transaction index determined later
-        supported=True,
-        tx_hex=tx_hex,
-    )
+    try:
+        if not block_index:
+            block_index = util.CURRENT_BLOCK_INDEX
+
+        destinations, src_destination_nvalue, btc_amount, data, p2wsh_data = [], 0, 0, b"", b""
+
+        ctx = backend_instance.deserialize(tx_hex)
+        vout_info = process_vout(ctx, block_index, stamp_issuance=stamp_issuance)
+        pubkeys_compiled = vout_info.pubkeys_compiled
+        keyburn = vout_info.keyburn
+        is_op_return = vout_info.is_op_return
+        fee = vout_info.fee
+        p2wsh_data_chunks = vout_info.p2wsh_data_chunks
+        p2wsh_data = None
+
+        if stamp_issuance is not None:
+            # Process CP encoded stamp issuance P2WSH transactions
+            if pubkeys_compiled and vout_info.is_olga:
+                chunk = b"".join(pubkeys_compiled)
+                pubkey_len = int.from_bytes(chunk[:2], byteorder="big")
+                p2wsh_data = chunk[2 : 2 + pubkey_len]
+            else:
+                p2wsh_data = None
+            return TransactionInfo(
+                None,
+                None,
+                None,
+                None,
+                btc_amount,
+                round(fee),
+                None,
+                None,
+                keyburn,
+                is_op_return,
+                p2wsh_data,
+            )
+
+        # Handle P2WSH data chunks for SRC-20 transactions
+        if p2wsh_data_chunks:
+            p2wsh_data = b"".join(p2wsh_data_chunks).rstrip(b"\x00")  # Remove padding zeros
+
+            if p2wsh_data and len(p2wsh_data) >= 2 + len(config.PREFIX):
+                # Extract the length prefix (first 2 bytes)
+                chunk_length = int.from_bytes(p2wsh_data[:2], byteorder="big")
+
+                # Ensure that p2wsh_data has enough bytes
+                if len(p2wsh_data) >= 2 + chunk_length:
+                    # Extract the data chunk
+                    data_chunk = p2wsh_data[2 : 2 + chunk_length]
+
+                    # Check for config.PREFIX at the start of data_chunk
+                    if data_chunk.startswith(config.PREFIX):
+                        data_chunk_without_prefix = data_chunk[len(config.PREFIX) :]
+                        data = data_chunk_without_prefix
+                        keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
+                        p2wsh_data = None
+                        destination_pubkey = ctx.vout[0].scriptPubKey
+                        destinations = util.decode_address(destination_pubkey)
+                        src_destination_nvalue = 0
+                        if config.BTC_SRC101_OLGA_BLOCK != 0 and block_index >= config.BTC_SRC101_OLGA_BLOCK:
+                            src_destination_nvalue = ctx.vout[0].nValue
+                    else:
+                        p2wsh_data = None
+                else:
+                    p2wsh_data = None
+            else:
+                p2wsh_data = None
+
+        # SRC-20 via MULTISIG
+        # This prioritizes P2WSH over CHECKMULTISIG in a mixed transaction
+        # To be deprecated in a future block height over P2WSH for all SRC-20 transactions
+        # Important: Continue to process MULTISIG data even if P2WSH data is present but invalid
+        elif pubkeys_compiled:
+            chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
+            try:
+                src_destination, src_destination_nvalue, src_data = decode_checkmultisig(ctx, chunk)
+            except Exception as e:
+                raise DecodeError(f"unrecognized output type: {e}")
+            if src_destination is None or src_data is None:
+                raise ValueError("src20_destination and src20_data must not be None")
+            if src_data:
+                data += src_data
+                destinations = str(src_destination)
+
+        if not data:
+            raise exceptions.BTCOnlyError("no data, not a stamp", ctx)
+
+        vin = ctx.vin[0]
+
+        prev_tx_hash = vin.prevout.hash
+        prev_tx_index = vin.prevout.n
+
+        # Get the full transaction data for the previous transaction.
+        # TODO: Can we batch process these for all calls from trx in the block
+        prev_tx = backend_instance.getrawtransaction(util.ib2h(prev_tx_hash))
+        prev_ctx = backend_instance.deserialize(prev_tx)
+
+        # Get the output being spent by the input.
+        prev_vout = prev_ctx.vout[prev_tx_index]
+        prev_vout_script_pubkey = prev_vout.scriptPubKey
+
+        # Decode the address associated with the output.
+        source = util.decode_address(prev_vout_script_pubkey)
+
+        return TransactionInfo(
+            str(source),
+            prev_tx_hash,
+            destinations,
+            src_destination_nvalue,
+            btc_amount,
+            round(fee),
+            data,
+            ctx,
+            keyburn,
+            is_op_return,
+            None,
+        )
+
+    except (DecodeError, BTCOnlyError):
+        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None)
 
 
 def decode_checkmultisig(ctx, chunk):
     """
-    Decode CHECKMULTISIG script data.
+    Decode a checkmultisig transaction chunk. Decoding in ARC4 and looking for the STAMP prefix
+    This also validates the length of the string with the 2 byte data length prefix
 
     Args:
-        ctx: Transaction context.
-        chunk (bytes): The data chunk to decode.
+        ctx (Context): The context object containing transaction information.
+        chunk (bytes): The chunk to be decoded.
 
     Returns:
-        tuple: (destination, nvalue, data)
+        tuple: A tuple containing the destination address (str) and the decoded data (bytes).
+               If the chunk does not match the expected format, returns (None, None, None).
 
     Raises:
-        DecodeError: If decoding fails.
+        DecodeError: If the decoded data length does not match the expected length.
     """
-    if len(chunk) < len(config.PREFIX) + 1 + 32:
-        raise DecodeError("Insufficient chunk length")
+    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
+    chunk = arc4.arc4_decrypt_chunk(chunk, key)
+    if chunk[2 : 2 + len(config.PREFIX)] == config.PREFIX:
+        chunk_length = chunk[:2].hex()
+        data = chunk[len(config.PREFIX) + 2 :].rstrip(b"\x00")
+        data_length = len(chunk[2:].rstrip(b"\x00"))
+        if data_length != int(chunk_length, 16):
+            raise DecodeError("invalid data length")
 
-    if not chunk.startswith(config.PREFIX):
-        raise DecodeError("Invalid prefix")
-
-    # Extract components
-    offset = len(config.PREFIX)
-    address_length = chunk[offset]
-    offset += 1
-
-    if len(chunk) < offset + address_length + 4:
-        raise DecodeError("Insufficient data for address and value")
-
-    # Extract address
-    address_bytes = chunk[offset : offset + address_length]
-    offset += address_length
-
-    # Extract value (4 bytes, big-endian)
-    nvalue_bytes = chunk[offset : offset + 4]
-    nvalue = int.from_bytes(nvalue_bytes, byteorder="big")
-    offset += 4
-
-    # Extract encrypted data
-    encrypted_data = chunk[offset:]
-
-    # Decrypt data using ARC4
-    try:
-        # Check if transaction has inputs
-        if not ctx.vin:
-            raise DecodeError("Transaction has no inputs for ARC4 key")
-
-        # Use first input hash as key
-        key_hash = ctx.vin[0].prevout.hash
-        arc4_key = arc4.init_arc4(key_hash)
-        decrypted_data = arc4.arc4_decrypt_chunk(encrypted_data, arc4_key)
-    except Exception as e:
-        raise DecodeError(f"ARC4 decryption failed: {e}")
-
-    # Decode destination address
-    try:
-        destination = util.decode_address(address_bytes)
-    except Exception as e:
-        raise DecodeError(f"Address decoding failed: {e}")
-
-    return destination, nvalue, decrypted_data
+        script_pubkey = ctx.vout[0].scriptPubKey
+        destination = util.decode_address(script_pubkey)
+        destination_nvalue = ctx.vout[0].nValue
+        return str(destination), destination_nvalue, data
+    else:
+        return None, None, None
 
 
-def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
-    """
-    List transaction data for block processing.
+def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None):
 
-    Args:
-        db: Database connection.
-        block_index (int): Block index.
-        tx_hash (str): Transaction hash.
-        tx_hex (str, optional): Transaction hex.
-        stamp_issuance: Stamp issuance data (optional).
-
-    Returns:
-        tuple or Generator: Transaction data or generator of None values.
-    """
     if not isinstance(tx_hash, str):
         raise TypeError("tx_hash must be a string")
 
-    # Get transaction hex if not provided
     if tx_hex is None:
         logger.debug(f"Fetching raw transaction for tx_hash: {tx_hash}")
         tx_hex = backend_instance.getrawtransaction(tx_hash, verbose=False, skip_missing=False, current_block=block_index)
 
-    # Parse transaction to get context
-    try:
-        ctx = backend_instance.deserialize(tx_hex)
-    except Exception as e:
-        logger.error(f"Failed to deserialize transaction {tx_hash}: {e}")
-        return tuple(None for _ in range(11))
+    transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
+    source = getattr(transaction_info, "source", None)
+    prev_tx_hash = getattr(transaction_info, "prev_tx_hash", None)
+    destination = getattr(transaction_info, "destinations", None)
+    destination_nvalue = getattr(transaction_info, "destination_nvalue", None)
+    btc_amount = getattr(transaction_info, "btc_amount", None)
+    fee = getattr(transaction_info, "fee", None)
+    data = getattr(transaction_info, "data", None)
+    decoded_tx = getattr(transaction_info, "ctx", None)
+    keyburn = getattr(transaction_info, "keyburn", None)
+    is_op_return = getattr(transaction_info, "is_op_return", None)
+    p2wsh_data = getattr(transaction_info, "p2wsh_data", None)
 
-    # Process vout to get initial transaction data
-    vout_info = process_vout(ctx, block_index, stamp_issuance)
+    if block_index != util.CURRENT_BLOCK_INDEX:
+        raise ValueError(f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}")
 
-    # Initialize return values
-    source = None
-    prev_tx_hash = None
-    destination = None
-    destination_nvalue = None
-    btc_amount = 0
-    fee = vout_info.fee
-    data = None
-    decoded_tx = ctx
-    keyburn = vout_info.keyburn
-    is_op_return = vout_info.is_op_return
-    p2wsh_data = None
-
-    # Extract source from first input
-    if ctx.vin:
-        try:
-            vin = ctx.vin[0]
-            if hasattr(vin, "prevout"):
-                prev_tx_hash = util.ib2h(vin.prevout.hash)
-                source_tx = backend_instance.getrawtransaction(prev_tx_hash)
-                source_ctx = backend_instance.deserialize(source_tx)
-                if vin.prevout.n < len(source_ctx.vout):
-                    source_script = source_ctx.vout[vin.prevout.n].scriptPubKey
-                    source = util.decode_address(source_script)
-        except Exception as e:
-            logger.debug(f"Failed to extract source for {tx_hash}: {e}")
-
-    # Process CHECKMULTISIG if present
-    if vout_info.pubkeys_compiled:
-        for pubkey in vout_info.pubkeys_compiled:
-            try:
-                destination, destination_nvalue, data = decode_checkmultisig(ctx, pubkey)
-                if destination:
-                    break
-            except DecodeError:
-                continue
-
-    # Process P2WSH data if present
-    if vout_info.p2wsh_data_chunks:
-        combined_data = b"".join(vout_info.p2wsh_data_chunks)
-        if combined_data.startswith(config.PREFIX):
-            p2wsh_data = combined_data[len(config.PREFIX) :]
-            data = p2wsh_data
-
-    # Check block index (matching original behavior)
-    if hasattr(util, "CURRENT_BLOCK_INDEX") and util.CURRENT_BLOCK_INDEX is not None:
-        if block_index != util.CURRENT_BLOCK_INDEX:
-            raise ValueError(
-                f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}"
-            )
-
-    # Handle stamp issuance override (matching original)
     if stamp_issuance is not None:
-        source = str(stamp_issuance.get("source", source) or source)
-        destination = str(stamp_issuance.get("issuer", destination) or destination)
+        source = str(stamp_issuance["source"])
+        destination = str(stamp_issuance["issuer"])
         data = str(stamp_issuance)
 
-    # Check if we have enough data to process
     if source and (data or destination):
         logger.debug(
             "Processing transaction: {} DATA: {} KEYBURN: {} OP_RETURN: {}".format(tx_hash, data, keyburn, is_op_return)
@@ -409,191 +359,202 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
             is_op_return,
             p2wsh_data,
         )
+
     else:
         # skip_logger.debug("Skipping transaction: {}".format(tx_hash))
-        return tuple(None for _ in range(11))
+        return (None for _ in range(11))
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
-    """
-    Process individual transaction with stamp issuances.
+    """Process a single transaction and return its parsed information."""
 
-    Args:
-        db: Database connection.
-        tx_hash (str): Transaction hash.
-        block_index (int): Block index.
-        stamp_issuances: List of stamp issuances.
-        raw_transactions (dict): Raw transaction data.
+    # Ensure stamp_issuances is a list before filtering
+    if stamp_issuances is None:
+        stamp_issuances = []
+    elif not isinstance(stamp_issuances, list):
+        logger.error(f"Invalid stamp_issuances type: {type(stamp_issuances)}")
+        stamp_issuances = []
 
-    Returns:
-        TxResult: Transaction processing result.
-    """
+    stamp_issuance = find_issuance_by_tx_hash(stamp_issuances, tx_hash)
+
+    tx_hex = raw_transactions[tx_hash]
     try:
-        # Find matching issuance
-        issuance = None
-        if isinstance(stamp_issuances, list):
-            issuance = find_issuance_by_tx_hash(stamp_issuances, tx_hash)
+        (
+            source,
+            prev_tx_hash,
+            destination,
+            destination_nvalue,
+            btc_amount,
+            fee,
+            data,
+            decoded_tx,
+            keyburn,
+            is_op_return,
+            p2wsh_data,
+        ) = list_tx(db, block_index, tx_hash, tx_hex, stamp_issuance=stamp_issuance)
 
-        # Get transaction hex
-        tx_hex = raw_transactions.get(tx_hash)
-
-        # Process transaction
-        tx_data = list_tx(db, block_index, tx_hash, tx_hex, issuance)
-
-        # Convert generator to tuple if necessary (maintaining original behavior)
-        if hasattr(tx_data, "__iter__") and not isinstance(tx_data, (tuple, list)):
-            tx_data = tuple(tx_data)
-
-        # Check if tx_data is a valid tuple with 11 elements
-        if not isinstance(tx_data, tuple) or len(tx_data) != 11:
-            logger.error(
-                f"Unexpected tx_data format for {tx_hash}: type={type(tx_data)}, len={len(tx_data) if hasattr(tx_data, '__len__') else 'N/A'}"
-            )
-            raise ValueError("Invalid tx_data format")
-
-        # Map the original list_tx return values to TxResult
-        # tx_data order: source, prev_tx_hash, destination, destination_nvalue,
-        # btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
         return TxResult(
-            tx_index=None,  # tx_index (field 0)
-            source=tx_data[0],  # source (field 1)
-            prev_tx_hash=tx_data[1],  # prev_tx_hash (field 2)
-            destination=tx_data[2],  # destination (field 3)
-            destination_nvalue=tx_data[3],  # destination_nvalue (field 4)
-            btc_amount=tx_data[4],  # btc_amount (field 5)
-            fee=tx_data[5],  # fee (field 6)
-            data=tx_data[6],  # data (field 7)
-            decoded_tx=tx_data[7],  # decoded_tx (field 8)
-            keyburn=tx_data[8],  # keyburn (field 9)
-            is_op_return=tx_data[9],  # is_op_return (field 10)
-            tx_hash=tx_hash,  # tx_hash (field 11)
-            block_index=block_index,  # block_index (field 12)
-            block_hash=None,  # block_hash (field 13)
-            block_time=None,  # block_time (field 14)
-            p2wsh_data=tx_data[10],  # p2wsh_data (field 15)
+            None,
+            source,
+            prev_tx_hash,
+            destination,
+            destination_nvalue,
+            btc_amount,
+            fee,
+            data,
+            decoded_tx,
+            keyburn,
+            is_op_return,
+            tx_hash,
+            block_index,
+            None,
+            None,
+            p2wsh_data,
         )
-    except IndexError as e:
-        logger.error(f"Failed to process transaction {tx_hash} - IndexError: {e}", exc_info=True)
+    except Exception:
+
         return TxResult(
-            tx_index=None,
-            source=None,
-            prev_tx_hash=None,
-            destination=None,
-            destination_nvalue=None,
-            btc_amount=None,
-            fee=None,
-            data=None,
-            decoded_tx=None,
-            keyburn=None,
-            is_op_return=None,
-            tx_hash=tx_hash,
-            block_index=block_index,
-            block_hash=None,
-            block_time=None,
-            p2wsh_data=None,
-        )
-    except Exception as e:
-        logger.error(f"Failed to process transaction {tx_hash}: {e}")
-        return TxResult(
-            tx_index=None,
-            source=None,
-            prev_tx_hash=None,
-            destination=None,
-            destination_nvalue=None,
-            btc_amount=None,
-            fee=None,
-            data=None,
-            decoded_tx=None,
-            keyburn=None,
-            is_op_return=None,
-            tx_hash=tx_hash,
-            block_index=block_index,
-            block_hash=None,
-            block_time=None,
-            p2wsh_data=None,
+            None, None, None, None, None, None, None, None, None, None, None, tx_hash, block_index, None, None, None
         )
 
 
 def quick_filter_src20_transaction(ctx):
     """
-    Quickly filter transactions to identify potential SRC-20 transactions.
-
-    Args:
-        ctx: Transaction context (CTransaction or dict).
-
-    Returns:
-        bool: True if transaction should be included for SRC-20 processing.
+    Quick pre-filter to check if a transaction might be a valid SRC-20 transaction.
+    Must have either:
+    1. One or more valid P2WSH outputs containing concatenated data with prefix: STAMP: (OLGA format)
+    2. A multisig output with keyburn and data containing valid prefix STAMP:
     """
+    tx_hash = ctx.GetHash()
+    tx_hash_str = tx_hash.hex() if isinstance(tx_hash, bytes) else str(tx_hash)
+
+    keyburn = None
+    has_valid_pattern = False
+    has_valid_data = False
+
+    # First check for P2WSH pattern in all outputs - SRC-20 data may be split across multiple outputs
     try:
-        # Handle both CTransaction objects and dict contexts
+        vout_list = []
+        # Handle different ctx types (CTransaction vs dict)
         if hasattr(ctx, "vout"):
-            vouts = ctx.vout
+            vout_list = ctx.vout
         elif isinstance(ctx, dict) and "vout" in ctx:
-            vouts = ctx["vout"]
-        else:
-            return False
+            vout_list = ctx["vout"]
 
-        # Check for P2WSH outputs first (faster check)
-        p2wsh_data_chunks = []
-        for vout in vouts:
-            if hasattr(vout, "scriptPubKey"):
-                script_pubkey = vout.scriptPubKey
+        logger.debug(f"Transaction {tx_hash_str} has {len(vout_list)} outputs")
+
+        # Collect all P2WSH data chunks across all outputs
+        all_p2wsh_data_chunks = []
+
+        for idx, vout in enumerate(vout_list):
+            # Handle different vout types
+            script_bytes = None
+            if hasattr(vout, "scriptPubKey") and hasattr(vout.scriptPubKey, "hex"):
+                script_bytes = bytes.fromhex(vout.scriptPubKey.hex())
             elif isinstance(vout, dict) and "scriptPubKey" in vout:
-                script_pubkey = vout["scriptPubKey"]
-            else:
+                if isinstance(vout["scriptPubKey"], dict) and "hex" in vout["scriptPubKey"]:
+                    script_bytes = bytes.fromhex(vout["scriptPubKey"]["hex"])
+                elif hasattr(vout["scriptPubKey"], "hex"):
+                    script_bytes = bytes.fromhex(vout["scriptPubKey"].hex())
+
+            if script_bytes is None:
+                logger.debug(f"Could not get script_bytes for output {idx} in tx {tx_hash_str}")
                 continue
 
-            asm = script.get_asm(script_pubkey)
+            # Check for P2WSH pattern (0x00 + exactly 32 bytes)
+            if len(script_bytes) >= 33 and script_bytes[0] == 0x00:
+                if script_bytes[1] == 0x20:  # 0x20 is the value 32 in hex, indicates 32 bytes follow
+                    data_bytes = script_bytes[2:34]  # Get the 32 bytes of data
+                    all_p2wsh_data_chunks.append(data_bytes)
+                    logger.debug(f"Transaction {tx_hash_str} has P2WSH data in output {idx}: {data_bytes.hex()[:20]}...")
+                    has_valid_pattern = True
 
-            # Check for P2WSH pattern (OP_0 followed by 32-byte hash)
-            if len(asm) == 2 and asm[0] == "OP_0" and len(asm[1]) == 64:
-                p2wsh_chunks = script.get_p2wsh(asm)
-                if p2wsh_chunks:
-                    p2wsh_data_chunks.extend(p2wsh_chunks)
-
-        # If we found P2WSH data, this is likely an SRC-20 transaction
-        if p2wsh_data_chunks:
-            return True
-
-        # Check for CHECKMULTISIG outputs with keyburn
-        for vout in vouts:
-            if hasattr(vout, "scriptPubKey"):
-                script_pubkey = vout.scriptPubKey
+        # Additionally check for multisig pattern in all outputs
+        for idx, vout in enumerate(vout_list):
+            script_bytes = None
+            if hasattr(vout, "scriptPubKey") and hasattr(vout.scriptPubKey, "hex"):
+                script_bytes = bytes.fromhex(vout.scriptPubKey.hex())
             elif isinstance(vout, dict) and "scriptPubKey" in vout:
-                script_pubkey = vout["scriptPubKey"]
-            else:
-                continue
+                if isinstance(vout["scriptPubKey"], dict) and "hex" in vout["scriptPubKey"]:
+                    script_bytes = bytes.fromhex(vout["scriptPubKey"]["hex"])
+                elif hasattr(vout["scriptPubKey"], "hex"):
+                    script_bytes = bytes.fromhex(vout["scriptPubKey"].hex())
 
-            asm = script.get_asm(script_pubkey)
-            try:
-                pubkeys_list, sigs_required, keyburn_amount = script.get_checkmultisig(asm)
-            except (exceptions.DecodeError, IndexError):
-                # Not a valid CHECKMULTISIG script
-                continue
-
-            if pubkeys_list and keyburn_amount > 0:
-                # Check if any pubkey contains valid data
-                for pubkey in pubkeys_list:
-                    try:
-                        # Try to decrypt and check for PREFIX
-                        if hasattr(ctx, "vin") and ctx.vin:
-                            key_hash = ctx.vin[0].prevout.hash
-                        elif isinstance(ctx, dict) and "vin" in ctx and ctx["vin"]:
-                            key_hash = ctx["vin"][0]["prevout"]["hash"]
+            # Check for multisig pattern and keyburn
+            if script_bytes and len(script_bytes) > 2 and script_bytes[-1] == 0xAE:
+                logger.debug(f"Transaction {tx_hash_str} has potential multisig pattern at output {idx}")
+                try:
+                    asm = None
+                    if hasattr(vout, "scriptPubKey"):
+                        asm = script.get_asm(vout.scriptPubKey)
+                    elif isinstance(vout, dict) and "scriptPubKey" in vout:
+                        if isinstance(vout["scriptPubKey"], dict) and "asm" in vout["scriptPubKey"]:
+                            asm = vout["scriptPubKey"]["asm"].split()
                         else:
-                            continue
+                            asm = script.get_asm(vout["scriptPubKey"])
 
-                        arc4_key = arc4.init_arc4(key_hash)
-                        decrypted = arc4.arc4_decrypt_chunk(pubkey, arc4_key)
-
-                        if decrypted.startswith(config.PREFIX):
-                            return True
-                    except Exception:
-                        # Decryption failed, try next pubkey
+                    if asm is None:
+                        logger.debug(f"Could not get ASM for output {idx} in tx {tx_hash_str}")
                         continue
 
-        return False
+                    if asm[-1] == "OP_CHECKMULTISIG":
+                        logger.debug(f"Transaction {tx_hash_str} has OP_CHECKMULTISIG at output {idx}")
+                        pubkeys, _, kb = script.get_checkmultisig(asm)
+                        logger.debug(f"Transaction {tx_hash_str} output {idx}: pubkeys={pubkeys}, kb={kb}")
+                        if kb == 1:
+                            keyburn = 1
+                            logger.debug(f"Transaction {tx_hash_str} has keyburn=1 at output {idx}")
+                            # Try to decode the data
+                            chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys)
+                            logger.debug(f"Transaction {tx_hash_str} output {idx}: chunk={chunk.hex()}")
+                            key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
+                            chunk = arc4.arc4_decrypt_chunk(chunk, key)
+                            logger.debug(f"Transaction {tx_hash_str} output {idx}: decrypted chunk={chunk.hex()}")
+                            if len(chunk) >= 2 + len(config.PREFIX) and chunk[2 : 2 + len(config.PREFIX)] == config.PREFIX:
+                                has_valid_data = True
+                                logger.debug(f"Transaction {tx_hash_str} has valid SRC-20 data")
+                                break  # Found valid data, no need to process other outputs
+                            else:
+                                logger.debug(
+                                    f"Transaction {tx_hash_str} output {idx}: PREFIX not found. Expected: {config.PREFIX.hex()}, Found: {chunk[2 : 2 + len(config.PREFIX)].hex() if len(chunk) >= 2 + len(config.PREFIX) else 'too short'}"
+                                )
+                except Exception as e:
+                    logger.debug(f"Error processing multisig at output {idx} in tx {tx_hash_str}: {e}")
+
+        # Process combined P2WSH data if we have any chunks
+        if all_p2wsh_data_chunks and has_valid_pattern and not has_valid_data:
+            try:
+                # Combine all P2WSH data chunks and check for valid SRC-20 data
+                combined_data = b"".join(all_p2wsh_data_chunks).rstrip(b"\x00")  # Remove padding zeros
+                logger.debug(f"Combined {len(all_p2wsh_data_chunks)} P2WSH chunks: {combined_data.hex()[:100]}...")
+
+                # Check if combined data contains the STAMP: prefix
+                if config.PREFIX in combined_data:
+                    # Set keyburn to 1 since this was a requirement for P2WSH
+                    keyburn = 1
+                    has_valid_data = True
+                    logger.debug(f"Transaction {tx_hash_str} combined P2WSH data contains STAMP: prefix")
+                else:
+                    # Also check if any individual chunk contains the prefix
+                    for i, chunk in enumerate(all_p2wsh_data_chunks):
+                        if config.PREFIX in chunk:
+                            keyburn = 1
+                            has_valid_data = True
+                            logger.debug(f"Transaction {tx_hash_str} P2WSH chunk {i} contains STAMP: prefix")
+                            break
+            except Exception as e:
+                logger.debug(f"Error processing combined P2WSH data for tx {tx_hash_str}: {e}")
 
     except Exception as e:
-        logger.debug(f"Error in quick_filter_src20_transaction: {e}")
-        return False
+        logger.debug(f"Error in output processing for tx {tx_hash_str}: {e}")
+
+    # Match the Rust implementation logic: include a transaction if it has either:
+    # 1. A valid P2WSH pattern (OLGA format) with valid data
+    # 2. A valid OP_CHECKMULTISIG with keyburn and valid data
+    should_include = (has_valid_pattern and has_valid_data) or (has_valid_data and keyburn == 1)
+
+    logger.debug(
+        f"Transaction {tx_hash_str}: has_valid_pattern={has_valid_pattern}, has_valid_data={has_valid_data}, keyburn={keyburn}, should_include={should_include}"
+    )
+
+    return should_include

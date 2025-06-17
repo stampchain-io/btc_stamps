@@ -51,6 +51,7 @@ class ConnectionPool:
         self._pool = queue.Queue(maxsize=self.max_connections)
         self._active_connections: Dict[int, Connection] = {}
         self._lock = threading.Lock()
+        self._shutting_down = False
         self._initialize_pool()
 
     def _initialize_pool(self):
@@ -129,7 +130,8 @@ class ConnectionPool:
                 del self._active_connections[conn_id]
 
         # Create a new connection to replace the removed one if we're below min_connections
-        if self.get_pool_size() < self.min_connections:
+        # But only if we're not shutting down
+        if not getattr(self, "_shutting_down", False) and self.get_pool_size() < self.min_connections:
             new_conn = self._create_connection()
             if new_conn:
                 self._pool.put(new_conn)
@@ -145,19 +147,39 @@ class ConnectionPool:
 
     def close_all(self):
         """Close all connections in the pool."""
+        # Set shutdown flag to prevent recreating connections
+        self._shutting_down = True
+
+        # Close all pooled connections
         while not self._pool.empty():
             try:
                 conn = self._pool.get_nowait()
-                self._remove_connection(conn)
+                self._close_connection_directly(conn)
             except queue.Empty:
                 break
 
+        # Close all active connections
         with self._lock:
             for conn in list(self._active_connections.values()):
                 try:
-                    self._remove_connection(conn)
+                    self._close_connection_directly(conn)
                 except Exception:
                     pass
+            self._active_connections.clear()
+
+    def _close_connection_directly(self, connection: Connection):
+        """Close a connection without maintaining pool minimums."""
+        if not connection:
+            return
+
+        with self._lock:
+            conn_id = id(connection)
+            if conn_id in self._active_connections:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+                del self._active_connections[conn_id]
 
 
 class DatabaseManager:

@@ -79,6 +79,7 @@ from index_core.src20 import (
 from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.transaction_utils import (
+    list_tx,
     process_tx,
 )
 from index_core.zmq_utils import ZMQNotifier

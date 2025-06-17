@@ -6,9 +6,10 @@ import pytest
 import config
 import index_core.check as check
 import index_core.util as util
-from index_core.blocks import BlockProcessor, TxResult
+from index_core.blocks import BlockProcessor
 from index_core.models import ValidStamp
 from index_core.reparse.validator import ReparseValidator
+from index_core.transaction_utils import TxResult
 
 
 def test_hash_computation_matches_production():

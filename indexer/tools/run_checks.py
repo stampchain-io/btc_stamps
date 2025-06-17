@@ -156,6 +156,8 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_src20.py",
             "tests/test_high_risk_src20.py",  # Comprehensive high-risk SRC-20 test suite
             "tests/test_config.py",
+            "tests/test_zlib_compression.py",  # Zlib compression/decompression functionality tests
+            "tests/test_database_manager.py",  # DatabaseManager connection pooling and operations tests
             # Market data functionality tests
             "tests/test_market_data_service.py",
             "tests/test_market_data_jobs.py",
@@ -190,6 +192,9 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_enhanced_mime_detection.py",
             "tests/test_files_utils.py",
             "tests/test_zmq_utils.py",
+            # External services tests
+            "tests/test_aws.py",  # AWS S3 and CloudFront integration tests
+            "tests/test_async_upload_comprehensive.py",  # Async upload functionality tests
         ]
 
         for test_file in test_files:
