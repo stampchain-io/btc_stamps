@@ -46,26 +46,26 @@ class OpenStampDBMismatchAnalyzer:
         try:
             print("🌐 Fetching tokens from OpenStamp API...")
             api_response = self.openstamp_client.fetch_all_market_data()
-            
+
             if not api_response:
                 print("❌ No response from OpenStamp API")
                 return set()
-            
+
             all_tokens = set(api_response.get_all_tickers())
             print(f"✅ OpenStamp API returned {len(all_tokens)} total tokens")
-            
+
             # Filter tokens <= 5 characters (SRC-20 spec)
             filtered_tokens = {token for token in all_tokens if len(token) <= 5}
             excluded_count = len(all_tokens) - len(filtered_tokens)
-            
+
             print(f"🔧 Filtered to {len(filtered_tokens)} tokens (≤5 chars)")
             if excluded_count > 0:
                 print(f"❌ Excluded {excluded_count} tokens (>5 chars)")
                 excluded_tokens = sorted([token for token in all_tokens if len(token) > 5])
                 print(f"   Excluded: {excluded_tokens[:10]}{'...' if len(excluded_tokens) > 10 else ''}")
-            
+
             return filtered_tokens
-            
+
         except Exception as e:
             print(f"❌ Error fetching OpenStamp tokens: {e}")
             return set()
@@ -75,25 +75,27 @@ class OpenStampDBMismatchAnalyzer:
         try:
             print("🗄️  Fetching tokens from SRC20Valid database...")
             db = self.db_manager.connect()
-            
+
             try:
                 with db.cursor() as cursor:
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         SELECT DISTINCT tick 
                         FROM SRC20Valid 
                         WHERE tick IS NOT NULL 
                         AND tick != ''
                         ORDER BY tick
-                    """)
-                    
+                    """
+                    )
+
                     results = cursor.fetchall()
                     tokens = {row[0] for row in results}
                     print(f"✅ Database contains {len(tokens)} unique SRC-20 tokens")
                     return tokens
-                    
+
             finally:
                 db.close()
-                
+
         except Exception as e:
             print(f"❌ Error fetching database tokens: {e}")
             return set()
@@ -102,29 +104,29 @@ class OpenStampDBMismatchAnalyzer:
         """Run the complete analysis."""
         print("🔍 Starting OpenStamp Database Token Mismatch Analysis")
         print("=" * 60)
-        
+
         # Fetch token sets
         openstamp_tokens = self.get_openstamp_tokens()
         db_tokens = self.get_database_tokens()
-        
+
         if not openstamp_tokens or not db_tokens:
             print("❌ Cannot continue analysis without both token sets")
             return {}
-        
+
         print("\n📊 TOKEN SET COMPARISON")
         print("-" * 30)
-        
+
         # Basic set operations
         exact_matches = openstamp_tokens & db_tokens
         openstamp_only = openstamp_tokens - db_tokens
         db_only = db_tokens - openstamp_tokens
-        
+
         print(f"📈 OpenStamp tokens: {len(openstamp_tokens)}")
         print(f"🗄️  Database tokens: {len(db_tokens)}")
         print(f"✅ Exact matches: {len(exact_matches)}")
         print(f"🌐 OpenStamp only: {len(openstamp_only)}")
         print(f"🗄️  Database only: {len(db_only)}")
-        
+
         if openstamp_only:
             print(f"\n🌐 Sample OpenStamp-only tokens: {sorted(list(openstamp_only))[:10]}")
             print("\n🚨 ALL OpenStamp-only tokens (first 50):")
@@ -132,80 +134,82 @@ class OpenStampDBMismatchAnalyzer:
                 print(f"   {i + 1:2d}. {token}")
             if len(openstamp_only) > 50:
                 print(f"   ... and {len(openstamp_only) - 50} more")
-        
+
         if db_only:
             print(f"\n🗄️ Sample Database-only tokens: {sorted(list(db_only))[:10]}")
-        
-        # Case-insensitive analysis 
+
+        # Case-insensitive analysis
         print("\n🔍 CASE-INSENSITIVE ANALYSIS")
         print("-" * 40)
-        
+
         # Create case-insensitive sets
         openstamp_lower = {token.lower() for token in openstamp_tokens}
         db_lower = {token.lower() for token in db_tokens}
-        
+
         case_insensitive_matches = openstamp_lower & db_lower
         openstamp_only_case_insensitive = openstamp_lower - db_lower
-        
+
         print(f"📊 Case-insensitive matches: {len(case_insensitive_matches)}")
         print(f"🌐 OpenStamp-only (case-insensitive): {len(openstamp_only_case_insensitive)}")
-        
+
         if openstamp_only_case_insensitive:
             print("\n🚨 TOKENS TRULY MISSING FROM DATABASE:")
             print("   (These OpenStamp tokens don't exist in your database even case-insensitively)")
-            
+
             # Debug emoji case conversion issues
             print("\n🔍 DEBUGGING EMOJI CASE CONVERSION:")
             for token in sorted(list(openstamp_only_case_insensitive)):
                 if any(ord(c) > 127 for c in token):  # Contains non-ASCII (likely emoji)
                     token_upper = token.upper()
                     token_lower = token.lower()
-                    
+
                     print(f"   OpenStamp: {repr(token)}")
                     print(f"   .upper():  {repr(token_upper)}")
                     print(f"   .lower():  {repr(token_lower)}")
-                    
+
                     # Check if any database token matches when normalized differently
                     potential_matches = []
                     for db_token in db_tokens:
                         if any(ord(c) > 127 for c in db_token):  # Also has Unicode
                             # Try various case combinations
-                            if (db_token.lower() == token_lower or 
-                                db_token.upper() == token_upper or
-                                db_token.lower() == token.lower() or
-                                db_token.upper() == token.upper()):
+                            if (
+                                db_token.lower() == token_lower
+                                or db_token.upper() == token_upper
+                                or db_token.lower() == token.lower()
+                                or db_token.upper() == token.upper()
+                            ):
                                 potential_matches.append(db_token)
-                    
+
                     if potential_matches:
                         print(f"   🎯 FOUND MATCH: {potential_matches}")
                     else:
                         print("   ❌ No database match found")
                     print()
-            
-            # Categorize missing tokens  
+
+            # Categorize missing tokens
             emoji_tokens = []
             regular_tokens = []
-            
+
             for token in sorted(list(openstamp_only_case_insensitive)):
                 if any(ord(c) > 127 for c in token):  # Contains non-ASCII (likely emoji)
                     emoji_tokens.append(token)
                 else:
                     regular_tokens.append(token)
-            
+
             if regular_tokens:
                 print(f"\n   📝 Regular missing tokens ({len(regular_tokens)}):")
                 for i, token in enumerate(regular_tokens[:15]):
                     print(f"      {i + 1:2d}. {token}")
                 if len(regular_tokens) > 15:
                     print(f"      ... and {len(regular_tokens) - 15} more")
-            
+
             if emoji_tokens:
                 print(f"\n   😀 Emoji/Unicode missing tokens ({len(emoji_tokens)}):")
                 for i, token in enumerate(emoji_tokens[:10]):
                     print(f"      {i + 1:2d}. {token} (repr: {repr(token)})")
                 if len(emoji_tokens) > 10:
                     print(f"      ... and {len(emoji_tokens) - 10} more")
-        
+
         # Count missing token categories
         emoji_missing = 0
         regular_missing = 0
@@ -215,7 +219,7 @@ class OpenStampDBMismatchAnalyzer:
                     emoji_missing += 1
                 else:
                     regular_missing += 1
-        
+
         return {
             "openstamp_count": len(openstamp_tokens),
             "database_count": len(db_tokens),
@@ -225,7 +229,7 @@ class OpenStampDBMismatchAnalyzer:
             "case_insensitive_matches": len(case_insensitive_matches),
             "truly_missing_from_db": len(openstamp_only_case_insensitive),
             "missing_emoji_tokens": emoji_missing,
-            "missing_regular_tokens": regular_missing
+            "missing_regular_tokens": regular_missing,
         }
 
 
@@ -235,12 +239,13 @@ def main():
         analyzer = OpenStampDBMismatchAnalyzer()
         result = analyzer.run_analysis()
         print(f"\n📊 Analysis complete: {result}")
-        
+
     except Exception as e:
         print(f"\n❌ Analysis failed: {e}")
         import traceback
+
         traceback.print_exc()
 
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -417,7 +417,7 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
     for row in prod_src101:
         if row[0] is not None:  # tx_hash should not be None
             prod_dict[row[0]] = row
-    
+
     dev_dict = {}
     for row in dev_src101:
         if row[0] is not None:  # tx_hash should not be None
@@ -452,7 +452,9 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
 
             for tx_hash, record in prod_records[:5]:
                 block_idx = record[4] if record[4] is not None else "NULL"
-                owner_display = (record[1][:20] + "...") if record[1] is not None and len(record[1]) > 20 else (record[1] or "NULL")
+                owner_display = (
+                    (record[1][:20] + "...") if record[1] is not None and len(record[1]) > 20 else (record[1] or "NULL")
+                )
                 tokenid_display = record[2] if record[2] is not None else "NULL"
                 print(f"  Block[{block_idx}] TX:{tx_hash[:8]}... Owner={owner_display} TokenID={tokenid_display}")
 
@@ -465,7 +467,9 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
 
             for tx_hash, record in dev_records[:5]:
                 block_idx = record[4] if record[4] is not None else "NULL"
-                owner_display = (record[1][:20] + "...") if record[1] is not None and len(record[1]) > 20 else (record[1] or "NULL")
+                owner_display = (
+                    (record[1][:20] + "...") if record[1] is not None and len(record[1]) > 20 else (record[1] or "NULL")
+                )
                 tokenid_display = record[2] if record[2] is not None else "NULL"
                 print(f"  Block[{block_idx}] TX:{tx_hash[:8]}... Owner={owner_display} TokenID={tokenid_display}")
 
@@ -480,8 +484,16 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
                 block_idx = prod_record[4] if prod_record[4] is not None else "NULL"
                 print(f"  TX:{tx_hash[:8]}... Block[{block_idx}]")
                 if prod_record[1] != dev_record[1]:
-                    prod_owner = (prod_record[1][:20] + "...") if prod_record[1] is not None and len(prod_record[1]) > 20 else (prod_record[1] or "NULL")
-                    dev_owner = (dev_record[1][:20] + "...") if dev_record[1] is not None and len(dev_record[1]) > 20 else (dev_record[1] or "NULL")
+                    prod_owner = (
+                        (prod_record[1][:20] + "...")
+                        if prod_record[1] is not None and len(prod_record[1]) > 20
+                        else (prod_record[1] or "NULL")
+                    )
+                    dev_owner = (
+                        (dev_record[1][:20] + "...")
+                        if dev_record[1] is not None and len(dev_record[1]) > 20
+                        else (dev_record[1] or "NULL")
+                    )
                     print(f"    Owner: Prod[{prod_owner}] Dev[{dev_owner}]")
                 if prod_record[2] != dev_record[2]:
                     prod_tokenid = prod_record[2] if prod_record[2] is not None else "NULL"
