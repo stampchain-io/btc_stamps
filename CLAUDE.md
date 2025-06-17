@@ -18,6 +18,8 @@
 - `cd indexer && poetry run run_checks` - Run all checks
 - `cd indexer && poetry run check-code` - Code quality checks
 - `cd indexer && poetry run check-rust` - Rust checks
+- `cd indexer && poetry run lint` - Run only linters (isort, black, flake8, mypy, bandit)
+- `cd indexer && poetry run lint --auto-fix` - Run linters with auto-fix for isort and black
 
 ## Debug Tools
 - `cd indexer && poetry run python tools/debug/debug_transaction_parser.py <txid> [--verbose]` - Debug transaction

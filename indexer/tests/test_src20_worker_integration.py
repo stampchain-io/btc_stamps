@@ -236,6 +236,7 @@ class TestSRC20WorkerIntegration(unittest.TestCase):
             self.assertEqual(result["tick"], "STAMP")
             # Accept both Decimal and str types since the processor returns Decimals
             from decimal import Decimal
+
             self.assertIn(type(result["price_btc"]), [Decimal, str])
             self.assertIn(type(result["volume_24h_btc"]), [Decimal, str])
             self.assertIn(type(result["confidence_level"]), [Decimal, float, str])
@@ -254,7 +255,7 @@ class TestSRC20WorkerIntegration(unittest.TestCase):
         """Test that STAMP is properly configured in exchange mappings."""
         # Import the module constant
         from index_core.src20_worker import SRC20_EXCHANGE_MAPPINGS
-        
+
         # Verify STAMP is in the exchange mappings
         self.assertIn("STAMP", SRC20_EXCHANGE_MAPPINGS)
 

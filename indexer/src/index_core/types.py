@@ -103,3 +103,101 @@ class OpenStampApiResponse:
     def get_tokens_with_volume(self, min_volume: Decimal = Decimal("0")) -> List[OpenStampTokenData]:
         """Get tokens that have trading volume above threshold."""
         return [token for token in self.tokens if token.volume_24h > min_volume]
+
+
+# StampScan API response types for SRC-20 market data
+class StampScanTokenData:
+    """Type definition for individual token data from StampScan API."""
+
+    def __init__(self, data: Dict[str, Any]):
+        self.tick: str = data.get("tick", "")
+        self.floor_unit_price: Optional[float] = data.get("floor_unit_price")  # Already in BTC
+        self.mcap: Optional[float] = data.get("mcap")  # Market cap in BTC
+        self.sum_7d: Optional[float] = data.get("sum_7d")  # 7-day volume in BTC
+        self.sum_3d: Optional[float] = data.get("sum_3d")  # 3-day volume in BTC
+        self.sum_1d: Optional[float] = data.get("sum_1d")  # 1-day volume in BTC
+        self.stamp_url: Optional[str] = data.get("stamp_url")
+        self.tx_hash: Optional[str] = data.get("tx_hash")  # Latest transaction hash
+        self.holder_count: Optional[int] = data.get("holder_count")
+
+    def to_market_data_dict(self) -> Dict[str, Any]:
+        """Convert to standardized market data dictionary format."""
+        return {
+            "tick": self.tick,
+            "price_btc": self.floor_unit_price,  # Already in BTC format
+            "volume_24h_btc": self.sum_1d,  # Use 1-day volume as 24h approximation
+            "market_cap_btc": self.mcap,
+            "holder_count": self.holder_count,
+            "latest_tx_hash": self.tx_hash,
+            "primary_exchange": "stampscan",
+            "exchange_sources": json.dumps(["stampscan"]),
+            "data_quality_score": self._calculate_quality_score(),
+            "confidence_level": self._calculate_confidence_level(),
+            "update_frequency_minutes": 5,
+        }
+
+    def _calculate_quality_score(self) -> float:
+        """Calculate data quality score based on available fields."""
+        score = 6.0  # Base score for StampScan
+        if self.floor_unit_price is not None:
+            score += 2.0
+        if self.mcap is not None:
+            score += 1.0
+        if self.holder_count is not None:
+            score += 1.0
+        if self.sum_1d is not None:
+            score += 1.0
+        return min(10.0, score)
+
+    def _calculate_confidence_level(self) -> float:
+        """Calculate confidence level based on data quality and holder count."""
+        quality_score = self._calculate_quality_score()
+        holder_count = self.holder_count or 0
+
+        if quality_score >= 8.0 and holder_count > 1000:
+            return 8.0  # High confidence
+        elif quality_score >= 6.0 and holder_count > 100:
+            return 7.0  # Medium-high confidence
+        elif quality_score >= 4.0:
+            return 6.0  # Medium confidence
+        else:
+            return 4.0  # Low confidence
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to raw dictionary format."""
+        return {
+            "tick": self.tick,
+            "floor_unit_price": self.floor_unit_price,
+            "mcap": self.mcap,
+            "sum_7d": self.sum_7d,
+            "sum_3d": self.sum_3d,
+            "sum_1d": self.sum_1d,
+            "stamp_url": self.stamp_url,
+            "tx_hash": self.tx_hash,
+            "holder_count": self.holder_count,
+        }
+
+
+class StampScanApiResponse:
+    """Type definition for complete StampScan API response."""
+
+    def __init__(self, response_data):
+        self.tokens: List[StampScanTokenData] = []
+
+        # Handle both single token dict and list of tokens
+        if isinstance(response_data, dict):
+            self.tokens = [StampScanTokenData(response_data)]
+        elif isinstance(response_data, list):
+            self.tokens = [StampScanTokenData(token_data) for token_data in response_data]
+
+    def get_token_by_tick(self, tick: str) -> Optional[StampScanTokenData]:
+        """Get token data by ticker symbol."""
+        tick_upper = tick.upper()
+        for token in self.tokens:
+            if token.tick.upper() == tick_upper:
+                return token
+        return None
+
+    def get_all_ticks(self) -> List[str]:
+        """Get list of all available ticker symbols."""
+        return [token.tick for token in self.tokens]

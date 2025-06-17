@@ -489,5 +489,118 @@ def run_code_quality_checks_standalone():
     sys.exit(0)
 
 
+def run_linters_only(auto_fix=False, with_coverage=False):
+    """Run only the linting tools (isort, black, flake8, mypy, bandit) without tests.
+    
+    Args:
+        auto_fix: Enable auto-fix for isort and black
+        with_coverage: Include coverage report validation
+    """
+    print_header("code_quality")
+    logger.info(colored("Running linters only...", "cyan"))
+    if auto_fix:
+        logger.info(colored("⚡️ Auto-fix enabled", "magenta"))
+    if with_coverage:
+        logger.info(colored("📊 Coverage validation enabled", "magenta"))
+
+    all_passed = True
+    linter_failures = []
+
+    # isort check
+    logger.info("Running isort...")
+    cmd = "poetry run isort ." if auto_fix else "poetry run isort . --check-only"
+    logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
+    if run_command(cmd, ignore_errors=True):
+        logger.info(colored("💣 PASS: isort", "green"))
+    else:
+        linter_failures.append("isort")
+        logger.error(colored("💀 FAIL: isort", "red"))
+        all_passed = False
+
+    # black check
+    logger.info("Running black...")
+    cmd = "poetry run black . --config=pyproject.toml" if auto_fix else "poetry run black --check . --config=pyproject.toml"
+    logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
+    if run_command(cmd, ignore_errors=True):
+        logger.info(colored("💣 PASS: black", "green"))
+    else:
+        linter_failures.append("black")
+        logger.error(colored("💀 FAIL: black", "red"))
+        all_passed = False
+
+    # flake8 check
+    logger.info("Running flake8...")
+    if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
+        logger.info(colored("PASS: flake8 check", "green"))
+    else:
+        linter_failures.append("flake8")
+        logger.error(colored("FAIL: flake8 check", "red"))
+        all_passed = False
+
+    # mypy check
+    logger.info("Running mypy...")
+    if run_command("poetry run mypy src/ --explicit-package-bases", ignore_errors=True):
+        logger.info(colored("PASS: mypy check", "green"))
+    else:
+        linter_failures.append("mypy")
+        logger.error(colored("FAIL: mypy check", "red"))
+        all_passed = False
+
+    # bandit check
+    logger.info("Running bandit...")
+    if run_command("poetry run task bandit", ignore_errors=True):
+        logger.info(colored("PASS: bandit check", "green"))
+    else:
+        linter_failures.append("bandit")
+        logger.error(colored("FAIL: bandit check", "red"))
+        all_passed = False
+
+    # Optional: pylint for additional code quality checks
+    # Uncomment if you want to add pylint
+    # logger.info("Running pylint...")
+    # if run_command("poetry run pylint src/ --fail-under=8.0", ignore_errors=True):
+    #     logger.info(colored("PASS: pylint check", "green"))
+    # else:
+    #     linter_failures.append("pylint")
+    #     logger.error(colored("FAIL: pylint check", "red"))
+    #     all_passed = False
+
+    # Coverage validation
+    if with_coverage:
+        logger.info(colored("\n📊 Running coverage validation...", "cyan"))
+        # First generate coverage report
+        logger.info("Generating coverage report...")
+        if run_command("poetry run pytest tests/ --cov=src --cov-report=term-missing --cov-report=html --cov-fail-under=70", ignore_errors=True):
+            logger.info(colored("💣 PASS: coverage threshold met (>70%)", "green"))
+        else:
+            linter_failures.append("coverage")
+            logger.error(colored("💀 FAIL: coverage below threshold", "red"))
+            all_passed = False
+
+    if all_passed:
+        logger.info(colored("\nAll linters passed!", "green", attrs=["bold"]))
+    else:
+        logger.error(colored(f"\nLinters failed: {', '.join(linter_failures)}", "red", attrs=["bold"]))
+
+    return all_passed, linter_failures
+
+
+def run_linters_standalone():
+    """Standalone entry point for running only linters."""
+    parser = argparse.ArgumentParser(prog="lint", description="Run linters only")
+    parser.add_argument("--auto-fix", action="store_true", help="Auto-fix style issues with black and isort")
+    parser.add_argument("--with-coverage", action="store_true", help="Include coverage report validation")
+    args = parser.parse_args()
+
+    all_passed, _ = run_linters_only(args.auto_fix, args.with_coverage)
+
+    if all_passed:
+        logger.info("All linters passed. Exiting with code 0.")
+        sys.exit(0)
+    else:
+        logger.error("Some linters failed. Exiting with code 1.")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()

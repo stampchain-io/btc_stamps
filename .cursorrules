@@ -56,7 +56,9 @@ development_practices = [
     "Write Pytest unit tests in tests/ directory",
     "Maintain high test coverage",
     "Use type hints with Mypy validation",
-    "Format with Black and sort imports with isort"
+    "Format with Black and sort imports with isort",
+    "Always validate code with linters before committing: poetry run lint",
+    "Auto-fix linting issues with: poetry run lint --auto-fix"
 ]
 
 performance_considerations = [

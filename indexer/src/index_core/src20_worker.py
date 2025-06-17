@@ -22,11 +22,17 @@ logger = logging.getLogger(__name__)
 
 # Rate limiting for exchange APIs
 KUCOIN_RATE_LIMITER = RateLimiter(calls_per_second=1.0)
+STAMPSCAN_RATE_LIMITER = RateLimiter(calls_per_second=1.5)  # StampScan allows 1-2 calls per second
 EXCHANGE_RATE_LIMITER = RateLimiter(calls_per_second=0.5)
 
 # KuCoin API configuration
 KUCOIN_BASE_URL = "https://api.kucoin.com"
 KUCOIN_API_VERSION = "v1"
+
+# StampScan API configuration
+STAMPSCAN_BASE_URL = "https://api.stampscan.xyz"
+STAMPSCAN_LISTING_SUMMARY_ENDPOINT = "/market/listingSummary"
+STAMPSCAN_COMBINED_LISTINGS_ENDPOINT = "/utxo/combinedListings"
 
 # SRC-20 token mappings for exchanges
 SRC20_EXCHANGE_MAPPINGS = {
@@ -56,10 +62,14 @@ class SRC20Worker:
             SRC20Worker._shared_processor = SRC20MarketDataProcessor()
         self.processor = SRC20Worker._shared_processor
         self.kucoin_rate_limiter = KUCOIN_RATE_LIMITER
+        self.stampscan_rate_limiter = STAMPSCAN_RATE_LIMITER
         self.exchange_rate_limiter = EXCHANGE_RATE_LIMITER
         self._openstamp_cache = None  # Cache the full OpenStamp response
         self._openstamp_cache_time = 0
         self._openstamp_cache_ttl = 300  # Cache for 5 minutes (300 seconds)
+        self._stampscan_cache = None  # Cache the StampScan response
+        self._stampscan_cache_time = 0
+        self._stampscan_cache_ttl = 300  # Cache for 5 minutes (300 seconds)
 
     def process_src20_market_data(self, tick: str) -> Optional[Dict]:
         """
@@ -103,11 +113,14 @@ class SRC20Worker:
                 source_data["openstamp"] = openstamp_data
                 logger.debug(f"Successfully fetched OpenStamp data for {tick}")
 
-            # TODO: Add StampScan and other exchanges here
-            # if tick in SRC20_EXCHANGE_MAPPINGS and "stampscan" in SRC20_EXCHANGE_MAPPINGS[tick]:
-            #     stampscan_data = self._fetch_stampscan_data(tick, token_config)
-            #     if stampscan_data:
-            #         source_data["stampscan"] = stampscan_data
+            # Fetch from StampScan API for all SRC-20 tokens
+            logger.debug(f"Fetching StampScan data for {tick}")
+            stampscan_data = self._fetch_stampscan_data(tick)
+            if stampscan_data:
+                source_data["stampscan"] = stampscan_data
+                logger.debug(f"Successfully fetched StampScan data for {tick}")
+
+            # TODO: Add other exchanges here as needed
 
             # Check if we got any data from any source
             if not source_data:
@@ -340,6 +353,256 @@ class SRC20Worker:
         except Exception as e:
             logger.error(f"Error fetching OpenStamp data for {tick}: {e}")
             return None
+
+    def _fetch_stampscan_data(self, tick: str) -> Optional[Dict]:
+        """
+        Fetch market data from StampScan API (listingSummary endpoint only).
+
+        Args:
+            tick: SRC-20 token ticker
+
+        Returns:
+            Dictionary with market data or None if failed
+        """
+        try:
+            logger.debug(f"Fetching StampScan data for {tick}")
+
+            # Use cached StampScan data if available
+            current_time = time.time()
+            if self._stampscan_cache is None or (current_time - self._stampscan_cache_time) > self._stampscan_cache_ttl:
+                logger.debug("Fetching fresh StampScan data for cache")
+                try:
+                    self._stampscan_cache = self._stampscan_api_call(STAMPSCAN_LISTING_SUMMARY_ENDPOINT)
+                    self._stampscan_cache_time = current_time
+                except Exception as e:
+                    logger.error(f"Failed to fetch StampScan data: {e}")
+                    self._stampscan_cache = None
+
+            # Find token data in cached response
+            if self._stampscan_cache:
+                # StampScan listingSummary returns data for all tokens
+                # The response is either a single dict or a list of dicts
+                token_data = None
+
+                if isinstance(self._stampscan_cache, dict):
+                    # Single token response
+                    if self._stampscan_cache.get("tick", "").lower() == tick.lower():
+                        token_data = self._stampscan_cache
+                elif isinstance(self._stampscan_cache, list):
+                    # Multiple tokens response - find our token
+                    for item in self._stampscan_cache:
+                        if isinstance(item, dict) and item.get("tick", "").lower() == tick.lower():
+                            token_data = item
+                            break
+
+                if token_data:
+                    market_data = self._process_stampscan_data(tick, token_data)
+                    if market_data:
+                        market_data["data_source"] = "stampscan"
+                        market_data["exchange_symbol"] = tick
+                        logger.debug(f"Successfully fetched StampScan data for {tick}")
+                        return market_data
+                    else:
+                        logger.debug(f"Failed to process StampScan data for {tick}")
+                        return None
+                else:
+                    logger.debug(f"Token {tick} not found in StampScan data")
+                    return None
+            else:
+                logger.debug("No StampScan cache available")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching StampScan data for {tick}: {e}")
+            return None
+
+    def _stampscan_api_call(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
+        """
+        Make a rate-limited API call to StampScan.
+
+        Args:
+            endpoint: API endpoint path
+            params: Query parameters
+
+        Returns:
+            API response data or None if failed
+        """
+        try:
+            # Rate limiting
+            self.stampscan_rate_limiter.acquire()
+
+            url = f"{STAMPSCAN_BASE_URL}{endpoint}"
+
+            for attempt in range(MAX_RETRIES):
+                try:
+                    logger.debug(f"StampScan API call: {endpoint} (attempt {attempt + 1})")
+
+                    response = requests.get(
+                        url,
+                        params=params,
+                        timeout=REQUEST_TIMEOUT,
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                            "Accept": "application/json",
+                        },
+                    )
+
+                    response.raise_for_status()
+                    data = response.json()
+
+                    logger.debug(f"StampScan API response received for {endpoint}")
+                    return data
+
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"StampScan API request failed (attempt {attempt + 1}): {e}")
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+                    else:
+                        raise
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error in StampScan API call: {e}")
+            return None
+
+    def _process_stampscan_data(self, tick: str, token_data: Dict) -> Optional[Dict]:
+        """
+        Process raw StampScan data into standardized market metrics.
+
+        Args:
+            tick: SRC-20 token ticker
+            token_data: Raw token data from StampScan API
+
+        Returns:
+            Dictionary with processed market data
+        """
+        try:
+            market_data = {
+                "tick": tick,
+                "price_btc": None,
+                "price_usd": None,
+                "volume_24h_btc": None,
+                "volume_24h_usd": None,
+                "price_change_24h": None,
+                "price_change_24h_percent": None,
+                "high_24h_btc": None,
+                "low_24h_btc": None,
+                "market_cap_btc": None,
+                "holder_count": None,
+                "trading_pairs_count": 1,  # At least StampScan tracking
+                "quality_score": 0.0,
+                "confidence_level": "medium",
+            }
+
+            # Process floor unit price (this is the main price indicator)
+            floor_unit_price = self._safe_float(token_data.get("floor_unit_price"))
+            if floor_unit_price:
+                market_data["price_btc"] = floor_unit_price
+                logger.debug(f"StampScan floor price for {tick}: {floor_unit_price} BTC")
+
+            # Process market cap
+            mcap = self._safe_float(token_data.get("mcap"))
+            if mcap:
+                market_data["market_cap_btc"] = mcap
+                logger.debug(f"StampScan market cap for {tick}: {mcap} BTC")
+
+            # Process holder count
+            holder_count = token_data.get("holder_count")
+            if holder_count is not None:
+                try:
+                    market_data["holder_count"] = int(holder_count)
+                    logger.debug(f"StampScan holder count for {tick}: {holder_count}")
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid holder count for {tick}: {holder_count}")
+
+            # Process volume data (if available)
+            for period in ["sum_7d", "sum_3d", "sum_1d"]:
+                period_volume = self._safe_float(token_data.get(period))
+                if period_volume:
+                    # Map to our standard volume fields
+                    if period == "sum_1d":
+                        market_data["volume_24h_btc"] = period_volume
+                    logger.debug(f"StampScan {period} volume for {tick}: {period_volume} BTC")
+
+            # Store transaction hash reference (optional)
+            tx_hash = token_data.get("tx_hash")
+            if tx_hash:
+                market_data["latest_tx_hash"] = tx_hash
+
+            # Calculate derived metrics
+            market_data["quality_score"] = self._calculate_stampscan_quality_score(market_data)
+            market_data["confidence_level"] = self._determine_stampscan_confidence_level(market_data)
+
+            return market_data
+
+        except Exception as e:
+            logger.error(f"Error processing StampScan data for {tick}: {e}")
+            return None
+
+    def _calculate_stampscan_quality_score(self, market_data: Dict) -> float:
+        """
+        Calculate data quality score for StampScan data.
+
+        Args:
+            market_data: Dictionary with market data
+
+        Returns:
+            Quality score (0-10)
+        """
+        try:
+            score = 6.0  # Base score for StampScan (specialized Bitcoin stamps data)
+
+            # Check data completeness
+            if market_data.get("price_btc") is not None:
+                score += 2.0  # Floor price is key data
+
+            if market_data.get("market_cap_btc") is not None:
+                score += 1.0  # Market cap adds value
+
+            if market_data.get("holder_count") is not None:
+                score += 1.0  # Holder count is valuable
+
+            if market_data.get("volume_24h_btc") is not None:
+                score += 1.0  # Volume data is bonus
+
+            return max(0.0, min(10.0, score))
+
+        except Exception as e:
+            logger.error(f"Error calculating StampScan quality score: {e}")
+            return 6.0  # Default medium quality
+
+    def _determine_stampscan_confidence_level(self, market_data: Dict) -> float:
+        """
+        Determine confidence level for StampScan data.
+
+        Args:
+            market_data: Dictionary with market data
+
+        Returns:
+            Confidence level as float (0.0-10.0)
+        """
+        try:
+            quality_score = market_data.get("quality_score", 0)
+            holder_count = market_data.get("holder_count", 0)
+
+            # Handle None holder count safely
+            if holder_count is None:
+                holder_count = 0
+
+            # Higher confidence for higher quality and more holders
+            if quality_score >= 8.0 and holder_count > 1000:  # > 1000 holders
+                return 8.0  # High confidence
+            elif quality_score >= 6.0 and holder_count > 100:  # > 100 holders
+                return 7.0  # Medium-high confidence
+            elif quality_score >= 4.0:
+                return 6.0  # Medium confidence
+            else:
+                return 4.0  # Low confidence
+
+        except Exception as e:
+            logger.error(f"Error determining StampScan confidence level: {e}")
+            return 6.0  # Default medium confidence
 
     def _process_kucoin_data(
         self, tick: str, ticker_data: Optional[Dict], orderbook_data: Optional[Dict], klines_data: Optional[List]

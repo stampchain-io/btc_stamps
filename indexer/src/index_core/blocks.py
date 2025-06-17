@@ -502,6 +502,9 @@ def follow(
     # Register for shutdown notifications
     shutdown_requested = [False]  # Use list for mutable reference in callback
 
+    # Initialize scheduler flag early to avoid UnboundLocalError in cleanup
+    market_data_scheduler_started = False
+
     def handle_shutdown():
         """Callback for shutdown notification"""
         logger.info("Block processor received shutdown notification")
@@ -571,7 +574,6 @@ def follow(
 
         # Initialize market data job scheduler for time-based updates
         # Only start if enabled and not in single block mode or reparse mode
-        market_data_scheduler_started = False
         if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
             try:
                 logger.info("Starting market data job scheduler...")

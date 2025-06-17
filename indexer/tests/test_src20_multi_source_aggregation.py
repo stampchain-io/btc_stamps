@@ -9,9 +9,8 @@ them with confidence weighting.
 import json
 import os
 import sys
-from datetime import datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -152,74 +151,114 @@ class TestSRC20MultiSourceAggregation:
         """Test the complete multi-source flow in process_src20_market_data."""
         with patch.object(self.worker, "_fetch_kucoin_data") as mock_kucoin:
             with patch.object(self.worker, "_fetch_openstamp_data") as mock_openstamp:
-                with patch.object(self.worker, "_store_source_data") as mock_store:
-                    # Mock successful fetches from both sources
-                    mock_kucoin.return_value = self.mock_kucoin_data
-                    mock_openstamp.return_value = self.mock_openstamp_data
+                with patch.object(self.worker, "_fetch_stampscan_data") as mock_stampscan:
+                    with patch.object(self.worker, "_store_source_data") as mock_store:
+                        # Mock successful fetches from all three sources
+                        mock_kucoin.return_value = self.mock_kucoin_data
+                        mock_openstamp.return_value = self.mock_openstamp_data
+                        mock_stampscan.return_value = {
+                            "tick": "STAMP",
+                            "price_btc": 1.5e-7,
+                            "market_cap_btc": 150.0,
+                            "holder_count": 13501,
+                            "data_quality_score": 10.0,
+                            "confidence_level": 8.0,
+                            "data_source": "stampscan",
+                        }
 
-                    result = self.worker.process_src20_market_data("STAMP")
+                        result = self.worker.process_src20_market_data("STAMP")
 
-                    # Verify both sources were attempted
-                    mock_kucoin.assert_called_once()
-                    mock_openstamp.assert_called_once()
+                        # Verify all sources were attempted
+                        mock_kucoin.assert_called_once()
+                        mock_openstamp.assert_called_once()
+                        mock_stampscan.assert_called_once()
 
-                    # Verify source data storage was called
-                    mock_store.assert_called_once()
-                    store_call_args = mock_store.call_args
-                    assert store_call_args[0][0] == "STAMP"  # tick
-                    assert "kucoin" in store_call_args[0][1]  # source_data
-                    assert "openstamp" in store_call_args[0][1]
+                        # Verify source data storage was called
+                        mock_store.assert_called_once()
+                        store_call_args = mock_store.call_args
+                        assert store_call_args[0][0] == "STAMP"  # tick
+                        assert "kucoin" in store_call_args[0][1]  # source_data
+                        assert "openstamp" in store_call_args[0][1]
+                        assert "stampscan" in store_call_args[0][1]
 
-                    # Verify aggregated result - these fields are added by process_src20_market_data
-                    assert result is not None
-                    assert result["tick"] == "STAMP"
-                    assert result["source_count"] == 2
-                    assert result["sources"] == ["kucoin", "openstamp"]
+                        # Verify aggregated result - now includes 3 sources
+                        assert result is not None
+                        assert result["tick"] == "STAMP"
+                        assert result["source_count"] == 3
+                        assert set(result["sources"]) == {"kucoin", "openstamp", "stampscan"}
 
     def test_process_src20_market_data_openstamp_only_flow(self):
-        """Test flow when only OpenStamp has data (no KuCoin mapping)."""
+        """Test flow when only OpenStamp has data (no KuCoin mapping, but StampScan still provides data)."""
         with patch.object(self.worker, "_fetch_openstamp_data") as mock_openstamp:
-            with patch.object(self.worker, "_store_source_data") as mock_store:
-                # Mock successful OpenStamp fetch
-                mock_openstamp.return_value = self.mock_openstamp_data
+            with patch.object(self.worker, "_fetch_stampscan_data") as mock_stampscan:
+                with patch.object(self.worker, "_store_source_data") as mock_store:
+                    # Mock successful OpenStamp fetch and StampScan fetch
+                    mock_openstamp.return_value = self.mock_openstamp_data
+                    mock_stampscan.return_value = {
+                        "tick": "UTXO",
+                        "price_btc": 2.0e-6,
+                        "market_cap_btc": 50.0,
+                        "holder_count": 500,
+                        "data_quality_score": 8.0,
+                        "confidence_level": 7.0,
+                        "data_source": "stampscan",
+                    }
 
-                result = self.worker.process_src20_market_data("UTXO")  # Not in KuCoin mappings
+                    result = self.worker.process_src20_market_data("UTXO")  # Not in KuCoin mappings
 
-                # Verify only OpenStamp was called
-                mock_openstamp.assert_called_once()
+                    # Verify OpenStamp and StampScan were called (no KuCoin for this token)
+                    mock_openstamp.assert_called_once()
+                    mock_stampscan.assert_called_once()
 
-                # Verify source data storage
-                mock_store.assert_called_once()
-                store_call_args = mock_store.call_args
-                assert store_call_args[0][0] == "UTXO"
-                assert "openstamp" in store_call_args[0][1]
-                assert "kucoin" not in store_call_args[0][1]
+                    # Verify source data storage
+                    mock_store.assert_called_once()
+                    store_call_args = mock_store.call_args
+                    assert store_call_args[0][0] == "UTXO"
+                    assert "openstamp" in store_call_args[0][1]
+                    assert "stampscan" in store_call_args[0][1]
+                    assert "kucoin" not in store_call_args[0][1]
 
-                # Verify result
-                assert result is not None
-                assert result["source_count"] == 1
+                    # Verify result - now gets data from 2 sources (OpenStamp + StampScan)
+                    assert result is not None
+                    assert result["source_count"] == 2
 
     def test_process_src20_market_data_all_sources_fail(self):
         """Test flow when all sources fail to provide data."""
         with patch.object(self.worker, "_fetch_kucoin_data") as mock_kucoin:
             with patch.object(self.worker, "_fetch_openstamp_data") as mock_openstamp:
-                with patch.object(self.worker, "_store_source_data") as mock_store:
-                    # Mock all sources failing
-                    mock_kucoin.return_value = None
-                    mock_openstamp.return_value = None
+                with patch.object(self.worker, "_fetch_stampscan_data") as mock_stampscan:
+                    with patch.object(self.worker, "_store_source_data") as mock_store:
+                        # Mock all sources failing
+                        mock_kucoin.return_value = None
+                        mock_openstamp.return_value = None
+                        mock_stampscan.return_value = None
 
-                    result = self.worker.process_src20_market_data("STAMP")
+                        result = self.worker.process_src20_market_data("STAMP")
 
-                    # Should return None when no sources provide data
-                    assert result is None
+                        # Should return None when no sources provide data
+                        assert result is None
 
-                    # Storage should not be called
-                    mock_store.assert_not_called()
+                        # Storage should not be called
+                        mock_store.assert_not_called()
 
     def test_source_data_storage_database_integration(self):
         """Test source data storage with database mock."""
         with patch("index_core.database.insert_market_data_source") as mock_insert:
-            source_data = {"kucoin": self.mock_kucoin_data, "openstamp": self.mock_openstamp_data}
+            # Include StampScan data in source_data
+            mock_stampscan_data = {
+                "tick": "STAMP",
+                "price_btc": 1.5e-7,
+                "market_cap_btc": 150.0,
+                "holder_count": 13501,
+                "data_quality_score": 10.0,
+                "confidence_level": 8.0,
+                "data_source": "stampscan",
+            }
+            source_data = {
+                "kucoin": self.mock_kucoin_data,
+                "openstamp": self.mock_openstamp_data,
+                "stampscan": mock_stampscan_data,
+            }
 
             # Mock database manager properly
             with patch.object(self.worker.processor.db_manager, "get_long_running_connection") as mock_get_db:
@@ -228,8 +267,8 @@ class TestSRC20MultiSourceAggregation:
 
                 self.worker._store_source_data("STAMP", source_data)
 
-                # Verify insert was called twice (once for each source)
-                assert mock_insert.call_count == 2
+                # Verify insert was called three times (once for each source)
+                assert mock_insert.call_count == 3
 
                 # Verify call arguments
                 insert_calls = mock_insert.call_args_list
@@ -248,6 +287,13 @@ class TestSRC20MultiSourceAggregation:
                 openstamp_record = openstamp_call[1]
                 assert openstamp_record["source_name"] == "openstamp"
                 assert openstamp_record["holder_count"] == self.mock_openstamp_data["holder_count"]
+
+                # Check StampScan record
+                stampscan_call = insert_calls[2][0]
+                stampscan_record = stampscan_call[1]
+                assert stampscan_record["source_name"] == "stampscan"
+                assert stampscan_record["price_btc"] == mock_stampscan_data["price_btc"]
+                assert stampscan_record["market_cap_btc"] == mock_stampscan_data["market_cap_btc"]
 
     def test_confidence_weighting_edge_cases(self):
         """Test confidence weighting with edge cases."""
