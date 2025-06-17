@@ -350,6 +350,57 @@ def cp_version(log_connection=False):
     else:
         logger.warning("Could not connect to any Counterparty nodes")
     
+    # Perform version validation checks
+    connected_results = [r for r in version_results if r['status'] == 'connected']
+    
+    if len(connected_results) > 0:
+        # Check minimum version requirement (11.0.0 or greater)
+        minimum_version = (11, 0, 0)
+        version_violations = []
+        
+        for result in connected_results:
+            version_info = result['version_info']
+            node_name = result['name']
+            version_string = result['version_string']
+            
+            if version_info and 'version_major' in version_info and 'version_minor' in version_info and 'version_revision' in version_info:
+                major = version_info['version_major']
+                minor = version_info['version_minor'] 
+                revision = version_info['version_revision']
+                node_version = (major, minor, revision)
+                
+                if node_version < minimum_version:
+                    version_violations.append({
+                        'name': node_name,
+                        'version_string': version_string,
+                        'version_tuple': node_version
+                    })
+        
+        # Critical error if any node is below minimum version
+        if version_violations:
+            violation_details = [f"{v['name']} (v{v['version_string']})" for v in version_violations]
+            error_msg = (
+                f"CRITICAL: Counterparty node version requirement not met. "
+                f"This Bitcoin Stamps indexer requires Counterparty version 11.0.0 or greater. "
+                f"Nodes below minimum: {', '.join(violation_details)}. "
+                f"Please upgrade your Counterparty nodes before continuing."
+            )
+            logger.critical(error_msg)
+            raise VersionError(error_msg)
+        
+        # Check for version mismatches between nodes
+        if len(connected_results) > 1:
+            version_strings = [r['version_string'] for r in connected_results]
+            unique_versions = set(version_strings)
+            
+            if len(unique_versions) > 1:
+                node_version_details = [f"{r['name']} (v{r['version_string']})" for r in connected_results]
+                logger.warning(
+                    f"WARNING: Counterparty node version mismatch detected. "
+                    f"All nodes should run the same version for consistent behavior. "
+                    f"Found versions: {', '.join(node_version_details)}"
+                )
+    
     # Return the first successful connection for backward compatibility
     for result in version_results:
         if result['status'] == 'connected':
