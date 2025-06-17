@@ -121,14 +121,14 @@ def test_block_transaction():
 
     # Check if the transaction is properly parsed by the Python implementation
     ctx = backend.deserialize(tx_hex)
-    from index_core.blocks import quick_filter_src20_transaction
+    from index_core.transaction_utils import quick_filter_src20_transaction
 
     filter_result = quick_filter_src20_transaction(ctx)
     logger.info(f"Python quick filter result for transaction {target_txid}: {filter_result}")
 
     # Test the filter_block_transactions function
     logger.info("Testing filter_block_transactions function")
-    from index_core.blocks import filter_block_transactions
+    from index_core.block_validation import filter_block_transactions
 
     # Create a mock block_data structure
     block_data = {"tx": [{"txid": txid, "hex": raw_transactions[txid]} for txid in tx_hash_list]}

@@ -192,7 +192,7 @@ def test_enhanced_ctransaction():
         block_data = {"tx": [{"txid": txid, "hex": raw_transactions[txid]} for txid in tx_hash_list]}
 
         # Call filter_block_transactions
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
 
         filtered_tx_hash_list, filtered_raw_transactions = filter_block_transactions(block_data)
 

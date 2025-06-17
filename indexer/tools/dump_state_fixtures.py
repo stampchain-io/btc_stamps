@@ -33,9 +33,9 @@ import config as _cfg  # deferred import to avoid overhead when not needed
 from index_core.blocks import (
     backend_instance,
     fetch_xcp_blocks_concurrent,
-    filter_block_transactions,
-    process_tx,
 )
+from index_core.block_validation import filter_block_transactions
+from index_core.transaction_utils import process_tx
 from index_core.reparse.validator import InMemoryBlockProcessor  # type: ignore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

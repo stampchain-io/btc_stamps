@@ -28,11 +28,13 @@ import index_core.util as util
 from index_core.blocks import (
     BlockProcessor,
     backend_instance,
-    create_check_hashes,
     fetch_xcp_blocks_concurrent,
-    filter_block_transactions,
-    process_tx,
 )
+from index_core.block_validation import (
+    create_check_hashes,
+    filter_block_transactions,
+)
+from index_core.transaction_utils import process_tx
 
 # Load .env from project root, falling back to .env.sample
 root_dir = Path(__file__).resolve().parents[3]

@@ -42,7 +42,7 @@ class TestTransactionProcessing:
     def test_process_vout_with_multisig_output(self):
         """Test process_vout with multisig output containing stamp data"""
         # Import the function we're testing
-        from index_core.blocks import process_vout
+        from index_core.transaction_utils import process_vout
         
         # Create mock transaction context
         mock_vout = Mock()
@@ -75,7 +75,7 @@ class TestTransactionProcessing:
 
     def test_process_vout_with_op_return(self):
         """Test process_vout with OP_RETURN output"""
-        from index_core.blocks import process_vout
+        from index_core.transaction_utils import process_vout
         
         # Create mock OP_RETURN output
         mock_vout = Mock()
@@ -102,7 +102,7 @@ class TestTransactionProcessing:
 
     def test_process_vout_with_p2wsh_data_chunks(self):
         """Test process_vout collecting P2WSH data chunks"""
-        from index_core.blocks import process_vout
+        from index_core.transaction_utils import process_vout
         
         # Create mock P2WSH outputs
         mock_vout1 = Mock()
@@ -133,7 +133,7 @@ class TestTransactionProcessing:
 
     def test_decode_checkmultisig_valid_data(self):
         """Test decode_checkmultisig with valid encrypted data"""
-        from index_core.blocks import decode_checkmultisig
+        from index_core.transaction_utils import decode_checkmultisig
         
         # Create mock context
         mock_vin = Mock()
@@ -161,7 +161,7 @@ class TestTransactionProcessing:
 
     def test_decode_checkmultisig_invalid_prefix(self):
         """Test decode_checkmultisig with invalid prefix"""
-        from index_core.blocks import decode_checkmultisig
+        from index_core.transaction_utils import decode_checkmultisig
         from exceptions import DecodeError
         
         mock_ctx = Mock()
@@ -172,13 +172,13 @@ class TestTransactionProcessing:
 
     def test_get_tx_info_with_stamp_issuance(self):
         """Test get_tx_info with stamp issuance"""
-        from index_core.blocks import get_tx_info
+        from index_core.transaction_utils import get_tx_info
         
         # Mock transaction hex
         test_tx_hex = '0100000001...'  # Simplified hex
         
-        with patch('index_core.backend.backend_instance') as mock_backend, \
-             patch('index_core.blocks.process_vout') as mock_process_vout, \
+        with patch('index_core.transaction_utils.backend_instance') as mock_backend, \
+             patch('index_core.transaction_utils.process_vout') as mock_process_vout, \
              patch('index_core.util.CURRENT_BLOCK_INDEX', 900001), \
              patch('index_core.util.ib2h') as mock_ib2h:
             
@@ -214,13 +214,13 @@ class TestTransactionProcessing:
 
     def test_list_tx_valid_transaction(self):
         """Test list_tx with valid transaction"""
-        from index_core.blocks import list_tx
+        from index_core.transaction_utils import list_tx
         
         mock_db = Mock()
         test_tx_hash = 'test_hash'
         test_tx_hex = '0100000001...'
         
-        with patch('index_core.blocks.get_tx_info') as mock_get_tx_info, \
+        with patch('index_core.transaction_utils.get_tx_info') as mock_get_tx_info, \
              patch('index_core.util.CURRENT_BLOCK_INDEX', 900001):
             
             # Mock get_tx_info result
@@ -245,13 +245,13 @@ class TestTransactionProcessing:
 
     def test_list_tx_no_data_transaction(self):
         """Test list_tx with transaction that has no relevant data"""
-        from index_core.blocks import list_tx
+        from index_core.transaction_utils import list_tx
         
         mock_db = Mock()
         test_tx_hash = 'test_hash'
         test_tx_hex = '0100000001...'
         
-        with patch('index_core.blocks.get_tx_info') as mock_get_tx_info, \
+        with patch('index_core.transaction_utils.get_tx_info') as mock_get_tx_info, \
              patch('index_core.util.CURRENT_BLOCK_INDEX', 900001):
             
             # Mock get_tx_info to return None (no relevant data)
@@ -264,7 +264,7 @@ class TestTransactionProcessing:
 
     def test_process_tx_with_matching_issuance(self):
         """Test process_tx with matching stamp issuance"""
-        from index_core.blocks import process_tx
+        from index_core.transaction_utils import process_tx
         
         mock_db = Mock()
         test_tx_hash = 'test_hash'
@@ -277,7 +277,7 @@ class TestTransactionProcessing:
         ]
         raw_transactions = {test_tx_hash: '0100000001...'}
         
-        with patch('index_core.blocks.list_tx') as mock_list_tx, \
+        with patch('index_core.transaction_utils.list_tx') as mock_list_tx, \
              patch('index_core.fetch_utils.find_issuance_by_tx_hash') as mock_find_issuance:
             
             # Mock list_tx result
@@ -299,7 +299,7 @@ class TestTransactionProcessing:
 
     def test_quick_filter_src20_transaction_valid_p2wsh(self):
         """Test quick_filter_src20_transaction with valid P2WSH transaction"""
-        from index_core.blocks import quick_filter_src20_transaction
+        from index_core.transaction_utils import quick_filter_src20_transaction
         
         # Mock transaction context with P2WSH output
         mock_vout = Mock()
@@ -320,7 +320,7 @@ class TestTransactionProcessing:
 
     def test_quick_filter_src20_transaction_valid_multisig(self):
         """Test quick_filter_src20_transaction with valid multisig transaction"""
-        from index_core.blocks import quick_filter_src20_transaction
+        from index_core.transaction_utils import quick_filter_src20_transaction
         
         # Mock transaction context with multisig output
         mock_vout = Mock()
@@ -350,7 +350,7 @@ class TestTransactionProcessing:
 
     def test_quick_filter_src20_transaction_invalid(self):
         """Test quick_filter_src20_transaction with invalid transaction"""
-        from index_core.blocks import quick_filter_src20_transaction
+        from index_core.transaction_utils import quick_filter_src20_transaction
         
         # Mock transaction context with regular P2PKH output
         mock_vout = Mock()
@@ -378,12 +378,12 @@ class TestTransactionProcessingErrorHandling:
 
     def test_get_tx_info_decode_error(self):
         """Test get_tx_info handling DecodeError"""
-        from index_core.blocks import get_tx_info
+        from index_core.transaction_utils import get_tx_info
         from exceptions import DecodeError
         
         test_tx_hex = 'invalid_hex'
         
-        with patch('index_core.backend.backend_instance') as mock_backend:
+        with patch('index_core.transaction_utils.backend_instance') as mock_backend:
             # Mock backend to raise DecodeError
             mock_backend.deserialize.side_effect = DecodeError("Invalid transaction")
             
@@ -392,7 +392,7 @@ class TestTransactionProcessingErrorHandling:
 
     def test_decode_checkmultisig_data_length_error(self):
         """Test decode_checkmultisig with insufficient data length"""
-        from index_core.blocks import decode_checkmultisig
+        from index_core.transaction_utils import decode_checkmultisig
         from exceptions import DecodeError
         
         mock_ctx = Mock()
@@ -404,12 +404,12 @@ class TestTransactionProcessingErrorHandling:
 
     def test_process_tx_exception_handling(self):
         """Test process_tx exception handling"""
-        from index_core.blocks import process_tx
+        from index_core.transaction_utils import process_tx
         
         mock_db = Mock()
         test_tx_hash = 'test_hash'
         
-        with patch('index_core.blocks.list_tx') as mock_list_tx:
+        with patch('index_core.transaction_utils.list_tx') as mock_list_tx:
             # Mock list_tx to raise exception
             mock_list_tx.side_effect = Exception("Database error")
             
@@ -426,7 +426,7 @@ class TestTransactionProcessingEdgeCases:
 
     def test_process_vout_empty_vouts(self):
         """Test process_vout with transaction having no outputs"""
-        from index_core.blocks import process_vout
+        from index_core.transaction_utils import process_vout
         
         mock_ctx = Mock()
         mock_ctx.vout = []
@@ -440,7 +440,7 @@ class TestTransactionProcessingEdgeCases:
 
     def test_quick_filter_with_dict_context(self):
         """Test quick_filter_src20_transaction with dict context instead of CTransaction"""
-        from index_core.blocks import quick_filter_src20_transaction
+        from index_core.transaction_utils import quick_filter_src20_transaction
         
         # Test with dict-style context (as might come from different sources)
         dict_ctx = {

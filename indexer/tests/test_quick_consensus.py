@@ -8,9 +8,9 @@ import pytest
 
 from index_core import check as check_mod
 from index_core.blocks import backend_instance  # noqa: F401  (used in live mode)
-from index_core.blocks import create_check_hashes  # noqa: F401
+from index_core.block_validation import create_check_hashes  # noqa: F401
 from index_core.blocks import fetch_xcp_blocks_concurrent  # noqa: F401
-from index_core.blocks import filter_block_transactions  # noqa: F401
+from index_core.block_validation import filter_block_transactions  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Helpers

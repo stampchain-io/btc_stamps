@@ -46,7 +46,7 @@ class TestBlockValidation:
 
     def test_create_check_hashes_function_exists(self):
         """Test that create_check_hashes function exists and is callable"""
-        from index_core.blocks import create_check_hashes
+        from index_core.block_validation import create_check_hashes
         
         # Test that the function exists and is callable
         assert callable(create_check_hashes)
@@ -63,7 +63,7 @@ class TestBlockValidation:
 
     def test_create_check_hashes_accepts_previous_hashes(self):
         """Test create_check_hashes accepts previous hash parameters"""
-        from index_core.blocks import create_check_hashes
+        from index_core.block_validation import create_check_hashes
         
         import inspect
         sig = inspect.signature(create_check_hashes)
@@ -76,7 +76,7 @@ class TestBlockValidation:
 
     def test_create_check_hashes_empty_inputs(self):
         """Test create_check_hashes with empty inputs"""
-        from index_core.blocks import create_check_hashes
+        from index_core.block_validation import create_check_hashes
         
         mock_db = Mock()
         
@@ -96,7 +96,7 @@ class TestBlockValidation:
 
     def test_create_check_hashes_database_error(self):
         """Test create_check_hashes with database update error"""
-        from index_core.blocks import create_check_hashes
+        from index_core.block_validation import create_check_hashes
         from index_core.exceptions import BlockUpdateError
         
         mock_db = Mock()
@@ -119,7 +119,7 @@ class TestBlockValidation:
 
     def test_create_check_hashes_stamp_sorting(self):
         """Test create_check_hashes properly sorts stamps by stamp_number"""
-        from index_core.blocks import create_check_hashes
+        from index_core.block_validation import create_check_hashes
         
         mock_db = Mock()
         
@@ -150,7 +150,7 @@ class TestBlockValidation:
 
     def test_validate_block_against_production_disabled(self):
         """Test validate_block_against_production with DEBUG_VALIDATION disabled"""
-        from index_core.blocks import validate_block_against_production
+        from index_core.block_validation import validate_block_against_production
         
         config.DEBUG_VALIDATION = False
         
@@ -161,7 +161,7 @@ class TestBlockValidation:
 
     def test_validate_block_against_production_success(self):
         """Test validate_block_against_production with successful validation"""
-        from index_core.blocks import validate_block_against_production
+        from index_core.block_validation import validate_block_against_production
         
         config.DEBUG_VALIDATION = True
         
@@ -185,7 +185,7 @@ class TestBlockValidation:
 
     def test_validate_block_against_production_failure(self):
         """Test validate_block_against_production with validation failure"""
-        from index_core.blocks import validate_block_against_production
+        from index_core.block_validation import validate_block_against_production
         
         config.DEBUG_VALIDATION = True
         
@@ -208,7 +208,7 @@ class TestBlockValidation:
 
     def test_validate_block_against_production_shutdown_during_validation(self):
         """Test validate_block_against_production with shutdown during validation"""
-        from index_core.blocks import validate_block_against_production
+        from index_core.block_validation import validate_block_against_production
         
         config.DEBUG_VALIDATION = True
         
@@ -233,7 +233,7 @@ class TestBlockValidation:
 
     def test_validate_block_against_production_script_not_found(self):
         """Test validate_block_against_production with missing script"""
-        from index_core.blocks import validate_block_against_production
+        from index_core.block_validation import validate_block_against_production
         
         config.DEBUG_VALIDATION = True
         
@@ -247,7 +247,7 @@ class TestBlockValidation:
 
     def test_filter_block_transactions_pre_genesis(self):
         """Test filter_block_transactions with pre-genesis block"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         # Mock block data with transactions
         block_data = {
@@ -280,7 +280,7 @@ class TestBlockValidation:
 
     def test_filter_block_transactions_post_genesis_with_rust_parser(self):
         """Test filter_block_transactions post-genesis with Rust parser"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         # Mock block data
         block_data = {
@@ -292,7 +292,7 @@ class TestBlockValidation:
         }
         
         with patch('index_core.util.CURRENT_BLOCK_INDEX', 900001), \
-             patch('index_core.backend.backend_instance') as mock_backend:
+             patch('index_core.block_validation.backend_instance') as mock_backend:
             
             # Mock Rust parser availability
             mock_backend._parser = Mock()  # Rust parser available
@@ -311,7 +311,7 @@ class TestBlockValidation:
 
     def test_filter_block_transactions_post_genesis_without_rust_parser(self):
         """Test filter_block_transactions post-genesis without Rust parser (Python fallback)"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         # Mock block data
         mock_tx1 = Mock(txid='tx1', hex='hex1')
@@ -350,7 +350,7 @@ class TestBlockValidation:
 
     def test_filter_block_transactions_empty_block(self):
         """Test filter_block_transactions with empty block"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         block_data = {'tx': []}
         
@@ -363,7 +363,7 @@ class TestBlockValidation:
 
     def test_filter_block_transactions_with_stamp_issuances_post_genesis(self):
         """Test filter_block_transactions post-genesis with stamp issuances"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         block_data = {
             'tx': [
@@ -377,7 +377,7 @@ class TestBlockValidation:
         ]
         
         with patch('index_core.util.CURRENT_BLOCK_INDEX', 900001), \
-             patch('index_core.backend.backend_instance') as mock_backend:
+             patch('index_core.block_validation.backend_instance') as mock_backend:
             
             # Mock Rust parser returning only tx2
             mock_backend._parser = Mock()
@@ -391,7 +391,7 @@ class TestBlockValidation:
 
     def test_filter_block_transactions_malformed_transaction(self):
         """Test filter_block_transactions with malformed transaction data"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         # Mock transaction without required attributes
         mock_bad_tx = Mock()
@@ -406,7 +406,7 @@ class TestBlockValidation:
         }
         
         with patch('index_core.util.CURRENT_BLOCK_INDEX', 900001), \
-             patch('index_core.backend.backend_instance') as mock_backend:
+             patch('index_core.block_validation.backend_instance') as mock_backend:
             
             mock_backend._parser = None
             mock_backend.deserialize.side_effect = [Mock(), Exception("Bad tx"), Mock()]
@@ -427,7 +427,7 @@ class TestBlockValidationEdgeCases:
 
     def test_create_check_hashes_with_none_stamps(self):
         """Test create_check_hashes with None in stamps list"""
-        from index_core.blocks import create_check_hashes
+        from index_core.block_validation import create_check_hashes
         
         mock_db = Mock()
         
@@ -454,7 +454,7 @@ class TestBlockValidationEdgeCases:
 
     def test_filter_block_transactions_current_block_index_none(self):
         """Test filter_block_transactions when CURRENT_BLOCK_INDEX is None"""
-        from index_core.blocks import filter_block_transactions
+        from index_core.block_validation import filter_block_transactions
         
         block_data = {
             'tx': [Mock(txid='tx1', hex='hex1')]
@@ -470,7 +470,7 @@ class TestBlockValidationEdgeCases:
 
     def test_validate_block_against_production_process_exception(self):
         """Test validate_block_against_production with subprocess exception"""
-        from index_core.blocks import validate_block_against_production
+        from index_core.block_validation import validate_block_against_production
         
         config.DEBUG_VALIDATION = True
         

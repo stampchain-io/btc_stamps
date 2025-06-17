@@ -29,7 +29,7 @@ import config  # Import config directly, not from index_core
 from index_core import arc4
 from index_core import backend as backend_module
 from index_core import script
-from index_core.blocks import quick_filter_src20_transaction
+from index_core.transaction_utils import quick_filter_src20_transaction
 from index_core.exceptions import DecodeError
 
 # Try to import Rust parser

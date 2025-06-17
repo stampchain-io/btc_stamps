@@ -11,7 +11,7 @@ import config
 import index_core.script as script
 from index_core.arc4 import arc4_decrypt_chunk, init_arc4
 from index_core.backend import Backend
-from index_core.blocks import quick_filter_src20_transaction
+from index_core.transaction_utils import quick_filter_src20_transaction
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
