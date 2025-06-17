@@ -167,6 +167,7 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_market_data_source_tracking.py",
             "tests/test_source_reliability_service.py",  # Source reliability tracking system tests
             "tests/test_src20_multi_source_aggregation.py",
+            "tests/test_src20_advanced_aggregation.py",  # Advanced aggregation features for Task 9
             "tests/test_holder_cache_fix.py",
             # Reparse functionality tests
             "tests/test_reparse_snapshot.py",
