@@ -419,6 +419,20 @@ class TestTransactionProcessingErrorHandling:
 
         with pytest.raises(DecodeError):
             decode_checkmultisig(mock_ctx, test_chunk)
+    
+    def test_decode_checkmultisig_no_inputs(self):
+        """Test decode_checkmultisig with transaction that has no inputs"""
+        from exceptions import DecodeError
+        from index_core.transaction_utils import decode_checkmultisig
+
+        mock_ctx = Mock()
+        mock_ctx.vin = []  # Empty inputs (like coinbase transaction)
+        
+        # Valid chunk structure but no inputs for ARC4 key
+        test_chunk = config.PREFIX + b"\x20" + b"A" * 32 + b"\x00\x00\x00\x41" + b"test_data"
+
+        with pytest.raises(DecodeError, match="Transaction has no inputs for ARC4 key"):
+            decode_checkmultisig(mock_ctx, test_chunk)
 
     def test_process_tx_exception_handling(self):
         """Test process_tx exception handling"""

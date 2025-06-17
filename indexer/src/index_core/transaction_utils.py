@@ -268,6 +268,10 @@ def decode_checkmultisig(ctx, chunk):
 
     # Decrypt data using ARC4
     try:
+        # Check if transaction has inputs
+        if not ctx.vin:
+            raise DecodeError("Transaction has no inputs for ARC4 key")
+        
         # Use first input hash as key
         key_hash = ctx.vin[0].prevout.hash
         arc4_key = arc4.init_arc4(key_hash)
