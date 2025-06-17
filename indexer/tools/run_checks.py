@@ -181,6 +181,8 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_pipeline_executor_lifecycle.py",
             # Fallback mode functionality tests
             "tests/test_fallback_mode.py",
+            # Server module tests
+            "tests/test_server.py",
             # Fallback mode integration tests for blocks.py
             "tests/test_blocks_fallback_integration.py",
             # Transaction processing function tests (refactored modules)
@@ -202,6 +204,8 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_async_upload_comprehensive.py",  # Async upload functionality tests
             # Market data scheduler flag tests
             "tests/test_market_data_scheduler_flag.py",  # Market data scheduler configuration flag tests
+            # Database operations tests
+            "tests/test_database.py",  # Database.py operations tests
         ]
 
         for test_file in test_files:
