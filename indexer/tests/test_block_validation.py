@@ -102,8 +102,7 @@ class TestBlockValidation:
         mock_db = Mock()
         
         with patch('index_core.check.consensus_hash') as mock_consensus_hash, \
-             patch('index_core.database.update_block_hashes') as mock_update_hashes, \
-             patch('sys.exit') as mock_exit:
+             patch('index_core.database.update_block_hashes') as mock_update_hashes:
             
             mock_consensus_hash.side_effect = [
                 ('hash2', 'found_txlist'),
@@ -112,10 +111,9 @@ class TestBlockValidation:
             ]
             mock_update_hashes.side_effect = BlockUpdateError("Database update failed")
             
-            create_check_hashes(mock_db, 900001, [], [], [])
-            
-            # Should call sys.exit on database error
-            mock_exit.assert_called_once_with(1)
+            # Should raise SystemExit instead of calling sys.exit
+            with pytest.raises(SystemExit):
+                create_check_hashes(mock_db, 900001, [], [], [])
 
     def test_create_check_hashes_stamp_sorting(self):
         """Test create_check_hashes properly sorts stamps by stamp_number"""
@@ -172,11 +170,11 @@ class TestBlockValidation:
         
         with patch('subprocess.Popen') as mock_popen, \
              patch('os.path.exists') as mock_exists, \
-             patch('index_core.server.shutdown_flag') as mock_shutdown_flag:
+             patch('index_core.node_health.is_shutdown_requested') as mock_is_shutdown:
             
             mock_popen.return_value = mock_process
             mock_exists.return_value = True  # Script exists
-            mock_shutdown_flag.is_set.return_value = False  # Not shutting down
+            mock_is_shutdown.return_value = False  # Not shutting down
             
             result = validate_block_against_production(900001)
             
@@ -196,11 +194,11 @@ class TestBlockValidation:
         
         with patch('subprocess.Popen') as mock_popen, \
              patch('os.path.exists') as mock_exists, \
-             patch('index_core.server.shutdown_flag') as mock_shutdown_flag:
+             patch('index_core.node_health.is_shutdown_requested') as mock_is_shutdown:
             
             mock_popen.return_value = mock_process
             mock_exists.return_value = True
-            mock_shutdown_flag.is_set.return_value = False
+            mock_is_shutdown.return_value = False
             
             result = validate_block_against_production(900001)
             
@@ -219,12 +217,12 @@ class TestBlockValidation:
         
         with patch('subprocess.Popen') as mock_popen, \
              patch('os.path.exists') as mock_exists, \
-             patch('index_core.server.shutdown_flag') as mock_shutdown_flag, \
+             patch('index_core.node_health.is_shutdown_requested') as mock_is_shutdown, \
              patch('time.sleep'):  # Mock sleep to speed up test
             
             mock_popen.return_value = mock_process
             mock_exists.return_value = True
-            mock_shutdown_flag.is_set.side_effect = [False, True]  # Shutdown requested
+            mock_is_shutdown.side_effect = [False, True]  # Shutdown requested
             
             result = validate_block_against_production(900001)
             
@@ -252,9 +250,9 @@ class TestBlockValidation:
         # Mock block data with transactions
         block_data = {
             'tx': [
-                Mock(txid='tx1', hex='hex1'),
-                Mock(txid='tx2', hex='hex2'),
-                Mock(txid='tx3', hex='hex3'),
+                {'txid': 'tx1', 'hex': 'hex1'},
+                {'txid': 'tx2', 'hex': 'hex2'},
+                {'txid': 'tx3', 'hex': 'hex3'},
             ]
         }
         
@@ -285,9 +283,9 @@ class TestBlockValidation:
         # Mock block data
         block_data = {
             'tx': [
-                Mock(txid='tx1', hex='hex1'),
-                Mock(txid='tx2', hex='hex2'),
-                Mock(txid='tx3', hex='hex3'),
+                {'txid': 'tx1', 'hex': 'hex1'},
+                {'txid': 'tx2', 'hex': 'hex2'},
+                {'txid': 'tx3', 'hex': 'hex3'},
             ]
         }
         
@@ -295,11 +293,16 @@ class TestBlockValidation:
              patch('index_core.block_validation.backend_instance') as mock_backend:
             
             # Mock Rust parser availability
-            mock_backend._parser = Mock()  # Rust parser available
-            mock_backend.filter_mempool_transactions.return_value = {
-                'tx1': 'hex1',
-                'tx3': 'hex3'
-            }
+            mock_parser = Mock()
+            mock_backend._parser = mock_parser
+            
+            # Mock parsed transactions with txid attributes
+            mock_tx1 = Mock()
+            mock_tx1.txid = 'tx1'
+            mock_tx3 = Mock()
+            mock_tx3.txid = 'tx3'
+            
+            mock_parser.batch_parse_transactions.return_value = [mock_tx1, mock_tx3]
             
             tx_hash_list, raw_transactions = filter_block_transactions(block_data)
             
@@ -307,24 +310,24 @@ class TestBlockValidation:
             assert raw_transactions == {'tx1': 'hex1', 'tx3': 'hex3'}
             
             # Verify Rust parser was used
-            mock_backend.filter_mempool_transactions.assert_called_once()
+            mock_parser.batch_parse_transactions.assert_called_once()
 
     def test_filter_block_transactions_post_genesis_without_rust_parser(self):
         """Test filter_block_transactions post-genesis without Rust parser (Python fallback)"""
         from index_core.block_validation import filter_block_transactions
         
         # Mock block data
-        mock_tx1 = Mock(txid='tx1', hex='hex1')
-        mock_tx2 = Mock(txid='tx2', hex='hex2')
-        mock_tx3 = Mock(txid='tx3', hex='hex3')
-        
         block_data = {
-            'tx': [mock_tx1, mock_tx2, mock_tx3]
+            'tx': [
+                {'txid': 'tx1', 'hex': 'hex1'},
+                {'txid': 'tx2', 'hex': 'hex2'},
+                {'txid': 'tx3', 'hex': 'hex3'},
+            ]
         }
         
         with patch('index_core.util.CURRENT_BLOCK_INDEX', 900001), \
-             patch('index_core.backend.backend_instance') as mock_backend, \
-             patch('index_core.blocks.quick_filter_src20_transaction') as mock_filter:
+             patch('index_core.block_validation.backend_instance') as mock_backend, \
+             patch('index_core.transaction_utils.quick_filter_src20_transaction') as mock_filter:
             
             # Mock no Rust parser available
             mock_backend._parser = None
@@ -367,8 +370,8 @@ class TestBlockValidation:
         
         block_data = {
             'tx': [
-                Mock(txid='tx1', hex='hex1'),
-                Mock(txid='tx2', hex='hex2'),
+                {'txid': 'tx1', 'hex': 'hex1'},
+                {'txid': 'tx2', 'hex': 'hex2'},
             ]
         }
         
@@ -380,8 +383,11 @@ class TestBlockValidation:
              patch('index_core.block_validation.backend_instance') as mock_backend:
             
             # Mock Rust parser returning only tx2
-            mock_backend._parser = Mock()
-            mock_backend.filter_mempool_transactions.return_value = {'tx2': 'hex2'}
+            mock_parser = Mock()
+            mock_backend._parser = mock_parser
+            mock_tx2 = Mock()
+            mock_tx2.txid = 'tx2'
+            mock_parser.batch_parse_transactions.return_value = [mock_tx2]
             
             tx_hash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances)
             
@@ -399,9 +405,9 @@ class TestBlockValidation:
         
         block_data = {
             'tx': [
-                Mock(txid='tx1', hex='hex1'),
+                {'txid': 'tx1', 'hex': 'hex1'},
                 mock_bad_tx,  # This should be handled gracefully
-                Mock(txid='tx3', hex='hex3'),
+                {'txid': 'tx3', 'hex': 'hex3'},
             ]
         }
         
@@ -411,7 +417,7 @@ class TestBlockValidation:
             mock_backend._parser = None
             mock_backend.deserialize.side_effect = [Mock(), Exception("Bad tx"), Mock()]
             
-            with patch('index_core.blocks.quick_filter_src20_transaction') as mock_filter:
+            with patch('index_core.transaction_utils.quick_filter_src20_transaction') as mock_filter:
                 mock_filter.side_effect = [True, True]  # Only called for valid txs
                 
                 tx_hash_list, raw_transactions = filter_block_transactions(block_data)
@@ -457,7 +463,7 @@ class TestBlockValidationEdgeCases:
         from index_core.block_validation import filter_block_transactions
         
         block_data = {
-            'tx': [Mock(txid='tx1', hex='hex1')]
+            'tx': [{'txid': 'tx1', 'hex': 'hex1'}]
         }
         
         with patch('index_core.util.CURRENT_BLOCK_INDEX', None):

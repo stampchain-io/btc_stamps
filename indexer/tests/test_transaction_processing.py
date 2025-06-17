@@ -30,8 +30,8 @@ class TestTransactionProcessing:
         
         # Set test config values
         config.PREFIX = b'\x45\x4E\x44\x00'
-        config.BTC_SRC20_OLGA_BLOCK = 900000
-        config.BTC_SRC101_OLGA_BLOCK = 900000
+        config.BTC_SRC20_OLGA_BLOCK = 900002  # Set higher than test block to ensure is_olga is False
+        config.BTC_SRC101_OLGA_BLOCK = 900002
 
     def teardown_method(self):
         """Cleanup method run after each test."""
@@ -142,7 +142,7 @@ class TestTransactionProcessing:
         mock_ctx.vin = [mock_vin]
         
         # Test data with PREFIX
-        test_chunk = config.PREFIX + b'\x20' + b'A' * 32 + b'test_data'
+        test_chunk = config.PREFIX + b'\x20' + b'A' * 32 + b'\x00\x00\x00\x41' + b'test_data'
         
         with patch('index_core.arc4.init_arc4') as mock_init_arc4, \
              patch('index_core.arc4.arc4_decrypt_chunk') as mock_decrypt, \
@@ -156,7 +156,7 @@ class TestTransactionProcessing:
             destination, nvalue, data = decode_checkmultisig(mock_ctx, test_chunk)
             
             assert destination == 'test_address'
-            assert nvalue == 0x41414141  # 'AAAA' as uint32
+            assert nvalue == 0x41  # Should be 0x41 from the 4-byte value
             assert data == b'decrypted_data'
 
     def test_decode_checkmultisig_invalid_prefix(self):
@@ -339,6 +339,10 @@ class TestTransactionProcessing:
             mock_get_asm.return_value = ['OP_1', 'pubkey1', 'OP_1', 'OP_CHECKMULTISIG']
             mock_get_multisig.return_value = (['pubkey1'], 1, 546)  # Has keyburn
             mock_get_p2wsh.return_value = []
+            
+            # Add mock vin for context
+            mock_ctx.vin = [Mock()]
+            mock_ctx.vin[0].prevout.hash = b'\x12\x34' * 16
             
             # Mock successful decryption with PREFIX
             mock_init_arc4.return_value = 'test_key'
