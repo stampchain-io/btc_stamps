@@ -48,35 +48,25 @@ def clear_database(block_index, db_host=None, db_user=None, db_password=None, db
 
         # Core tables
         print("Clearing transactions table...")
-        cursor.execute(
-            f"DELETE FROM transactions WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM transactions WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from transactions")
 
         print("Clearing blocks table...")
-        cursor.execute(
-            f"DELETE FROM blocks WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM blocks WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from blocks")
 
         # Stamp related
         print("Clearing StampTableV4 table...")
-        cursor.execute(
-            f"DELETE FROM StampTableV4 WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM StampTableV4 WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from StampTableV4")
 
         # SRC20 related
         print("Clearing SRC20 table...")
-        cursor.execute(
-            f"DELETE FROM SRC20 WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM SRC20 WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC20")
 
         print("Clearing SRC20Valid table...")
-        cursor.execute(
-            f"DELETE FROM SRC20Valid WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM SRC20Valid WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC20Valid")
 
         print("Clearing balances table...")
@@ -85,27 +75,19 @@ def clear_database(block_index, db_host=None, db_user=None, db_password=None, db
 
         # SRC101 related
         print("Clearing SRC101 table...")
-        cursor.execute(
-            f"DELETE FROM SRC101 WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM SRC101 WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC101")
 
         print("Clearing SRC101Valid table...")
-        cursor.execute(
-            f"DELETE FROM SRC101Valid WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM SRC101Valid WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC101Valid")
 
         print("Clearing src101price table...")
-        cursor.execute(
-            f"DELETE FROM src101price WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM src101price WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from src101price")
 
         print("Clearing recipients table...")
-        cursor.execute(
-            f"DELETE FROM recipients WHERE block_index >= {block_index};"
-        )  # nosec B608 - block_index is validated as int by argparse
+        cursor.execute(f"DELETE FROM recipients WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from recipients")
 
         print("Clearing owners table...")

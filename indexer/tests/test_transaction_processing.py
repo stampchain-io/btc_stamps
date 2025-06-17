@@ -378,64 +378,84 @@ class TestTransactionProcessing:
             assert result.source == "source"
             assert result.destination == "dest"
 
-    @pytest.mark.skip(reason="Complex original logic requires deep Bitcoin script understanding")
     def test_quick_filter_src20_transaction_valid_p2wsh(self):
         """Test quick_filter_src20_transaction with valid P2WSH transaction"""
         from index_core.transaction_utils import quick_filter_src20_transaction
 
-        # Mock transaction context with P2WSH output
+        # Create P2WSH output with correct format
+        # P2WSH script: 0x00 0x20 <32-byte-hash>
+        # Include the STAMP prefix in the data
+        p2wsh_data = config.PREFIX + b"test_src20_data"
+        # Pad to 32 bytes
+        p2wsh_data_padded = p2wsh_data + b"\x00" * (32 - len(p2wsh_data))
+
+        # Create the scriptPubKey
         mock_vout = Mock()
-        mock_vout.scriptPubKey = b"\x00\x20" + b"\x12\x34" * 16  # P2WSH script
+        mock_vout.scriptPubKey = Mock()
+        # P2WSH format: 0x00 0x20 followed by 32 bytes of data
+        script_hex = "0020" + p2wsh_data_padded.hex()
+        mock_vout.scriptPubKey.hex = Mock(return_value=script_hex)
 
         mock_ctx = Mock()
         mock_ctx.vout = [mock_vout]
         mock_ctx.GetHash = Mock(return_value=b"test_tx_hash")
 
-        with patch("index_core.script.get_asm") as mock_get_asm, patch("index_core.script.get_p2wsh") as mock_get_p2wsh:
+        result = quick_filter_src20_transaction(mock_ctx)
 
-            mock_get_asm.return_value = ["OP_0", "0" * 64]  # 32-byte hash as hex string
-            mock_get_p2wsh.return_value = ["data_chunk"]
+        # Should return True because it found P2WSH pattern with STAMP prefix
+        assert result is True
 
-            result = quick_filter_src20_transaction(mock_ctx)
-
-            assert result is True
-
-    @pytest.mark.skip(reason="Complex original logic requires deep Bitcoin script understanding")
     def test_quick_filter_src20_transaction_valid_multisig(self):
         """Test quick_filter_src20_transaction with valid multisig transaction"""
         from index_core.transaction_utils import quick_filter_src20_transaction
 
-        # Mock transaction context with multisig output
+        # Create multisig output - ends with 0xAE (OP_CHECKMULTISIG)
         mock_vout = Mock()
-        mock_vout.scriptPubKey = b"\x51\x41\x04..."  # Multisig script
+        mock_vout.scriptPubKey = Mock()
+        # Create a valid multisig script ending with 0xAE
+        # Format: OP_1 <pubkey> <pubkey> OP_2 OP_CHECKMULTISIG
+        script_hex = "5141044e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d41044d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d4e4d52ae"
+        mock_vout.scriptPubKey.hex = Mock(return_value=script_hex)
 
         mock_ctx = Mock()
         mock_ctx.vout = [mock_vout]
+        mock_ctx.GetHash = Mock(return_value=b"test_tx_hash")
+
+        # Add mock vin for ARC4 decryption
+        mock_vin = Mock()
+        mock_vin.prevout.hash = b"\x12\x34" * 16
+        mock_ctx.vin = [mock_vin]
 
         with patch("index_core.script.get_asm") as mock_get_asm, patch(
             "index_core.script.get_checkmultisig"
-        ) as mock_get_multisig, patch("index_core.script.get_p2wsh") as mock_get_p2wsh, patch(
-            "index_core.arc4.init_arc4"
-        ) as mock_init_arc4, patch(
+        ) as mock_get_multisig, patch("index_core.arc4.init_arc4") as mock_init_arc4, patch(
             "index_core.arc4.arc4_decrypt_chunk"
         ) as mock_decrypt:
 
             # Setup mocks for valid multisig with keyburn
-            mock_get_asm.return_value = ["OP_1", "pubkey1", "OP_1", "OP_CHECKMULTISIG"]
-            mock_get_multisig.return_value = (["pubkey1"], 1, 546)  # Has keyburn
-            mock_get_p2wsh.return_value = []
+            mock_get_asm.return_value = ["OP_1", "pubkey1", "pubkey2", "OP_2", "OP_CHECKMULTISIG"]
+            mock_get_multisig.return_value = (
+                [b"\x41" + b"pubkey1_data" + b"\x41", b"\x41" + b"pubkey2_data" + b"\x41"],
+                1,
+                1,
+            )  # keyburn = 1
 
-            # Add mock vin for context
-            mock_ctx.vin = [Mock()]
-            mock_ctx.vin[0].prevout.hash = b"\x12\x34" * 16
+            # Mock successful decryption with proper format:
+            # 2-byte length + PREFIX + data
+            decrypted_data = b"test_data"
+            chunk_length = len(config.PREFIX) + len(decrypted_data)
+            decrypted_chunk = chunk_length.to_bytes(2, "big") + config.PREFIX + decrypted_data
 
-            # Mock successful decryption with PREFIX
             mock_init_arc4.return_value = "test_key"
-            mock_decrypt.return_value = config.PREFIX + b"test_data"
+            mock_decrypt.return_value = decrypted_chunk
 
             result = quick_filter_src20_transaction(mock_ctx)
 
+            # Should return True because it found valid multisig with keyburn and valid data
             assert result is True
+
+            # Verify ARC4 was initialized with reversed hash
+            mock_init_arc4.assert_called_once_with(mock_vin.prevout.hash[::-1])
 
     def test_quick_filter_src20_transaction_invalid(self):
         """Test quick_filter_src20_transaction with invalid transaction"""

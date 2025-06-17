@@ -155,6 +155,9 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_src20_validator.py",
             "tests/test_src20.py",
             "tests/test_high_risk_src20.py",  # Comprehensive high-risk SRC-20 test suite
+            "tests/test_src20_edge_cases.py",  # Edge case coverage for SRC-20 implementation
+            "tests/test_src20_ledger_validation.py",  # Ledger validation and consensus testing
+            "tests/test_src20_database_transactions.py",  # Database transaction atomicity testing
             "tests/test_config.py",
             "tests/test_zlib_compression.py",  # Zlib compression/decompression functionality tests
             "tests/test_database_manager.py",  # DatabaseManager connection pooling and operations tests
