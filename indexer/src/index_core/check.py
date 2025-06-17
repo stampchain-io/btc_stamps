@@ -308,21 +308,62 @@ def cp_version(log_connection=False):
         logger.warning("Could not determine Counterparty version: No healthy nodes available.")
         return None, None
 
-    first_node = healthy_nodes[0]
-    node_url = first_node.get("url")
-
-    if not node_url:
-        logger.warning(f"Could not determine Counterparty version: Healthy node {first_node.get('name')} has no URL.")
-        return None, None
-
-    version_string, version_info = fetch_node_version_v2(node_url)
-
-    if version_string and version_info:
-        logger.info(f"Connected to Counterparty node {first_node.get('name')}: version {version_string}")
-        return version_string, version_info
-    else:
-        logger.warning(f"Could not determine Counterparty version from node {first_node.get('name')}.")
-        return None, None
+    version_results = []
+    successful_connections = 0
+    
+    logger.info(f"Checking versions for {len(healthy_nodes)} healthy nodes...")
+    
+    for i, node in enumerate(healthy_nodes):
+        node_name = node.get("name", f"Node {i + 1}")
+        node_url = node.get("url")
+        
+        if not node_url:
+            logger.warning(f"Skipping {node_name}: No URL configured")
+            continue
+            
+        logger.info(f"Checking {node_name} ({node_url})...")
+        
+        version_string, version_info = fetch_node_version_v2(node_url)
+        
+        if version_string and version_info:
+            version_results.append({
+                'name': node_name,
+                'url': node_url,
+                'version_string': version_string,
+                'version_info': version_info,
+                'status': 'connected'
+            })
+            logger.info(f"✓ {node_name}: version {version_string}")
+            successful_connections += 1
+        else:
+            version_results.append({
+                'name': node_name,
+                'url': node_url,
+                'version_string': None,
+                'version_info': None,
+                'status': 'failed'
+            })
+            logger.warning(f"✗ {node_name}: Could not determine version")
+    
+    # Log summary
+    logger.info(f"Version check complete: {successful_connections}/{len(healthy_nodes)} nodes responded")
+    
+    if log_connection:
+        logger.info("=== Node Version Summary ===")
+        for result in version_results:
+            status_symbol = "✓" if result['status'] == 'connected' else "✗"
+            if result['status'] == 'connected':
+                logger.info(f"{status_symbol} {result['name']}: {result['version_string']}")
+            else:
+                logger.info(f"{status_symbol} {result['name']}: Connection failed")
+    
+    # Return the first successful connection for backward compatibility
+    for result in version_results:
+        if result['status'] == 'connected':
+            return result['version_string'], result['version_info']
+    
+    logger.warning("Could not determine Counterparty version: All node connections failed.")
+    return None, None
 
 
 def software_version():
