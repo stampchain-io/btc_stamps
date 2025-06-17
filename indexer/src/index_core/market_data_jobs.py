@@ -10,6 +10,7 @@ import concurrent.futures
 import logging
 import threading
 import time
+import unicodedata
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
@@ -342,21 +343,29 @@ class MarketDataJobScheduler:
                     openstamp_lookup = {}
                     for token_data in openstamp_tokens:
                         tick = token_data.get("name", "").upper()
-                        if tick:
+                        # Filter: Only process tokens <= 5 characters (SRC-20 spec)
+                        if tick and len(tick) <= 5:
                             openstamp_lookup[tick] = token_data
                     
                     openstamp_token_set = set(openstamp_lookup.keys())
                     logger.info(f"OpenStamp: Retrieved {len(openstamp_token_set)} tokens")
                     
-                    # Create case-insensitive mappings for matching
-                    database_tokens_upper = {token.upper(): token for token in database_tokens}
-                    openstamp_tokens_upper = set(openstamp_lookup.keys())  # Already uppercase
+                    # Create case-insensitive mappings for matching (with Unicode normalization)
+                    def normalize_token(token):
+                        """Normalize token for case-insensitive comparison, handling Unicode properly."""
+                        # Normalize Unicode (NFD decomposition)
+                        normalized = unicodedata.normalize('NFD', token)
+                        # Convert to uppercase
+                        return normalized.upper()
                     
-                    # Find intersection using case-insensitive matching
-                    matching_tokens_upper = database_tokens_upper.keys() & openstamp_tokens_upper
+                    database_tokens_normalized = {normalize_token(token): token for token in database_tokens}
+                    openstamp_tokens_normalized = {normalize_token(token): token for token in openstamp_lookup.keys()}
+                    
+                    # Find intersection using normalized matching
+                    matching_tokens_normalized = database_tokens_normalized.keys() & openstamp_tokens_normalized.keys()
                     
                     # Convert back to original database case for processing
-                    tokens_to_process = {database_tokens_upper[token_upper] for token_upper in matching_tokens_upper}
+                    tokens_to_process = {database_tokens_normalized[token_norm] for token_norm in matching_tokens_normalized}
                     
                     logger.info(f"🎯 Processing {len(tokens_to_process)} tokens (intersection of database and OpenStamp)")
                     logger.info(f"📊 Database tokens: {len(database_tokens)}")
@@ -382,6 +391,11 @@ class MarketDataJobScheduler:
                             market_data = src20_worker.transform_openstamp_data(token_data)
                             if market_data:
                                 market_data_service.update_src20_market_data(tick, market_data)
+                                
+                                # Store source tracking data for effectiveness analysis
+                                source_data = {"openstamp": market_data}
+                                src20_worker._store_source_data(tick, source_data)
+                                
                                 processed_count += 1
 
                                 if processed_count % 50 == 0:
