@@ -70,15 +70,19 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         with patch("index_core.pipeline_utils.backend_instance") as mock_backend, patch(
             "index_core.pipeline_utils.config.CP_STAMP_GENESIS_BLOCK", 100000
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
+            "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
+        ), patch(
             "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
+        ), patch.object(
+            CPBlocksPipeline, "wait_for_initial_blocks", return_value=True
         ):
 
             mock_backend.getblockcount.return_value = 100010
             mock_backend.invalidate_blockcount_cache.return_value = None
 
-            self.pipeline = CPBlocksPipeline(max_queue_size=10)
+            self.pipeline = CPBlocksPipeline(max_queue_size=10, fallback_mode=False)
 
             # Start the pipeline (this should not make real network calls)
             self.pipeline.start(start_block=100000)
@@ -141,15 +145,19 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         with patch("index_core.pipeline_utils.backend_instance") as mock_backend, patch(
             "index_core.pipeline_utils.config.CP_STAMP_GENESIS_BLOCK", 100000
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
+            "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
+        ), patch(
             "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
+        ), patch.object(
+            CPBlocksPipeline, "wait_for_initial_blocks", return_value=True
         ):
 
             mock_backend.getblockcount.return_value = 100010
             mock_backend.invalidate_blockcount_cache.return_value = None
 
-            self.pipeline = CPBlocksPipeline(max_queue_size=10)
+            self.pipeline = CPBlocksPipeline(max_queue_size=10, fallback_mode=False)
             self.pipeline.start(start_block=100000)
 
             time.sleep(0.1)
@@ -186,15 +194,19 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         with patch("index_core.pipeline_utils.backend_instance") as mock_backend, patch(
             "index_core.pipeline_utils.config.CP_STAMP_GENESIS_BLOCK", 100000
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
+            "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
+        ), patch(
             "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
+        ), patch.object(
+            CPBlocksPipeline, "wait_for_initial_blocks", return_value=True
         ):
 
             mock_backend.getblockcount.return_value = 100010
             mock_backend.invalidate_blockcount_cache.return_value = None
 
-            self.pipeline = CPBlocksPipeline(max_queue_size=10)
+            self.pipeline = CPBlocksPipeline(max_queue_size=10, fallback_mode=False)
             self.pipeline.start(start_block=100000)
 
             time.sleep(0.1)
@@ -238,15 +250,19 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         with patch("index_core.pipeline_utils.backend_instance") as mock_backend, patch(
             "index_core.pipeline_utils.config.CP_STAMP_GENESIS_BLOCK", 100000
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
+            "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
+        ), patch(
             "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
+        ), patch.object(
+            CPBlocksPipeline, "wait_for_initial_blocks", return_value=True
         ):
 
             mock_backend.getblockcount.return_value = 100010
             mock_backend.invalidate_blockcount_cache.return_value = None
 
-            self.pipeline = CPBlocksPipeline(max_queue_size=10)
+            self.pipeline = CPBlocksPipeline(max_queue_size=10, fallback_mode=False)
             self.pipeline.start(start_block=100000)
 
             time.sleep(0.1)

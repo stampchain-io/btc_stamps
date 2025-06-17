@@ -1217,9 +1217,15 @@ def follow(
 
         # Initialize CP blocks pipeline if enabled, using already fetched block_tip
         if cp_pipeline:
-            cp_pipeline_instance = CPBlocksPipeline(max_queue_size=200)
+            cp_pipeline_instance = CPBlocksPipeline(max_queue_size=200, fallback_mode=config.CP_FALLBACK_MODE)
             cp_pipeline_instance.start(block_index)
             stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
+
+            # Log fallback mode status
+            if config.CP_FALLBACK_MODE:
+                logger.info("Pipeline initialized with fallback mode enabled - will continue processing if CP nodes fail")
+            else:
+                logger.info("Pipeline initialized with strict mode - will stop if CP nodes fail")
 
         # Initialize market data job scheduler for time-based updates
         # Only start if not in single block mode or reparse mode

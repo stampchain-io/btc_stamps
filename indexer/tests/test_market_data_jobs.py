@@ -307,31 +307,32 @@ class TestMarketDataJobScheduler:
                 # Mock worker
                 mock_worker = Mock()
                 mock_worker_class.return_value = mock_worker
-                
+
                 # OpenStamp returns uppercase tokens
                 mock_worker.fetch_all_openstamp_data.return_value = [
                     {"name": "STAMP", "price": "100000000"},
                     {"name": "PEPE", "price": "50000000"},
                     {"name": "BIAO", "price": "75000000"},
                 ]
-                
+
                 # Mock transform to verify case handling
                 def transform_side_effect(token_data):
                     return {
                         "tick": token_data["name"],  # Keep uppercase from OpenStamp
-                        "price_btc": int(token_data["price"]) / 100000000
+                        "price_btc": int(token_data["price"]) / 100000000,
                     }
+
                 mock_worker.transform_openstamp_data.side_effect = transform_side_effect
-                
+
                 # Run the job
                 self.scheduler._update_src20_market_data_job()
-                
+
                 # Verify all tokens were processed with uppercase ticks
                 calls = mock_service.update_src20_market_data.call_args_list
                 processed_ticks = [call[0][0] for call in calls]
-                
+
                 assert "STAMP" in processed_ticks
-                assert "PEPE" in processed_ticks  
+                assert "PEPE" in processed_ticks
                 assert "BIAO" in processed_ticks
 
     def test_stamp_kucoin_case_matching(self):

@@ -171,6 +171,10 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_quick_consensus.py",
             # ThreadPoolExecutor lifecycle management tests
             "tests/test_pipeline_executor_lifecycle.py",
+            # Fallback mode functionality tests
+            "tests/test_fallback_mode.py",
+            # Fallback mode integration tests for blocks.py
+            "tests/test_blocks_fallback_integration.py",
             # SRC-20 thread safety and locking mechanism tests
             "tests/thread_safety/test_thread_safety.py",
             # Filesize tracking and utility function tests

@@ -280,6 +280,12 @@ DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ["SRC-721", "SRC-20", "SRC-101"]
 INVALID_BTC_STAMP_SUFFIX = ["plain", "octet-stream", "js", "css", "x-empty", "json"]
 
+# Pipeline Configuration
+CP_FALLBACK_MODE = os.environ.get("CP_FALLBACK_MODE", "true").lower() == "true"  # Enable fallback mode when CP nodes fail
+FALLBACK_STATE_DIR = os.environ.get(
+    "FALLBACK_STATE_DIR", os.path.join(os.path.dirname(__file__), "..", "data", "state")
+)  # Directory for fallback state persistence
+
 CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transaction on counterparty
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty
 BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP encoding
