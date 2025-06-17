@@ -271,7 +271,7 @@ def decode_checkmultisig(ctx, chunk):
         # Check if transaction has inputs
         if not ctx.vin:
             raise DecodeError("Transaction has no inputs for ARC4 key")
-        
+
         # Use first input hash as key
         key_hash = ctx.vin[0].prevout.hash
         arc4_key = arc4.init_arc4(key_hash)
@@ -322,18 +322,21 @@ def list_tx(db, block_index, tx_hash, tx_hex=None, stamp_issuance=None):
             # No relevant data found
             return (None,) * 11
 
+        # Return in the original order expected by process_tx
+        # Original list_tx returns: source, prev_tx_hash, destination, destination_nvalue,
+        # btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
         return (
-            tx_info.source,
-            tx_info.destination,
-            tx_info.btc_amount,
-            tx_info.fee,
-            tx_info.data,
-            tx_info.keyburn,
-            tx_info.tx_hash,
-            tx_info.op,
-            tx_info.tx_index,
-            tx_info.supported,
-            tx_info.tx_hex,
+            tx_info.source,          # source
+            None,                    # prev_tx_hash (not in refactored version)
+            tx_info.destination,     # destination
+            None,                    # destination_nvalue (not in refactored version)
+            tx_info.btc_amount,      # btc_amount
+            tx_info.fee,            # fee
+            tx_info.data,           # data
+            None,                    # decoded_tx (not in refactored version)
+            tx_info.keyburn,        # keyburn
+            None,                    # is_op_return (not in refactored version)
+            None,                    # p2wsh_data (not in refactored version)
         )
     except Exception as e:
         logger.error(f"Failed to process transaction {tx_hash}: {e}")
@@ -366,18 +369,45 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
         # Process transaction
         tx_data = list_tx(db, block_index, tx_hash, tx_hex, issuance)
 
+        # Convert generator to tuple if necessary (maintaining original behavior)
+        if hasattr(tx_data, '__iter__') and not isinstance(tx_data, (tuple, list)):
+            tx_data = tuple(tx_data)
+
+        # Check if tx_data is a valid tuple with 11 elements
+        if not isinstance(tx_data, tuple) or len(tx_data) != 11:
+            logger.error(f"Unexpected tx_data format for {tx_hash}: type={type(tx_data)}, len={len(tx_data) if hasattr(tx_data, '__len__') else 'N/A'}")
+            raise ValueError("Invalid tx_data format")
+
+        # Map the original list_tx return values to TxResult
+        # tx_data order: source, prev_tx_hash, destination, destination_nvalue,
+        # btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
         return TxResult(
-            source=tx_data[0],
-            destination=tx_data[1],
-            btc_amount=tx_data[2],
-            fee=tx_data[3],
-            data=tx_data[4],
-            keyburn=tx_data[5],
-            tx_hash=tx_data[6],
-            op=tx_data[7],
-            tx_index=tx_data[8],
-            supported=tx_data[9],
-            tx_hex=tx_data[10],
+            source=tx_data[0],         # source
+            destination=tx_data[2],    # destination (index 2, not 1)
+            btc_amount=tx_data[4],     # btc_amount (index 4, not 2)
+            fee=tx_data[5],           # fee (index 5, not 3)
+            data=tx_data[6],          # data (index 6, not 4)
+            keyburn=tx_data[8],       # keyburn (index 8, not 5)
+            tx_hash=tx_hash,          # Use the tx_hash parameter
+            op=None,                  # op (not in original list_tx)
+            tx_index=None,            # tx_index (not in original list_tx)
+            supported=True,           # Default to True
+            tx_hex=tx_hex,           # Use the tx_hex we already have
+        )
+    except IndexError as e:
+        logger.error(f"Failed to process transaction {tx_hash} - IndexError: {e}", exc_info=True)
+        return TxResult(
+            source=None,
+            destination=None,
+            btc_amount=None,
+            fee=None,
+            data=None,
+            keyburn=None,
+            tx_hash=tx_hash,
+            op=None,
+            tx_index=None,
+            supported=False,
+            tx_hex=None,
         )
     except Exception as e:
         logger.error(f"Failed to process transaction {tx_hash}: {e}")

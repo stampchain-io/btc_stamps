@@ -26,7 +26,7 @@ import json
 import csv
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional, Any
 import pymysql

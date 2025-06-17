@@ -311,8 +311,6 @@ def cp_version(log_connection=False):
     version_results = []
     successful_connections = 0
     
-    logger.info(f"Checking versions for {len(healthy_nodes)} healthy nodes...")
-    
     for i, node in enumerate(healthy_nodes):
         node_name = node.get("name", f"Node {i + 1}")
         node_url = node.get("url")
@@ -321,8 +319,6 @@ def cp_version(log_connection=False):
             logger.warning(f"Skipping {node_name}: No URL configured")
             continue
             
-        logger.info(f"Checking {node_name} ({node_url})...")
-        
         version_string, version_info = fetch_node_version_v2(node_url)
         
         if version_string and version_info:
@@ -333,7 +329,6 @@ def cp_version(log_connection=False):
                 'version_info': version_info,
                 'status': 'connected'
             })
-            logger.info(f"✓ {node_name}: version {version_string}")
             successful_connections += 1
         else:
             version_results.append({
@@ -343,19 +338,17 @@ def cp_version(log_connection=False):
                 'version_info': None,
                 'status': 'failed'
             })
-            logger.warning(f"✗ {node_name}: Could not determine version")
     
-    # Log summary
-    logger.info(f"Version check complete: {successful_connections}/{len(healthy_nodes)} nodes responded")
-    
-    if log_connection:
-        logger.info("=== Node Version Summary ===")
+    # Log clean summary
+    if successful_connections > 0:
+        logger.info(f"Counterparty nodes ({successful_connections}/{len(healthy_nodes)} connected):")
         for result in version_results:
-            status_symbol = "✓" if result['status'] == 'connected' else "✗"
             if result['status'] == 'connected':
-                logger.info(f"{status_symbol} {result['name']}: {result['version_string']}")
+                logger.info(f"  ✓ {result['name']}: {result['version_string']}")
             else:
-                logger.info(f"{status_symbol} {result['name']}: Connection failed")
+                logger.warning(f"  ✗ {result['name']}: Connection failed")
+    else:
+        logger.warning("Could not connect to any Counterparty nodes")
     
     # Return the first successful connection for backward compatibility
     for result in version_results:

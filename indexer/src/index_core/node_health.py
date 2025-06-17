@@ -642,7 +642,6 @@ def update_healthy_nodes():
 
 def get_healthy_nodes():
     """Get the list of healthy nodes."""
-    # global healthy_nodes # Removed unnecessary global statement
 
     # Create a local copy to avoid lock contention
     result = []

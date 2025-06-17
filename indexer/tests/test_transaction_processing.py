@@ -246,13 +246,15 @@ class TestTransactionProcessing:
 
             result = list_tx(mock_db, 900001, test_tx_hash, test_tx_hex)
 
-            # Verify result tuple structure
+            # Verify result tuple structure (original order)
             assert len(result) == 11
             assert result[0] == "source_address"  # source
-            assert result[1] == "dest_address"  # destination
-            assert result[2] == 1000  # btc_amount
-            assert result[3] == 546  # fee
-            assert result[4] == b"test_data"  # data
+            assert result[1] is None  # prev_tx_hash
+            assert result[2] == "dest_address"  # destination
+            assert result[3] is None  # destination_nvalue
+            assert result[4] == 1000  # btc_amount
+            assert result[5] == 546  # fee
+            assert result[6] == b"test_data"  # data
 
     def test_list_tx_no_data_transaction(self):
         """Test list_tx with transaction that has no relevant data"""
@@ -269,9 +271,11 @@ class TestTransactionProcessing:
             # Mock get_tx_info to return None (no relevant data)
             mock_get_tx_info.return_value = None
 
-            result = list(list_tx(mock_db, 900001, test_tx_hash, test_tx_hex))
+            result = list_tx(mock_db, 900001, test_tx_hash, test_tx_hex)
 
-            # Should return generator of None values
+            # Should return tuple of None values
+            assert isinstance(result, tuple)
+            assert len(result) == 11
             assert all(item is None for item in result)
 
     def test_process_tx_with_matching_issuance(self):
@@ -293,8 +297,9 @@ class TestTransactionProcessing:
             "index_core.fetch_utils.find_issuance_by_tx_hash"
         ) as mock_find_issuance:
 
-            # Mock list_tx result
-            mock_list_tx.return_value = ("source", "dest", 1000, 546, b"data", 0, "hash", "op", 0, False, "txhash")
+            # Mock list_tx result in the original order:
+            # source, prev_tx_hash, destination, destination_nvalue, btc_amount, fee, data, decoded_tx, keyburn, is_op_return, p2wsh_data
+            mock_list_tx.return_value = ("source", None, "dest", None, 1000, 546, b"data", None, 0, False, None)
 
             # Mock find_issuance_by_tx_hash
             mock_find_issuance.return_value = {"cpid": "A5678"}
