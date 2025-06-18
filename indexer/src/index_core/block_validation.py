@@ -57,7 +57,7 @@ def create_check_hashes(
     """
     # Filter out None values before sorting
     filtered_stamps = [stamp for stamp in valid_stamps_in_block if stamp is not None]
-    sorted_valid_stamps = sorted(filtered_stamps, key=lambda x: x.get("stamp_number", ""))
+    sorted_valid_stamps = sorted(filtered_stamps, key=lambda x: x.get("stamp_number", 0))
     txlist_content = str(sorted_valid_stamps)
     new_txlist_hash, found_txlist_hash = check.consensus_hash(
         db, block_index, "txlist_hash", previous_txlist_hash, txlist_content
