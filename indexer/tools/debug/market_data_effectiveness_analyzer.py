@@ -354,7 +354,7 @@ class MarketDataEffectivenessAnalyzer:
         """Analyze performance of individual data sources and aggregation effectiveness."""
         multi_source_analysis = {}
 
-        # Source performance comparison
+        # Source performance comparison (including StampScan)
         source_performance = self.fetch_all(
             """
             SELECT 
@@ -542,6 +542,7 @@ class MarketDataEffectivenessAnalyzer:
             "performance_metrics": self.analyze_performance_metrics(),
             "multi_source_performance": self.analyze_multi_source_performance(),
             "cache_freshness_issues": self.analyze_cache_freshness_issues(),
+            "stampscan_analysis": self.analyze_stampscan_performance(),
         }
 
         if detailed:
@@ -786,6 +787,11 @@ class MarketDataEffectivenessAnalyzer:
         src20_interval = next((x for x in freshness_issues.get("update_intervals", []) if x.get("asset_type") == "src20"), {})
         src20_stale_percent = src20_interval.get("stale_6hour", 0) / max(src20_interval.get("total_records", 1), 1) * 100
 
+        # StampScan data for recommendations
+        stampscan_data = data.get("stampscan_analysis", {})
+        stampscan_perf = stampscan_data.get("stampscan_performance", {})
+        stampscan_coverage = stampscan_data.get("floor_price_coverage", {})
+
         print("\n### 🚀 **Priority Actions:**")
 
         # Critical issues first
@@ -807,6 +813,7 @@ class MarketDataEffectivenessAnalyzer:
         if multi_source_tokens < total_agg * 0.1 and total_agg > 0:
             print(f"- **Expand source coverage** - Only {multi_source_tokens}/{total_agg} tokens have multiple sources")
             print("  - Add more KuCoin token mappings beyond just STAMP")
+            print("  - Consider StampScan data for non-KuCoin tokens")
             print("  - Integrate additional exchanges (Binance, Gate.io, etc.)")
 
         if cache_coverage < 80:
@@ -814,6 +821,21 @@ class MarketDataEffectivenessAnalyzer:
 
         if hot_cache_percent < 50:
             print("- **Cold cache issue** - Consider increasing update frequency")
+
+        # StampScan specific recommendations
+        if stampscan_perf:
+            ss_success_rate = stampscan_perf.get("avg_success_rate", 0)
+            ss_floor_coverage = (
+                stampscan_perf.get("assets_with_floor_price", 0) / max(stampscan_perf.get("total_assets", 1), 1) * 100
+            )
+
+            if ss_success_rate < 80:
+                print(f"- 🟡 **StampScan reliability issue** - Success rate only {ss_success_rate:.1f}%")
+                print("  - Check API endpoints and rate limiting")
+                print("  - Consider implementing retry logic")
+
+            if ss_floor_coverage > 80:
+                print(f"- **Leverage StampScan floor prices** - {ss_floor_coverage:.1f}% coverage for marketplace data")
 
         print("\n### ✅ **System Health:**")
 
@@ -829,15 +851,175 @@ class MarketDataEffectivenessAnalyzer:
         if with_price > 0:
             print(f"- **Price data flowing** - {with_price} tokens have price information")
 
+        if stampscan_coverage and stampscan_coverage.get("tokens_with_floor_price", 0) > 0:
+            print(
+                f"- **StampScan integration active** - {stampscan_coverage.get('tokens_with_floor_price', 0)} tokens with floor price data"
+            )
+
+        # StampScan Analysis Section
+        print("\n## 🔍 StampScan Source Analysis")
+        stampscan_data = data.get("stampscan_analysis", {})
+
+        if "stampscan_performance" in stampscan_data:
+            perf = stampscan_data["stampscan_performance"]
+            if perf:
+                print("\n### StampScan API Performance")
+                total = perf.get("total_assets", 0)
+                with_floor = perf.get("assets_with_floor_price", 0)
+                with_holders = perf.get("assets_with_holders", 0)
+                with_volume = perf.get("assets_with_volume", 0)
+                confidence = perf.get("avg_confidence", 0)
+                success_rate = perf.get("avg_success_rate", 0)
+                response_time = perf.get("avg_response_time", 0)
+                fresh = perf.get("fresh_records", 0)
+
+                print(f"- **Total Assets Tracked:** {total}")
+                print(
+                    f"- **Floor Price Coverage:** {with_floor} ({with_floor/total*100:.1f}%)"
+                    if total > 0
+                    else "- **Floor Price Coverage:** 0 (0%)"
+                )
+                print(
+                    f"- **Holder Data Coverage:** {with_holders} ({with_holders/total*100:.1f}%)"
+                    if total > 0
+                    else "- **Holder Data Coverage:** 0 (0%)"
+                )
+                print(
+                    f"- **Volume Data Available:** {with_volume} ({with_volume/total*100:.1f}%)"
+                    if total > 0
+                    else "- **Volume Data Available:** 0 (0%)"
+                )
+                print(f"- **API Success Rate:** {success_rate:.1f}%")
+                print(f"- **Average Response Time:** {response_time:.0f}ms")
+                print(
+                    f"- **Fresh Records (<30min):** {fresh} ({fresh/total*100:.1f}%)"
+                    if total > 0
+                    else "- **Fresh Records (<30min):** 0 (0%)"
+                )
+
+        if "floor_price_coverage" in stampscan_data:
+            coverage = stampscan_data["floor_price_coverage"]
+            if coverage:
+                print("\n### StampScan Data Quality")
+                tokens_tracked = coverage.get("tokens_tracked", 0)
+                with_floor = coverage.get("tokens_with_floor_price", 0)
+                floor_confidence = coverage.get("avg_floor_price_confidence", 0)
+                with_mcap = coverage.get("tokens_with_market_cap", 0)
+
+                print(f"- **Unique Tokens:** {tokens_tracked}")
+                print(
+                    f"- **With Floor Price:** {with_floor} ({with_floor/tokens_tracked*100:.1f}%)"
+                    if tokens_tracked > 0
+                    else "- **With Floor Price:** 0 (0%)"
+                )
+                print(f"- **Floor Price Confidence:** {floor_confidence:.1f}/10")
+                print(
+                    f"- **With Market Cap:** {with_mcap} ({with_mcap/tokens_tracked*100:.1f}%)"
+                    if tokens_tracked > 0
+                    else "- **With Market Cap:** 0 (0%)"
+                )
+
+        if "source_data_comparison" in stampscan_data:
+            comparisons = stampscan_data["source_data_comparison"]
+            if comparisons:
+                print("\n### Cross-Source Data Comparison (Sample)")
+                print("*(Comparing prices and holder counts across sources)*")
+                for comp in comparisons[:5]:  # Top 5 examples
+                    asset = comp.get("asset_id", "Unknown")
+                    ss_price = comp.get("stampscan_price")
+                    kc_price = comp.get("kucoin_price")
+                    os_price = comp.get("openstamp_price")
+                    ss_holders = comp.get("stampscan_holders")
+                    os_holders = comp.get("openstamp_holders")
+
+                    price_info = []
+                    if ss_price:
+                        price_info.append(f"SS: {ss_price:.8f}")
+                    if kc_price:
+                        price_info.append(f"KC: {kc_price:.8f}")
+                    if os_price:
+                        price_info.append(f"OS: {os_price:.8f}")
+
+                    holder_info = []
+                    if ss_holders:
+                        holder_info.append(f"SS: {ss_holders}")
+                    if os_holders:
+                        holder_info.append(f"OS: {os_holders}")
+
+                    print(
+                        f"- **{asset}:** Price: {' | '.join(price_info) if price_info else 'N/A'} | Holders: {' | '.join(holder_info) if holder_info else 'N/A'}"
+                    )
+
         print("\n### 🔧 **Technical Notes:**")
         print("- **Zero volume is expected** - SRC-20 ecosystem is new, most tokens don't trade yet")
         print("- **OpenStamp provides holder counts** - This is valuable for token analysis")
         print("- **KuCoin provides real trading data** - High confidence when available")
+        print("- **StampScan provides floor prices** - Specialized for Bitcoin stamps marketplace data")
 
         # Show update frequency analysis
         if src20_interval:
             avg_age = src20_interval.get("avg_age_minutes", 0)
             print(f"- **Current SRC-20 average age:** {avg_age:.0f} minutes (target: <60 minutes)")
+
+    def analyze_stampscan_performance(self) -> Dict[str, Any]:
+        """Analyze StampScan source performance specifically."""
+        stampscan_analysis = {}
+
+        # StampScan overall performance
+        stampscan_stats = self.fetch_one(
+            """
+            SELECT 
+                COUNT(*) as total_assets,
+                COUNT(CASE WHEN price_btc IS NOT NULL THEN 1 END) as assets_with_floor_price,
+                COUNT(CASE WHEN holder_count IS NOT NULL THEN 1 END) as assets_with_holders,
+                COUNT(CASE WHEN volume_24h_btc IS NOT NULL AND volume_24h_btc > 0 THEN 1 END) as assets_with_volume,
+                AVG(source_confidence) as avg_confidence,
+                AVG(success_rate_24h) as avg_success_rate,
+                AVG(api_response_time_ms) as avg_response_time,
+                MIN(last_updated) as oldest_update,
+                MAX(last_updated) as newest_update,
+                COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 30 MINUTE) THEN 1 END) as fresh_records
+            FROM market_data_sources
+            WHERE source_name = 'stampscan' AND asset_type = 'src20'
+        """
+        )
+        stampscan_analysis["stampscan_performance"] = stampscan_stats
+
+        # StampScan data quality for floor prices
+        floor_price_coverage = self.fetch_one(
+            """
+            SELECT 
+                COUNT(DISTINCT asset_id) as tokens_tracked,
+                COUNT(CASE WHEN price_btc IS NOT NULL THEN 1 END) as tokens_with_floor_price,
+                AVG(CASE WHEN price_btc IS NOT NULL THEN source_confidence ELSE NULL END) as avg_floor_price_confidence,
+                COUNT(CASE WHEN market_cap_btc IS NOT NULL THEN 1 END) as tokens_with_market_cap
+            FROM market_data_sources
+            WHERE source_name = 'stampscan' AND asset_type = 'src20'
+        """
+        )
+        stampscan_analysis["floor_price_coverage"] = floor_price_coverage
+
+        # Compare StampScan with other sources
+        source_comparison = self.fetch_all(
+            """
+            SELECT 
+                mds.asset_id,
+                MAX(CASE WHEN mds.source_name = 'stampscan' THEN mds.price_btc END) as stampscan_price,
+                MAX(CASE WHEN mds.source_name = 'kucoin' THEN mds.price_btc END) as kucoin_price,
+                MAX(CASE WHEN mds.source_name = 'openstamp' THEN mds.price_btc END) as openstamp_price,
+                MAX(CASE WHEN mds.source_name = 'stampscan' THEN mds.holder_count END) as stampscan_holders,
+                MAX(CASE WHEN mds.source_name = 'openstamp' THEN mds.holder_count END) as openstamp_holders
+            FROM market_data_sources mds
+            WHERE mds.asset_type = 'src20' 
+                AND mds.source_name IN ('stampscan', 'kucoin', 'openstamp')
+            GROUP BY mds.asset_id
+            HAVING stampscan_price IS NOT NULL OR kucoin_price IS NOT NULL OR openstamp_price IS NOT NULL
+            LIMIT 20
+        """
+        )
+        stampscan_analysis["source_data_comparison"] = source_comparison
+
+        return stampscan_analysis
 
     def output_html(self, data: Dict):
         """Output report in HTML format."""
