@@ -209,6 +209,10 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_market_data_scheduler_flag.py",  # Market data scheduler configuration flag tests
             # Database operations tests
             "tests/test_database.py",  # Database.py operations tests
+            # New low-hanging fruit tests
+            "tests/test_fast_parser.py",  # Fast parser module tests
+            "tests/test_resource_manager.py",  # Resource manager module tests
+            "tests/test_blocks_simple.py",  # Simplified blocks.py function tests
         ]
 
         for test_file in test_files:
