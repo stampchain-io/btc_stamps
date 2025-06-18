@@ -81,10 +81,11 @@ def test_upload_task_processing():
     mock_update_db = MagicMock(return_value=True)
     mock_db = MagicMock()
 
-    # Patch the necessary functions
-    with patch("index_core.database_manager.DatabaseManager.connect", return_value=mock_db):
-        with patch("index_core.aws.upload_file_to_s3", mock_upload):
-            with patch("index_core.aws.update_s3_db_objects", mock_update_db):
+    # Patch the necessary functions at the correct locations
+    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr:
+        mock_db_mgr.connect.return_value = mock_db
+        with patch("index_core.async_upload.upload_file_to_s3", mock_upload):
+            with patch("index_core.async_upload.update_s3_db_objects", mock_update_db):
                 # Process the task
                 _process_upload_task(task)
 
@@ -122,10 +123,11 @@ def test_async_upload_single_file():
     # Create a mock database connection
     mock_db = MagicMock()
 
-    # Patch the necessary functions
-    with patch("index_core.database_manager.DatabaseManager.connect", return_value=mock_db):
-        with patch("index_core.aws.upload_file_to_s3", side_effect=mock_upload):
-            with patch("index_core.aws.update_s3_db_objects", side_effect=mock_update_db):
+    # Patch the necessary functions at the correct locations
+    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr:
+        mock_db_mgr.connect.return_value = mock_db
+        with patch("index_core.async_upload.upload_file_to_s3", side_effect=mock_upload):
+            with patch("index_core.async_upload.update_s3_db_objects", side_effect=mock_update_db):
 
                 # Start the upload worker
                 start_upload_worker()
@@ -183,10 +185,11 @@ def test_async_upload_with_existing_file():
     # Create a mock database connection
     mock_db = MagicMock()
 
-    # Patch the necessary functions
-    with patch("index_core.database_manager.DatabaseManager.connect", return_value=mock_db):
-        with patch("index_core.aws.upload_file_to_s3", side_effect=mock_upload):
-            with patch("index_core.aws.update_s3_db_objects", side_effect=mock_update_db):
+    # Patch the necessary functions at the correct locations
+    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr:
+        mock_db_mgr.connect.return_value = mock_db
+        with patch("index_core.async_upload.upload_file_to_s3", side_effect=mock_upload):
+            with patch("index_core.async_upload.update_s3_db_objects", side_effect=mock_update_db):
 
                 # Start the upload worker
                 start_upload_worker()

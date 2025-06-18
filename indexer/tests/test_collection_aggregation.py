@@ -365,6 +365,9 @@ class TestCollectionCaching:
         # The MarketDataService has internal caching that is not directly exposed
         # This test verifies the caching behavior through the public interface
 
+        # Create a fresh instance to avoid global state issues
+        from index_core.market_data_service import MarketDataService
+
         with patch("index_core.market_data_service.DatabaseManager") as mock_db_manager:
             collection_id = "test_cache_123"
 
@@ -395,10 +398,13 @@ class TestCollectionCaching:
 
             mock_cursor.fetchone.return_value = collection_row
 
+            # Create a fresh service instance
+            test_service = MarketDataService()
+
             # The service may or may not cache internally
             # We can only verify the behavior is consistent
-            result1 = market_data_service.get_collection_market_data(collection_id, use_cache=True)
-            result2 = market_data_service.get_collection_market_data(collection_id, use_cache=True)
+            result1 = test_service.get_collection_market_data(collection_id, use_cache=True)
+            result2 = test_service.get_collection_market_data(collection_id, use_cache=True)
 
             # Results should be consistent
             if result1 is not None and result2 is not None:
@@ -408,20 +414,37 @@ class TestCollectionCaching:
     def test_cache_behavior_on_update(self):
         """Test cache behavior when collection data is updated."""
         # This test verifies that updates work without errors
+        from index_core.market_data_service import MarketDataService
+
         collection_id = "test_update_123"
 
         # Update collection data
         new_data = {"floor_price_btc": Decimal("0.002"), "volume_24h_btc": Decimal("1.0")}
 
-        # Should not raise an error (actual database update will be mocked internally)
-        try:
-            market_data_service.update_collection_market_data(collection_id, new_data)
-            # If we get here without exception, the update method exists and can be called
-            assert True
-        except Exception as e:
-            # Log the error for debugging
-            print(f"Update failed with: {e}")
-            assert False, f"Update should not fail: {e}"
+        # Create a fresh service instance
+        with patch("index_core.market_data_service.DatabaseManager") as mock_db_manager:
+            # Mock database
+            mock_db = Mock()
+            mock_cursor = Mock()
+            mock_db.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
+            mock_db.cursor.return_value.__exit__ = Mock(return_value=None)
+            mock_db.commit = Mock()
+            mock_db_manager.return_value.connect.return_value = mock_db
+
+            # Mock successful update
+            mock_cursor.execute.return_value = None
+
+            test_service = MarketDataService()
+
+            # Should not raise an error
+            try:
+                test_service.update_collection_market_data(collection_id, new_data)
+                # If we get here without exception, the update method exists and can be called
+                assert True
+            except Exception as e:
+                # Log the error for debugging
+                print(f"Update failed with: {e}")
+                assert False, f"Update should not fail: {e}"
 
 
 class TestCollectionAggregationIntegration:

@@ -713,13 +713,17 @@ class TestBlockManagement:
         mock_db = Mock()
         mock_cursor = Mock()
         mock_db.cursor.return_value = mock_cursor
-        mock_cursor.execute.side_effect = pymysql.IntegrityError(1062, "Duplicate entry")
 
-        with pytest.raises(exceptions.BlockAlreadyExistsError):
-            database.insert_block(mock_db, TEST_BLOCK_INDEX, "block_hash", 1234567890, "previous_hash", 1.0)
+        # Mock the IntegrityError
+        with patch("index_core.database.mysql") as mock_mysql:
+            mock_mysql.IntegrityError = type("IntegrityError", (Exception,), {})
+            mock_cursor.execute.side_effect = mock_mysql.IntegrityError(1062, "Duplicate entry")
 
-        # Verify cursor was closed after error
-        mock_cursor.close.assert_called_once()
+            with pytest.raises(exceptions.BlockAlreadyExistsError):
+                database.insert_block(mock_db, TEST_BLOCK_INDEX, "block_hash", 1234567890, "previous_hash", 1.0)
+
+            # Verify cursor was closed after error
+            mock_cursor.close.assert_called_once()
 
     def test_update_block_hashes(self):
         """Test updating block hashes."""

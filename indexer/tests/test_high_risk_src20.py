@@ -617,12 +617,14 @@ class TestLedgerValidationSecurity(unittest.TestCase):
         # Should detect mismatch
         self.assertFalse(result)
 
-    @patch("requests.get")
-    def test_api_timeout_handling(self, mock_get):
+    @patch("index_core.src20.time.sleep")  # Mock sleep to speed up test
+    @patch("index_core.src20.requests.get")
+    def test_api_timeout_handling(self, mock_get, mock_sleep):
         """Test API timeout handling in ledger validation."""
         from requests.exceptions import Timeout
 
         mock_get.side_effect = Timeout("Request timed out")
+        mock_sleep.return_value = None  # Skip actual sleep delays
 
         # Should handle timeout gracefully
         from index_core.src20 import fetch_api_ledger_data
@@ -631,6 +633,12 @@ class TestLedgerValidationSecurity(unittest.TestCase):
 
         # Function returns tuple (ledger_hash, balances_str), both should be None on timeout
         self.assertEqual(result, (None, None))
+
+        # Verify it attempted retries (5 retries = 5 calls)
+        self.assertEqual(mock_get.call_count, 5)
+
+        # Verify sleep was called for backoff (5 times, one after each retry)
+        self.assertEqual(mock_sleep.call_count, 5)
 
 
 class TestEdgeCaseCoverage(unittest.TestCase):

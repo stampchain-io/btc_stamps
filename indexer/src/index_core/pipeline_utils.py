@@ -478,8 +478,14 @@ class CPBlocksPipeline:
         try:
             # Import here to avoid circular imports
             from index_core.backend import Backend
-            from index_core.blocks import rebuild_balances, rebuild_owners, update_src20_token_stats
-            from index_core.database import DatabaseManager, clear_all_caches, purge_block_db
+            from index_core.database import (
+                DatabaseManager,
+                clear_all_caches,
+                purge_block_db,
+                rebuild_balances,
+                rebuild_owners,
+                update_src20_token_stats,
+            )
 
             logger.info(f"🔄 Starting automatic fallback rollback to block {self.fallback_started_at}")
             logger.info(f"📦 Will reprocess {len(self.failed_cp_blocks)} blocks with full CP data")
@@ -1050,11 +1056,10 @@ def test_pipeline_simple(start_block=None, num_blocks=10, max_wait=60):
     print(f"PIPELINE TEST: Testing from block {start_block} to {start_block + num_blocks - 1}")
     logger.info(f"Testing CP blocks pipeline from block {start_block} to {start_block + num_blocks - 1}")
 
-    # Create pipeline with smaller queue size for faster testing
-    pipeline = CPBlocksPipeline(max_queue_size=50)
-    print(f"PIPELINE TEST: Created pipeline with min_blocks_ready={pipeline.min_blocks_ready}")
-
     try:
+        # Create pipeline with smaller queue size for faster testing
+        pipeline = CPBlocksPipeline(max_queue_size=50)
+        print(f"PIPELINE TEST: Created pipeline with min_blocks_ready={pipeline.min_blocks_ready}")
         # Set smaller initial batch size for testing
         pipeline.initial_batch_size = min(20, num_blocks * 2)
         pipeline.target_queue_size = min(50, num_blocks * 5)
@@ -1140,7 +1145,8 @@ def test_pipeline_simple(start_block=None, num_blocks=10, max_wait=60):
         logger.error(f"Error testing pipeline: {e}", exc_info=True)
         return False
     finally:
-        # Stop the pipeline
-        print("PIPELINE TEST: Stopping pipeline")
-        logger.info("Stopping pipeline")
-        pipeline.stop()
+        # Stop the pipeline if it was created
+        if "pipeline" in locals():
+            print("PIPELINE TEST: Stopping pipeline")
+            logger.info("Stopping pipeline")
+            pipeline.stop()

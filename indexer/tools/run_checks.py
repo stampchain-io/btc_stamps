@@ -184,6 +184,8 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_fallback_mode.py",
             # Server module tests
             "tests/test_server.py",
+            # Pipeline utils tests
+            "tests/test_pipeline_utils.py",
             # Fallback mode integration tests for blocks.py
             "tests/test_blocks_fallback_integration.py",
             # Transaction processing function tests (refactored modules)

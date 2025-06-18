@@ -18,7 +18,7 @@ from tests.src20_variations_data import src20_variations_data
 from tests.test_helpers import mock_database, setup_test_env
 
 # Configure logging to show all test case details
-handler = colorlog.StreamHandler()
+handler = logging.StreamHandler()
 handler.setFormatter(
     colorlog.ColoredFormatter(
         "%(log_color)s%(message)s",
@@ -31,7 +31,7 @@ handler.setFormatter(
         },
     )
 )
-logger = colorlog.getLogger()
+logger = logging.getLogger()
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)  # Set to INFO to show test case details
 

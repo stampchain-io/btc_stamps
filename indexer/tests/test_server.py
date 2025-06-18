@@ -14,7 +14,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def mock_config():
     """Mock config values for tests."""
-    with mock.patch("src.index_core.server.config") as mock_cfg:
+    with mock.patch("index_core.server.config") as mock_cfg:
         # Set default test values
         mock_cfg.TESTNET = False
         mock_cfg.BLOCK_FIRST = 0
@@ -65,7 +65,7 @@ def mock_config():
 @pytest.fixture
 def mock_backend():
     """Mock Backend instance."""
-    with mock.patch("src.index_core.server.Backend") as mock_backend_cls:
+    with mock.patch("index_core.server.Backend") as mock_backend_cls:
         mock_instance = mock.MagicMock()
         mock_backend_cls.return_value = mock_instance
         yield mock_instance
@@ -74,14 +74,14 @@ def mock_backend():
 @pytest.fixture
 def mock_logger():
     """Mock logger."""
-    with mock.patch("src.index_core.server.logger") as mock_log:
+    with mock.patch("index_core.server.logger") as mock_log:
         yield mock_log
 
 
 @pytest.fixture
 def mock_appdirs():
     """Mock appdirs functions."""
-    with mock.patch("src.index_core.server.appdirs") as mock_appdirs:
+    with mock.patch("index_core.server.appdirs") as mock_appdirs:
         mock_appdirs.user_data_dir.return_value = "/tmp/test_data"
         mock_appdirs.user_log_dir.return_value = "/tmp/test_log"
         yield mock_appdirs
@@ -90,7 +90,7 @@ def mock_appdirs():
 @pytest.fixture
 def mock_os():
     """Mock os functions."""
-    with mock.patch("src.index_core.server.os") as mock_os:
+    with mock.patch("index_core.server.os") as mock_os:
         mock_os.path.isdir.return_value = True
         mock_os.environ.get.return_value = "0.5"
         yield mock_os
@@ -101,7 +101,7 @@ class TestSignalHandlers:
 
     def test_sigterm_handler(self, mock_logger):
         """Test SIGTERM signal handler."""
-        from src.index_core.server import shutdown_flag, sigterm_handler
+        from index_core.server import shutdown_flag, sigterm_handler
 
         # Reset shutdown flag
         shutdown_flag.clear()
@@ -116,7 +116,7 @@ class TestSignalHandlers:
 
     def test_sigint_handler(self, mock_logger):
         """Test SIGINT signal handler."""
-        from src.index_core.server import shutdown_flag, sigterm_handler
+        from index_core.server import shutdown_flag, sigterm_handler
 
         # Reset shutdown flag
         shutdown_flag.clear()
@@ -130,7 +130,7 @@ class TestSignalHandlers:
 
     def test_unknown_signal_handler(self, mock_logger):
         """Test unknown signal handler."""
-        from src.index_core.server import shutdown_flag, sigterm_handler
+        from index_core.server import shutdown_flag, sigterm_handler
 
         # Reset shutdown flag
         shutdown_flag.clear()
@@ -144,11 +144,11 @@ class TestSignalHandlers:
 
     def test_signal_handler_with_async_uploads(self, mock_logger, mock_config):
         """Test signal handler with async uploads enabled."""
-        from src.index_core.server import shutdown_flag, sigterm_handler
+        from index_core.server import shutdown_flag, sigterm_handler
 
         # Mock async upload functions
-        with mock.patch("src.index_core.server.wait_for_uploads") as mock_wait:
-            with mock.patch("src.index_core.server.stop_upload_worker") as mock_stop:
+        with mock.patch("index_core.server.wait_for_uploads") as mock_wait:
+            with mock.patch("index_core.server.stop_upload_worker") as mock_stop:
                 mock_config.USE_ASYNC_UPLOADS = True
                 mock_config.STORE_FILES = True
                 mock_wait.return_value = True
@@ -164,10 +164,10 @@ class TestSignalHandlers:
 
     def test_signal_handler_with_upload_timeout(self, mock_logger, mock_config):
         """Test signal handler when upload wait times out."""
-        from src.index_core.server import shutdown_flag, sigterm_handler
+        from index_core.server import shutdown_flag, sigterm_handler
 
-        with mock.patch("src.index_core.server.wait_for_uploads") as mock_wait:
-            with mock.patch("src.index_core.server.stop_upload_worker") as mock_stop:
+        with mock.patch("index_core.server.wait_for_uploads") as mock_wait:
+            with mock.patch("index_core.server.stop_upload_worker") as mock_stop:
                 mock_config.USE_ASYNC_UPLOADS = True
                 mock_config.STORE_FILES = True
                 mock_wait.return_value = False  # Timeout
@@ -186,10 +186,10 @@ class TestInitializeFunctions:
 
     def test_initialize(self):
         """Test main initialize function."""
-        from src.index_core.server import initialize
+        from index_core.server import initialize
 
-        with mock.patch("src.index_core.server.initialize_config") as mock_init_config:
-            with mock.patch("src.index_core.server.initialize_db") as mock_init_db:
+        with mock.patch("index_core.server.initialize_config") as mock_init_config:
+            with mock.patch("index_core.server.initialize_db") as mock_init_db:
                 mock_init_db.return_value = "test_db"
 
                 result = initialize(testnet=True, verbose=True)
@@ -200,12 +200,12 @@ class TestInitializeFunctions:
 
     def test_initialize_config_mainnet(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test initialize_config for mainnet."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams") as mock_select:
-            with mock.patch("src.index_core.server.log") as mock_log:
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams") as mock_select:
+            with mock.patch("index_core.server.log") as mock_log:
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config()
 
                         mock_select.assert_called_once_with("mainnet")
@@ -216,15 +216,15 @@ class TestInitializeFunctions:
 
     def test_initialize_config_testnet(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test initialize_config for testnet."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
         # Set TESTNET to True before initialization
         mock_config.TESTNET = True
 
-        with mock.patch("src.index_core.server.SelectParams") as mock_select:
-            with mock.patch("src.index_core.server.log") as mock_log:
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams") as mock_select:
+            with mock.patch("index_core.server.log") as mock_log:
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(testnet=True)
 
                         mock_select.assert_called_once_with("testnet")
@@ -236,12 +236,12 @@ class TestInitializeFunctions:
 
     def test_initialize_config_regtest(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test initialize_config for regtest."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams") as mock_select:
-            with mock.patch("src.index_core.server.log") as mock_log:
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams") as mock_select:
+            with mock.patch("index_core.server.log") as mock_log:
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(regtest=True)
 
                         mock_select.assert_called_once_with("regtest")
@@ -253,12 +253,12 @@ class TestInitializeFunctions:
 
     def test_initialize_config_with_backend_params(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test initialize_config with backend parameters."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(
                             backend_connect="192.168.1.100",
                             backend_port="9999",
@@ -276,12 +276,12 @@ class TestInitializeFunctions:
 
     def test_initialize_config_with_log_file(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test initialize_config with custom log file."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log") as mock_log:
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log") as mock_log:
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(log_file="/custom/path/log.txt")
 
                         assert mock_config.LOG == "/custom/path/log.txt"
@@ -289,22 +289,22 @@ class TestInitializeFunctions:
 
     def test_initialize_config_no_log_file(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test initialize_config with logging disabled."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log") as mock_log:
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log") as mock_log:
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(log_file=False)
 
                         assert mock_config.LOG is None
 
     def test_initialize_config_hash_check_failure(self, mock_config, mock_appdirs, mock_os):
         """Test initialize_config with hash check failure."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.hashlib.sha3_256") as mock_sha3:
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.hashlib.sha3_256") as mock_sha3:
                 mock_sha3.return_value.hexdigest.return_value = "wrong_hash"
 
                 with pytest.raises(ValueError, match="SHA3-256 hash mismatch"):
@@ -313,37 +313,37 @@ class TestInitializeFunctions:
     def test_initialize_config_invalid_port(self, mock_config, mock_appdirs, mock_os):
         """Test initialize_config with invalid port."""
         from exceptions import ConfigurationError
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         with pytest.raises(ConfigurationError, match="invalid backend API port"):
                             initialize_config(backend_port="99999")
 
     def test_initialize_config_creates_directories(self, mock_config, mock_appdirs, mock_os):
         """Test that initialize_config creates necessary directories."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
         mock_os.path.isdir.return_value = False
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config()
 
                         mock_os.makedirs.assert_called()
 
     def test_initialize_config_backend_ssl_verify_deprecated(self, mock_config, mock_appdirs, mock_os, mock_logger):
         """Test deprecated backend_ssl_verify parameter."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(backend_ssl_verify=False)
 
                         mock_logger.warning.assert_called_with(
@@ -353,12 +353,12 @@ class TestInitializeFunctions:
 
     def test_initialize_config_customnet(self, mock_config, mock_appdirs, mock_os):
         """Test initialize_config with customnet."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(customnet="mynet")
 
                         assert mock_config.CUSTOMNET is True
@@ -366,25 +366,25 @@ class TestInitializeFunctions:
 
     def test_initialize_config_checkdb(self, mock_config, mock_appdirs, mock_os):
         """Test initialize_config with checkdb flag."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
                         initialize_config(checkdb=True)
 
                         assert mock_config.CHECKDB is True
 
     def test_initialize_config_exception_hook(self, mock_config, mock_appdirs, mock_os):
         """Test that exception hook is installed."""
-        from src.index_core.server import initialize_config
+        from index_core.server import initialize_config
 
-        with mock.patch("src.index_core.server.SelectParams"):
-            with mock.patch("src.index_core.server.log"):
-                with mock.patch("src.index_core.server.software_version"):
-                    with mock.patch("src.index_core.server.cp_version"):
-                        with mock.patch("src.index_core.server.sys") as mock_sys:
+        with mock.patch("index_core.server.SelectParams"):
+            with mock.patch("index_core.server.log"):
+                with mock.patch("index_core.server.software_version"):
+                    with mock.patch("index_core.server.cp_version"):
+                        with mock.patch("index_core.server.sys") as mock_sys:
                             initialize_config()
 
                             # Check that excepthook was set
@@ -396,7 +396,7 @@ class TestConnectToBackend:
 
     def test_connect_to_backend(self, mock_backend):
         """Test connect_to_backend returns Backend instance."""
-        from src.index_core.server import connect_to_backend
+        from index_core.server import connect_to_backend
 
         result = connect_to_backend()
         assert result == mock_backend
@@ -407,13 +407,13 @@ class TestStartAll:
 
     def test_start_all_basic(self, mock_config, mock_backend, mock_logger):
         """Test basic start_all functionality."""
-        from src.index_core.server import shutdown_flag, start_all
+        from index_core.server import shutdown_flag, start_all
 
         mock_db = mock.MagicMock()
         shutdown_flag.clear()
 
-        with mock.patch("src.index_core.server.concurrent.futures.ThreadPoolExecutor") as mock_executor:
-            with mock.patch("src.index_core.server.blocks") as mock_blocks:
+        with mock.patch("index_core.server.concurrent.futures.ThreadPoolExecutor") as mock_executor:
+            with mock.patch("index_core.server.blocks") as mock_blocks:
                 start_all(mock_db)
 
                 mock_executor.assert_called_once()
@@ -422,7 +422,7 @@ class TestStartAll:
 
     def test_start_all_with_s3(self, mock_config, mock_backend, mock_logger):
         """Test start_all with S3 configuration."""
-        from src.index_core.server import shutdown_flag, start_all
+        from index_core.server import shutdown_flag, start_all
 
         mock_config.STORE_FILES = True
         mock_config.AWS_SECRET_ACCESS_KEY = "secret"
@@ -433,12 +433,12 @@ class TestStartAll:
         mock_db = mock.MagicMock()
         shutdown_flag.clear()
 
-        with mock.patch("src.index_core.server.concurrent.futures.ThreadPoolExecutor"):
-            with mock.patch("src.index_core.server.blocks"):
-                with mock.patch("src.index_core.server.get_s3_objects") as mock_s3:
-                    with mock.patch("src.index_core.server.start_upload_worker") as mock_start_worker:
-                        with mock.patch("src.index_core.server.wait_for_uploads") as mock_wait:
-                            with mock.patch("src.index_core.server.stop_upload_worker") as mock_stop:
+        with mock.patch("index_core.server.concurrent.futures.ThreadPoolExecutor"):
+            with mock.patch("index_core.server.blocks"):
+                with mock.patch("index_core.server.get_s3_objects") as mock_s3:
+                    with mock.patch("index_core.server.start_upload_worker") as mock_start_worker:
+                        with mock.patch("index_core.server.wait_for_uploads") as mock_wait:
+                            with mock.patch("index_core.server.stop_upload_worker") as mock_stop:
                                 mock_wait.return_value = True
 
                                 start_all(mock_db)
@@ -450,13 +450,13 @@ class TestStartAll:
 
     def test_start_all_with_exception(self, mock_config, mock_backend, mock_logger):
         """Test start_all with exception handling."""
-        from src.index_core.server import shutdown_flag, start_all
+        from index_core.server import shutdown_flag, start_all
 
         mock_db = mock.MagicMock()
         shutdown_flag.clear()
 
-        with mock.patch("src.index_core.server.concurrent.futures.ThreadPoolExecutor"):
-            with mock.patch("src.index_core.server.blocks") as mock_blocks:
+        with mock.patch("index_core.server.concurrent.futures.ThreadPoolExecutor"):
+            with mock.patch("index_core.server.blocks") as mock_blocks:
                 mock_blocks.follow.side_effect = Exception("Test error")
 
                 start_all(mock_db)
@@ -466,7 +466,7 @@ class TestStartAll:
 
     def test_start_all_upload_timeout(self, mock_config, mock_backend, mock_logger):
         """Test start_all with upload timeout."""
-        from src.index_core.server import shutdown_flag, start_all
+        from index_core.server import shutdown_flag, start_all
 
         mock_config.STORE_FILES = True
         mock_config.USE_ASYNC_UPLOADS = True
@@ -474,10 +474,10 @@ class TestStartAll:
         mock_db = mock.MagicMock()
         shutdown_flag.clear()
 
-        with mock.patch("src.index_core.server.concurrent.futures.ThreadPoolExecutor"):
-            with mock.patch("src.index_core.server.blocks"):
-                with mock.patch("src.index_core.server.wait_for_uploads") as mock_wait:
-                    with mock.patch("src.index_core.server.stop_upload_worker"):
+        with mock.patch("index_core.server.concurrent.futures.ThreadPoolExecutor"):
+            with mock.patch("index_core.server.blocks"):
+                with mock.patch("index_core.server.wait_for_uploads") as mock_wait:
+                    with mock.patch("index_core.server.stop_upload_worker"):
                         mock_wait.return_value = False  # Timeout
 
                         start_all(mock_db)
@@ -492,22 +492,22 @@ class TestReparse:
 
     def test_reparse(self, mock_backend):
         """Test reparse function."""
-        from src.index_core.server import reparse
+        from index_core.server import reparse
 
         mock_db = mock.MagicMock()
 
-        with mock.patch("src.index_core.server.blocks") as mock_blocks:
+        with mock.patch("index_core.server.blocks") as mock_blocks:
             reparse(mock_db, block_index=12345, quiet=False)
 
             mock_blocks.reparse.assert_called_once_with(mock_db, block_index=12345, quiet=False)
 
     def test_reparse_default_params(self, mock_backend):
         """Test reparse with default parameters."""
-        from src.index_core.server import reparse
+        from index_core.server import reparse
 
         mock_db = mock.MagicMock()
 
-        with mock.patch("src.index_core.server.blocks") as mock_blocks:
+        with mock.patch("index_core.server.blocks") as mock_blocks:
             reparse(mock_db)
 
             mock_blocks.reparse.assert_called_once_with(mock_db, block_index=None, quiet=True)
@@ -518,13 +518,13 @@ class TestGlobalVariables:
 
     def test_shutdown_flag(self):
         """Test shutdown_flag is a threading.Event."""
-        from src.index_core.server import shutdown_flag
+        from index_core.server import shutdown_flag
 
         assert isinstance(shutdown_flag, threading.Event)
 
     def test_backend_instance(self):
         """Test backend_instance initialization."""
-        from src.index_core.server import backend_instance
+        from index_core.server import backend_instance
 
         # Should exist but actual type depends on Backend mock
         assert backend_instance is not None
