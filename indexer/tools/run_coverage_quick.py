@@ -27,16 +27,16 @@ def run_quick_coverage(html=False, fail_under=50):
     """Run coverage on unit tests (excluding integration tests)."""
     print("🚀 Running quick coverage report (unit tests only)...")
     print(f"   Coverage threshold: {fail_under}%")
-    print("   Using pytest markers to exclude integration tests")
+    print("   Using pytest markers to exclude integration and bitcoin node tests")
 
     # Build the pytest command using markers
-    # Include all tests except true integration tests
+    # Exclude both integration tests AND tests requiring bitcoin node
     cmd = [
         "poetry",
         "run",
         "pytest",
         "-m",
-        "not integration",
+        "not integration and not requires_bitcoin_node",
         "--cov=src",
         "--cov-report=term-missing",
         f"--cov-fail-under={fail_under}",
@@ -45,7 +45,7 @@ def run_quick_coverage(html=False, fail_under=50):
     if html:
         cmd.append("--cov-report=html")
 
-    print("\n📊 Running coverage on unit tests (excluding integration/db/network tests)...")
+    print("\n📊 Running coverage on unit tests (excluding integration/db/network/bitcoin node tests)...")
 
     # Run the coverage command
     try:
@@ -63,13 +63,14 @@ def run_fast_coverage_analysis():
     print("=" * 60)
 
     # Run coverage with pytest using markers
+    # Exclude both integration tests AND tests requiring bitcoin node
     cmd = [
         "poetry",
         "run",
         "pytest",
         "-xvs",
         "-m",
-        "not integration",
+        "not integration and not requires_bitcoin_node",
         "--cov=src",
         "--cov-report=term-missing:skip-covered",
         "--cov-fail-under=5",  # Low threshold for fast checks

@@ -62,6 +62,8 @@ def main():
     args = parser.parse_args()
 
     # Base coverage command
+    # Note: By default, this runs ALL tests including integration tests
+    # Use --tests with specific markers to exclude certain test types
     base_cmd = f"poetry run pytest {args.tests} --cov=src"
 
     if args.branch:

@@ -11,7 +11,15 @@ class TestRustParser(unittest.TestCase):
     def setUp(self):
         self.parser = FastTransactionParser()
         try:
+            # Create backend with shorter timeout for test environment
             self.backend = Backend()
+            # Override the timeout for tests to fail faster
+            if hasattr(self.backend._session, "request"):
+                import functools
+
+                self.backend._session.request = functools.partial(
+                    self.backend._session.request.__wrapped__, timeout=(2, 5)  # 2 second connect, 5 second read timeout
+                )
             # Test if we can actually connect to the Bitcoin node
             self.backend.rpc("getblockcount", [])
         except Exception as e:

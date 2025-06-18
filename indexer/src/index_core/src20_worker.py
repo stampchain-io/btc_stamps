@@ -408,7 +408,7 @@ class SRC20Worker:
                     self._stampscan_cache_time = current_time
                 except requests.exceptions.HTTPError as e:
                     if e.response and e.response.status_code == 403:
-                        logger.debug(f"StampScan API access denied (403 Forbidden) - will use cached data if available")
+                        logger.debug("StampScan API access denied (403 Forbidden) - will use cached data if available")
                     else:
                         logger.error(f"Failed to fetch StampScan data: {e}")
                     self._stampscan_cache = None
