@@ -553,11 +553,24 @@ def run_code_quality_checks_standalone():
         logger.info(colored("⚡️ Auto-fix enabled", "magenta"))
 
     result = run_code_quality_checks(auto_fix=args.auto_fix)
-    if not result:
-        logger.error("Code quality checks failed. Exiting with code 1.")
+
+    # Print final summary with failures
+    print(colored("\n" + "=" * 80, "magenta"))
+    print(colored("CODE QUALITY SUMMARY", "magenta", attrs=["bold"]))
+    print(colored("=" * 80, "magenta"))
+
+    if result:
+        logger.info(colored("✅ All code quality checks passed!", "green", attrs=["bold"]))
+        logger.info("Exiting with code 0.")
+        sys.exit(0)
+    else:
+        logger.error(colored("❌ Code quality checks failed!", "red", attrs=["bold"]))
+        if code_quality_failures:
+            print(colored(f"💀 FAILED CHECKS: {', '.join(code_quality_failures)}", "red", attrs=["bold"]))
+        print(colored("💡 TIP: Use --auto-fix to automatically fix isort and black issues", "yellow"))
+        print(colored("=" * 80, "magenta"))
+        logger.error("Exiting with code 1.")
         sys.exit(1)
-    logger.info("All code quality checks passed. Exiting with code 0.")
-    sys.exit(0)
 
 
 def run_linters_only(auto_fix=False, with_coverage=False):
@@ -649,10 +662,19 @@ def run_linters_only(auto_fix=False, with_coverage=False):
             logger.info(colored("💡 TIP: Run 'poetry run coverage-quick --html' to see detailed report", "yellow"))
             all_passed = False
 
+    # Print summary similar to main function
+    print(colored("\n" + "=" * 80, "magenta"))
+    print(colored("LINTER SUMMARY", "magenta", attrs=["bold"]))
+    print(colored("=" * 80, "magenta"))
+
     if all_passed:
-        logger.info(colored("\nAll linters passed!", "green", attrs=["bold"]))
+        logger.info(colored("✅ All linters passed!", "green", attrs=["bold"]))
     else:
-        logger.error(colored(f"\nLinters failed: {', '.join(linter_failures)}", "red", attrs=["bold"]))
+        logger.error(colored("❌ Some linters failed!", "red", attrs=["bold"]))
+        print(colored(f"💀 FAILED LINTERS: {', '.join(linter_failures)}", "red", attrs=["bold"]))
+        print(colored("💡 TIP: Use --auto-fix to automatically fix isort and black issues", "yellow"))
+
+    print(colored("=" * 80, "magenta"))
 
     return all_passed, linter_failures
 
@@ -664,13 +686,13 @@ def run_linters_standalone():
     parser.add_argument("--with-coverage", action="store_true", help="Include coverage report validation")
     args = parser.parse_args()
 
-    all_passed, _ = run_linters_only(args.auto_fix, args.with_coverage)
+    all_passed, linter_failures = run_linters_only(args.auto_fix, args.with_coverage)
 
     if all_passed:
         logger.info("All linters passed. Exiting with code 0.")
         sys.exit(0)
     else:
-        logger.error("Some linters failed. Exiting with code 1.")
+        logger.error(f"Linters failed: {', '.join(linter_failures)}. Exiting with code 1.")
         sys.exit(1)
 
 
