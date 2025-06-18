@@ -16,8 +16,7 @@ logging.basicConfig(level=logging.DEBUG if os.environ.get("RUST_LOG") == "debug"
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.requires_network
-@pytest.mark.integration
+@pytest.mark.requires_bitcoin_node
 class TestSpecialTransactions(TestCase):
     """
     Test that special transactions are correctly identified by both Python and Rust implementations.

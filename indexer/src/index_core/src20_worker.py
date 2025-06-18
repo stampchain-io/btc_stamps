@@ -70,7 +70,7 @@ class SRC20Worker:
         self._openstamp_cache_ttl = 300  # Cache for 5 minutes (300 seconds)
         self._stampscan_cache = None  # Cache the StampScan response
         self._stampscan_cache_time = 0
-        self._stampscan_cache_ttl = 300  # Cache for 5 minutes (300 seconds)
+        self._stampscan_cache_ttl = 900  # Cache for 15 minutes (900 seconds) to reduce API calls
 
     def process_src20_market_data(self, tick: str) -> Optional[Dict]:
         """
@@ -406,6 +406,12 @@ class SRC20Worker:
                 try:
                     self._stampscan_cache = self._stampscan_api_call(STAMPSCAN_LISTING_SUMMARY_ENDPOINT)
                     self._stampscan_cache_time = current_time
+                except requests.exceptions.HTTPError as e:
+                    if e.response and e.response.status_code == 403:
+                        logger.debug(f"StampScan API access denied (403 Forbidden) - will use cached data if available")
+                    else:
+                        logger.error(f"Failed to fetch StampScan data: {e}")
+                    self._stampscan_cache = None
                 except Exception as e:
                     logger.error(f"Failed to fetch StampScan data: {e}")
                     self._stampscan_cache = None
@@ -499,11 +505,17 @@ class SRC20Worker:
                     return data
 
                 except requests.exceptions.RequestException as e:
-                    logger.warning(f"StampScan API request failed (attempt {attempt + 1}): {e}")
-                    if attempt < MAX_RETRIES - 1:
-                        time.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+                    # Don't retry 403 Forbidden errors - they're typically permanent
+                    if hasattr(e, "response") and e.response and e.response.status_code == 403:
+                        if attempt == 0:  # Only log on first attempt
+                            logger.warning(f"StampScan API request failed with 403 Forbidden: {e}")
+                        raise  # Don't retry 403s
                     else:
-                        raise
+                        logger.warning(f"StampScan API request failed (attempt {attempt + 1}): {e}")
+                        if attempt < MAX_RETRIES - 1:
+                            time.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+                        else:
+                            raise
 
             return None
 

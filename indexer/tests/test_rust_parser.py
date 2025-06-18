@@ -6,8 +6,7 @@ from btc_stamps_parser import FastTransactionParser
 from index_core.backend import Backend
 
 
-@pytest.mark.requires_network
-@pytest.mark.integration
+@pytest.mark.requires_bitcoin_node
 class TestRustParser(unittest.TestCase):
     def setUp(self):
         self.parser = FastTransactionParser()

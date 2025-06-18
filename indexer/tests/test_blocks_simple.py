@@ -1,9 +1,18 @@
 """Simple tests for blocks.py functions that don't require full module import."""
 
+import os
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
+# Set test environment variables before any potential imports
+os.environ["TESTING"] = "1"
+os.environ["USE_TEST_DB"] = "1"
+os.environ["MOCK_DB"] = "1"
+# Set minimal RPC configuration to avoid configuration errors
+os.environ["RPC_USER"] = "rpc"
+os.environ["RPC_PASSWORD"] = "rpc"
+os.environ["RPC_IP"] = "127.0.0.1"
+os.environ["RPC_PORT"] = "8332"
 
 
 def test_calculate_rollback_depth():
@@ -51,7 +60,7 @@ def test_commit_and_update_block_success():
                 # Mock update_parsed_block
                 block_index += 1
                 return block_index
-            except Exception as e:
+            except Exception:
                 db.rollback()
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)

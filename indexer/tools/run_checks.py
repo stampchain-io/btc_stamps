@@ -205,14 +205,14 @@ def run_code_quality_checks(auto_fix=False):
         # Run pytest for unit tests only (exclude integration tests)
         logger.info(colored("Running unit tests...", "cyan"))
 
-        # Run tests excluding only true integration tests
-        # Include unit tests and properly mocked tests that may touch DB/network via mocks
+        # Run tests excluding only tests that require a Bitcoin node
+        # Include unit tests, mocked tests, and tests that only need internet
         cmd = [
             "poetry",
             "run",
             "pytest",
             "-m",
-            "not integration",
+            "not requires_bitcoin_node",
             "-v",
             "-W",
             "ignore::UserWarning",
@@ -348,6 +348,8 @@ def run_rust_checks():
         "cd src/rust_parser && cargo fmt -- --check",
         "cd src/rust_parser && rustup show",
         "cd src/rust_parser && cargo clippy -- -D warnings",
+        # Run Rust tests
+        "cd src/rust_parser && cargo test",
         # Build the parser
         "cd src/rust_parser && poetry run maturin develop --release",
         # Verify the build
@@ -392,7 +394,16 @@ def run_integration_tests():
     print_header("integration")
 
     # Run all tests marked as integration or requiring external services
-    cmd = ["poetry", "run", "pytest", "-m", "integration or requires_db or requires_network", "-v", "--tb=short"]
+    # Note: Tests marked with requires_bitcoin_node need a local Bitcoin node
+    cmd = [
+        "poetry",
+        "run",
+        "pytest",
+        "-m",
+        "integration or requires_db or requires_network or requires_bitcoin_node",
+        "-v",
+        "--tb=short",
+    ]
 
     logger.info(colored("Running integration tests (requires local services)...", "cyan"))
 

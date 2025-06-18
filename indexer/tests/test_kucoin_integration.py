@@ -205,13 +205,20 @@ class KuCoinIntegrationTest(unittest.TestCase):
                 f"{self.base_url}/api/v1/market/stats", params={"symbol": "INVALID-SYMBOL"}, timeout=self.timeout
             )
 
-            # KuCoin should return an error for invalid symbols
-            # The exact status code may vary, but it shouldn't be 200 with valid data
-            if response.status_code == 200:
-                data = response.json()
-                # If status is 200, the data should indicate an error
-                self.assertIn("code", data)
-                self.assertNotEqual(data.get("code"), "200000")
+            # KuCoin returns 200 with success code even for invalid symbols
+            # but the data fields will be null for invalid symbols
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+
+            self.assertIn("code", data)
+            self.assertEqual(data.get("code"), "200000")  # Success code
+            self.assertIn("data", data)
+
+            # For invalid symbols, critical fields should be null
+            ticker_data = data["data"]
+            self.assertIsNone(ticker_data.get("last"))
+            self.assertIsNone(ticker_data.get("vol"))
+            self.assertIsNone(ticker_data.get("changeRate"))
 
             logger.info("✅ Invalid symbol error handling works correctly")
 
