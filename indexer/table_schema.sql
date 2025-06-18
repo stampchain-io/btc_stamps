@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
+  UNIQUE `cpid` (`cpid`),
   INDEX `cpid_index` (`cpid`),
   INDEX `ident_index` (`ident`),
   INDEX `creator_index` (`creator`(42)),

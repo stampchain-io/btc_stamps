@@ -534,6 +534,66 @@ class TestBlockValidationEdgeCases:
             # Should return True on exception (fail gracefully)
             assert result is True
 
+    def test_create_check_hashes_missing_stamp_number(self):
+        """Test create_check_hashes with stamps missing stamp_number field"""
+        from index_core.block_validation import create_check_hashes
+
+        mock_db = Mock()
+
+        # Create stamps with missing stamp_number fields
+        valid_stamps = [
+            {
+                "stamp_number": 2,
+                "cpid": "A124",
+                "tx_hash": "tx2",
+                "asset_name": "STAMP2",
+                "keyburn": 546,
+                "stamp_base64": "base64data2",
+            },
+            {
+                # Missing stamp_number - should use default 0
+                "cpid": "A123",
+                "tx_hash": "tx1",
+                "asset_name": "STAMP1",
+                "keyburn": 546,
+                "stamp_base64": "base64data1",
+            },
+            {
+                "stamp_number": 3,
+                "cpid": "A125",
+                "tx_hash": "tx3",
+                "asset_name": "STAMP3",
+                "keyburn": 546,
+                "stamp_base64": "base64data3",
+            },
+        ]
+
+        with patch("index_core.check.consensus_hash") as mock_consensus_hash, patch(
+            "index_core.block_validation.update_block_hashes"
+        ) as mock_update_hashes:
+
+            mock_consensus_hash.side_effect = [
+                ("hash2", "found_txlist"),
+                ("hash1", "found_ledger"),
+                ("hash3", "found_messages"),
+            ]
+
+            result = create_check_hashes(mock_db, 900001, valid_stamps, [], [])
+
+            # Verify stamps were sorted correctly with missing stamp_number defaulting to 0
+            txlist_call = mock_consensus_hash.call_args_list[0]
+            txlist_content = txlist_call[0][4]  # 5th argument is the content
+
+            # The stamp without stamp_number should come first (default 0)
+            # Then stamp_number: 2, then stamp_number: 3
+            pos_missing = txlist_content.find("'tx_hash': 'tx1'")  # The one without stamp_number
+            pos2 = txlist_content.find("'stamp_number': 2")
+            pos3 = txlist_content.find("'stamp_number': 3")
+            
+            # Verify ordering: missing (0) < 2 < 3
+            assert pos_missing < pos2 < pos3
+            assert result == ("hash1", "hash2", "hash3")
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
