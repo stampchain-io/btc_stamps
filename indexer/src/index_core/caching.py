@@ -127,22 +127,22 @@ class CacheManager:
     def clear_all(self) -> None:
         """Clear all registered caches and backend caches."""
         with self._lock:
-            logger.info("Starting cache clear operation")
+            logger.debug("Starting cache clear operation")
             # Clear registered LRU caches
             for name, cache in self._caches.items():
-                logger.info(f"Clearing cache '{name}' (current_size={len(cache)}, hits={cache.hits}, misses={cache.misses})")
+                logger.debug(f"Clearing cache '{name}' (current_size={len(cache)}, hits={cache.hits}, misses={cache.misses})")
                 cache.clear()
 
             # Clear backend caches if registered
             if self._backend_instance is not None:
-                logger.info(
+                logger.debug(
                     "Clearing backend caches (raw_tx_size=%d, deserialized_tx_size=%d)",
                     len(self._backend_instance.raw_transactions_cache),
                     len(self._backend_instance.deserialized_tx_cache),
                 )
                 self._backend_instance.raw_transactions_cache.clear()
                 self._backend_instance.deserialized_tx_cache.clear()
-            logger.info("Completed cache clear operation")
+            logger.debug("Completed cache clear operation")
 
     def get_stats(self) -> CacheStats:
         """Get detailed statistics about registered caches."""

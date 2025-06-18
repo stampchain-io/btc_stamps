@@ -11,6 +11,11 @@ import unittest
 from decimal import Decimal as D
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+# Mark as unit test - should be properly mocked for CI
+pytestmark = pytest.mark.unit
+
 from index_core.src20 import (
     Src20Processor,
     check_format,
@@ -92,6 +97,15 @@ class TestSrc20ProcessorOperations(unittest.TestCase):
     def setUp(self):
         self.mock_db = MagicMock()
         self.processed_src20_in_block = []
+
+        # Clear global cache to prevent test isolation issues
+        try:
+            from index_core.caching import cache_manager
+
+            cache_manager.clear_all()
+        except ImportError:
+            pass  # If cache_manager not available, continue without clearing
+
         self.src20_dict = {
             "tick": "test",
             "tick_hash": "testhash",
@@ -104,6 +118,18 @@ class TestSrc20ProcessorOperations(unittest.TestCase):
             "block_index": 800000,
             "tx_hash": "test_tx_hash",
         }
+
+    def tearDown(self):
+        # Reset mocks to prevent interference between tests
+        self.mock_db.reset_mock()
+
+        # Clear global cache after each test
+        try:
+            from index_core.caching import cache_manager
+
+            cache_manager.clear_all()
+        except ImportError:
+            pass  # If cache_manager not available, continue without clearing
 
     def test_handle_deploy_success(self):
         """Test successful token deployment."""
@@ -349,6 +375,27 @@ class TestBalanceManagementSecurity(unittest.TestCase):
         self.mock_db.cursor.return_value = self.mock_cursor
         self.mock_db.cursor.return_value.__enter__.return_value = self.mock_cursor
         self.mock_db.cursor.return_value.__exit__.return_value = None
+
+        # Clear global cache to prevent test isolation issues
+        try:
+            from index_core.caching import cache_manager
+
+            cache_manager.clear_all()
+        except ImportError:
+            pass  # If cache_manager not available, continue without clearing
+
+    def tearDown(self):
+        # Reset mocks to prevent interference between tests
+        self.mock_cursor.reset_mock()
+        self.mock_db.reset_mock()
+
+        # Clear global cache after each test
+        try:
+            from index_core.caching import cache_manager
+
+            cache_manager.clear_all()
+        except ImportError:
+            pass  # If cache_manager not available, continue without clearing
 
     def test_get_running_user_balances_duplicate_addresses(self):
         """Test protection against duplicate addresses."""
@@ -617,6 +664,8 @@ class TestLedgerValidationSecurity(unittest.TestCase):
         # Should detect mismatch
         self.assertFalse(result)
 
+    @patch("index_core.src20.SRC_VALIDATION_API2", "https://test-api.com/{block_index}/{secret}")
+    @patch("index_core.src20.SRC_VALIDATION_SECRET_API2", "test-secret")
     @patch("index_core.src20.time.sleep")  # Mock sleep to speed up test
     @patch("index_core.src20.requests.get")
     def test_api_timeout_handling(self, mock_get, mock_sleep):
@@ -650,6 +699,27 @@ class TestEdgeCaseCoverage(unittest.TestCase):
         self.mock_db.cursor.return_value = self.mock_cursor
         self.mock_db.cursor.return_value.__enter__.return_value = self.mock_cursor
         self.mock_db.cursor.return_value.__exit__.return_value = None
+
+        # Clear global cache to prevent test isolation issues
+        try:
+            from index_core.caching import cache_manager
+
+            cache_manager.clear_all()
+        except ImportError:
+            pass  # If cache_manager not available, continue without clearing
+
+    def tearDown(self):
+        # Reset mocks to prevent interference between tests
+        self.mock_cursor.reset_mock()
+        self.mock_db.reset_mock()
+
+        # Clear global cache after each test
+        try:
+            from index_core.caching import cache_manager
+
+            cache_manager.clear_all()
+        except ImportError:
+            pass  # If cache_manager not available, continue without clearing
 
     def test_convert_to_utf8_string_edge_cases(self):
         """Test convert_to_utf8_string with edge cases."""
@@ -765,26 +835,34 @@ class TestEdgeCaseCoverage(unittest.TestCase):
         """Test get_running_mint_total with edge cases."""
         from index_core.src20 import get_running_mint_total
 
-        # Mock database response
-        self.mock_cursor.fetchone.return_value = (D("1000"),)
+        # Mock the database function that get_running_mint_total uses
+        with patch("index_core.src20.get_total_src20_minted_from_db") as mock_get_total:
+            # Mock database response
+            mock_get_total.return_value = D("1000")
 
-        # Test with empty processed transactions
-        result = get_running_mint_total(self.mock_db, [], "TEST")
-        self.assertEqual(result, D("1000"))
+            # Test with empty processed transactions
+            result = get_running_mint_total(self.mock_db, [], "TEST")
+            self.assertEqual(result, D("1000"))
 
-        # Test with processed transactions containing mints
-        # Note: The function may only count database totals, not in-block transactions
-        processed_transactions = [
-            {"tick": "TEST", "op": "MINT", "amt": D("100"), "valid": 1},
-            {"tick": "TEST", "op": "MINT", "amt": D("50"), "valid": 1},
-            {"tick": "OTHER", "op": "MINT", "amt": D("200"), "valid": 1},  # Different tick
-            {"tick": "TEST", "op": "TRANSFER", "amt": D("25"), "valid": 1},  # Different op
-            {"tick": "TEST", "op": "MINT", "amt": D("75"), "valid": 0},  # Invalid
-        ]
+            # Verify database was called since no in-block transactions
+            mock_get_total.assert_called_once_with(self.mock_db, "TEST")
 
-        result = get_running_mint_total(self.mock_db, processed_transactions, "TEST")
-        # Function appears to only return database total, not adding in-block transactions
-        self.assertEqual(result, D("1000"))
+            # Reset the mock for next test
+            mock_get_total.reset_mock()
+
+            # Test with processed transactions containing total_minted
+            processed_transactions = [
+                {"tick": "TEST", "op": "MINT", "amt": D("100"), "total_minted": D("1500"), "valid": 1},
+                {"tick": "TEST", "op": "MINT", "amt": D("50"), "valid": 1},  # No total_minted
+                {"tick": "OTHER", "op": "MINT", "amt": D("200"), "valid": 1},  # Different tick
+            ]
+
+            result = get_running_mint_total(self.mock_db, processed_transactions, "TEST")
+            # Should find the in-block total_minted value
+            self.assertEqual(result, D("1500"))
+
+            # Database should not be called since value found in block
+            mock_get_total.assert_not_called()
 
     def test_clear_zero_balances(self):
         """Test clear_zero_balances function."""

@@ -133,21 +133,103 @@ def run_code_quality_checks(auto_fix=False):
             "MOCK_DB": "1",
             "CI_FIXTURE_MODE": "true",
         }
+        # Also set them in the current process to ensure imports work correctly
+        for key, value in test_env.items():
+            os.environ[key] = value
         env = {**os.environ, **test_env}
 
         logger.info(colored("Setting up test environment...", "cyan"))
         for key, value in test_env.items():
             logger.info(f"  {colored(key, 'yellow')} = {colored(value, 'white')}")
 
-        # Build Rust parser first
+        # Run linting checks first - they're quick and can catch issues early
+        logger.info(colored("Running code quality tools...", "cyan"))
+
+        # isort check
+        logger.info("Running isort...")
+        cmd = "poetry run isort ." if auto_fix else "poetry run isort . --check-only"
+        logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
+        if run_command(cmd, ignore_errors=True):
+            logger.info(colored("💣 PASS: isort", "green"))
+        else:
+            code_quality_failures.append("isort")
+            logger.error(colored("💀 FAIL: isort", "red"))
+            all_passed = False
+
+        # black check
+        logger.info("Running black...")
+        cmd = (
+            "poetry run black . --config=pyproject.toml" if auto_fix else "poetry run black --check . --config=pyproject.toml"
+        )
+        logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
+        if run_command(cmd, ignore_errors=True):
+            logger.info(colored("💣 PASS: black", "green"))
+        else:
+            code_quality_failures.append("black")
+            logger.error(colored("💀 FAIL: black", "red"))
+            all_passed = False
+
+        # flake8 check
+        logger.info("Running flake8...")
+        if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
+            logger.info(colored("PASS: flake8 check", "green"))
+        else:
+            code_quality_failures.append("flake8")
+            logger.error(colored("FAIL: flake8 check", "red"))
+            all_passed = False
+
+        # mypy check
+        logger.info("Running mypy...")
+        if run_command("poetry run mypy src/ --explicit-package-bases", ignore_errors=True):
+            logger.info(colored("PASS: mypy check", "green"))
+        else:
+            code_quality_failures.append("mypy")
+            logger.error(colored("FAIL: mypy check", "red"))
+            all_passed = False
+
+        # bandit check
+        logger.info("Running bandit...")
+        if run_command("poetry run task bandit", ignore_errors=True):
+            logger.info(colored("PASS: bandit check", "green"))
+        else:
+            code_quality_failures.append("bandit")
+            logger.error(colored("FAIL: bandit check", "red"))
+            all_passed = False
+
+        # Build Rust parser after linting checks
         logger.info(colored("Building Rust parser...", "cyan"))
         if not run_rust_checks():
             logger.error("Rust parser checks failed")
             all_passed = False
 
-        # Run pytest for specific test files
-        logger.info(colored("Running pytest tests...", "cyan"))
+        # Run pytest for unit tests only (exclude integration tests)
+        logger.info(colored("Running unit tests...", "cyan"))
 
+        # Run tests excluding only true integration tests
+        # Include unit tests and properly mocked tests that may touch DB/network via mocks
+        cmd = [
+            "poetry",
+            "run",
+            "pytest",
+            "-m",
+            "not integration",
+            "-v",
+            "-W",
+            "ignore::UserWarning",
+            "--tb=short",
+        ]
+
+        try:
+            subprocess.run(cmd, check=True, env=env)
+            logger.info(colored("PASS: Unit tests", "green"))
+        except subprocess.CalledProcessError:
+            code_quality_failures.append("pytest:unit_tests")
+            logger.error(colored("FAIL: Unit tests", "red"))
+            all_passed = False
+
+        # Note: Individual test files approach is kept below but commented out
+        # in case we need to revert or reference specific tests
+        """
         # Pytest unit test files to run under code quality
         test_files = [
             "tests/test_src20_balance.py",
@@ -213,6 +295,13 @@ def run_code_quality_checks(auto_fix=False):
             "tests/test_fast_parser.py",  # Fast parser module tests
             "tests/test_resource_manager.py",  # Resource manager module tests
             "tests/test_blocks_simple.py",  # Simplified blocks.py function tests
+            # Additional properly mocked tests for improved coverage
+            "tests/test_unicode_emoji_handling.py",  # Pure unit tests for string processing
+            "tests/test_validator.py",  # Properly mocks backend and database connections
+            "tests/test_stampscan_integration.py",  # Despite name, properly mocks API calls
+            "tests/test_parser.py",  # Tests parser with sample hex data, no external calls
+            "tests/test_async_upload.py",  # Mocks boto3 and database connections
+            "tests/test_node_health.py",  # Node health monitoring and shutdown callbacks tests
         ]
 
         for test_file in test_files:
@@ -225,77 +314,12 @@ def run_code_quality_checks(auto_fix=False):
                 code_quality_failures.append(f"pytest:{test_file}")
                 logger.error(colored(f"FAIL: {test_file}", "red"))
                 all_passed = False
+        """
 
-        # Run other tests with unittest
-        logger.info(colored("Running unittest tests...", "cyan"))
-        unittest_files = ["test_check_format.py", "test_arc4.py", "test_transactions.py"]
+        # Note: test_check_format.py, test_arc4.py, and test_transactions.py are now
+        # included in the main pytest run above. Pytest can run unittest-style tests.
 
-        for test_file in unittest_files:
-            file_name = colored(test_file, "yellow")
-            logger.info(f"Running {file_name}")
-            try:
-                subprocess.run(
-                    ["poetry", "run", "python3", "-m", "unittest", "discover", "-s", ".", "-p", test_file], check=True
-                )
-                logger.info(colored(f"PASS: {test_file}", "green"))
-            except subprocess.CalledProcessError:
-                code_quality_failures.append(f"unittest:{test_file}")
-                logger.error(colored(f"FAIL: {test_file}", "red"))
-                all_passed = False
-
-        # Run other quality checks
-        logger.info(colored("Running code quality tools...", "cyan"))
-
-        # isort check
-        logger.info("Running isort...")
-        cmd = "poetry run isort ." if auto_fix else "poetry run isort . --check-only"
-        logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
-        if run_command(cmd, ignore_errors=True):
-            logger.info(colored("💣 PASS: isort", "green"))
-        else:
-            code_quality_failures.append("isort")
-            logger.error(colored("💀 FAIL: isort", "red"))
-            all_passed = False
-
-        # black check
-        logger.info("Running black...")
-        cmd = (
-            "poetry run black . --config=pyproject.toml" if auto_fix else "poetry run black --check . --config=pyproject.toml"
-        )
-        logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
-        if run_command(cmd, ignore_errors=True):
-            logger.info(colored("💣 PASS: black", "green"))
-        else:
-            code_quality_failures.append("black")
-            logger.error(colored("💀 FAIL: black", "red"))
-            all_passed = False
-
-        # flake8 check
-        logger.info("Running flake8...")
-        if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
-            logger.info(colored("PASS: flake8 check", "green"))
-        else:
-            code_quality_failures.append("flake8")
-            logger.error(colored("FAIL: flake8 check", "red"))
-            all_passed = False
-
-        # mypy check
-        logger.info("Running mypy...")
-        if run_command("poetry run mypy src/ --explicit-package-bases", ignore_errors=True):
-            logger.info(colored("PASS: mypy check", "green"))
-        else:
-            code_quality_failures.append("mypy")
-            logger.error(colored("FAIL: mypy check", "red"))
-            all_passed = False
-
-        # bandit check
-        logger.info("Running bandit...")
-        if run_command("poetry run task bandit", ignore_errors=True):
-            logger.info(colored("PASS: bandit check", "green"))
-        else:
-            code_quality_failures.append("bandit")
-            logger.error(colored("FAIL: bandit check", "red"))
-            all_passed = False
+        # Linting checks have already been run at the beginning of this function
 
         if all_passed:
             logger.info(colored("All code quality checks passed!", "green", attrs=["bold"]))
@@ -367,6 +391,22 @@ def run_integration_tests():
     integration_failures = []
     print_header("integration")
 
+    # Run all tests marked as integration or requiring external services
+    cmd = ["poetry", "run", "pytest", "-m", "integration or requires_db or requires_network", "-v", "--tb=short"]
+
+    logger.info(colored("Running integration tests (requires local services)...", "cyan"))
+
+    try:
+        subprocess.run(cmd, check=True)
+        logger.info(colored("All integration tests passed!", "green", attrs=["bold"]))
+        return True
+    except subprocess.CalledProcessError:
+        integration_failures.append("pytest:integration_tests")
+        logger.error(colored("Some integration tests failed!", "red", attrs=["bold"]))
+        return False
+
+    # Note: Old approach is kept below for reference
+    """
     commands = [
         "poetry run pytest tests/test_block_rollback.py -v",
         "poetry run pytest tests/test_rollback_transactions_stamptable.py -v",
@@ -398,6 +438,7 @@ def run_integration_tests():
 
     logger.info(f"Final integration tests result: {all_passed}")
     return all_passed
+    """
 
 
 def run_integration_tests_standalone():
@@ -421,7 +462,14 @@ def main():
         logger.info(colored("⚡️ Auto-fix enabled", "magenta"))
 
     # Set test environment variables for the main process
-    test_env = {"PYTHONPATH": "src", "USE_TEST_TX_HEX": "1", "TESTING": "1", "USE_TEST_DB": "1", "MOCK_DB": "1"}
+    test_env = {
+        "PYTHONPATH": "src",
+        "USE_TEST_TX_HEX": "1",
+        "TESTING": "1",
+        "USE_TEST_DB": "1",
+        "MOCK_DB": "1",
+        "CI_FIXTURE_MODE": "true",
+    }
     for key, value in test_env.items():
         os.environ[key] = value
 
@@ -494,7 +542,17 @@ def main():
 
 # Standalone entrypoint for code quality in CI, exits 0 if all checks pass, else 1
 def run_code_quality_checks_standalone():
-    result = run_code_quality_checks(auto_fix=False)
+    """Entry point for running code quality checks as a standalone command.
+    This function is called by 'poetry run check-code' and supports --auto-fix flag."""
+    # Parse command-line flags
+    parser = argparse.ArgumentParser(prog="check-code", description="Bitcoin Stamps Code Quality Checks")
+    parser.add_argument("--auto-fix", action="store_true", help="Auto-fix style issues with black and isort")
+    args = parser.parse_args()
+
+    if args.auto_fix:
+        logger.info(colored("⚡️ Auto-fix enabled", "magenta"))
+
+    result = run_code_quality_checks(auto_fix=args.auto_fix)
     if not result:
         logger.error("Code quality checks failed. Exiting with code 1.")
         sys.exit(1)

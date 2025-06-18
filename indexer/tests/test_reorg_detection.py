@@ -3,6 +3,8 @@ import sys
 import unittest
 from unittest.mock import ANY, MagicMock, patch
 
+import pytest
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", stream=sys.stdout)
 logger = logging.getLogger("test_reorg_detection")
@@ -11,6 +13,9 @@ import config
 
 # Import the code being tested
 from index_core import blocks, util
+
+# Mark all tests in this file as integration tests due to complex blockchain reorg logic
+pytestmark = pytest.mark.integration
 
 
 class TestReorgDetection(unittest.TestCase):
@@ -76,25 +81,34 @@ class TestReorgDetection(unittest.TestCase):
         self.patches.append(rollback_patch)
 
         # Mock functions that would call other services
-        self.patches.append(
+        patches_to_start = [
             patch(
                 "index_core.blocks.fetch_xcp_blocks_concurrent",
                 return_value={106: {"block_hash": "hash_106", "xcp_block_hash": "hash_106", "issuances": []}},
-            )
-        )
-        self.patches.append(patch("index_core.blocks.CPBlocksPipeline"))
-        self.patches.append(patch("index_core.blocks.insert_block"))
-        self.patches.append(patch("index_core.blocks.BlockProcessor"))
-        self.patches.append(patch("index_core.blocks.create_check_hashes", return_value=("h1", "h2", "h3")))
-        self.patches.append(patch("index_core.blocks.commit_and_update_block", return_value=106))
-        self.patches.append(patch("index_core.blocks.initialize"))
-        self.patches.append(patch("index_core.blocks.rebuild_balances"))
-        self.patches.append(patch("index_core.blocks.rebuild_owners"))
-        self.patches.append(patch("index_core.blocks.update_src20_token_stats"))
-        self.patches.append(patch("index_core.blocks.process_tx"))
-        self.patches.append(patch("index_core.blocks.log_block_info"))
-        self.patches.append(patch("index_core.blocks.filter_block_transactions", return_value=(["tx1"], {"tx1": "hex1"})))
-        self.patches.append(patch("index_core.blocks.find_common_ancestor_with_xcp", return_value=103))
+            ),
+            patch("index_core.blocks.CPBlocksPipeline"),
+            patch("index_core.blocks.insert_block"),
+            patch("index_core.blocks.BlockProcessor"),
+            patch("index_core.blocks.create_check_hashes", return_value=("h1", "h2", "h3")),
+            patch("index_core.blocks.commit_and_update_block", return_value=106),
+            # Mock initialize to avoid the "First block is not block 0" error
+            patch("index_core.blocks.initialize"),
+            patch("index_core.blocks.rebuild_balances"),
+            patch("index_core.blocks.rebuild_owners"),
+            patch("index_core.blocks.update_src20_token_stats"),
+            patch("index_core.blocks.process_tx"),
+            patch("index_core.blocks.log_block_info"),
+            patch("index_core.blocks.filter_block_transactions", return_value=(["tx1"], {"tx1": "hex1"})),
+            patch("index_core.blocks.find_common_ancestor_with_xcp", return_value=103),
+            patch("index_core.blocks.next_tx_index", return_value=1),
+            patch("index_core.blocks.Profiler"),
+            patch("index_core.blocks.ZMQNotifier"),
+        ]
+
+        # Start all patches
+        for p in patches_to_start:
+            p.start()
+            self.patches.append(p)
 
     def tearDown(self):
         # Stop all patches

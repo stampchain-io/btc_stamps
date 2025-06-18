@@ -9,8 +9,36 @@ from unittest import mock
 
 import pytest
 
+from tests.test_isolation_utils import TestIsolationManager
+
 
 # Test fixtures to set up test environment
+@pytest.fixture(autouse=True, scope="module")
+def module_isolation():
+    """Provide comprehensive isolation for this module."""
+    with TestIsolationManager().isolate_environment(MOCK_DB="1", USE_TEST_DB="1", TESTING="1"):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def test_isolation():
+    """Reset global state before each test."""
+    # Import here to avoid circular import issues
+    try:
+        from index_core.server import shutdown_flag
+
+        shutdown_flag.clear()
+    except ImportError:
+        pass
+    yield
+    try:
+        from index_core.server import shutdown_flag
+
+        shutdown_flag.clear()
+    except ImportError:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def mock_config():
     """Mock config values for tests."""

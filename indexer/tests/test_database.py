@@ -908,7 +908,7 @@ class TestStampNumbering:
         mock_context.__enter__ = Mock(return_value=mock_cursor)
         mock_context.__exit__ = Mock(return_value=None)
         mock_db.cursor.return_value = mock_context
-        mock_cursor.fetchone.return_value = (1000,)
+        mock_cursor.fetchone.return_value = (100,)
 
         result = database.get_next_stamp_number(mock_db, "stamp")
 

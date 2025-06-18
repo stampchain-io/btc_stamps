@@ -491,7 +491,8 @@ class CPBlocksPipeline:
             logger.info(f"📦 Will reprocess {len(self.failed_cp_blocks)} blocks with full CP data")
 
             # Get database connection
-            db = DatabaseManager.connect()
+            db_manager = DatabaseManager()
+            db = db_manager.connect()
             backend_instance = Backend()
 
             try:

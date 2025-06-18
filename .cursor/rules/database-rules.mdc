@@ -34,8 +34,8 @@ This document establishes the rules, guidelines, and best practices for interact
 
 ### 3. Connection and Pool Management
 - **Connection Acquisition:**  
-  - Use the `DatabaseManager.connect()` method from `@indexer/src/index_core/database_manager.py` for acquiring pooled connections.
-  - For long-running operations, use `DatabaseManager.get_long_running_connection()` to ensure proper timeout settings.
+  - Create a DatabaseManager instance first: `db_manager = DatabaseManager()`, then use `db_manager.connect()` method from `@indexer/src/index_core/database_manager.py` for acquiring pooled connections.
+  - For long-running operations, use `db_manager.get_long_running_connection()` to ensure proper timeout settings.
 - **Retry Logic:**  
   - The connection pool incorporates retry logic and timeout settings. Ensure you use the provided methods to access or execute queries (e.g. `execute_with_retry()`).
 - **Returning Connections:**  

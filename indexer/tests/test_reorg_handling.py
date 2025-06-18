@@ -5,8 +5,13 @@ import time
 import unittest
 from unittest.mock import MagicMock, PropertyMock, call, patch
 
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 import config
+
+# Mark all tests in this file as integration tests due to complex blockchain reorg logic
+pytestmark = pytest.mark.integration
 
 logging.getLogger("index_core.blocks").setLevel(logging.DEBUG)
 

@@ -1,13 +1,23 @@
 import unittest
 
+import pytest
+
 from btc_stamps_parser import FastTransactionParser
 from index_core.backend import Backend
 
 
+@pytest.mark.requires_network
+@pytest.mark.integration
 class TestRustParser(unittest.TestCase):
     def setUp(self):
         self.parser = FastTransactionParser()
-        self.backend = Backend()
+        try:
+            self.backend = Backend()
+            # Test if we can actually connect to the Bitcoin node
+            self.backend.rpc("getblockcount", [])
+        except Exception as e:
+            self.skipTest(f"Bitcoin node not available: {e}")
+
         # Using a more recent transaction that we know should be included
         self.test_tx_hash = "e2aa459ebfe0ba3625c917143452678a3e80636489fe0ec8cc7e9651cfd4ddb2"  # Known includable transaction
         self.test_block_hash = "00000000000000000007878ec04bb2b2e12317804810f4c26033585b3f81ffaa"  # Block 700,000

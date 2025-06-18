@@ -484,12 +484,14 @@ class TestCPBlocksPipeline:
             with mock.patch("index_core.database.rebuild_balances"):
                 with mock.patch("index_core.database.rebuild_owners"):
                     with mock.patch("index_core.database.update_src20_token_stats"):
-                        with mock.patch("index_core.database.DatabaseManager") as mock_db_mgr:
+                        with mock.patch("index_core.database.DatabaseManager") as mock_db_mgr_cls:
                             with mock.patch("index_core.database.clear_all_caches"):
                                 with mock.patch("index_core.database.purge_block_db") as mock_purge:
                                     # Set up mock returns
                                     mock_db = mock.MagicMock()
-                                    mock_db_mgr.connect.return_value = mock_db
+                                    mock_db_mgr_instance = mock.MagicMock()
+                                    mock_db_mgr_instance.connect.return_value = mock_db
+                                    mock_db_mgr_cls.return_value = mock_db_mgr_instance
                                     mock_backend_inst = mock.MagicMock()
                                     mock_backend_cls.return_value = mock_backend_inst
 

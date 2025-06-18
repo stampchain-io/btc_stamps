@@ -34,8 +34,8 @@
 ## Database Operations
 - Use parameterized queries with `%s` placeholders to prevent SQL injection
 - Follow connection patterns from `database_manager.py`:
-  - Regular queries: `DatabaseManager.connect()`
-  - Long-running: `DatabaseManager.get_long_running_connection()`
+  - Regular queries: `db_manager = DatabaseManager()` then `db = db_manager.connect()`
+  - Long-running: `db_manager = DatabaseManager()` then `db = db_manager.get_long_running_connection()`
 - Transaction pattern: `db.begin()`, `db.commit()`, `db.rollback()`
 - Always return connections to pool by calling `close()`
 - For detailed DB schema and operations, reference `docs/DATABASE.md`

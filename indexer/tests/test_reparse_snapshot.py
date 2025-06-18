@@ -6,7 +6,12 @@ import types
 # from pathlib import Path # Unused
 from typing import Any
 
+import pytest
+
 # import pytest # Unused in this specific file top-level, used by test functions
+
+# Mark all tests in this file as integration tests due to global module stubbing
+pytestmark = pytest.mark.integration
 
 # Stub external dependencies before importing project modules
 # Use Any typing to suppress mypy attr-defined errors

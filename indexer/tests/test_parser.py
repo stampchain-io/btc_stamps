@@ -23,28 +23,36 @@ def test_parser_initialization():
 def test_deserialize_transaction():
     """Test transaction deserialization."""
     parser = Parser()
-    tx_info = parser.deserialize_transaction(SAMPLE_TX_HEX)
+    tx = parser.deserialize_transaction(SAMPLE_TX_HEX)
 
-    assert isinstance(tx_info, dict)
-    assert "txid" in tx_info
-    assert "version" in tx_info
-    assert "inputs" in tx_info
-    assert "outputs" in tx_info
+    # Should return an EnhancedCTransaction (which inherits from CTransaction)
+    from index_core.parser import EnhancedCTransaction
 
-    # Check input structure
-    assert len(tx_info["inputs"]) > 0
-    input_0 = tx_info["inputs"][0]
-    assert "prev_txid" in input_0
-    assert "prev_vout" in input_0
-    assert "sequence" in input_0
+    assert isinstance(tx, EnhancedCTransaction)
 
-    # Check output structure
-    assert len(tx_info["outputs"]) > 0
-    output_0 = tx_info["outputs"][0]
-    assert "value" in output_0
-    assert "script_pubkey" in output_0
-    assert "is_op_return" in output_0
-    assert isinstance(output_0["value"], Decimal)
+    # Check basic CTransaction attributes
+    assert hasattr(tx, "vin")  # inputs
+    assert hasattr(tx, "vout")  # outputs
+    assert hasattr(tx, "nVersion")  # version
+
+    # Check that we can access the txid
+    assert hasattr(tx, "txid")
+    txid = tx.txid
+    assert isinstance(txid, str)
+    assert len(txid) == 64  # Bitcoin txid is 64 hex characters
+
+    # Check inputs
+    assert len(tx.vin) > 0
+    input_0 = tx.vin[0]
+    assert hasattr(input_0, "prevout")  # previous output reference
+    assert hasattr(input_0, "nSequence")  # sequence number
+
+    # Check outputs
+    assert len(tx.vout) > 0
+    output_0 = tx.vout[0]
+    assert hasattr(output_0, "nValue")  # value in satoshis
+    assert hasattr(output_0, "scriptPubKey")  # script
+    assert isinstance(output_0.nValue, int)  # Value should be integer satoshis
 
 
 def test_invalid_transaction():
@@ -62,10 +70,12 @@ def test_batch_parse_transactions():
     results = parser.batch_parse_transactions([SAMPLE_TX_HEX, SAMPLE_TX_HEX])
 
     # Check that the results are valid, regardless of how many are returned
+    from index_core.parser import EnhancedCTransaction
+
     for result in results:
-        assert isinstance(result, dict)
-        assert "txid" in result
-        assert "version" in result
+        assert isinstance(result, EnhancedCTransaction)
+        assert hasattr(result, "txid")
+        assert hasattr(result, "nVersion")
 
 
 @pytest.mark.skip(reason="Need real block hex data")
@@ -92,8 +102,10 @@ def test_parallel_processing():
     results = parser.batch_parse_transactions(tx_hexes)
 
     # Verify all results are valid, regardless of how many are returned
+    from index_core.parser import EnhancedCTransaction
+
     for result in results:
-        assert isinstance(result, dict)
-        assert "txid" in result
-        assert len(result["inputs"]) > 0
-        assert len(result["outputs"]) > 0
+        assert isinstance(result, EnhancedCTransaction)
+        assert hasattr(result, "txid")
+        assert len(result.vin) > 0  # inputs
+        assert len(result.vout) > 0  # outputs

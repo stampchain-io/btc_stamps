@@ -9,8 +9,27 @@ import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, call, patch
 
-import pymysql
 import pytest
+
+
+# Define database exceptions for testing
+class OperationalError(Exception):
+    def __init__(self, *args):
+        self.args = args
+        super().__init__(*args)
+
+
+class IntegrityError(Exception):
+    def __init__(self, *args):
+        self.args = args
+        super().__init__(*args)
+
+
+class DataError(Exception):
+    def __init__(self, *args):
+        self.args = args
+        super().__init__(*args)
+
 
 from index_core.src20 import (
     Src20Processor,
@@ -19,6 +38,7 @@ from index_core.src20 import (
 )
 
 
+@pytest.mark.unit
 class TestSrc20DatabaseTransactions(unittest.TestCase):
     """Test database transaction handling in SRC-20."""
 
@@ -31,13 +51,13 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
     def test_update_balance_table_atomicity(self):
         """Test atomicity of balance table updates."""
         # Simulate failure during update
-        self.mock_cursor.executemany.side_effect = pymysql.OperationalError("Database connection lost")
+        self.mock_cursor.executemany.side_effect = OperationalError("Database connection lost")
 
         balance_updates = [
             {"tick": "TEST", "address": "addr1", "tick_hash": "hash", "credit": Decimal("200"), "debit": Decimal("100")}
         ]
 
-        with pytest.raises(pymysql.OperationalError):
+        with pytest.raises(OperationalError):
             update_balance_table(self.mock_db, balance_updates, 1000, 1000000)
 
         # Should not commit on failure
@@ -54,9 +74,9 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
         ]
 
         # Simulate update_balance_table failure
-        mock_update_balance_table.side_effect = pymysql.IntegrityError("Duplicate key")
+        mock_update_balance_table.side_effect = IntegrityError("Duplicate key")
 
-        with pytest.raises(pymysql.IntegrityError):
+        with pytest.raises(IntegrityError):
             update_src20_balances(self.mock_db, 1000, 1000000, processed_list)
 
         # Verify update_balance_table was called
@@ -72,9 +92,9 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
         ]
 
         # Simulate execute failure (not executemany)
-        self.mock_cursor.execute.side_effect = pymysql.DataError("Invalid decimal value")
+        self.mock_cursor.execute.side_effect = DataError("Invalid decimal value")
 
-        with pytest.raises(pymysql.DataError):
+        with pytest.raises(DataError):
             # Process updates
             update_balance_table(self.mock_db, balance_updates, 1000, 1000000)
 
@@ -119,14 +139,14 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
     def test_deadlock_detection_and_retry(self):
         """Test deadlock detection and retry mechanism."""
         # Simulate deadlock error
-        self.mock_cursor.execute.side_effect = pymysql.OperationalError(1213, "Deadlock found")
+        self.mock_cursor.execute.side_effect = OperationalError(1213, "Deadlock found")
 
         # update_balance_table doesn't retry on deadlock, it raises the exception
         balance_updates = [
             {"tick": "TEST", "address": "addr1", "tick_hash": "hash", "credit": Decimal("200"), "debit": Decimal("100")}
         ]
 
-        with pytest.raises(pymysql.OperationalError) as exc_info:
+        with pytest.raises(OperationalError) as exc_info:
             update_balance_table(self.mock_db, balance_updates, 1000, 1000000)
 
         assert exc_info.value.args[0] == 1213
@@ -134,9 +154,9 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
     def test_connection_pool_exhaustion(self):
         """Test behavior when connection pool is exhausted."""
         # Simulate connection pool exhaustion
-        self.mock_db.cursor.side_effect = pymysql.OperationalError("Too many connections")
+        self.mock_db.cursor.side_effect = OperationalError("Too many connections")
 
-        with pytest.raises(pymysql.OperationalError):
+        with pytest.raises(OperationalError):
             balance_updates = [
                 {"tick": "TEST", "address": "addr1", "tick_hash": "hash", "credit": Decimal("200"), "debit": Decimal("100")}
             ]
@@ -222,11 +242,11 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
     def test_database_constraint_violations(self):
         """Test handling of database constraint violations."""
         # Test foreign key violation
-        self.mock_cursor.execute.side_effect = pymysql.IntegrityError(
+        self.mock_cursor.execute.side_effect = IntegrityError(
             1452, "Cannot add or update a child row: a foreign key constraint fails"
         )
 
-        with pytest.raises(pymysql.IntegrityError):
+        with pytest.raises(IntegrityError):
             balance_updates = [
                 {
                     "tick": "NONEXISTENT",
@@ -303,7 +323,7 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
                     success_count
                 else:
                     # Others fail with duplicate key
-                    raise pymysql.IntegrityError(1062, "Duplicate entry 'TEST' for key 'tick'")
+                    raise IntegrityError(1062, "Duplicate entry 'TEST' for key 'tick'")
             except Exception as e:
                 errors.append((creator_id, e))
 
@@ -322,14 +342,14 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
     def test_balance_update_retry_on_lock_timeout(self):
         """Test retry logic on lock timeout."""
         # Simulate lock timeout
-        self.mock_cursor.execute.side_effect = pymysql.OperationalError(1205, "Lock wait timeout exceeded")
+        self.mock_cursor.execute.side_effect = OperationalError(1205, "Lock wait timeout exceeded")
 
         balance_updates = [
             {"tick": "TEST", "address": "addr1", "tick_hash": "hash", "credit": Decimal("100"), "debit": Decimal("0")}
         ]
 
         # update_balance_table doesn't retry on lock timeout, it raises the exception
-        with pytest.raises(pymysql.OperationalError) as exc_info:
+        with pytest.raises(OperationalError) as exc_info:
             update_balance_table(self.mock_db, balance_updates, 1000, 1000000)
 
         assert exc_info.value.args[0] == 1205

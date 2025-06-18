@@ -5,6 +5,9 @@ from typing import Any
 
 import pytest
 
+# Mark all tests in this file as integration tests due to global module stubbing
+pytestmark = pytest.mark.integration
+
 # Stub external dependencies before importing project modules
 # Stub boto3
 _boto3_mod: Any = types.ModuleType("boto3")

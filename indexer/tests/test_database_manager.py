@@ -8,6 +8,8 @@ from pymysql.connections import Connection
 
 from index_core.database_manager import ConnectionPool, DatabaseManager, PooledConnection
 
+# Some tests in this file require database access - they are individually marked
+
 
 class TestPooledConnection:
     """Test the PooledConnection wrapper class"""
@@ -185,16 +187,25 @@ class TestDatabaseManager:
 
     def setup_method(self):
         """Set up test environment for each test"""
+        # Store original values for restoration
+        self._original_mock_db = os.environ.get("MOCK_DB")
+        self._original_use_test_db = os.environ.get("USE_TEST_DB")
+
         # Ensure we're in test mode
         os.environ["MOCK_DB"] = "1"
         os.environ["USE_TEST_DB"] = "1"
 
     def teardown_method(self):
         """Clean up after each test"""
-        # Clean up environment
-        if "MOCK_DB" in os.environ:
+        # Restore original environment values
+        if self._original_mock_db is not None:
+            os.environ["MOCK_DB"] = self._original_mock_db
+        elif "MOCK_DB" in os.environ:
             del os.environ["MOCK_DB"]
-        if "USE_TEST_DB" in os.environ:
+
+        if self._original_use_test_db is not None:
+            os.environ["USE_TEST_DB"] = self._original_use_test_db
+        elif "USE_TEST_DB" in os.environ:
             del os.environ["USE_TEST_DB"]
 
     def test_database_manager_initialization(self):
@@ -214,17 +225,18 @@ class TestDatabaseManager:
         # Should not initialize pool in mock mode
         assert db_manager.pool is None
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     @patch("index_core.database_manager.ConnectionPool")
     def test_database_manager_real_mode_initialization(self, mock_pool_class):
         """Test DatabaseManager initialization in real mode"""
         mock_pool = Mock()
         mock_pool_class.return_value = mock_pool
 
-        db_manager = DatabaseManager()
+        # Temporarily override mock mode for this test
+        with patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"}, clear=False):
+            db_manager = DatabaseManager()
 
-        # Should initialize pool in real mode
-        mock_pool_class.assert_called_once()
+            # Should initialize pool in real mode
+            mock_pool_class.assert_called_once()
 
     def test_get_connection_params(self):
         """Test getting connection parameters from environment"""
@@ -299,58 +311,61 @@ class TestDatabaseManager:
         # Should return a mock connection
         assert hasattr(connection, "cursor")
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     @patch("index_core.database_manager.pymysql.connect")
     def test_get_long_running_connection_real_mode(self, mock_connect):
         """Test get_long_running_connection() in real mode"""
         mock_connection = Mock()
         mock_connect.return_value = mock_connection
 
-        db_manager = DatabaseManager()
-        db_manager.pool = Mock()  # Mock the pool
+        # Temporarily override mock mode for this test
+        with patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"}, clear=False):
+            db_manager = DatabaseManager()
+            db_manager.pool = Mock()  # Mock the pool
 
-        # Clear previous calls from pool initialization
-        mock_connect.reset_mock()
+            # Clear previous calls from pool initialization
+            mock_connect.reset_mock()
 
-        connection = db_manager.get_long_running_connection()
+            connection = db_manager.get_long_running_connection()
 
-        # Should call pymysql.connect with extended timeouts
-        mock_connect.assert_called_once()
-        call_args = mock_connect.call_args[1]
-        assert call_args["read_timeout"] == 86400
-        assert call_args["write_timeout"] == 86400
+            # Should call pymysql.connect with extended timeouts
+            mock_connect.assert_called_once()
+            call_args = mock_connect.call_args[1]
+            assert call_args["read_timeout"] == 86400
+            assert call_args["write_timeout"] == 86400
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     def test_connect_with_retries(self):
         """Test connect() method with retry logic"""
-        db_manager = DatabaseManager()
+        # Temporarily override mock mode for this test
+        with patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"}, clear=False):
+            db_manager = DatabaseManager()
 
-        # Mock pool that fails first time, succeeds second time
-        mock_pool = Mock()
-        mock_connection = Mock()
-        mock_pool.get_connection.side_effect = [Exception("Connection failed"), mock_connection]
-        db_manager.pool = mock_pool
+            # Mock pool that fails first time, succeeds second time
+            mock_pool = Mock()
+            mock_connection = Mock()
+            mock_pool.get_connection.side_effect = [Exception("Connection failed"), mock_connection]
+            db_manager.pool = mock_pool
 
-        with patch("time.sleep"):  # Speed up the test
-            connection = db_manager.connect()
+            with patch("time.sleep"):  # Speed up the test
+                connection = db_manager.connect()
 
-        assert connection == mock_connection
-        assert mock_pool.get_connection.call_count == 2
+            assert connection == mock_connection
+            assert mock_pool.get_connection.call_count == 2
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     def test_connect_max_retries_exceeded(self):
         """Test connect() when max retries are exceeded"""
-        db_manager = DatabaseManager()
-        db_manager.max_retries = 2  # Reduce for faster test
+        # Temporarily override mock mode for this test
+        with patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"}, clear=False):
+            db_manager = DatabaseManager()
+            db_manager.max_retries = 2  # Reduce for faster test
 
-        # Mock pool that always fails
-        mock_pool = Mock()
-        mock_pool.get_connection.side_effect = Exception("Connection failed")
-        db_manager.pool = mock_pool
+            # Mock pool that always fails
+            mock_pool = Mock()
+            mock_pool.get_connection.side_effect = Exception("Connection failed")
+            db_manager.pool = mock_pool
 
-        with patch("time.sleep"):  # Speed up the test
-            with pytest.raises(RuntimeError, match="Failed to acquire database connection"):
-                db_manager.connect()
+            with patch("time.sleep"):  # Speed up the test
+                with pytest.raises(RuntimeError, match="Failed to acquire database connection"):
+                    db_manager.connect()
 
     def test_execute_with_retry_mock_mode(self):
         """Test execute_with_retry() in mock mode"""
@@ -365,7 +380,6 @@ class TestDatabaseManager:
 
         mock_cursor.execute.assert_called_once_with(query, params)
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     def test_execute_with_retry_success(self):
         """Test execute_with_retry() success case"""
         db_manager = DatabaseManager()
@@ -380,54 +394,87 @@ class TestDatabaseManager:
 
         mock_cursor.execute.assert_called_once_with(query, params)
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     def test_execute_with_retry_with_retries(self):
         """Test execute_with_retry() with retries on operational error"""
         db_manager = DatabaseManager()
         db_manager.max_retries = 2
 
+        # Create a cursor that fails on first call, succeeds on second
+        call_count = 0
+
+        def mock_execute_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise pymysql.OperationalError("Connection lost")
+            return None
+
         mock_cursor = Mock()
-        mock_cursor.execute.side_effect = [pymysql.OperationalError("Connection lost"), None]  # Success on second try
+        mock_cursor.execute.side_effect = mock_execute_side_effect
 
-        # Mock connect to return new cursor
-        with patch.object(db_manager, "connect") as mock_connect:
-            mock_connection = Mock()
-            mock_new_cursor = Mock()
-            mock_connection.cursor.return_value = mock_new_cursor
-            mock_connect.return_value = mock_connection
+        # Track connect calls by patching the method
+        original_connect = db_manager.connect
+        connect_call_count = 0
 
+        def mock_connect():
+            nonlocal connect_call_count
+            connect_call_count += 1
+            # Return original connect result but track the call
+            conn = original_connect()
+            # Ensure the new cursor uses our controlled execute method
+            new_cursor = Mock()
+            new_cursor.execute.side_effect = mock_execute_side_effect
+            conn.cursor.return_value = new_cursor
+            return conn
+
+        with patch.object(db_manager, "connect", side_effect=mock_connect):
             query = "SELECT * FROM test"
-
             db_manager.execute_with_retry(mock_cursor, query)
 
-            # Should have been called twice (original + retry)
-            assert mock_cursor.execute.call_count == 1
-            mock_connect.assert_called_once()
+            # Should have connected once for the retry after first failure
+            assert connect_call_count == 1
+            # Should have executed twice total (original + retry)
+            assert call_count == 2
 
-    @patch.dict(os.environ, {"MOCK_DB": "0", "USE_TEST_DB": "0"})
     def test_execute_with_retry_max_retries_exceeded(self):
         """Test execute_with_retry() when max retries exceeded"""
         db_manager = DatabaseManager()
         db_manager.max_retries = 2
 
-        # Create initial cursor that fails
+        # Create a cursor that always fails
+        call_count = 0
+
+        def mock_execute_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise pymysql.OperationalError("Persistent error")
+
         mock_cursor = Mock()
-        mock_cursor.execute.side_effect = pymysql.OperationalError("Persistent error")
+        mock_cursor.execute.side_effect = mock_execute_side_effect
 
-        with patch.object(db_manager, "connect") as mock_connect:
-            # Mock connect to return a connection with cursor that also fails
-            mock_connection = Mock()
-            mock_new_cursor = Mock()
-            # Make the new cursor also fail with the same error
-            mock_new_cursor.execute.side_effect = pymysql.OperationalError("Persistent error")
-            mock_connection.cursor.return_value = mock_new_cursor
-            mock_connect.return_value = mock_connection
+        # Track connect calls
+        original_connect = db_manager.connect
+        connect_call_count = 0
 
+        def mock_connect():
+            nonlocal connect_call_count
+            connect_call_count += 1
+            # Return original connect result but track the call
+            conn = original_connect()
+            # Ensure the new cursor also fails
+            new_cursor = Mock()
+            new_cursor.execute.side_effect = mock_execute_side_effect
+            conn.cursor.return_value = new_cursor
+            return conn
+
+        with patch.object(db_manager, "connect", side_effect=mock_connect):
             with pytest.raises(RuntimeError, match="Query execution failed after .* attempts"):
                 db_manager.execute_with_retry(mock_cursor, "SELECT * FROM test")
 
-            # Verify connect was called to get a new connection after first failure
-            assert mock_connect.call_count == 1  # Called once for retry
+            # Should have connected once for retry after first failure
+            assert connect_call_count == 1
+            # Should have executed twice total (original + one retry)
+            assert call_count == 2
 
     def test_check_connection_valid(self):
         """Test check_connection() with valid connection"""
@@ -522,14 +569,24 @@ class TestDatabaseManagerIntegration:
 
     def setup_method(self):
         """Set up test environment"""
+        # Store original values for restoration
+        self._original_mock_db = os.environ.get("MOCK_DB")
+        self._original_use_test_db = os.environ.get("USE_TEST_DB")
+
         os.environ["MOCK_DB"] = "1"
         os.environ["USE_TEST_DB"] = "1"
 
     def teardown_method(self):
         """Clean up after each test"""
-        if "MOCK_DB" in os.environ:
+        # Restore original environment values
+        if self._original_mock_db is not None:
+            os.environ["MOCK_DB"] = self._original_mock_db
+        elif "MOCK_DB" in os.environ:
             del os.environ["MOCK_DB"]
-        if "USE_TEST_DB" in os.environ:
+
+        if self._original_use_test_db is not None:
+            os.environ["USE_TEST_DB"] = self._original_use_test_db
+        elif "USE_TEST_DB" in os.environ:
             del os.environ["USE_TEST_DB"]
 
     def test_full_workflow_mock_mode(self):

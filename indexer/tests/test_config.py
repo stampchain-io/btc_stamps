@@ -1,13 +1,17 @@
 import importlib
 import os
 import sys
+import types
+from typing import Any
 
 import pytest
 
+from tests.test_isolation_utils import TestIsolationManager
 
-@pytest.fixture(autouse=True)
-def clear_rpc_environment_variables():
-    """Clear RPC-related environment variables that could interfere with tests."""
+
+@pytest.fixture(autouse=True, scope="module")
+def module_isolation():
+    """Provide comprehensive isolation for this module."""
     rpc_env_vars = [
         "RPC_IP",
         "RPC_PORT",
@@ -21,32 +25,21 @@ def clear_rpc_environment_variables():
         "CP_FALLBACK_MODE",
     ]
 
-    original_values = {}
-    for var in rpc_env_vars:
-        original_values[var] = os.environ.get(var)
-        if var in os.environ:
-            del os.environ[var]
+    with TestIsolationManager().isolate_sys_modules(["boto3"]).isolate_sys_path().isolate_environment(
+        **{var: None for var in rpc_env_vars}
+    ):
+        # Ensure we import from the src directory
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-    yield
+        # Explicitly stub out boto3 as a module with a client() factory
+        _boto3_mod: Any = types.ModuleType("boto3")
+        _boto3_mod.client = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+        sys.modules["boto3"] = _boto3_mod
 
-    # Restore original values
-    for var, value in original_values.items():
-        if value is not None:
-            os.environ[var] = value
-        elif var in os.environ:
-            del os.environ[var]
+        yield
 
 
-# Ensure we import from the src directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
-
-# Explicitly stub out boto3 as a module with a client() factory
-import types
-from typing import Any
-
-_boto3_mod: Any = types.ModuleType("boto3")
-_boto3_mod.client = lambda *args, **kwargs: None  # type: ignore[attr-defined]
-sys.modules["boto3"] = _boto3_mod
+# Import after setting up isolation
 import exceptions
 
 

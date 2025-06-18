@@ -15,6 +15,8 @@ import time
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -22,14 +24,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Mock AWS and database modules before importing any other modules
-sys.modules["boto3"] = MagicMock()
-sys.modules["pymysql"] = MagicMock()
-sys.modules["pymysql.connections"] = MagicMock()
-sys.modules["pymysql.cursors"] = MagicMock()
 
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+@pytest.fixture(autouse=True, scope="module")
+def module_isolation():
+    """Provide comprehensive isolation for this module."""
+    from tests.test_isolation_utils import TestIsolationManager
+
+    modules_to_mock = ["boto3", "pymysql", "pymysql.connections", "pymysql.cursors"]
+
+    with TestIsolationManager().isolate_sys_modules(modules_to_mock).isolate_sys_path().isolate_logging():
+        # Mock AWS and database modules before importing any other modules
+        sys.modules["boto3"] = MagicMock()
+        sys.modules["pymysql"] = MagicMock()
+        sys.modules["pymysql.connections"] = MagicMock()
+        sys.modules["pymysql.cursors"] = MagicMock()
+
+        # Add the src directory to the Python path
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+        yield
+
 
 # Now import our modules
 import config
@@ -82,8 +96,10 @@ def test_upload_task_processing():
     mock_db = MagicMock()
 
     # Patch the necessary functions at the correct locations
-    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr:
-        mock_db_mgr.connect.return_value = mock_db
+    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr_cls:
+        mock_db_mgr_instance = MagicMock()
+        mock_db_mgr_instance.connect.return_value = mock_db
+        mock_db_mgr_cls.return_value = mock_db_mgr_instance
         with patch("index_core.async_upload.upload_file_to_s3", mock_upload):
             with patch("index_core.async_upload.update_s3_db_objects", mock_update_db):
                 # Process the task
@@ -124,8 +140,10 @@ def test_async_upload_single_file():
     mock_db = MagicMock()
 
     # Patch the necessary functions at the correct locations
-    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr:
-        mock_db_mgr.connect.return_value = mock_db
+    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr_cls:
+        mock_db_mgr_instance = MagicMock()
+        mock_db_mgr_instance.connect.return_value = mock_db
+        mock_db_mgr_cls.return_value = mock_db_mgr_instance
         with patch("index_core.async_upload.upload_file_to_s3", side_effect=mock_upload):
             with patch("index_core.async_upload.update_s3_db_objects", side_effect=mock_update_db):
 
@@ -186,8 +204,10 @@ def test_async_upload_with_existing_file():
     mock_db = MagicMock()
 
     # Patch the necessary functions at the correct locations
-    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr:
-        mock_db_mgr.connect.return_value = mock_db
+    with patch("index_core.async_upload.DatabaseManager") as mock_db_mgr_cls:
+        mock_db_mgr_instance = MagicMock()
+        mock_db_mgr_instance.connect.return_value = mock_db
+        mock_db_mgr_cls.return_value = mock_db_mgr_instance
         with patch("index_core.async_upload.upload_file_to_s3", side_effect=mock_upload):
             with patch("index_core.async_upload.update_s3_db_objects", side_effect=mock_update_db):
 

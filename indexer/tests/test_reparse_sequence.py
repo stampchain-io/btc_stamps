@@ -5,6 +5,9 @@ from typing import Any
 
 import pytest
 
+# Mark all tests in this file as integration tests due to global state modification
+pytestmark = pytest.mark.integration
+
 
 # Dummy SnapshotManager to inject into validator
 class DummySnapshotManager:

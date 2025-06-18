@@ -12,6 +12,9 @@ import unittest
 import pytest
 import requests
 
+# Mark all tests in this file as integration tests
+pytestmark = pytest.mark.integration
+
 logger = logging.getLogger(__name__)
 
 # KuCoin API Configuration

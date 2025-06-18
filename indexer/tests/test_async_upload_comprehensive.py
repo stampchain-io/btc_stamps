@@ -300,7 +300,7 @@ class TestAsyncUpload:
 
         # Execute
         with patch("index_core.async_upload.upload_executor") as mock_executor:
-            with caplog.at_level(logging.WARNING):
+            with caplog.at_level(logging.DEBUG):
                 async_upload.stop_upload_worker()
 
         # Assert
