@@ -315,12 +315,13 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
         success_count = 0
 
         def create_tick_concurrent(creator_id):
+            nonlocal success_count
             try:
                 # Simulate tick creation
                 if creator_id == 0:
                     # First creator succeeds
                     time.sleep(0.001 * creator_id)
-                    success_count
+                    success_count += 1
                 else:
                     # Others fail with duplicate key
                     raise IntegrityError(1062, "Duplicate entry 'TEST' for key 'tick'")
@@ -338,6 +339,7 @@ class TestSrc20DatabaseTransactions(unittest.TestCase):
 
         # Only first creator should succeed, others fail
         assert len(errors) == 4  # 4 out of 5 should fail
+        assert success_count == 1  # Only first creator should succeed
 
     def test_balance_update_retry_on_lock_timeout(self):
         """Test retry logic on lock timeout."""
