@@ -454,7 +454,7 @@ class TestCPBlocksPipeline:
         pipeline.failed_cp_blocks = {820001, 820002}
         pipeline.last_health_check = 0
 
-        with mock.patch.object(pipeline, "_trigger_automatic_rollback") as mock_rollback:
+        with mock.patch.object(pipeline, "_perform_runtime_rollback") as mock_rollback:
             result = pipeline.check_cp_node_recovery()
 
             assert result is True
@@ -477,7 +477,7 @@ class TestCPBlocksPipeline:
         assert result is False
         mock_node_health["update_healthy_nodes"].assert_not_called()
 
-    def test_trigger_automatic_rollback(self, mock_fallback_state_manager, mock_logger):
+    def test_perform_runtime_rollback(self, mock_fallback_state_manager, mock_logger):
         """Test triggering automatic rollback."""
         # Set up all mocks first
         with mock.patch("index_core.backend.Backend") as mock_backend_cls:
@@ -503,7 +503,7 @@ class TestCPBlocksPipeline:
                                     pipeline.failed_cp_blocks = {820001, 820002}
 
                                     # Call the method
-                                    pipeline._trigger_automatic_rollback()
+                                    pipeline._perform_runtime_rollback()
 
                                     # Verify the expected calls
                                     mock_purge.assert_called_once_with(mock_db, 820000)

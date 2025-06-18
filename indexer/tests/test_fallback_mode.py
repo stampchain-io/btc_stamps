@@ -349,7 +349,7 @@ class TestAutomaticRollback:
         """Test that automatic rollback is triggered when CP nodes become healthy."""
         with patch("index_core.pipeline_utils.get_healthy_nodes") as mock_get_nodes, patch(
             "index_core.pipeline_utils.update_healthy_nodes"
-        ) as mock_update_nodes, patch.object(CPBlocksPipeline, "_trigger_automatic_rollback") as mock_rollback, patch(
+        ) as mock_update_nodes, patch.object(CPBlocksPipeline, "_perform_runtime_rollback") as mock_rollback, patch(
             "index_core.pipeline_utils.get_fallback_state_manager"
         ) as mock_get_mgr:
 
@@ -381,7 +381,7 @@ class TestAutomaticRollback:
         """Test that rollback is not triggered when there are no failed blocks."""
         with patch("index_core.pipeline_utils.get_healthy_nodes") as mock_get_nodes, patch(
             "index_core.pipeline_utils.update_healthy_nodes"
-        ) as mock_update_nodes, patch.object(CPBlocksPipeline, "_trigger_automatic_rollback") as mock_rollback, patch(
+        ) as mock_update_nodes, patch.object(CPBlocksPipeline, "_perform_runtime_rollback") as mock_rollback, patch(
             "index_core.pipeline_utils.get_fallback_state_manager"
         ) as mock_get_mgr:
 
@@ -419,7 +419,7 @@ class TestAutomaticRollback:
                     mock_db_mgr_cls.return_value = mock_db_mgr_instance
 
                     # Should not raise exception, just log error
-                    pipeline._trigger_automatic_rollback()
+                    pipeline._perform_runtime_rollback()
 
             # State should not be cleared on error
             assert pipeline.fallback_started_at == 900000

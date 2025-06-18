@@ -1197,6 +1197,59 @@ def purge_block_db(db: Connection, block_index: int) -> None:
     cursor.close()
 
 
+def perform_complete_rollback(block_index: int) -> None:
+    """
+    Perform a complete rollback using the same functions as the indexer.
+    This ensures consistency between manual and automatic rollbacks.
+
+    Args:
+        block_index: The block index to rollback to
+    """
+    from index_core.backend import Backend
+    from index_core.fallback_state import get_fallback_state_manager
+
+    logger.info(f"🔄 Starting complete rollback to block {block_index}")
+
+    # Get database connection using the same manager as the indexer
+    db_manager = DatabaseManager()
+    db = db_manager.connect()
+    backend_instance = Backend()
+
+    try:
+        # Invalidate the block count cache
+        backend_instance.invalidate_blockcount_cache()
+
+        # Perform the database rollback using the same function as the indexer
+        purge_block_db(db, block_index)
+
+        # Clear all caches
+        clear_all_caches()
+        logger.info("Cleared all caches after rollback")
+
+        # Rebuild critical database state
+        logger.info("Rebuilding database state...")
+        rebuild_balances(db)
+        rebuild_owners(db)
+        update_src20_token_stats(db)
+
+        logger.info(f"✅ Complete rollback finished to block {block_index}")
+
+        # Check if we should clear fallback state
+        fallback_manager = get_fallback_state_manager()
+        if fallback_manager.is_fallback_active():
+            fallback_start_block = fallback_manager.get_fallback_start_block()
+            if fallback_start_block and block_index <= fallback_start_block:
+                logger.info(f"Clearing fallback state (started at block {fallback_start_block})...")
+                fallback_manager.end_fallback_mode()
+                logger.info("Fallback state cleared successfully!")
+            else:
+                logger.info(f"Note: Fallback mode is active (started at block {fallback_start_block})")
+                logger.info(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")
+
+    finally:
+        db.close()
+
+
 def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[Dict[str, Any]]) -> DeployResult:
     """Get SRC20 deployment details with caching.
 

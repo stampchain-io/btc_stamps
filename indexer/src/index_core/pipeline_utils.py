@@ -55,7 +55,7 @@ class CPBlocksPipeline:
         self.fallback_mode = fallback_mode
         self.state_manager = get_fallback_state_manager() if fallback_mode else None
 
-        # Initialize from persisted state if available
+        # Initialize from persisted state if available (for tests and state continuity)
         if self.state_manager and self.state_manager.is_fallback_active():
             self.failed_cp_blocks = self.state_manager.get_failed_blocks()
             self.fallback_started_at = self.state_manager.get_fallback_start_block()
@@ -77,6 +77,21 @@ class CPBlocksPipeline:
         if start_block < config.CP_STAMP_GENESIS_BLOCK:
             logger.warning(f"Start block {start_block} is before CP genesis block {config.CP_STAMP_GENESIS_BLOCK}")
             start_block = config.CP_STAMP_GENESIS_BLOCK
+
+        # Check for fallback state and handle rollback if needed
+        if self.state_manager and self.state_manager.is_fallback_active():
+            rollback_block = self.state_manager.get_fallback_start_block()
+            if rollback_block:
+                logger.warning(f"🔄 Performing startup rollback to block {rollback_block}")
+                self._perform_startup_rollback(rollback_block)
+                # Clear the fallback state after successful rollback
+                self.state_manager.end_fallback_mode()
+                # Also clear local state
+                self.failed_cp_blocks.clear()
+                self.fallback_started_at = None
+                logger.info("✅ Fallback state cleared - proceeding with normal operation")
+                # Update start_block to the rollback point
+                start_block = rollback_block
 
         self.current_block = start_block
         self.running = True
@@ -453,8 +468,8 @@ class CPBlocksPipeline:
                         f"🚀 AUTOMATIC ROLLBACK: Rolling back to block {self.fallback_started_at} to reprocess with CP data"
                     )
 
-                    # Trigger automatic rollback (similar to reorg handling)
-                    self._trigger_automatic_rollback()
+                    # Trigger automatic rollback
+                    self._perform_runtime_rollback()
                     self.cp_nodes_healthy_again = True
                 return True
             else:
@@ -465,80 +480,148 @@ class CPBlocksPipeline:
             logger.debug(f"Error checking CP node recovery: {e}")
             return False
 
-    def _trigger_automatic_rollback(self):
+    def check_for_fallback_entry(self):
         """
-        Trigger automatic rollback when CP nodes become healthy again.
+        Check if we should enter fallback mode due to node failures.
+        Called periodically when NOT in fallback mode to detect node issues.
+        """
+        current_time = time.time()
 
-        This uses the same rollback mechanism as blockchain reorgs.
+        # Only check periodically to avoid excessive overhead
+        if current_time - self.last_health_check < self.health_check_interval:
+            return False
+
+        self.last_health_check = current_time
+
+        try:
+            # Update and get current healthy nodes
+            update_healthy_nodes()
+            healthy_nodes = get_healthy_nodes()
+
+            # If no healthy nodes, enter fallback mode
+            if not healthy_nodes:
+                logger.warning("🚨 NO HEALTHY COUNTERPARTY NODES DETECTED!")
+                logger.warning("🔄 ENTERING FALLBACK MODE - will continue with Bitcoin data only")
+                self._enter_fallback_mode()
+                return True
+            else:
+                # Nodes are healthy, no action needed
+                return False
+
+        except Exception as e:
+            logger.debug(f"Error checking for fallback entry: {e}")
+            return False
+
+    def _enter_fallback_mode(self):
+        """
+        Enter fallback mode when CP nodes become unavailable during runtime.
+        """
+        if self.fallback_started_at is not None:
+            # Already in fallback mode
+            return
+
+        # Mark the current block as the start of fallback mode
+        current_block = self.current_block
+        self.fallback_started_at = current_block
+
+        # Ensure fallback mode flag is set (might not be if initialized with fallback_mode=False)
+        if not self.fallback_mode:
+            logger.info("Enabling fallback mode flag for runtime fallback")
+            self.fallback_mode = True
+
+        logger.warning(f"🔄 FALLBACK MODE ACTIVATED at block {current_block}")
+        logger.warning("📦 Will continue processing Bitcoin transactions without Counterparty data")
+        logger.warning("🔄 Automatic rollback will trigger when CP nodes become healthy again")
+
+        # Persist fallback state to survive restarts
+        if self.state_manager:
+            self.state_manager.start_fallback_mode(current_block)
+            logger.info(f"Fallback state persisted starting at block {current_block}")
+
+    def _perform_runtime_rollback(self):
+        """
+        Perform automatic rollback during runtime when CP nodes become healthy again.
+        Uses the same rollback method as the manual rollback command.
         """
         if not (self.fallback_started_at and self.failed_cp_blocks):
             logger.warning("No rollback needed - no fallback blocks to reprocess")
             return
 
-        try:
-            # Import here to avoid circular imports
-            from index_core.backend import Backend
-            from index_core.database import (
-                DatabaseManager,
-                clear_all_caches,
-                purge_block_db,
-                rebuild_balances,
-                rebuild_owners,
-                update_src20_token_stats,
-            )
+        target_block = self.fallback_started_at
 
-            logger.info(f"🔄 Starting automatic fallback rollback to block {self.fallback_started_at}")
+        try:
+            # Import the shared rollback function
+            from index_core.database import perform_complete_rollback
+
+            logger.info(f"🔄 Starting automatic runtime rollback to block {target_block}")
             logger.info(f"📦 Will reprocess {len(self.failed_cp_blocks)} blocks with full CP data")
 
-            # Get database connection
-            db_manager = DatabaseManager()
-            db = db_manager.connect()
-            backend_instance = Backend()
+            # Use the same rollback function as the manual command
+            # Capture print output by temporarily redirecting to logger
+            import contextlib
+            import io
 
-            try:
-                # Perform direct rollback to exact block where fallback started
-                # Unlike normal rollbacks, we don't apply depth calculation for fallback recovery
-                target_block = self.fallback_started_at
+            f = io.StringIO()
+            with contextlib.redirect_stdout(f):
+                perform_complete_rollback(target_block)
 
-                logger.warning(f"FALLBACK ROLLBACK: Rolling back to exact block {target_block} (CP connection lost)")
+            # Log the output from the rollback function
+            rollback_output = f.getvalue()
+            for line in rollback_output.strip().split("\n"):
+                if line.strip():
+                    logger.info(f"ROLLBACK: {line}")
 
-                # Invalidate the block count cache to ensure fresh data after rollback
-                backend_instance.invalidate_blockcount_cache()
+            # Clear fallback state since we've rolled back
+            self.failed_cp_blocks.clear()
+            self.fallback_started_at = None
 
-                # Perform the actual database rollback to exact block
-                purge_block_db(db, target_block)
+            # Clear the pipeline's state manager instance (for tests and consistency)
+            if self.state_manager:
+                self.state_manager.end_fallback_mode()
 
-                # Clear all caches
-                clear_all_caches()
-                logger.info("Cleared all caches after fallback rollback")
+            # Reset fallback mode flag (but keep fallback capability enabled)
+            # The fallback_mode=True parameter from initialization stays for capability
+            # but we're no longer actively in fallback mode
+            logger.info("Clearing runtime fallback mode state")
 
-                # Rebuild critical database state
-                logger.info("Rebuilding database state...")
-                rebuild_balances(db)
-                rebuild_owners(db)
-                update_src20_token_stats(db)
+            logger.info("🎉 Fallback mode ended - ready to reprocess with full CP data")
 
-                logger.info(f"✅ Fallback rollback completed to exact block {target_block}")
-
-                # Clear fallback state since we've rolled back
-                self.failed_cp_blocks.clear()
-                self.fallback_started_at = None
-
-                # Clear persisted state
-                if self.state_manager:
-                    self.state_manager.end_fallback_mode()
-
-                logger.info("🎉 Fallback mode ended - ready to reprocess with full CP data")
-
-            finally:
-                db.close()
-
-        except ImportError as e:
-            logger.error(f"Could not import rollback functions: {e}")
-            logger.warning("Manual rollback may be required - use tools/rollback_fallback.py")
         except Exception as e:
-            logger.error(f"Error during automatic rollback: {e}")
+            logger.error(f"Error during runtime rollback: {e}")
             logger.warning("Automatic rollback failed - manual intervention may be required")
+            # Don't clear state if rollback failed
+
+    def _perform_startup_rollback(self, target_block):
+        """
+        Perform database rollback at startup when fallback state is detected.
+        Uses the same rollback method as the manual rollback command.
+        """
+        try:
+            # Import the shared rollback function
+            from index_core.database import perform_complete_rollback
+
+            logger.info(f"🔄 Starting startup rollback to block {target_block}")
+
+            # Use the same rollback function as the manual command
+            # Capture print output by temporarily redirecting to logger
+            import contextlib
+            import io
+
+            f = io.StringIO()
+            with contextlib.redirect_stdout(f):
+                perform_complete_rollback(target_block)
+
+            # Log the output from the rollback function
+            rollback_output = f.getvalue()
+            for line in rollback_output.strip().split("\n"):
+                if line.strip():
+                    logger.info(f"STARTUP ROLLBACK: {line}")
+
+            logger.info(f"✅ Startup rollback completed to block {target_block}")
+
+        except Exception as e:
+            logger.error(f"Error during startup rollback: {e}")
+            raise RuntimeError(f"Failed to perform startup rollback: {e}")
 
     def _fetch_blocks_worker(self):
         """Background worker that continuously prefetches blocks"""
@@ -574,9 +657,12 @@ class CPBlocksPipeline:
                     logger.info("Shutdown flag detected in CP blocks pipeline, stopping worker")
                     break
 
-                # Check for CP node recovery if in fallback mode
+                # Check for CP node recovery if in fallback mode, or check for failures to enter fallback mode
                 if self.fallback_mode:
                     self.check_cp_node_recovery()
+                else:
+                    # Check if we need to enter fallback mode due to node failures
+                    self.check_for_fallback_entry()
 
                 # --- Start: Calculate effective tip based on lookahead ---
                 with self._lock:

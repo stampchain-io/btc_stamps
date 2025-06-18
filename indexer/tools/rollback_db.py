@@ -10,6 +10,12 @@ import sys
 import pymysql
 from dotenv import load_dotenv
 
+# Add the src directory to the path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from index_core.database import perform_complete_rollback
+from index_core.fallback_state import get_fallback_state_manager
+
 
 def clear_database(block_index, db_host=None, db_user=None, db_password=None, db_name=None):
     """
@@ -101,6 +107,18 @@ def clear_database(block_index, db_host=None, db_user=None, db_password=None, db
         conn.commit()
         print("Database cleared successfully!")
 
+        # Check if we should clear fallback state
+        fallback_manager = get_fallback_state_manager()
+        if fallback_manager.is_fallback_active():
+            fallback_start_block = fallback_manager.get_fallback_start_block()
+            if fallback_start_block and block_index <= fallback_start_block:
+                print(f"\nClearing fallback state (started at block {fallback_start_block})...")
+                fallback_manager.end_fallback_mode()
+                print("Fallback state cleared successfully!")
+            else:
+                print(f"\nNote: Fallback mode is active (started at block {fallback_start_block})")
+                print(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")
+
     except Exception as e:
         conn.rollback()
         print(f"Error clearing database: {e}")
@@ -120,10 +138,18 @@ def main():
     parser.add_argument("--user", help="Database user")
     parser.add_argument("--password", help="Database password")
     parser.add_argument("--database", help="Database name")
+    parser.add_argument(
+        "--use-indexer-method", action="store_true", help="Use the same rollback method as the indexer (recommended)"
+    )
 
     args = parser.parse_args()
 
-    clear_database(args.block_index, args.host, args.user, args.password, args.database)
+    if args.use_indexer_method or not any([args.host, args.user, args.password]):
+        # Use the indexer's rollback method (recommended)
+        perform_complete_rollback(args.block_index)
+    else:
+        # Use the legacy direct SQL method
+        clear_database(args.block_index, args.host, args.user, args.password, args.database)
 
 
 if __name__ == "__main__":

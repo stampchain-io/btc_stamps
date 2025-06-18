@@ -367,7 +367,7 @@ class TestBlocksFallbackHealthChecks:
             mock_update_nodes.return_value = None
 
             # Mock automatic rollback to prevent actual database operations
-            with patch.object(pipeline, "_trigger_automatic_rollback") as mock_rollback:
+            with patch.object(pipeline, "_perform_runtime_rollback") as mock_rollback:
                 result = pipeline.check_cp_node_recovery()
 
                 assert result is True
