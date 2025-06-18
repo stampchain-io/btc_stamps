@@ -672,9 +672,11 @@ def get_healthy_nodes():
 
     # Log node details
     if result:
-        logger.debug(f"Healthy nodes: {[node['name'] for node in result]}")
+        logger.debug(f"Healthy nodes: {[node.get('name', 'unknown') for node in result]}")
         for node in result:
-            logger.debug(f"Node {node['name']}: URL={node['url']}")
+            node_name = node.get("name", "unknown")
+            node_url = node.get("url", "unknown")
+            logger.debug(f"Node {node_name}: URL={node_url}")
     else:
         logger.error("No healthy nodes available after update attempt")
 

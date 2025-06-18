@@ -614,11 +614,22 @@ class TestCPBlocksPipeline:
         pipeline.running = True
         pipeline.blocks_being_fetched = {820000}
 
-        with mock.patch("time.sleep"):  # Speed up test
-            result = pipeline._fetch_blocks_batch([820000], "http://test:8080")
+        # Mock the immediate fallback check components
+        with mock.patch("index_core.pipeline_utils.update_healthy_nodes") as mock_update_nodes:
+            with mock.patch("index_core.pipeline_utils.get_healthy_nodes") as mock_get_nodes:
+                with mock.patch("time.sleep"):  # Speed up test
+                    # Configure for no immediate fallback (already in fallback or fallback disabled)
+                    pipeline.fallback_started_at = 820000  # Already in fallback mode
+
+                    result = pipeline._fetch_blocks_batch([820000], "http://test:8080")
 
         assert result == {}
         assert 820000 not in pipeline.blocks_being_fetched
+
+        # Update nodes will be called during retries, but immediate fallback check should not trigger
+        assert mock_update_nodes.call_count >= 1  # Called during retries
+        # But the immediate fallback check itself should not call get_healthy_nodes since already in fallback
+        mock_get_nodes.assert_not_called()
 
     def test_fetch_blocks_batch_shutdown_during_fetch(self, mock_fetch_xcp_blocks, mock_fallback_state_manager):
         """Test fetch blocks batch when shutdown occurs during fetch."""

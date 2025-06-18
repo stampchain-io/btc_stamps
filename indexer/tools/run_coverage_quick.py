@@ -23,7 +23,7 @@ def get_test_files_from_run_checks():
     return None
 
 
-def run_quick_coverage(html=False, fail_under=49):
+def run_quick_coverage(html=False, fail_under=50):
     """Run coverage on unit tests (excluding integration tests)."""
     print("🚀 Running quick coverage report (unit tests only)...")
     print(f"   Coverage threshold: {fail_under}%")
@@ -93,7 +93,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run quick coverage report for tests in run_checks.py")
     parser.add_argument("--html", action="store_true", help="Generate HTML coverage report")
     parser.add_argument(
-        "--fail-under", type=int, default=49, help="Fail if total coverage is below this percentage (default: 49)"
+        "--fail-under", type=int, default=50, help="Fail if total coverage is below this percentage (default: 50)"
     )
     parser.add_argument("--fast", action="store_true", help="Run fast coverage analysis mode")
 

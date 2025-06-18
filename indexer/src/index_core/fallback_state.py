@@ -5,6 +5,7 @@ This module handles saving and loading fallback mode state to ensure
 proper rollback detection even after indexer restarts or crashes.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -27,7 +28,31 @@ class FallbackStateManager:
             state_file: Optional custom path for state file
         """
         if state_file is None:
-            # Default to storing in a temporary directory or project-specific location
+            self.state_file = self._get_instance_specific_state_file()
+        else:
+            self.state_file = state_file
+
+        self.state = self._load_state()
+
+    def _get_instance_specific_state_file(self) -> str:
+        """
+        Generate an instance-specific state file path based on database configuration.
+        This prevents conflicts when multiple indexers run on the same machine.
+        """
+        try:
+            # Get database connection parameters to create a unique identifier
+            db_host = os.environ.get("RDS_HOSTNAME", "localhost")
+            db_user = os.environ.get("RDS_USER") or os.environ.get("MYSQL_USER", "admin")
+            db_name = os.environ.get("RDS_DATABASE", "btc_stamps")
+            db_port = os.environ.get("RDS_PORT", "3306")
+
+            # Create a unique identifier from database connection info
+            db_identifier = f"{db_host}:{db_port}:{db_user}:{db_name}"
+
+            # Create a short hash to avoid filesystem path length issues
+            db_hash = hashlib.md5(db_identifier.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+
+            # Use state directory from config or default to /tmp
             state_dir = getattr(config, "FALLBACK_STATE_DIR", "/tmp")
             if not os.path.exists(state_dir):
                 try:
@@ -35,11 +60,23 @@ class FallbackStateManager:
                 except OSError:
                     state_dir = "/tmp"
 
-            self.state_file = os.path.join(state_dir, "btc_stamps_fallback_state.json")
-        else:
-            self.state_file = state_file
+            # Create instance-specific filename
+            state_filename = f"btc_stamps_fallback_state_{db_hash}.json"
+            state_file = os.path.join(state_dir, state_filename)
 
-        self.state = self._load_state()
+            logger.debug(f"Using instance-specific fallback state file: {state_file} (DB: {db_host}:{db_port}/{db_name})")
+            return state_file
+
+        except Exception as e:
+            logger.warning(f"Failed to create instance-specific state file path: {e}")
+            # Fallback to original behavior
+            state_dir = getattr(config, "FALLBACK_STATE_DIR", "/tmp")
+            if not os.path.exists(state_dir):
+                try:
+                    os.makedirs(state_dir, exist_ok=True)
+                except OSError:
+                    state_dir = "/tmp"
+            return os.path.join(state_dir, "btc_stamps_fallback_state.json")
 
     def _load_state(self) -> Dict:
         """Load fallback state from disk."""
