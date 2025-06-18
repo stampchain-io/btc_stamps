@@ -417,7 +417,7 @@ class TestAutomaticRollback:
                     mock_db_mgr_instance = Mock()
                     mock_db_mgr_instance.connect.return_value = Mock()
                     mock_db_mgr_cls.return_value = mock_db_mgr_instance
-                    
+
                     # Should not raise exception, just log error
                     pipeline._trigger_automatic_rollback()
 

@@ -456,15 +456,18 @@ class SourceReliabilityService:
                         # Calculate new moving averages (simplified - could be enhanced with more sophisticated sliding window)
                         # For now, use simple weighted average favoring recent data
                         new_avg_time = (
-                            int((current_avg_time * 0.8 + response_time_ms * 0.2)) if current_avg_time else response_time_ms
+                            int((float(current_avg_time) * 0.8 + response_time_ms * 0.2))
+                            if current_avg_time
+                            else response_time_ms
                         )
 
                         # Update success rate (simplified calculation)
                         update_count = (update_count or 0) + 1
                         if current_success_rate is not None:
                             # Weighted moving average for success rate
+                            # Convert to float to avoid Decimal * float errors
                             success_value = 100.0 if success else 0.0
-                            new_success_rate = current_success_rate * 0.9 + success_value * 0.1
+                            new_success_rate = float(current_success_rate) * 0.9 + success_value * 0.1
                         else:
                             new_success_rate = 100.0 if success else 0.0
 
