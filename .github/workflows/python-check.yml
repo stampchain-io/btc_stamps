@@ -124,6 +124,12 @@ jobs:
           poetry config virtualenvs.in-project true
           poetry install
         working-directory: ./indexer
+      - name: Build Rust parser for integration tests
+        working-directory: ./indexer
+        run: |
+          # Install maturin and build the Rust parser
+          poetry run pip install maturin --quiet
+          cd src/rust_parser && poetry run maturin develop --release
       - name: Run Integration Tests (excluding Bitcoin node tests)
         working-directory: ./indexer
         run: |
