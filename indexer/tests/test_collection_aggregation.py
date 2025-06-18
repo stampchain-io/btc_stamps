@@ -562,7 +562,7 @@ class TestCollectionEdgeCases:
             # Verify calculations
             assert collection_data["total_stamps"] == 1000
             assert collection_data["floor_price_btc"] == 0.001  # Minimum price
-            assert collection_data["volume_24h_btc"] == 10.0  # 0.01 * 1000
+            assert collection_data["volume_24h_btc"] == pytest.approx(10.0, rel=1e-9)  # 0.01 * 1000
 
     def test_collection_with_invalid_hex_id(self):
         """Test handling of invalid collection ID format."""
