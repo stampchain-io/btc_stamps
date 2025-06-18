@@ -782,6 +782,11 @@ class CPBlocksPipeline:
 
                             if not nodes:
                                 if self.fallback_mode:
+                                    # Check if we should enter fallback mode
+                                    if not self.fallback_started_at:
+                                        logger.warning("🚨 NO HEALTHY NODES - entering fallback mode immediately")
+                                        self._enter_fallback_mode()
+
                                     logger.warning("No healthy Counterparty nodes available - continuing in fallback mode")
                                     # In fallback mode, create empty blocks for the missing batch
                                     with self._lock:
@@ -1056,6 +1061,22 @@ class CPBlocksPipeline:
                         continue
                     else:
                         logger.error(f"Failed to fetch blocks {start_block} to {end_block} after {max_retries + 1} attempts")
+
+                        # Check for immediate fallback entry after total fetch failure
+                        if self.fallback_mode and not self.fallback_started_at:
+                            logger.warning("🚨 TOTAL FETCH FAILURE - checking for immediate fallback entry")
+                            try:
+                                # Force immediate health update and check for fallback
+                                update_healthy_nodes()
+                                healthy_nodes = get_healthy_nodes()
+                                if not healthy_nodes:
+                                    logger.warning(
+                                        "🚨 No healthy nodes after fetch failure - entering fallback mode immediately"
+                                    )
+                                    self._enter_fallback_mode()
+                            except Exception as e:
+                                logger.warning(f"Error during immediate fallback check: {e}")
+
                         with self._blocks_fetch_lock:
                             self.blocks_being_fetched.difference_update(block_indices)
                         return {}
