@@ -106,6 +106,7 @@ dump-state-fixtures = "tools.dump_state_fixtures:main"
 run-coverage = "tools.run_coverage:main"
 run-coverage-fast = "tools.run_coverage_fast:run_fast_coverage"
 run-coverage-local = "tools.run_local_coverage:main"
+update-checkpoints = "tools.checkpoint_updater:main"
 
 [[tool.poetry.packages]]
 from = "src"
