@@ -53,9 +53,7 @@ class StampProcessor:
 
         stamp_data.stamp = cast(int, stamp_data.stamp)
 
-        if (stamp_data.cpid and stamp_data.is_btc_stamp) or (
-            stamp_data.is_cursed and stamp_data.cpid and not stamp_data.cpid.startswith("A")
-        ):
+        if (stamp_data.cpid and stamp_data.is_btc_stamp) or (stamp_data.is_cursed and stamp_data.cpid):
             valid_stamp = create_valid_stamp_dict(
                 stamp_data.stamp,
                 stamp_data.tx_hash,
