@@ -57,20 +57,18 @@ jobs:
         run: poetry run maturin develop --manifest-path src/rust_parser/Cargo.toml --release
         working-directory: ./indexer
         
-      - name: Run fast coverage analysis (unit tests only)
+      - name: Run coverage analysis
         run: |
-          # Run fast coverage for quick CI feedback
-          poetry run run-coverage-fast
-          
-          # Also generate XML for Codecov upload
-          poetry run pytest tests/test_src20*.py tests/test_config.py tests/test_arc4.py tests/test_transactions.py --cov=src --cov-report=xml --no-header -q
+          # Run comprehensive coverage analysis with both HTML and XML output
+          # This generates both formats from the same test run for consistency
+          poetry run run-coverage --format=all
         working-directory: ./indexer
         
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          file: ./indexer/coverage.xml
-          directory: ./indexer
+          files: ./indexer/coverage.xml
+          root_dir: ./indexer
           flags: unittests
           name: bitcoin-stamps-indexer
           fail_ci_if_error: false
