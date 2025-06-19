@@ -138,16 +138,27 @@ class NodeHealth:
                 # If parsing fails, default to treating it as severe
                 pass
 
-        # Treat timeouts as minor failures - they're often due to network congestion
+        # IMPROVED TIMEOUT HANDLING: Treat timeouts as severe after multiple consecutive timeout failures
+        # This enables proper failover when a node is persistently timing out
         if "timeout" in error_info.lower() or "Timeout" in error_info:
+            # If we already have multiple minor failures (indicating persistent issues), treat as severe
+            if self.minor_failures >= 3:
+                logger.warning(f"Node {self.name} has {self.minor_failures} timeout failures, treating as severe")
+                return True
             return False
 
-        # Treat connection errors as minor failures initially
+        # Treat connection errors as minor failures initially, but severe after multiple failures
         if "connection" in error_info.lower() or "Connection" in error_info:
+            if self.minor_failures >= 2:
+                logger.warning(f"Node {self.name} has {self.minor_failures} connection failures, treating as severe")
+                return True
             return False
 
-        # Treat server disconnection errors as minor failures
+        # Treat server disconnection errors as minor failures initially
         if "serverdisconnectederror" in error_info.lower() or "server disconnected" in error_info.lower():
+            if self.minor_failures >= 2:
+                logger.warning(f"Node {self.name} has {self.minor_failures} disconnection failures, treating as severe")
+                return True
             return False
 
         return True
@@ -186,17 +197,30 @@ class NodeHealth:
                     f"Backoff until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
                 )
             else:
-                # For minor failures, just increment a counter but don't trigger backoff
+                # For minor failures, increment counter and apply progressive backoff
                 self.minor_failures += 1
-                # Only apply very short backoff after multiple minor failures
-                if self.minor_failures > 5:
-                    self.backoff_until = (
-                        current_time + 2.0
-                    )  # Changed from int to float - Just 2 seconds backoff for minor failures
-                    logger.debug(
+
+                # Apply progressive backoff for persistent minor failures
+                if self.minor_failures >= 3:
+                    # Calculate progressive backoff: 5s, 15s, 30s, 60s, then cap at 120s
+                    backoff_seconds = min(120, 5 * (self.minor_failures - 2) * 2)
+                    self.backoff_until = current_time + backoff_seconds
+                    logger.warning(
                         f"Node {self.name} has {self.minor_failures} minor failures. "
-                        f"Short backoff until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
+                        f"Progressive backoff of {backoff_seconds}s until: {datetime.fromtimestamp(self.backoff_until).strftime('%H:%M:%S')}"
                     )
+
+                    # Trigger immediate health update to ensure other components use backup nodes
+                    if self.minor_failures >= 5:
+                        logger.warning(f"Node {self.name} has persistent issues, triggering health update")
+                        try:
+                            # Import here to avoid circular imports
+                            import threading
+
+                            # Update health in a separate thread to not block
+                            threading.Thread(target=update_healthy_nodes, daemon=True).start()
+                        except Exception as health_update_error:
+                            logger.error(f"Failed to trigger health update: {health_update_error}")
         except Exception as e:
             logger.error(f"Error in mark_failure for {self.name}: {e}")
         finally:
@@ -595,6 +619,22 @@ def update_healthy_nodes():
                             logger.debug(f"Error parsing root V2 response from {node_name}: {e}")
 
                 if is_healthy:
+                    # Double-check against the node health tracker for persistent issues
+                    node_health = node_health_tracker.get(node_name)
+                    if node_health:
+                        # Check if the node has been experiencing persistent failures
+                        if node_health.consecutive_failures > 0 or node_health.minor_failures >= 5:
+                            logger.warning(
+                                f"Node {node_name} passed health check but has persistent issues "
+                                f"(consecutive: {node_health.consecutive_failures}, minor: {node_health.minor_failures}). "
+                                f"Excluding from healthy nodes list."
+                            )
+                            is_healthy = False
+                        elif not node_health.can_retry():
+                            logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
+                            is_healthy = False
+
+                if is_healthy:
                     # Add to healthy nodes list
                     healthy_nodes_local.append(node)
                     nodes_healthy += 1
@@ -652,7 +692,7 @@ def update_healthy_nodes():
 
 
 def get_healthy_nodes():
-    """Get the list of healthy nodes."""
+    """Get the list of healthy nodes with improved filtering and failover logic."""
 
     # Create a local copy to avoid lock contention
     result = []
@@ -660,26 +700,55 @@ def get_healthy_nodes():
         logger.debug("Fetching healthy nodes list")
         if healthy_nodes_lock.acquire(timeout=1):
             try:
-                result = healthy_nodes.copy()
-                logger.debug(f"Found {len(result)} healthy nodes from cached list")
+                # Get the cached list
+                cached_nodes = healthy_nodes.copy()
+
+                # Apply additional filtering based on node health trackers
+                for node in cached_nodes:
+                    node_name = node.get("name", "unknown")
+                    node_health = node_health_tracker.get(node_name)
+
+                    if node_health:
+                        # Skip nodes that are in backoff or have persistent issues
+                        if not node_health.can_retry():
+                            logger.debug(f"Excluding {node_name}: in backoff period")
+                            continue
+                        if node_health.consecutive_failures > 0:
+                            logger.debug(f"Excluding {node_name}: has {node_health.consecutive_failures} consecutive failures")
+                            continue
+                        if node_health.minor_failures >= 5:
+                            logger.debug(f"Excluding {node_name}: has {node_health.minor_failures} minor failures")
+                            continue
+
+                    # Node passed all health checks
+                    result.append(node)
+
+                logger.debug(f"Found {len(result)} healthy nodes after filtering (from {len(cached_nodes)} cached)")
             finally:
                 healthy_nodes_lock.release()
     except Exception as e:
         logger.error(f"Error accessing healthy_nodes: {e}")
 
-    # If no healthy nodes, try to update them
+    # If no healthy nodes, try to update them (more aggressive approach)
     if not result:
-        logger.warning("No healthy nodes in cache, updating node list")
+        logger.warning("No healthy nodes after filtering, forcing health update")
+
+        # Reset minor failures for nodes to give them another chance
+        for node_health in node_health_tracker.values():
+            if node_health.minor_failures >= 5:
+                logger.info(f"Resetting minor failures for {node_health.name} to allow retry")
+                node_health.minor_failures = 0
+
         update_healthy_nodes()
         try:
             if healthy_nodes_lock.acquire(timeout=1):
                 try:
                     result = healthy_nodes.copy()
-                    logger.debug(f"After update: found {len(result)} healthy nodes")
+                    logger.debug(f"After forced update: found {len(result)} healthy nodes")
                 finally:
                     healthy_nodes_lock.release()
         except Exception as e:
-            logger.error(f"Error accessing healthy_nodes after update: {e}")
+            logger.error(f"Error accessing healthy_nodes after forced update: {e}")
 
     # Log node details
     if result:
@@ -689,6 +758,6 @@ def get_healthy_nodes():
             node_url = node.get("url", "unknown")
             logger.debug(f"Node {node_name}: URL={node_url}")
     else:
-        logger.error("No healthy nodes available after update attempt")
+        logger.error("⚠️  NO HEALTHY NODES AVAILABLE - this will cause fetch failures")
 
     return result
