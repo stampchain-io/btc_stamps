@@ -308,21 +308,107 @@ def cp_version(log_connection=False):
         logger.warning("Could not determine Counterparty version: No healthy nodes available.")
         return None, None
 
-    first_node = healthy_nodes[0]
-    node_url = first_node.get("url")
+    version_results = []
+    successful_connections = 0
 
-    if not node_url:
-        logger.warning(f"Could not determine Counterparty version: Healthy node {first_node.get('name')} has no URL.")
-        return None, None
+    for i, node in enumerate(healthy_nodes):
+        node_name = node.get("name", f"Node {i + 1}")
+        node_url = node.get("url")
 
-    version_string, version_info = fetch_node_version_v2(node_url)
+        if not node_url:
+            logger.warning(f"Skipping {node_name}: No URL configured")
+            continue
 
-    if version_string and version_info:
-        logger.info(f"Connected to Counterparty node {first_node.get('name')}: version {version_string}")
-        return version_string, version_info
+        version_string, version_info = fetch_node_version_v2(node_url)
+
+        if version_string and version_info:
+            version_results.append(
+                {
+                    "name": node_name,
+                    "url": node_url,
+                    "version_string": version_string,
+                    "version_info": version_info,
+                    "status": "connected",
+                }
+            )
+            successful_connections += 1
+        else:
+            version_results.append(
+                {"name": node_name, "url": node_url, "version_string": None, "version_info": None, "status": "failed"}
+            )
+
+    # Log clean summary
+    if successful_connections > 0:
+        logger.info(f"Counterparty nodes ({successful_connections}/{len(healthy_nodes)} connected):")
+        for result in version_results:
+            if result["status"] == "connected":
+                logger.info(f"  ✓ {result['name']}: {result['version_string']}")
+            else:
+                logger.warning(f"  ✗ {result['name']}: Connection failed")
     else:
-        logger.warning(f"Could not determine Counterparty version from node {first_node.get('name')}.")
-        return None, None
+        logger.warning("Could not connect to any Counterparty nodes")
+
+    # Perform version validation checks
+    connected_results = [r for r in version_results if r["status"] == "connected"]
+
+    if len(connected_results) > 0:
+        # Check minimum version requirement (11.0.0 or greater)
+        minimum_version = (11, 0, 0)
+        version_violations = []
+
+        for result in connected_results:
+            version_info = result["version_info"]
+            node_name = result["name"]
+            version_string = result["version_string"]
+
+            if (
+                version_info
+                and "version_major" in version_info
+                and "version_minor" in version_info
+                and "version_revision" in version_info
+            ):
+                major = version_info["version_major"]
+                minor = version_info["version_minor"]
+                revision = version_info["version_revision"]
+                node_version = (major, minor, revision)
+
+                if node_version < minimum_version:
+                    version_violations.append(
+                        {"name": node_name, "version_string": version_string, "version_tuple": node_version}
+                    )
+
+        # Critical error if any node is below minimum version
+        if version_violations:
+            violation_details = [f"{v['name']} (v{v['version_string']})" for v in version_violations]
+            error_msg = (
+                f"CRITICAL: Counterparty node version requirement not met. "
+                f"This Bitcoin Stamps indexer requires Counterparty version 11.0.0 or greater. "
+                f"Nodes below minimum: {', '.join(violation_details)}. "
+                f"Please upgrade your Counterparty nodes before continuing."
+            )
+            logger.critical(error_msg)
+            raise VersionError(error_msg)
+
+        # Check for version mismatches between nodes
+        if len(connected_results) > 1:
+            version_strings = [r["version_string"] for r in connected_results]
+            unique_versions = set(version_strings)
+
+            if len(unique_versions) > 1:
+                node_version_details = [f"{r['name']} (v{r['version_string']})" for r in connected_results]
+                logger.warning(
+                    f"WARNING: Counterparty node version mismatch detected. "
+                    f"All nodes should run the same version for consistent behavior. "
+                    f"Found versions: {', '.join(node_version_details)}"
+                )
+
+    # Return the first successful connection for backward compatibility
+    for result in version_results:
+        if result["status"] == "connected":
+            return result["version_string"], result["version_info"]
+
+    logger.warning("Could not determine Counterparty version: All node connections failed.")
+    return None, None
 
 
 def software_version():

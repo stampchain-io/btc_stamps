@@ -10,6 +10,7 @@ import time
 
 import config
 from index_core.backend import Backend
+from index_core.fallback_state import get_fallback_state_manager
 from index_core.fetch_utils import fetch_xcp_blocks_concurrent
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
 
@@ -20,7 +21,7 @@ backend_instance = Backend()
 class CPBlocksPipeline:
     """Background worker that prefetches blocks and keeps them in a queue."""
 
-    def __init__(self, max_queue_size=600, target_queue_size=250, max_lookahead=500):
+    def __init__(self, max_queue_size=600, target_queue_size=250, max_lookahead=500, fallback_mode=True):
         """
         Initialize the pipeline with an empty queue.
 
@@ -28,6 +29,7 @@ class CPBlocksPipeline:
             max_queue_size (int): Maximum number of blocks to keep in the queue.
             target_queue_size (int): Ideal number of blocks to keep prefetched ahead.
             max_lookahead (int): Maximum number of blocks to fetch ahead of the slowest consumer.
+            fallback_mode (bool): If True, continue processing without CP data when nodes fail.
         """
         self.queue = {}  # Block data by index
         self._lock = threading.Lock()
@@ -49,6 +51,24 @@ class CPBlocksPipeline:
         self.blocks_being_fetched = set()  # Track which blocks are currently being fetched
         self._blocks_fetch_lock = threading.Lock()  # Separate lock for fetching state
 
+        # Fallback mode settings
+        self.fallback_mode = fallback_mode
+        self.state_manager = get_fallback_state_manager() if fallback_mode else None
+
+        # Initialize from persisted state if available (for tests and state continuity)
+        if self.state_manager and self.state_manager.is_fallback_active():
+            self.failed_cp_blocks = self.state_manager.get_failed_blocks()
+            self.fallback_started_at = self.state_manager.get_fallback_start_block()
+            logger.warning(f"🔄 Detected previous fallback mode state - started at block {self.fallback_started_at}")
+            logger.warning(f"📦 {len(self.failed_cp_blocks)} blocks previously processed in fallback mode")
+        else:
+            self.failed_cp_blocks = set()  # Track blocks that failed CP processing for later rollback
+            self.fallback_started_at = None  # Block where fallback mode started
+
+        self.cp_nodes_healthy_again = False  # Flag when CP nodes become available again
+        self.last_health_check = 0  # Timestamp of last health check
+        self.health_check_interval = 30  # Check every 30 seconds when in fallback
+
     def start(self, start_block):
         """Start the background worker thread"""
         if start_block is None:
@@ -57,6 +77,21 @@ class CPBlocksPipeline:
         if start_block < config.CP_STAMP_GENESIS_BLOCK:
             logger.warning(f"Start block {start_block} is before CP genesis block {config.CP_STAMP_GENESIS_BLOCK}")
             start_block = config.CP_STAMP_GENESIS_BLOCK
+
+        # Check for fallback state and handle rollback if needed
+        if self.state_manager and self.state_manager.is_fallback_active():
+            rollback_block = self.state_manager.get_fallback_start_block()
+            if rollback_block:
+                logger.warning(f"🔄 Performing startup rollback to block {rollback_block}")
+                self._perform_startup_rollback(rollback_block)
+                # Clear the fallback state after successful rollback
+                self.state_manager.end_fallback_mode()
+                # Also clear local state
+                self.failed_cp_blocks.clear()
+                self.fallback_started_at = None
+                logger.info("✅ Fallback state cleared - proceeding with normal operation")
+                # Update start_block to the rollback point
+                start_block = rollback_block
 
         self.current_block = start_block
         self.running = True
@@ -85,7 +120,7 @@ class CPBlocksPipeline:
             update_healthy_nodes()
         except Exception as e:
             logger.error(f"Error initializing node health: {e}")
-            logger.warning("Proceeding with potentially unavailable nodes - may affect block fetching")
+            raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
 
         # Start the worker thread
         if self.worker_thread and self.worker_thread.is_alive():
@@ -100,13 +135,46 @@ class CPBlocksPipeline:
         self.worker_thread.start()
         logger.debug(f"Started CP blocks pipeline from block {start_block}")
 
-        # Wait for initial batch of blocks with appropriate timeout
-        # Use a shorter timeout to start processing sooner
-        timeout = 10  # Reduced from 20 seconds to 10 seconds
-        if not self.wait_for_initial_blocks(timeout=timeout):
-            logger.warning(f"Timeout waiting for initial blocks after {timeout}s, continuing anyway")
-            # Always set the flag, even on timeout, to prevent hanging
-            self.initial_blocks_ready.set()
+        # Wait for initial batch of blocks with proper retry logic
+        max_retries = 3
+        base_timeout = 30  # Increased base timeout for CP data
+
+        for attempt in range(max_retries):
+            timeout = base_timeout * (2**attempt)  # Exponential backoff
+            logger.info(f"Waiting for initial Counterparty blocks (attempt {attempt + 1}/{max_retries}, timeout: {timeout}s)")
+
+            if self.wait_for_initial_blocks(timeout=timeout):
+                logger.info("Successfully obtained initial Counterparty blocks")
+                return
+            else:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Failed to get initial blocks on attempt {attempt + 1}, retrying with backup nodes...")
+                    # Try to update nodes and retry
+                    try:
+                        update_healthy_nodes()
+                    except Exception as e:
+                        logger.error(f"Failed to update healthy nodes: {e}")
+                else:
+                    if self.fallback_mode:
+                        logger.warning(f"Failed to get initial Counterparty blocks after {max_retries} attempts")
+                        logger.warning(
+                            "FALLBACK MODE: Continuing without Counterparty data - will process Bitcoin transactions only"
+                        )
+                        logger.warning(
+                            f"Fallback started at block {start_block} - use rollback tool later to reprocess with CP data"
+                        )
+                        self.fallback_started_at = start_block
+
+                        # Persist fallback state to survive restarts
+                        if self.state_manager:
+                            self.state_manager.start_fallback_mode(start_block)
+
+                        self.initial_blocks_ready.set()  # Signal ready to continue processing
+                        return
+                    else:
+                        logger.error(f"Failed to get initial Counterparty blocks after {max_retries} attempts")
+                        self.stop()
+                        raise RuntimeError("Cannot proceed without Counterparty block data - all nodes failed")
 
     def wait_for_initial_blocks(self, timeout=20, min_blocks=None):
         """
@@ -162,15 +230,17 @@ class CPBlocksPipeline:
                     critical_blocks = [b for b in missing_blocks if b in [820662, 820668]]
                     if critical_blocks:
                         logger.error(f"Critical blocks missing: {critical_blocks}")
+                        return False
 
-                    # Be more lenient - if we have at least half of what we wanted, proceed
-                    if len(missing_blocks) > consecutive_needed // 2:
-                        logger.warning(
-                            f"Too many blocks missing ({len(missing_blocks)}/{consecutive_needed}), but continuing anyway"
+                    # Only proceed if we have most of the required blocks
+                    if len(missing_blocks) > consecutive_needed // 3:  # Allow missing up to 1/3
+                        logger.error(
+                            f"Too many blocks missing ({len(missing_blocks)}/{consecutive_needed}) - cannot proceed without Counterparty data"
                         )
+                        return False
 
-                # Return true as long as we have at least min_blocks
-                return blocks_available >= min_blocks
+                # Return true only if we have sufficient consecutive blocks
+                return blocks_available >= min_blocks and len(missing_blocks) <= consecutive_needed // 3
         else:
             logger.warning(f"Timeout waiting for initial blocks after {adjusted_timeout}s")
             return False
@@ -312,7 +382,246 @@ class CPBlocksPipeline:
                     logger.debug(f"Updating current_block from {self.current_block} to {block_index} based on request")
                     self.current_block = block_index
 
+                # In fallback mode, create empty block data when CP data is not available
+                if self.fallback_mode and (self.fallback_started_at is None or block_index >= self.fallback_started_at):
+                    logger.debug(f"Fallback mode: Creating empty block data for block {block_index}")
+                    fallback_data = self.create_fallback_block(block_index)
+                    self.failed_cp_blocks.add(block_index)
+
+                    # Persist failed block to state
+                    if self.state_manager:
+                        self.state_manager.add_failed_block(block_index)
+
+                    # Store in queue for consistency
+                    with self._lock:
+                        self.queue[block_index] = fallback_data
+
+                    return fallback_data
+
                 return None
+
+    def create_fallback_block(self, block_index):
+        """
+        Create a fallback block data structure for processing Bitcoin transactions only.
+
+        Args:
+            block_index: The block index to create fallback data for
+
+        Returns:
+            Block data dictionary with empty Counterparty data
+        """
+        logger.debug(f"Creating fallback block data for block {block_index}")
+        return {
+            "block_index": block_index,
+            "xcp_block_hash": None,
+            "issuances": [],  # Empty - no CP data available
+            "transactions": [],  # Empty - will be populated from Bitcoin directly
+            "fallback_mode": True,  # Flag to indicate this is fallback data
+            "needs_cp_reprocessing": True,  # Flag for rollback tool
+        }
+
+    def get_fallback_block_info(self):
+        """
+        Get information about fallback mode status.
+
+        Returns:
+            Dict with fallback mode information
+        """
+        return {
+            "fallback_mode": self.fallback_mode,
+            "fallback_started_at": self.fallback_started_at,
+            "failed_cp_blocks_count": len(self.failed_cp_blocks),
+            "failed_cp_blocks_sample": sorted(list(self.failed_cp_blocks))[:10] if self.failed_cp_blocks else [],
+            "cp_nodes_healthy_again": self.cp_nodes_healthy_again,
+        }
+
+    def check_cp_node_recovery(self):
+        """
+        Check if Counterparty nodes have become healthy again during fallback mode.
+
+        Returns:
+            bool: True if nodes are healthy and we should suggest rollback
+        """
+        current_time = time.time()
+
+        # Only check periodically to avoid excessive overhead
+        if current_time - self.last_health_check < self.health_check_interval:
+            return self.cp_nodes_healthy_again
+
+        self.last_health_check = current_time
+
+        # Only relevant if we're in fallback mode and have failed blocks
+        if not (self.fallback_mode and self.fallback_started_at and self.failed_cp_blocks):
+            return False
+
+        try:
+            # Try to update and get healthy nodes
+            update_healthy_nodes()
+            healthy_nodes = get_healthy_nodes()
+
+            if healthy_nodes:
+                # Nodes are available again!
+                if not self.cp_nodes_healthy_again:
+                    logger.warning("🔄 IMPORTANT: Counterparty nodes are healthy again!")
+                    logger.warning(f"📦 You have {len(self.failed_cp_blocks)} blocks that were processed in fallback mode")
+                    logger.warning(
+                        f"🚀 AUTOMATIC ROLLBACK: Rolling back to block {self.fallback_started_at} to reprocess with CP data"
+                    )
+
+                    # Trigger automatic rollback
+                    self._perform_runtime_rollback()
+                    self.cp_nodes_healthy_again = True
+                return True
+            else:
+                self.cp_nodes_healthy_again = False
+                return False
+
+        except Exception as e:
+            logger.debug(f"Error checking CP node recovery: {e}")
+            return False
+
+    def check_for_fallback_entry(self):
+        """
+        Check if we should enter fallback mode due to node failures.
+        Called periodically when NOT in fallback mode to detect node issues.
+        """
+        current_time = time.time()
+
+        # Only check periodically to avoid excessive overhead
+        if current_time - self.last_health_check < self.health_check_interval:
+            return False
+
+        self.last_health_check = current_time
+
+        try:
+            # Update and get current healthy nodes
+            update_healthy_nodes()
+            healthy_nodes = get_healthy_nodes()
+
+            # If no healthy nodes, enter fallback mode
+            if not healthy_nodes:
+                logger.warning("🚨 NO HEALTHY COUNTERPARTY NODES DETECTED!")
+                logger.warning("🔄 ENTERING FALLBACK MODE - will continue with Bitcoin data only")
+                self._enter_fallback_mode()
+                return True
+            else:
+                # Nodes are healthy, no action needed
+                return False
+
+        except Exception as e:
+            logger.debug(f"Error checking for fallback entry: {e}")
+            return False
+
+    def _enter_fallback_mode(self):
+        """
+        Enter fallback mode when CP nodes become unavailable during runtime.
+        """
+        if self.fallback_started_at is not None:
+            # Already in fallback mode
+            return
+
+        # Mark the current block as the start of fallback mode
+        current_block = self.current_block
+        self.fallback_started_at = current_block
+
+        # Ensure fallback mode flag is set (might not be if initialized with fallback_mode=False)
+        if not self.fallback_mode:
+            logger.info("Enabling fallback mode flag for runtime fallback")
+            self.fallback_mode = True
+
+        logger.warning(f"🔄 FALLBACK MODE ACTIVATED at block {current_block}")
+        logger.warning("📦 Will continue processing Bitcoin transactions without Counterparty data")
+        logger.warning("🔄 Automatic rollback will trigger when CP nodes become healthy again")
+
+        # Persist fallback state to survive restarts
+        if self.state_manager:
+            self.state_manager.start_fallback_mode(current_block)
+            logger.info(f"Fallback state persisted starting at block {current_block}")
+
+    def _perform_runtime_rollback(self):
+        """
+        Perform automatic rollback during runtime when CP nodes become healthy again.
+        Uses the same rollback method as the manual rollback command.
+        """
+        if not (self.fallback_started_at and self.failed_cp_blocks):
+            logger.warning("No rollback needed - no fallback blocks to reprocess")
+            return
+
+        target_block = self.fallback_started_at
+
+        try:
+            # Import the shared rollback function
+            from index_core.database import perform_complete_rollback
+
+            logger.info(f"🔄 Starting automatic runtime rollback to block {target_block}")
+            logger.info(f"📦 Will reprocess {len(self.failed_cp_blocks)} blocks with full CP data")
+
+            # Use the same rollback function as the manual command
+            # Capture print output by temporarily redirecting to logger
+            import contextlib
+            import io
+
+            f = io.StringIO()
+            with contextlib.redirect_stdout(f):
+                perform_complete_rollback(target_block)
+
+            # Log the output from the rollback function
+            rollback_output = f.getvalue()
+            for line in rollback_output.strip().split("\n"):
+                if line.strip():
+                    logger.info(f"ROLLBACK: {line}")
+
+            # Clear fallback state since we've rolled back
+            self.failed_cp_blocks.clear()
+            self.fallback_started_at = None
+
+            # Clear the pipeline's state manager instance (for tests and consistency)
+            if self.state_manager:
+                self.state_manager.end_fallback_mode()
+
+            # Reset fallback mode flag (but keep fallback capability enabled)
+            # The fallback_mode=True parameter from initialization stays for capability
+            # but we're no longer actively in fallback mode
+            logger.info("Clearing runtime fallback mode state")
+
+            logger.info("🎉 Fallback mode ended - ready to reprocess with full CP data")
+
+        except Exception as e:
+            logger.error(f"Error during runtime rollback: {e}")
+            logger.warning("Automatic rollback failed - manual intervention may be required")
+            # Don't clear state if rollback failed
+
+    def _perform_startup_rollback(self, target_block):
+        """
+        Perform database rollback at startup when fallback state is detected.
+        Uses the same rollback method as the manual rollback command.
+        """
+        try:
+            # Import the shared rollback function
+            from index_core.database import perform_complete_rollback
+
+            logger.info(f"🔄 Starting startup rollback to block {target_block}")
+
+            # Use the same rollback function as the manual command
+            # Capture print output by temporarily redirecting to logger
+            import contextlib
+            import io
+
+            f = io.StringIO()
+            with contextlib.redirect_stdout(f):
+                perform_complete_rollback(target_block)
+
+            # Log the output from the rollback function
+            rollback_output = f.getvalue()
+            for line in rollback_output.strip().split("\n"):
+                if line.strip():
+                    logger.info(f"STARTUP ROLLBACK: {line}")
+
+            logger.info(f"✅ Startup rollback completed to block {target_block}")
+
+        except Exception as e:
+            logger.error(f"Error during startup rollback: {e}")
+            raise RuntimeError(f"Failed to perform startup rollback: {e}")
 
     def _fetch_blocks_worker(self):
         """Background worker that continuously prefetches blocks"""
@@ -347,6 +656,13 @@ class CPBlocksPipeline:
                 if self.shutdown_flag.is_set() or is_shutdown_requested() or not self.running:
                     logger.info("Shutdown flag detected in CP blocks pipeline, stopping worker")
                     break
+
+                # Check for CP node recovery if in fallback mode, or check for failures to enter fallback mode
+                if self.fallback_mode:
+                    self.check_cp_node_recovery()
+                else:
+                    # Check if we need to enter fallback mode due to node failures
+                    self.check_for_fallback_entry()
 
                 # --- Start: Calculate effective tip based on lookahead ---
                 with self._lock:
@@ -454,15 +770,43 @@ class CPBlocksPipeline:
                         if missing_blocks_batch:
                             logger.debug(f"Missing block batch range: {missing_blocks_batch[0]} to {missing_blocks_batch[-1]}")
 
-                        # Get fresh list of healthy nodes
+                        # Get fresh list of healthy nodes with retry logic
                         nodes = get_healthy_nodes()
                         if not nodes:
-                            update_healthy_nodes()
-                            nodes = get_healthy_nodes()
+                            logger.warning("No healthy nodes available, attempting to update node list")
+                            try:
+                                update_healthy_nodes()
+                                nodes = get_healthy_nodes()
+                            except Exception as e:
+                                logger.error(f"Failed to update healthy nodes: {e}")
+
                             if not nodes:
-                                logger.error("No healthy nodes available, cannot fetch blocks")
-                                time.sleep(5)
-                                continue
+                                if self.fallback_mode:
+                                    # Check if we should enter fallback mode
+                                    if not self.fallback_started_at:
+                                        logger.warning("🚨 NO HEALTHY NODES - entering fallback mode immediately")
+                                        self._enter_fallback_mode()
+
+                                    logger.warning("No healthy Counterparty nodes available - continuing in fallback mode")
+                                    # In fallback mode, create empty blocks for the missing batch
+                                    with self._lock:
+                                        for block_idx in missing_blocks_batch:
+                                            if block_idx not in self.queue:
+                                                fallback_data = self.create_fallback_block(block_idx)
+                                                self.queue[block_idx] = fallback_data
+                                                self.failed_cp_blocks.add(block_idx)
+                                                logger.debug(f"Added fallback block {block_idx} to queue")
+                                    time.sleep(5)  # Shorter wait in fallback mode
+                                    continue
+                                else:
+                                    logger.error("No healthy Counterparty nodes available after update - cannot fetch blocks")
+                                    consecutive_errors += 1
+                                    if consecutive_errors >= max_consecutive_errors:
+                                        logger.error("Too many consecutive node failures - stopping pipeline")
+                                        self.running = False
+                                        break
+                                    time.sleep(10)  # Longer wait when nodes are down
+                                    continue
 
                         # Debug the nodes we're using for fetch
                         logger.debug(f"Using nodes for fetch: {[node['name'] for node in nodes]}")
@@ -536,6 +880,10 @@ class CPBlocksPipeline:
                     logger.debug(f"Queue size {queue_size} >= fetch trigger threshold {trigger_fetch_threshold}. Waiting.")
                     # Still process completed futures below, but sleep longer before next fetch check
                     time.sleep(self.fetch_interval * 2)
+
+                # Check for CP node recovery during fallback mode
+                if self.fallback_mode and self.fallback_started_at:
+                    self.check_cp_node_recovery()
 
                 # --- Moved processing of completed futures outside the fetch initiation logic ---
                 # Check for completed fetches (always do this every loop iteration)
@@ -655,7 +1003,7 @@ class CPBlocksPipeline:
 
     def _fetch_blocks_batch(self, block_indices, node_url):
         """
-        Fetch a batch of blocks synchronously using fetch_utils functions.
+        Fetch a batch of blocks synchronously using fetch_utils functions with retry logic.
 
         This method uses fetch_xcp_blocks_concurrent from fetch_utils to efficiently
         retrieve blocks while maintaining the expected data structure and transaction order.
@@ -674,64 +1022,122 @@ class CPBlocksPipeline:
 
         logger.debug(f"Starting batch fetch of {len(block_indices)} blocks using fetch_utils")
 
-        try:
-            # Check for shutdown before starting
-            if self.shutdown_flag.is_set() or is_shutdown_requested() or not self.running:
-                logger.info("Shutdown detected before batch fetch, stopping")
-                with self._blocks_fetch_lock:
-                    self.blocks_being_fetched.difference_update(block_indices)
-                return {}
+        # Retry logic for fetching blocks
+        max_retries = 2
+        retry_delay = 1  # Start with 1 second delay
 
-            # Determine start and end blocks for the range
-            start_block = min(block_indices)
-            end_block = max(block_indices)
+        for attempt in range(max_retries + 1):
+            try:
+                # Check for shutdown before each attempt
+                if self.shutdown_flag.is_set() or is_shutdown_requested() or not self.running:
+                    logger.info("Shutdown detected before batch fetch, stopping")
+                    with self._blocks_fetch_lock:
+                        self.blocks_being_fetched.difference_update(block_indices)
+                    return {}
 
-            # Use fetch_xcp_blocks_concurrent from fetch_utils
-            # This handles pagination, block formatting and concurrent fetching
-            blocks_data = fetch_xcp_blocks_concurrent(start_block, end_block)
+                # Determine start and end blocks for the range
+                start_block = min(block_indices)
+                end_block = max(block_indices)
 
-            if not blocks_data:
-                logger.error(f"Failed to fetch blocks {start_block} to {end_block}")
-                with self._blocks_fetch_lock:
-                    self.blocks_being_fetched.difference_update(block_indices)
-                return {}
+                # Update healthy nodes on retry attempts
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt} for blocks {start_block}-{end_block}, updating healthy nodes")
+                    try:
+                        update_healthy_nodes()
+                    except Exception as e:
+                        logger.warning(f"Failed to update healthy nodes on retry: {e}")
 
-            # Filter the results to only include the requested blocks
-            result = {idx: data for idx, data in blocks_data.items() if idx in block_indices}
+                # Use fetch_xcp_blocks_concurrent from fetch_utils
+                # This handles pagination, block formatting and concurrent fetching
+                blocks_data = fetch_xcp_blocks_concurrent(start_block, end_block)
 
-            # Log if we got fewer blocks than requested
-            if len(result) < len(block_indices):
+                if not blocks_data:
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"Failed to fetch blocks {start_block} to {end_block} (attempt {attempt + 1}), retrying in {retry_delay}s..."
+                        )
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    else:
+                        logger.error(f"Failed to fetch blocks {start_block} to {end_block} after {max_retries + 1} attempts")
+
+                        # Check for immediate fallback entry after total fetch failure
+                        if self.fallback_mode and not self.fallback_started_at:
+                            logger.warning("🚨 TOTAL FETCH FAILURE - checking for immediate fallback entry")
+                            try:
+                                # Force immediate health update and check for fallback
+                                update_healthy_nodes()
+                                healthy_nodes = get_healthy_nodes()
+                                if not healthy_nodes:
+                                    logger.warning(
+                                        "🚨 No healthy nodes after fetch failure - entering fallback mode immediately"
+                                    )
+                                    self._enter_fallback_mode()
+                            except Exception as e:
+                                logger.warning(f"Error during immediate fallback check: {e}")
+
+                        with self._blocks_fetch_lock:
+                            self.blocks_being_fetched.difference_update(block_indices)
+                        return {}
+
+                # Filter the results to only include the requested blocks
+                result = {idx: data for idx, data in blocks_data.items() if idx in block_indices}
+
+                # Check if we got sufficient blocks
                 missing = set(block_indices) - set(result.keys())
-                logger.warning(f"Fetched {len(result)} out of {len(block_indices)} requested blocks. Missing: {missing}")
+                if missing and len(missing) > len(block_indices) // 2:  # More than half missing
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"Too many missing blocks ({len(missing)}/{len(block_indices)}) on attempt {attempt + 1}, retrying..."
+                        )
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    else:
+                        logger.error(f"Failed to fetch sufficient blocks after {max_retries + 1} attempts. Missing: {missing}")
 
-            # Update the queue with fetched blocks
-            with self._lock:
-                for idx, block_data in result.items():
-                    self.queue[idx] = block_data
-                    # Only update current_block if it's the next sequential block
-                    if idx == self.current_block:
-                        self.current_block = idx + 1
+                # Log if we got fewer blocks than requested (but proceed if it's not too many)
+                if missing:
+                    logger.warning(f"Fetched {len(result)} out of {len(block_indices)} requested blocks. Missing: {missing}")
 
-                # Set ready flag as soon as we have enough blocks
-                # This ensures blocks.py can start processing without waiting for all blocks
-                if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
-                    logger.info(f"Fetched {len(self.queue)} blocks, signaling ready")
-                    self.initial_blocks_ready.set()
+                # Update the queue with fetched blocks
+                with self._lock:
+                    for idx, block_data in result.items():
+                        if block_data and "error" not in block_data:
+                            self.queue[idx] = block_data
+                            # Only update current_block if it's the next sequential block
+                            if idx == self.current_block:
+                                self.current_block = idx + 1
 
-            logger.debug(f"Successfully fetched {len(result)} blocks out of {len(block_indices)} requested")
+                    # Set ready flag as soon as we have enough blocks
+                    # This ensures blocks.py can start processing without waiting for all blocks
+                    if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
+                        logger.info(f"Fetched {len(self.queue)} blocks, signaling ready")
+                        self.initial_blocks_ready.set()
 
-            # Remove blocks from being fetched, even if they weren't found
-            with self._blocks_fetch_lock:
-                self.blocks_being_fetched.difference_update(block_indices)
+                logger.debug(
+                    f"Successfully fetched {len(result)} blocks out of {len(block_indices)} requested (attempt {attempt + 1})"
+                )
 
-            return result
+                # Remove blocks from being fetched, even if they weren't found
+                with self._blocks_fetch_lock:
+                    self.blocks_being_fetched.difference_update(block_indices)
 
-        except Exception as e:
-            logger.error(f"Error in _fetch_blocks_batch: {e}", exc_info=True)
-            # Remove blocks from being fetched on error
-            with self._blocks_fetch_lock:
-                self.blocks_being_fetched.difference_update(block_indices)
-            return {}
+                return result
+
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"Error in _fetch_blocks_batch (attempt {attempt + 1}): {e}, retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    logger.error(f"Error in _fetch_blocks_batch after {max_retries + 1} attempts: {e}", exc_info=True)
+                    # Remove blocks from being fetched on error
+                    with self._blocks_fetch_lock:
+                        self.blocks_being_fetched.difference_update(block_indices)
+                    return {}
 
 
 def test_pipeline_simple(start_block=None, num_blocks=10, max_wait=60):
@@ -758,11 +1164,10 @@ def test_pipeline_simple(start_block=None, num_blocks=10, max_wait=60):
     print(f"PIPELINE TEST: Testing from block {start_block} to {start_block + num_blocks - 1}")
     logger.info(f"Testing CP blocks pipeline from block {start_block} to {start_block + num_blocks - 1}")
 
-    # Create pipeline with smaller queue size for faster testing
-    pipeline = CPBlocksPipeline(max_queue_size=50)
-    print(f"PIPELINE TEST: Created pipeline with min_blocks_ready={pipeline.min_blocks_ready}")
-
     try:
+        # Create pipeline with smaller queue size for faster testing
+        pipeline = CPBlocksPipeline(max_queue_size=50)
+        print(f"PIPELINE TEST: Created pipeline with min_blocks_ready={pipeline.min_blocks_ready}")
         # Set smaller initial batch size for testing
         pipeline.initial_batch_size = min(20, num_blocks * 2)
         pipeline.target_queue_size = min(50, num_blocks * 5)
@@ -848,7 +1253,8 @@ def test_pipeline_simple(start_block=None, num_blocks=10, max_wait=60):
         logger.error(f"Error testing pipeline: {e}", exc_info=True)
         return False
     finally:
-        # Stop the pipeline
-        print("PIPELINE TEST: Stopping pipeline")
-        logger.info("Stopping pipeline")
-        pipeline.stop()
+        # Stop the pipeline if it was created
+        if "pipeline" in locals():
+            print("PIPELINE TEST: Stopping pipeline")
+            logger.info("Stopping pipeline")
+            pipeline.stop()

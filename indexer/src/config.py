@@ -42,6 +42,9 @@ COLLECTION_CACHE_SIZE = int(os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET
 PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
 SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
 
+# Market data cache size
+MARKET_DATA_CACHE_SIZE = int(os.environ.get("MARKET_DATA_CACHE_SIZE", "5000"))  # Cache for market data operations
+
 # Batch processing configurations
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
 MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
@@ -64,6 +67,9 @@ DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").
 DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
+
+# Market Data Configuration
+ENABLE_MARKET_DATA_SCHEDULER = os.getenv("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 
 # Logging display configuration
 # Options: "compact", "enhanced", "detailed", "flashy"
@@ -255,6 +261,7 @@ for node in XCP_V2_NODES:
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
 STAMP_TABLE = "StampTableV4"
+STAMP_VIEWS_TABLE = "stamp_views"
 SRC20_TABLE = "SRC20"
 SRC20_VALID_TABLE = "SRC20Valid"
 SRC20_BALANCES_TABLE = "balances"
@@ -265,9 +272,22 @@ SRC101_PRICE_TABLE = "src101price"
 SRC101_OWNERS_TABLE = "owners"
 SRC101_RECIPIENTS_TABLE = "recipients"
 
+# Market Data Cache Tables
+STAMP_MARKET_DATA_TABLE = "stamp_market_data"
+STAMP_HOLDER_CACHE_TABLE = "stamp_holder_cache"
+MARKET_DATA_SOURCES_TABLE = "market_data_sources"
+SRC20_MARKET_DATA_TABLE = "src20_market_data"
+COLLECTION_MARKET_DATA_TABLE = "collection_market_data"
+
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ["SRC-721", "SRC-20", "SRC-101"]
 INVALID_BTC_STAMP_SUFFIX = ["plain", "octet-stream", "js", "css", "x-empty", "json"]
+
+# Pipeline Configuration
+CP_FALLBACK_MODE = os.environ.get("CP_FALLBACK_MODE", "true").lower() == "true"  # Enable fallback mode when CP nodes fail
+FALLBACK_STATE_DIR = os.environ.get(
+    "FALLBACK_STATE_DIR", os.path.join(os.path.dirname(__file__), "..", "data", "state")
+)  # Directory for fallback state persistence
 
 CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transaction on counterparty
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty

@@ -60,10 +60,12 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `is_reissue` tinyint(1) DEFAULT NULL,
   `file_hash` varchar(255) DEFAULT NULL,
   `is_valid_base64` tinyint(1) DEFAULT NULL,
+  `file_size_bytes` int DEFAULT NULL COMMENT 'Size of the decoded stamp file in bytes',
   PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
-  INDEX `cpid_index` (`cpid`(20)),
+  -- cpid is unique (hash-based for SRC20, extremely low collision probability)
+  UNIQUE INDEX `cpid_index` (`cpid`),
   INDEX `ident_index` (`ident`),
   INDEX `creator_index` (`creator`(42)),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
@@ -73,12 +75,12 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   INDEX `idx_creator_tx_index` (`creator`(42), `tx_index`),
   INDEX `idx_stamp_url_mimetype` (`stamp_url`(97), `stamp_mimetype`),
   INDEX `idx_stamp_file` (`stamp_hash`, `stamp_mimetype`, `stamp_url`(97)),
-  INDEX `idx_cpid_ident` (`cpid`(20), `ident`),
+  INDEX `idx_cpid_ident` (`cpid`, `ident`),
   INDEX `idx_stamp_count` (`is_btc_stamp`, `ident`, `creator`(42)),
   INDEX `idx_stamp_details` (
     `stamp`,
     `block_index`,
-    `cpid`(20),
+    `cpid`,
     `creator`(42),
     `stamp_url`(97),
     `stamp_mimetype`,
@@ -390,7 +392,7 @@ CREATE TABLE IF NOT EXISTS `recipients` (
 CREATE TABLE IF NOT EXISTS `src101price` (
   `id` VARCHAR(255) NOT NULL,
   `len` INT NOT NULL,
-  `price`BIGINT NOT NULL,
+  `price` BIGINT NOT NULL,
   `deploy_hash` VARCHAR(64) NOT NULL,
   `block_index` int,
   PRIMARY KEY (`id`),
@@ -404,6 +406,18 @@ CREATE TABLE IF NOT EXISTS `src20_token_stats` (
   `last_updated` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`tick`),
   INDEX `idx_token_stats` (`tick`, `total_minted`, `holders_count`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE TABLE IF NOT EXISTS `stamp_views` (
+  `stamp` int NOT NULL,
+  `view_count` bigint unsigned DEFAULT 0,
+  `last_viewed` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`stamp`),
+  FOREIGN KEY (`stamp`) REFERENCES StampTableV4(`stamp`) ON DELETE CASCADE,
+  INDEX `idx_view_count` (`view_count` DESC),
+  INDEX `idx_last_viewed` (`last_viewed` DESC),
+  INDEX `idx_popular_stamps` (`view_count` DESC, `last_viewed` DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE OR REPLACE VIEW v_src20_token_stats AS
@@ -422,95 +436,273 @@ ON DUPLICATE KEY UPDATE
     total_minted = VALUES(total_minted),
     holders_count = VALUES(holders_count);
 
+-- =====================================================================
+-- ENHANCED MARKET DATA CACHE TABLES
+-- =====================================================================
+-- These tables implement the Bitcoin Stamps Market Data Cache System
+-- to eliminate external API calls and improve performance from 10+ seconds to <2 seconds
+-- =====================================================================
+
+-- Enhanced stamp market data cache with multi-source support
+CREATE TABLE IF NOT EXISTS `stamp_market_data` (
+  `cpid` VARCHAR(25) PRIMARY KEY COMMENT 'Counterparty asset ID (unique identifier)',
+  
+  -- Floor Price Data (from Counterparty dispensers)
+  `floor_price_btc` DECIMAL(16,8) NULL COMMENT 'Current floor price in BTC',
+  `recent_sale_price_btc` DECIMAL(16,8) NULL COMMENT 'Most recent sale price in BTC',
+  `open_dispensers_count` INTEGER DEFAULT 0 COMMENT 'Number of active dispensers',
+  `closed_dispensers_count` INTEGER DEFAULT 0 COMMENT 'Number of closed dispensers',
+  `total_dispensers_count` INTEGER DEFAULT 0 COMMENT 'Total dispensers ever created',
+  
+  -- Holder Data (from Counterparty balances API)
+  `holder_count` INTEGER DEFAULT 0 COMMENT 'Total number of holders',
+  `unique_holder_count` INTEGER DEFAULT 0 COMMENT 'Unique holders (excluding zero balances)',
+  `top_holder_percentage` DECIMAL(5,2) DEFAULT 0 COMMENT 'Percentage held by largest holder',
+  `holder_distribution_score` DECIMAL(5,2) DEFAULT 0 COMMENT 'Distribution metric (0-100, higher = more distributed)',
+  
+  -- Volume Data (calculated from dispenser activity)
+  `volume_24h_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '24-hour trading volume in BTC',
+  `volume_7d_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '7-day trading volume in BTC',
+  `volume_30d_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '30-day trading volume in BTC',
+  `total_volume_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'All-time trading volume in BTC',
+  
+  -- Multi-Source Attribution
+  `price_source` VARCHAR(50) NULL COMMENT 'Source of price data: counterparty, exchange_a, opensea',
+  `volume_sources` JSON NULL COMMENT 'Volume data sources with weights: {"counterparty": 0.5, "exchange_a": 1.2}',
+  `data_quality_score` DECIMAL(3,1) DEFAULT 0 COMMENT 'Data quality score 0-10 based on source reliability',
+  `confidence_level` DECIMAL(3,1) DEFAULT 0 COMMENT 'Confidence in data accuracy 0-10',
+  
+  -- Metadata and Tracking
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last cache update time',
+  `last_dispenser_block` INTEGER NULL COMMENT 'Last block where dispenser data was updated',
+  `last_balance_block` INTEGER NULL COMMENT 'Last block where balance data was updated',
+  `last_price_update` TIMESTAMP NULL COMMENT 'Last time price data was refreshed',
+  `update_frequency_minutes` INTEGER DEFAULT 30 COMMENT 'How often this stamp should be updated (adaptive)',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
+  
+  -- Foreign Key Constraint (works with existing cpid index)
+  CONSTRAINT `fk_stamp_market_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
+  
+  -- Performance Indexes
+  INDEX `idx_floor_price_btc` (`floor_price_btc` DESC) COMMENT 'For floor price filtering and sorting',
+  INDEX `idx_holder_count` (`holder_count` DESC) COMMENT 'For holder count filtering',
+  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks',
+  INDEX `idx_volume_24h` (`volume_24h_btc` DESC) COMMENT 'For volume-based sorting',
+  INDEX `idx_holder_distribution` (`holder_distribution_score` DESC) COMMENT 'For distribution analysis',
+  INDEX `idx_price_source` (`price_source`) COMMENT 'For source-based queries',
+  INDEX `idx_data_quality` (`data_quality_score` DESC) COMMENT 'For quality-based filtering',
+  INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
+  INDEX `idx_volume_composite` (`volume_24h_btc` DESC, `volume_7d_btc` DESC, `holder_count` DESC) COMMENT 'For trending/popular stamps',
+  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
+
+-- Detailed holder cache for individual stamp holder pages
+CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'Unique record identifier',
+  `cpid` VARCHAR(25) NOT NULL COMMENT 'Counterparty asset ID',
+  `address` VARCHAR(255) NOT NULL COMMENT 'Bitcoin address holding the stamp',
+  `quantity` DECIMAL(20,8) NOT NULL COMMENT 'Quantity held by this address',
+  `percentage` DECIMAL(5,2) NOT NULL COMMENT 'Percentage of total supply held',
+  `rank_position` INTEGER NOT NULL COMMENT 'Ranking by quantity (1 = largest holder)',
+  `balance_source` VARCHAR(50) DEFAULT 'counterparty' COMMENT 'Source of balance data',
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last update time',
+  `last_tx_block` INTEGER NULL COMMENT 'Block of last transaction affecting this balance',
+  
+  -- Foreign Key Constraint (works with existing cpid index)
+  CONSTRAINT `fk_stamp_holder_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
+  
+  -- Ensure one record per stamp-address combination
+  UNIQUE KEY `unique_cpid_address` (`cpid`, `address`) COMMENT 'One record per stamp-address pair',
+  
+  -- Performance Indexes
+  INDEX `idx_cpid_rank` (`cpid`, `rank_position`) COMMENT 'For holder ranking pages',
+  INDEX `idx_cpid_quantity` (`cpid`, `quantity` DESC) COMMENT 'For quantity-based sorting',
+  INDEX `idx_address` (`address`) COMMENT 'For address-based lookups',
+  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness',
+  INDEX `idx_percentage` (`percentage` DESC) COMMENT 'For percentage-based analysis',
+  INDEX `idx_holder_analysis` (`cpid`, `percentage` DESC, `quantity` DESC) COMMENT 'For distribution analysis'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Detailed holder information cache for stamps to avoid real-time API calls';
+
+-- Track reliability and performance of different data sources
+CREATE TABLE IF NOT EXISTS `market_data_sources` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'Unique source record identifier',
+  `asset_type` ENUM('stamp', 'src20') NOT NULL COMMENT 'Type of asset this source provides data for',
+  `asset_id` VARCHAR(255) NOT NULL COMMENT 'Asset identifier (cpid for stamps, tick for src20)',
+  `source_name` VARCHAR(50) NOT NULL COMMENT 'Source identifier: counterparty, openstamp, kucoin, etc.',
+  
+  -- Current Data
+  `price_btc` DECIMAL(16,8) NULL COMMENT 'Current price from this source',
+  `volume_24h_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '24h volume from this source',
+  `holder_count` INTEGER DEFAULT 0 COMMENT 'Holder count from this source',
+  `market_cap_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'Market cap from this source',
+  
+  -- Source Reliability Metrics
+  `source_confidence` DECIMAL(3,1) DEFAULT 5.0 COMMENT 'Confidence score 0-10 for this source',
+  `api_response_time_ms` INTEGER DEFAULT 0 COMMENT 'Average API response time in milliseconds',
+  `success_rate_24h` DECIMAL(5,2) DEFAULT 100.0 COMMENT 'Success rate over last 24 hours (0-100%)',
+  `last_success` TIMESTAMP NULL COMMENT 'Last successful data fetch',
+  `last_failure` TIMESTAMP NULL COMMENT 'Last failed data fetch',
+  `consecutive_failures` INTEGER DEFAULT 0 COMMENT 'Number of consecutive failures',
+  
+  -- Update Tracking
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last update time',
+  `update_count_24h` INTEGER DEFAULT 0 COMMENT 'Number of updates in last 24 hours',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this source was first tracked',
+  
+  -- Ensure one record per asset-source combination
+  UNIQUE KEY `unique_asset_source` (`asset_type`, `asset_id`, `source_name`) COMMENT 'One record per asset-source pair',
+  
+  -- Performance Indexes
+  INDEX `idx_asset` (`asset_type`, `asset_id`) COMMENT 'For asset-based source lookups',
+  INDEX `idx_source` (`source_name`) COMMENT 'For source-based analysis',
+  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For freshness checks',
+  INDEX `idx_confidence` (`source_confidence` DESC) COMMENT 'For reliability-based selection',
+  INDEX `idx_success_rate` (`success_rate_24h` DESC) COMMENT 'For performance monitoring',
+  INDEX `idx_response_time` (`api_response_time_ms`) COMMENT 'For performance analysis',
+  INDEX `idx_reliability_score` (`source_confidence` DESC, `success_rate_24h` DESC, `api_response_time_ms`) COMMENT 'For source ranking'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Track reliability and performance metrics for different market data sources';
+
+-- SRC-20 token market data cache for exchange-based data
+CREATE TABLE IF NOT EXISTS `src20_market_data` (
+  `tick` VARCHAR(32) PRIMARY KEY COMMENT 'SRC-20 token ticker symbol',
+  
+  -- Price Data (from multiple exchanges)
+  `price_btc` DECIMAL(16,8) NULL COMMENT 'Current price in BTC',
+  `price_usd` DECIMAL(16,8) NULL COMMENT 'Current price in USD',
+  `floor_price_btc` DECIMAL(16,8) NULL COMMENT 'Floor price from marketplace',
+  `market_cap_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'Market capitalization in BTC',
+  `market_cap_usd` DECIMAL(20,8) DEFAULT 0 COMMENT 'Market capitalization in USD',
+  
+  -- Volume Data (aggregated from exchanges)
+  `volume_24h_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '24-hour trading volume in BTC',
+  `volume_7d_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '7-day trading volume in BTC',
+  `volume_30d_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '30-day trading volume in BTC',
+  `total_volume_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'All-time trading volume in BTC',
+  
+  -- Price Change Data
+  `price_change_24h_percent` DECIMAL(8,4) DEFAULT 0 COMMENT '24-hour price change percentage',
+  `price_change_7d_percent` DECIMAL(8,4) DEFAULT 0 COMMENT '7-day price change percentage',
+  `price_change_30d_percent` DECIMAL(8,4) DEFAULT 0 COMMENT '30-day price change percentage',
+  
+  -- Holder Data (from balances table)
+  `holder_count` INTEGER DEFAULT 0 COMMENT 'Total number of holders',
+  `circulating_supply` DECIMAL(38,18) DEFAULT 0 COMMENT 'Circulating supply',
+  `max_supply` DECIMAL(38,18) DEFAULT 0 COMMENT 'Maximum supply',
+  
+  -- Multi-Source Attribution
+  `primary_exchange` VARCHAR(50) NULL COMMENT 'Primary exchange for price data',
+  `exchange_sources` JSON NULL COMMENT 'Exchange data sources with weights',
+  `data_quality_score` DECIMAL(3,1) DEFAULT 0 COMMENT 'Data quality score 0-10',
+  `confidence_level` DECIMAL(3,1) DEFAULT 0 COMMENT 'Confidence in data accuracy 0-10',
+  
+  -- Metadata and Tracking
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last cache update time',
+  `last_price_update` TIMESTAMP NULL COMMENT 'Last time price data was refreshed',
+  `update_frequency_minutes` INTEGER DEFAULT 10 COMMENT 'How often this token should be updated (adaptive)',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
+  
+  -- Performance Indexes
+  INDEX `idx_price_btc` (`price_btc` DESC) COMMENT 'For price filtering and sorting',
+  INDEX `idx_market_cap` (`market_cap_btc` DESC) COMMENT 'For market cap sorting',
+  INDEX `idx_volume_24h` (`volume_24h_btc` DESC) COMMENT 'For volume-based sorting',
+  INDEX `idx_holder_count` (`holder_count` DESC) COMMENT 'For holder count filtering',
+  INDEX `idx_price_change` (`price_change_24h_percent` DESC) COMMENT 'For price change sorting',
+  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks',
+  INDEX `idx_data_quality` (`data_quality_score` DESC) COMMENT 'For quality-based filtering',
+  INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
+  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
+  
+  -- Note: Foreign key constraint removed to work with existing database constraints
+  -- Data integrity maintained by application logic
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for SRC-20 tokens from multiple exchanges';
+
+-- Collection-level market data aggregation
+CREATE TABLE IF NOT EXISTS `collection_market_data` (
+  `collection_id` BINARY(16) PRIMARY KEY COMMENT 'Collection identifier',
+  
+  -- Aggregated Price Data
+  `floor_price_btc` DECIMAL(16,8) NULL COMMENT 'Collection floor price in BTC',
+  `avg_price_btc` DECIMAL(16,8) NULL COMMENT 'Average price in BTC',
+  `total_value_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'Total collection value in BTC',
+  
+  -- Volume Data
+  `volume_24h_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '24-hour trading volume in BTC',
+  `volume_7d_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '7-day trading volume in BTC',
+  `volume_30d_btc` DECIMAL(16,8) DEFAULT 0 COMMENT '30-day trading volume in BTC',
+  `total_volume_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'All-time trading volume in BTC',
+  
+  -- Collection Statistics
+  `total_stamps` INTEGER DEFAULT 0 COMMENT 'Total stamps in collection',
+  `unique_holders` INTEGER DEFAULT 0 COMMENT 'Number of unique holders',
+  `listed_stamps` INTEGER DEFAULT 0 COMMENT 'Number of stamps currently listed',
+  `sold_stamps_24h` INTEGER DEFAULT 0 COMMENT 'Stamps sold in last 24 hours',
+  
+  -- Metadata and Tracking
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last cache update time',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
+  
+  -- Performance Indexes
+  INDEX `idx_floor_price` (`floor_price_btc` DESC) COMMENT 'For floor price sorting',
+  INDEX `idx_volume_24h` (`volume_24h_btc` DESC) COMMENT 'For volume sorting',
+  INDEX `idx_total_value` (`total_value_btc` DESC) COMMENT 'For total value sorting',
+  INDEX `idx_unique_holders` (`unique_holders` DESC) COMMENT 'For holder count sorting',
+  INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks'
+  
+  -- Note: Foreign key constraint removed to work with existing database constraints
+  -- Data integrity maintained by application logic
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Aggregated market data for stamp collections';
+
+-- Performance optimization views
+CREATE OR REPLACE VIEW `v_stamp_market_overview` AS
+SELECT 
+    smd.cpid,
+    s.stamp,
+    s.creator,
+    s.stamp_url,
+    s.stamp_mimetype,
+    smd.floor_price_btc,
+    smd.holder_count,
+    smd.volume_24h_btc,
+    smd.data_quality_score,
+    smd.last_updated,
+    CASE 
+        WHEN smd.last_updated > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 'fresh'
+        WHEN smd.last_updated > DATE_SUB(NOW(), INTERVAL 6 HOUR) THEN 'stale'
+        ELSE 'expired'
+    END as cache_status
+FROM stamp_market_data smd
+JOIN StampTableV4 s ON smd.cpid = s.cpid
+WHERE smd.data_quality_score >= 5.0  -- Only include reliable data
+ORDER BY smd.volume_24h_btc DESC, smd.holder_count DESC;
+
+-- View for trending stamps (high volume, good distribution)
+CREATE OR REPLACE VIEW `v_trending_stamps` AS
+SELECT 
+    smd.cpid,
+    s.stamp,
+    s.creator,
+    smd.floor_price_btc,
+    smd.holder_count,
+    smd.volume_24h_btc,
+    smd.volume_7d_btc,
+    smd.holder_distribution_score,
+    -- Calculate trending score
+    (
+        (smd.volume_24h_btc * 1000000) * 0.4 +  -- 24h volume weight
+        (smd.holder_count) * 0.3 +               -- Holder count weight  
+        (smd.holder_distribution_score) * 0.2 +  -- Distribution weight
+        (smd.data_quality_score) * 0.1           -- Quality weight
+    ) as trending_score
+FROM stamp_market_data smd
+JOIN StampTableV4 s ON smd.cpid = s.cpid
+WHERE smd.volume_24h_btc > 0 
+  AND smd.data_quality_score >= 6.0
+  AND smd.last_updated > DATE_SUB(NOW(), INTERVAL 2 HOUR)
+ORDER BY trending_score DESC
+LIMIT 100;
+
+-- =====================================================================
+-- END ENHANCED MARKET DATA CACHE TABLES
+-- =====================================================================
+
 -- fix owners table
--- ALTER TABLE `owners`
--- DROP INDEX IF EXISTS `p_deploy_hash_tokenid_unique`,
--- DROP INDEX IF EXISTS `p_deploy_hash_tokenid_utf8`,
--- ADD INDEX `p_deploy_hash_tokenid` (`p`,`deploy_hash`,`tokenid`),
--- ADD UNIQUE INDEX `p_deploy_hash_tokenid_utf8_unique` (`p`,`deploy_hash`,`tokenid_utf8`);
-
--- -- Remove redundant indexes
--- ALTER TABLE transactions DROP INDEX idx_block_time;
--- ALTER TABLE StampTableV4 DROP INDEX block_index;
--- ALTER TABLE StampTableV4 DROP INDEX stamp_index;
--- ALTER TABLE balances DROP INDEX address;
--- ALTER TABLE balances DROP INDEX tick;
--- ALTER TABLE balances DROP INDEX idx_address_tick_amt;
--- ALTER TABLE balances DROP INDEX idx_tick_last_update;
--- ALTER TABLE collection_stamps DROP INDEX stamp;
-
--- -- Add new optimized indexes
--- ALTER TABLE transactions ADD INDEX idx_block_index_time (block_index, block_time);
-
--- ALTER TABLE StampTableV4 ADD INDEX idx_tx_index_block_time (tx_index, block_time);
--- ALTER TABLE StampTableV4 ADD INDEX idx_ident_stamp (ident, stamp);
--- ALTER TABLE StampTableV4 ADD INDEX idx_creator_tx_index (creator, tx_index);
--- ALTER TABLE StampTableV4 ADD INDEX idx_stamp_url_mimetype (stamp_url(100), stamp_mimetype(50));
--- ALTER TABLE StampTableV4 ADD INDEX idx_stamp_file (stamp_hash, stamp_mimetype, stamp_url(100));
--- ALTER TABLE StampTableV4 ADD INDEX idx_cpid_ident (cpid, ident);
--- ALTER TABLE StampTableV4 ADD INDEX idx_stamp_count (is_btc_stamp, ident, creator);
--- ALTER TABLE StampTableV4 ADD INDEX idx_stamp_details (
---   stamp,
---   block_index,
---   cpid,
---   creator,
---   stamp_url,
---   stamp_mimetype,
---   block_time,
---   tx_hash,
---   ident
--- );
-
--- ALTER TABLE creator ADD INDEX idx_creator_name (creator(100));
--- ALTER TABLE creator ADD INDEX idx_address_creator (address, creator);
-
--- ALTER TABLE balances ADD INDEX idx_address_tick_amt_update (address, tick, amt, last_update);
--- ALTER TABLE balances ADD INDEX idx_balance_stats (tick, amt, address);
-
--- ALTER TABLE collection_stamps ADD INDEX idx_collection_stamp (collection_id, stamp);
-
--- ALTER TABLE collections ADD INDEX idx_collection_lookup (collection_id, collection_name, collection_onchain);
-
--- ALTER TABLE SRC20Valid ADD INDEX idx_tick_block_time (tick, block_time);
--- ALTER TABLE SRC20Valid ADD INDEX idx_tick_hash (tick_hash);
--- ALTER TABLE SRC20Valid ADD INDEX idx_tick_block_index (tick, block_index);
--- ALTER TABLE SRC20Valid ADD INDEX idx_tick_creator_time (tick, creator, block_time);
--- ALTER TABLE SRC20Valid ADD INDEX idx_creator_destination (creator, destination);
--- ALTER TABLE SRC20Valid ADD INDEX idx_src20_common_lookup (
---   block_index, 
---   tx_hash,
---   p,
---   op,
---   tick,
---   creator,
---   amt,
---   deci,
---   lim,
---   max,
---   destination,
---   block_time
--- );
--- ALTER TABLE SRC20Valid ADD INDEX idx_deploy_lookup (
---   op,
---   tick,
---   block_index,
---   tx_hash,
---   creator,
---   amt,
---   deci,
---   lim,
---   max,
---   block_time
--- );
-
--- ALTER TABLE SRC101 ADD INDEX idx_deploy_hash_tokenid (deploy_hash, tokenid);
--- ALTER TABLE SRC101 ADD INDEX idx_creator_tick (creator, tick);
-
--- ALTER TABLE SRC101Valid ADD INDEX idx_deploy_hash (deploy_hash);
--- ALTER TABLE SRC101Valid ADD INDEX idx_tokenid_utf8 (tokenid_utf8);
--- ALTER TABLE SRC101Valid ADD INDEX idx_creator (creator);
--- ALTER TABLE SRC101Valid ADD INDEX idx_deploy_hash_tokenid_time (deploy_hash, tokenid, block_time);
-
--- -- Remove redundant indexes that are covered by the new ones
--- ALTER TABLE SRC20Valid DROP INDEX creator;
--- ALTER TABLE SRC20Valid DROP INDEX block_index;

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src"
 import config
 import index_core.arc4 as arc4
 import index_core.backend as backend
-from index_core.blocks import quick_filter_src20_transaction
+from index_core.transaction_utils import quick_filter_src20_transaction
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG if os.environ.get("RUST_LOG") == "debug" else logging.INFO)

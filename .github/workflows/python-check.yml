@@ -89,9 +89,9 @@ jobs:
         working-directory: ./indexer
         run: poetry run check-code
 
-  # Integration tests once after rust job
+  # Integration tests that don't require Bitcoin node
   integration:
-    name: Integration Tests
+    name: Integration Tests (No Bitcoin Node)
     runs-on: ubuntu-latest
     needs: rust
     if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
@@ -124,6 +124,15 @@ jobs:
           poetry config virtualenvs.in-project true
           poetry install
         working-directory: ./indexer
-      - name: Run Integration Tests
+      - name: Build Rust parser for integration tests
         working-directory: ./indexer
-        run: poetry run check-integration
+        run: |
+          # Install maturin and build the Rust parser
+          poetry run pip install maturin --quiet
+          cd src/rust_parser && poetry run maturin develop --release
+      - name: Run Integration Tests (excluding Bitcoin node tests)
+        working-directory: ./indexer
+        run: |
+          # Run integration tests that work with mocks or external APIs
+          # Exclude only tests that require a local Bitcoin node
+          poetry run pytest -m "integration and not requires_bitcoin_node" -v --tb=short

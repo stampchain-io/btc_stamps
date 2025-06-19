@@ -1,0 +1,98 @@
+# CodeCov configuration for Bitcoin Stamps Indexer
+
+coverage:
+  # Coverage precision
+  precision: 2
+  round: down
+  range: "70...100"
+  
+  status:
+    # Overall project coverage
+    project:
+      default:
+        target: 80%           # Target coverage for the project
+        threshold: 5%         # Allow 5% drop in coverage
+        base: auto           # Compare against base branch
+        if_ci_failed: error  # Fail if CI fails
+        informational: false # Make this check required
+        only_pulls: false    # Run on all commits
+    
+    # Coverage for changed files in PR
+    patch:
+      default:
+        target: 90%           # Higher standard for new code
+        threshold: 10%        # Allow some flexibility
+        base: auto
+        if_ci_failed: error
+        informational: false
+        only_pulls: true      # Only on PRs
+
+# Comment configuration
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: false    # Post comment even if no coverage change
+  require_base: true       # Require base coverage for comparison
+  require_head: true       # Require head coverage
+  
+# Coverage report settings
+parsers:
+  gcov:
+    branch_detection:
+      conditional: yes
+      loop: yes
+      method: no
+      macro: no
+
+# Ignore paths
+ignore:
+  - "tests/"
+  - "tools/"
+  - "**/__pycache__"
+  - "**/test_*.py"
+  - "src/rust_parser/"
+  - "venv/"
+  - ".venv/"
+  - "build/"
+  - "dist/"
+  - "*.egg-info/"
+  
+# Flag configuration for different test types
+flags:
+  unittests:
+    paths:
+      - src/
+    carryforward: true
+  
+# Coverage grouping
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 5%
+  individual_components:
+    - component_id: core
+      name: Core Processing
+      paths:
+        - src/index_core/blocks.py
+        - src/index_core/transaction_utils.py
+        - src/index_core/block_validation.py
+    - component_id: src20
+      name: SRC-20 Implementation
+      paths:
+        - src/index_core/src20.py
+        - src/index_core/src20_*.py
+    - component_id: database
+      name: Database Operations
+      paths:
+        - src/index_core/database.py
+        - src/index_core/database_manager.py
+        - src/index_core/reparse/*.py
+    - component_id: external
+      name: External Services
+      paths:
+        - src/index_core/aws.py
+        - src/index_core/arweave.py
+        - src/index_core/openstamp_client.py
+        - src/index_core/market_data_*.py

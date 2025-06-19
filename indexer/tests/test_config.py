@@ -1,19 +1,45 @@
 import importlib
 import os
 import sys
-
-import pytest
-
-# Ensure we import from the src directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
-
-# Explicitly stub out boto3 as a module with a client() factory
 import types
 from typing import Any
 
-_boto3_mod: Any = types.ModuleType("boto3")
-_boto3_mod.client = lambda *args, **kwargs: None  # type: ignore[attr-defined]
-sys.modules["boto3"] = _boto3_mod
+import pytest
+
+from tests.test_isolation_utils import TestIsolationManager
+
+
+@pytest.fixture(autouse=True, scope="module")
+def module_isolation():
+    """Provide comprehensive isolation for this module."""
+    rpc_env_vars = [
+        "RPC_IP",
+        "RPC_PORT",
+        "RPC_USER",
+        "RPC_PASSWORD",
+        "RPC_SSL",
+        "CP_RPC_IP",
+        "CP_RPC_PORT",
+        "CP_RPC_USER",
+        "CP_RPC_PASSWORD",
+        "CP_FALLBACK_MODE",
+    ]
+
+    with TestIsolationManager().isolate_sys_modules(["boto3"]).isolate_sys_path().isolate_environment(
+        **{var: None for var in rpc_env_vars}
+    ):
+        # Ensure we import from the src directory
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+
+        # Explicitly stub out boto3 as a module with a client() factory
+        _boto3_mod: Any = types.ModuleType("boto3")
+        _boto3_mod.client = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+        sys.modules["boto3"] = _boto3_mod
+
+        yield
+
+
+# Import after setting up isolation
 import exceptions
 
 
@@ -52,6 +78,12 @@ def test_standard_rpc_tls(monkeypatch):
     # Ensure Quicknode is disabled (no URL or API key)
     monkeypatch.delenv("QUICKNODE_URL", raising=False)
     monkeypatch.delenv("QUICKNODE_API_KEY", raising=False)
+    # Remove any custom RPC credentials to ensure test uses defaults
+    monkeypatch.delenv("RPC_USER", raising=False)
+    monkeypatch.delenv("RPC_PASSWORD", raising=False)
+    monkeypatch.delenv("RPC_IP", raising=False)
+    monkeypatch.delenv("RPC_PORT", raising=False)
+    monkeypatch.delenv("CP_RPC_URL", raising=False)
 
     config = reload_config()
     # Standard RPC URL should use https scheme when RPC_TLS is truthy

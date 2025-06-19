@@ -5,6 +5,9 @@ from typing import Any
 
 import pytest
 
+# Mark all tests in this file as integration tests due to global module stubbing
+pytestmark = pytest.mark.integration
+
 # Stub external dependencies before importing project modules
 # Stub boto3
 _boto3_mod: Any = types.ModuleType("boto3")
@@ -96,7 +99,7 @@ def test_create_snapshot_from_db_with_checkpoints(monkeypatch):
         (3, "bh3", "mh3", "tl3", "lh3"),
     ]
     fake_db = FakeDB(1, 3, rows)
-    mgr = SnapshotManager("dummy")
+    mgr = snapshot_module.SnapshotManager("dummy")
 
     # Act
     snapshot = mgr.create_snapshot_from_db(fake_db)
@@ -111,6 +114,6 @@ def test_create_snapshot_from_db_with_checkpoints(monkeypatch):
 def test_create_snapshot_from_db_empty(monkeypatch):
     monkeypatch.setattr(config, "CP_STAMP_GENESIS_BLOCK", 10)
     fake_db = FakeDB(None, None, [])
-    mgr = SnapshotManager("dummy")
+    mgr = snapshot_module.SnapshotManager("dummy")
     with pytest.raises(ValueError):
         mgr.create_snapshot_from_db(fake_db)

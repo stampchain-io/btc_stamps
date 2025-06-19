@@ -45,4 +45,4 @@ jobs:
 
       - name: Run Rust parser tests
         working-directory: ./indexer
-        run: poetry run pytest tests/test_rust_parser.py -v
+        run: poetry run pytest tests/test_rust_parser_simple.py -v

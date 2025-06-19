@@ -106,7 +106,7 @@ def calculate_balances(cursor, block_index):
     FROM {SRC20_VALID_TABLE}
     WHERE block_index <= %s AND (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
     ORDER BY block_index, tx_index
-    """
+    """  # nosec B608
     cursor.execute(query, (block_index,))
     src20_valid_list = cursor.fetchall()
     print(f"Found {len(src20_valid_list)} valid SRC20 transactions up to block {block_index}")
@@ -164,7 +164,7 @@ def get_block_changes(cursor, block_index):
     FROM {SRC20_VALID_TABLE}
     WHERE block_index = %s AND (op = 'TRANSFER' OR op = 'MINT') AND amt > 0
     ORDER BY tx_index
-    """
+    """  # nosec B608
     cursor.execute(query, (block_index,))
     changes = cursor.fetchall()
     print(f"Found {len(changes)} SRC20 changes in block {block_index}")
@@ -331,7 +331,7 @@ def find_first_mismatch(local_db, prod_db=None):
                                 GROUP BY tick, address
                                 ORDER BY tick, address
                             ) as balances
-                            """,
+                            """,  # nosec B608
                             (block_index,),
                         )
                         validation_result = prod_cursor.fetchone()
@@ -437,7 +437,7 @@ def get_detailed_src20_transactions(cursor, block_index):
     SELECT * FROM {SRC20_VALID_TABLE}
     WHERE block_index = %s
     ORDER BY tx_index
-    """
+    """  # nosec B608
 
     try:
         cursor.execute(query, (block_index,))

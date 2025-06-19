@@ -3,17 +3,20 @@ import os
 import sys
 from unittest import TestCase, main
 
+import pytest
+
 # Add the src directory to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 import index_core.backend as backend
-from index_core.blocks import quick_filter_src20_transaction
+from index_core.transaction_utils import quick_filter_src20_transaction
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG if os.environ.get("RUST_LOG") == "debug" else logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.requires_bitcoin_node
 class TestSpecialTransactions(TestCase):
     """
     Test that special transactions are correctly identified by both Python and Rust implementations.
@@ -28,7 +31,12 @@ class TestSpecialTransactions(TestCase):
 
     def setUp(self):
         """Set up the test environment."""
-        self.backend = backend.Backend()
+        try:
+            self.backend = backend.Backend()
+            # Test if we can actually connect to the Bitcoin node
+            self.backend.rpc("getblockcount", [])
+        except Exception as e:
+            self.skipTest(f"Bitcoin node not available: {e}")
 
         # Special transaction IDs that should be included
         # These transactions are documented in indexer/docs/rust-python-parser-issues.md

@@ -18,7 +18,7 @@ import config
 
 # Import necessary modules
 from index_core.backend import Backend
-from index_core.blocks import quick_filter_src20_transaction
+from index_core.transaction_utils import quick_filter_src20_transaction
 
 
 def analyze_with_rust_parser(backend: Backend, txid: str) -> dict:

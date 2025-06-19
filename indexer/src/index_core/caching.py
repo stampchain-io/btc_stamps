@@ -12,6 +12,7 @@ from config import (
     BLOCK_CACHE_SIZE,
     COLLECTION_CACHE_SIZE,
     DEPLOYMENT_CACHE_SIZE,
+    MARKET_DATA_CACHE_SIZE,
     PRICE_CACHE_SIZE,
     SRC101_DEPLOY_CACHE_SIZE,
     STAMP_CACHE_SIZE,
@@ -63,6 +64,7 @@ class CacheManager:
                 ("price", LRUCache[Optional[Dict[int, Any]]](max_size=PRICE_CACHE_SIZE)),
                 ("src101_deploy", LRUCache[SRC101DeployResult](max_size=SRC101_DEPLOY_CACHE_SIZE)),
                 ("address", LRUCache[str](max_size=ADDRESS_CACHE_SIZE)),
+                ("market_data", LRUCache[Any](max_size=MARKET_DATA_CACHE_SIZE)),
             ]
 
             # Register each cache with minimal locking
@@ -125,22 +127,22 @@ class CacheManager:
     def clear_all(self) -> None:
         """Clear all registered caches and backend caches."""
         with self._lock:
-            logger.info("Starting cache clear operation")
+            logger.debug("Starting cache clear operation")
             # Clear registered LRU caches
             for name, cache in self._caches.items():
-                logger.info(f"Clearing cache '{name}' (current_size={len(cache)}, hits={cache.hits}, misses={cache.misses})")
+                logger.debug(f"Clearing cache '{name}' (current_size={len(cache)}, hits={cache.hits}, misses={cache.misses})")
                 cache.clear()
 
             # Clear backend caches if registered
             if self._backend_instance is not None:
-                logger.info(
+                logger.debug(
                     "Clearing backend caches (raw_tx_size=%d, deserialized_tx_size=%d)",
                     len(self._backend_instance.raw_transactions_cache),
                     len(self._backend_instance.deserialized_tx_cache),
                 )
                 self._backend_instance.raw_transactions_cache.clear()
                 self._backend_instance.deserialized_tx_cache.clear()
-            logger.info("Completed cache clear operation")
+            logger.debug("Completed cache clear operation")
 
     def get_stats(self) -> CacheStats:
         """Get detailed statistics about registered caches."""

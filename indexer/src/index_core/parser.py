@@ -2,7 +2,6 @@
 
 import gc
 import logging
-from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
@@ -186,7 +185,7 @@ class Parser:
                 chunk = tx_hexes[i : i + adaptive_chunk_size]
 
                 logger.debug(
-                    f"Processing chunk {i//adaptive_chunk_size + 1}/{(total_txs + adaptive_chunk_size - 1)//adaptive_chunk_size} with {len(chunk)} transactions"
+                    f"Processing chunk {i // adaptive_chunk_size + 1}/{(total_txs + adaptive_chunk_size - 1) // adaptive_chunk_size} with {len(chunk)} transactions"
                 )
 
                 # Process chunk
@@ -208,7 +207,7 @@ class Parser:
                             # Continue with next transaction instead of failing the entire batch
 
                 except Exception as e:
-                    logger.error(f"Error processing chunk {i//adaptive_chunk_size + 1}: {e}")
+                    logger.error(f"Error processing chunk {i // adaptive_chunk_size + 1}: {e}")
                     # Continue with next chunk instead of failing the entire batch
 
                 # Check if garbage collection is needed
@@ -272,33 +271,6 @@ class Parser:
             enhanced_ctx._extra_attrs["keyburn"] = tx_info.keyburn
 
             return enhanced_ctx
-        except Exception as e:
-            logger.error(f"Failed to convert transaction info: {e}")
-            raise ParserError(f"Transaction conversion failed: {e}")
-
-    def _convert_tx_info(self, tx_info: Any) -> Dict[str, Any]:
-        """Convert TransactionInfo to dictionary format (for API responses)."""
-        try:
-            return {
-                "txid": tx_info.txid,
-                "version": tx_info.version,
-                "inputs": [
-                    {
-                        "prev_txid": input_info.prev_txid,
-                        "prev_vout": input_info.prev_vout,
-                        "sequence": input_info.sequence,
-                    }
-                    for input_info in tx_info.inputs
-                ],
-                "outputs": [
-                    {
-                        "value": Decimal(str(output_info.value)) / Decimal("100000000"),
-                        "script_pubkey": output_info.script_pubkey,
-                        "is_op_return": output_info.is_op_return,
-                    }
-                    for output_info in tx_info.outputs
-                ],
-            }
         except Exception as e:
             logger.error(f"Failed to convert transaction info: {e}")
             raise ParserError(f"Transaction conversion failed: {e}")

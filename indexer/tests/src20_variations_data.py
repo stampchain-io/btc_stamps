@@ -2752,7 +2752,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
     },
-    
     # JSON Structural Malformation Tests
     {
         "description": "SRC20.JSON.01 - Malformed JSON: Missing closing brace",
@@ -2823,7 +2822,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # Scientific Notation Tests (should be rejected)
     {
         "description": "SRC20.VAL.01 - Scientific notation in max field",
@@ -2871,7 +2869,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # Numeric Value Malformation Tests
     {
         "description": "SRC20.VAL.05 - Negative values in max field",
@@ -2965,7 +2962,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # String Field Malformation Tests
     {
         "description": "SRC20.TICK.01 - Empty tick field",
@@ -3036,7 +3032,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # Type Mismatch Tests
     {
         "description": "SRC20.TYPE.01 - String value in numeric field (max)",
@@ -3061,7 +3056,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # Boundary Condition Tests
     {
         "description": "SRC20.BOUND.01 - Maximum uint64 value test",
@@ -3155,7 +3149,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # Unicode and Special Character Tests
     {
         "description": "SRC20.TICK.03 - Unicode characters in tick field",
@@ -3203,7 +3196,6 @@ src20_variations_data = [
         "p2wsh_data": None,
         "tx_hash": "dummy_tx_hash",
     },
-    
     # Decimal Precision Edge Cases
     {
         "description": "SRC20.PREC.01 - Amount with excessive decimal precision",

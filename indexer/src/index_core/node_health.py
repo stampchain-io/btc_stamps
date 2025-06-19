@@ -302,21 +302,32 @@ class NodeHealth:
             "last_success": 0,
             "total_successes": 0,
             "total_failures": 0,
+            "failures": 0,
+            "minor_failures": 0,
         }
 
+        lock_acquired = False
         try:
             lock_acquired = self._lock.acquire(timeout=1)
             if lock_acquired:
                 try:
-                    stats["consecutive_failures"] = self.consecutive_failures
-                    stats["backoff_until"] = self.backoff_until
+                    # Get all values while holding the lock to avoid deadlock with healthy property
+                    consecutive_failures = self.consecutive_failures
+                    backoff_until = self.backoff_until
+                    current_time = time.time()
+
                     stats.update(
                         {
-                            "healthy": self.healthy,
+                            "consecutive_failures": consecutive_failures,
+                            "backoff_until": backoff_until,
                             "version": self.version,
                             "last_success": self.last_success,
                             "total_successes": self.total_successes,
                             "total_failures": self.total_failures,
+                            "failures": self.failures,
+                            "minor_failures": self.minor_failures,
+                            # Calculate healthy status without calling self.healthy to avoid deadlock
+                            "healthy": consecutive_failures == 0 and current_time >= backoff_until,
                         }
                     )
                 finally:
@@ -642,7 +653,6 @@ def update_healthy_nodes():
 
 def get_healthy_nodes():
     """Get the list of healthy nodes."""
-    # global healthy_nodes # Removed unnecessary global statement
 
     # Create a local copy to avoid lock contention
     result = []
@@ -673,9 +683,11 @@ def get_healthy_nodes():
 
     # Log node details
     if result:
-        logger.debug(f"Healthy nodes: {[node['name'] for node in result]}")
+        logger.debug(f"Healthy nodes: {[node.get('name', 'unknown') for node in result]}")
         for node in result:
-            logger.debug(f"Node {node['name']}: URL={node['url']}")
+            node_name = node.get("name", "unknown")
+            node_url = node.get("url", "unknown")
+            logger.debug(f"Node {node_name}: URL={node_url}")
     else:
         logger.error("No healthy nodes available after update attempt")
 

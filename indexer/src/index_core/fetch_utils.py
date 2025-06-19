@@ -573,6 +573,18 @@ async def fetch_xcp_async(
                 health_tracker.mark_failure(str(e))
 
     logger.error("All nodes failed in async fetch")
+
+    # CRITICAL: Immediately update global health state when all nodes fail
+    # This prevents the 30-second delay before fallback mode detection
+    logger.warning("🚨 ALL ASYNC NODES FAILED - triggering immediate health update")
+    try:
+        from index_core.node_health import update_healthy_nodes
+
+        update_healthy_nodes()
+        logger.info("Emergency health update completed after total async node failure")
+    except Exception as e:
+        logger.error(f"Failed to update node health after total async failure: {e}")
+
     return None
 
 
@@ -678,6 +690,18 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
     # If we get here, all nodes failed
     nodes_tried = ", ".join(tried_nodes)
     logger.error(f"Failed to fetch data from all available nodes ({nodes_tried}). Last error: {last_error}")
+
+    # CRITICAL: Immediately update global health state when all nodes fail
+    # This prevents the 30-second delay before fallback mode detection
+    logger.warning("🚨 ALL NODES FAILED - triggering immediate health update")
+    try:
+        from index_core.node_health import update_healthy_nodes
+
+        update_healthy_nodes()
+        logger.info("Emergency health update completed after total node failure")
+    except Exception as e:
+        logger.error(f"Failed to update node health after total failure: {e}")
+
     return {"result": [], "next_cursor": None, "result_count": 0}
 
 
@@ -1036,3 +1060,41 @@ def parse_issuance_from_transaction(tx, issuance_event):
     except Exception as e:
         logger.error(f"Error parsing issuance for tx {tx.get('tx_hash')}: {e}")
         return None
+
+
+def is_valid_counterparty_asset(cpid: str) -> bool:
+    """
+    Check if a CPID is a valid Counterparty asset that exists in the API.
+
+    Valid Counterparty assets:
+    - Start with 'A' followed by numbers (e.g., A1234567890)
+    - Are named assets (alphabetic strings without special chars)
+    - Are not SRC-20 hash tokens (alphanumeric hashes)
+
+    Args:
+        cpid: The CPID/asset identifier to check
+
+    Returns:
+        True if this is a valid Counterparty asset, False otherwise
+    """
+    if not cpid:
+        return False
+
+    # Check if it starts with 'A' followed by numbers (standard asset format)
+    if cpid.startswith("A") and cpid[1:].isdigit():
+        return True
+
+    # Check if it's a named asset (all letters, no numbers or special chars)
+    if cpid.isalpha():
+        return True
+
+    # If it contains both letters and numbers mixed (like a hash), it's likely SRC-20
+    has_letters = any(c.isalpha() for c in cpid)
+    has_numbers = any(c.isdigit() for c in cpid)
+
+    # Mixed alphanumeric that doesn't start with 'A' is likely a SRC-20 hash
+    if has_letters and has_numbers and not cpid.startswith("A"):
+        return False
+
+    # Default to False for safety
+    return False

@@ -26,6 +26,7 @@ def run_fast_coverage():
     print("=" * 60)
 
     # Build simple coverage command - no branch coverage for speed
+    # Note: This runs specific fast test files, not using markers
     cmd = [
         "poetry",
         "run",

@@ -6,7 +6,12 @@ import types
 # from pathlib import Path # Unused
 from typing import Any
 
+import pytest
+
 # import pytest # Unused in this specific file top-level, used by test functions
+
+# Mark all tests in this file as integration tests due to global module stubbing
+pytestmark = pytest.mark.integration
 
 # Stub external dependencies before importing project modules
 # Use Any typing to suppress mypy attr-defined errors
@@ -65,7 +70,8 @@ from index_core.util import dhash_string, shash_string
 
 def test_save_and_load_snapshot(tmp_path):
     snapshot_file = tmp_path / "snapshot.json"
-    manager = SnapshotManager(str(snapshot_file))
+    # Explicitly use the real SnapshotManager from the module
+    manager = snapshot_module.SnapshotManager(str(snapshot_file))
     # Prepare sample hashes and metadata
     hashes = {1: {"block_hash": "a1", "messages_hash": "m1", "txlist_hash": "t1", "ledger_hash": "l1"}}
     metadata = {"foo": "bar"}
@@ -84,13 +90,13 @@ def test_save_and_load_snapshot(tmp_path):
 def test_get_expected_hash_absent(tmp_path):
     # No file exists yet
     snapshot_file = tmp_path / "no_file.json"
-    manager = SnapshotManager(str(snapshot_file))
+    manager = snapshot_module.SnapshotManager(str(snapshot_file))
     # Expect None when no snapshot
     assert manager.get_expected_hash(123) is None
 
 
 def test_compute_hash_functions():
-    manager = SnapshotManager("dummy")
+    manager = snapshot_module.SnapshotManager("dummy")
     # Non-ledger data uses double SHA256
     data = {"key": "value"}
     content = json.dumps(data, sort_keys=True)
@@ -107,7 +113,7 @@ def test_compute_hash_functions():
 def test_validate_against_checkpoints(monkeypatch):
     # Monkey-patch a known checkpoint
     monkeypatch.setitem(snapshot_module.check.CHECKPOINTS_MAINNET, 10, {"txlist_hash": "good"})
-    manager = SnapshotManager("dummy")
+    manager = snapshot_module.SnapshotManager("dummy")
     # Non-checkpoint block should pass
     assert manager.validate_against_checkpoints(5, "anyhash")
     # Matching checkpoint hash

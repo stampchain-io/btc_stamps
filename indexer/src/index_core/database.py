@@ -1,22 +1,31 @@
+import csv
 import decimal
 import json
 import logging
+import os
+import sys
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import pymysql as mysql
+import requests
 
 try:
     from pymysql.connections import Connection
 except ImportError:
-    Connection = Any  # type: ignore[misc, assignment]
-from pymysql.cursors import Cursor
+    Connection = Any  # type: ignore
+try:
+    from pymysql.cursors import Cursor
+except ImportError:
+    Cursor = Any  # type: ignore
 
 import config
 import index_core.exceptions as exceptions
 import index_core.log as log
+import index_core.util as util
 from config import (
     BLOCK_FIELDS_POSITION,
     BLOCKS_TABLE,
@@ -30,6 +39,7 @@ from config import (
     SRC101_VALID_TABLE,
     SRC_BACKGROUND_TABLE,
     STAMP_TABLE,
+    STAMP_VIEWS_TABLE,
     TRANSACTIONS_TABLE,
 )
 from index_core.caching import SRC101DeployResult, cache_manager, clear_all_caches
@@ -45,6 +55,12 @@ D = decimal.Decimal
 F = TypeVar("F", bound=Callable[..., Any])
 
 db_manager = DatabaseManager()
+
+# Cache directory for bootstrap data ETags
+CACHE_DIR = (
+    Path(config.USER_CACHE_DIR) / ".indexer_cache" if hasattr(config, "USER_CACHE_DIR") else Path.home() / ".btc_stamps_cache"
+)
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def initialize(db: Connection) -> None:
@@ -540,8 +556,8 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     stamp_mimetype, stamp_url, supply, block_time,
                     tx_hash, tx_index, ident, src_data,
                     stamp_hash, is_btc_stamp,
-                    file_hash, is_valid_base64
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    file_hash, is_valid_base64, file_size_bytes
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """  # nosec
 
             data = [
@@ -568,6 +584,7 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     parsed.is_btc_stamp,
                     parsed.file_hash,
                     parsed.is_valid_base64,
+                    parsed.file_size_bytes,
                 )
                 for parsed in parsed_stamps
             ]
@@ -914,7 +931,7 @@ def insert_balances(cursor, all_balances):
     for i in range(0, total_rows, BATCH_SIZE):
         batch = values[i : i + BATCH_SIZE]
         logger.info(
-            f"Processing batch balances update {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE} ({len(batch)} rows)"
+            f"Processing batch balances update {i // BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1) // BATCH_SIZE} ({len(batch)} rows)"
         )
 
         cursor.executemany(
@@ -1046,7 +1063,9 @@ def rebuild_balances(db, block_index=None):
 
         for i in range(0, total_rows, BATCH_SIZE):
             batch = values[i : i + BATCH_SIZE]
-            logger.info(f"Processing balance rebuild batch {i//BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1)//BATCH_SIZE}")
+            logger.info(
+                f"Processing balance rebuild batch {i // BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1) // BATCH_SIZE}"
+            )
 
             cursor.executemany(
                 f"""
@@ -1176,6 +1195,59 @@ def purge_block_db(db: Connection, block_index: int) -> None:
 
     db.commit()
     cursor.close()
+
+
+def perform_complete_rollback(block_index: int) -> None:
+    """
+    Perform a complete rollback using the same functions as the indexer.
+    This ensures consistency between manual and automatic rollbacks.
+
+    Args:
+        block_index: The block index to rollback to
+    """
+    from index_core.backend import Backend
+    from index_core.fallback_state import get_fallback_state_manager
+
+    logger.info(f"🔄 Starting complete rollback to block {block_index}")
+
+    # Get database connection using the same manager as the indexer
+    db_manager = DatabaseManager()
+    db = db_manager.connect()
+    backend_instance = Backend()
+
+    try:
+        # Invalidate the block count cache
+        backend_instance.invalidate_blockcount_cache()
+
+        # Perform the database rollback using the same function as the indexer
+        purge_block_db(db, block_index)
+
+        # Clear all caches
+        clear_all_caches()
+        logger.info("Cleared all caches after rollback")
+
+        # Rebuild critical database state
+        logger.info("Rebuilding database state...")
+        rebuild_balances(db)
+        rebuild_owners(db)
+        update_src20_token_stats(db)
+
+        logger.info(f"✅ Complete rollback finished to block {block_index}")
+
+        # Check if we should clear fallback state
+        fallback_manager = get_fallback_state_manager()
+        if fallback_manager.is_fallback_active():
+            fallback_start_block = fallback_manager.get_fallback_start_block()
+            if fallback_start_block and block_index <= fallback_start_block:
+                logger.info(f"Clearing fallback state (started at block {fallback_start_block})...")
+                fallback_manager.end_fallback_mode()
+                logger.info("Fallback state cleared successfully!")
+            else:
+                logger.info(f"Note: Fallback mode is active (started at block {fallback_start_block})")
+                logger.info(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")
+
+    finally:
+        db.close()
 
 
 def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[Dict[str, Any]]) -> DeployResult:
@@ -1672,7 +1744,7 @@ def update_assets_in_db(
         start = i * chunk_size
         end = min(start + chunk_size, total_assets)
         assets_chunk = assets_details[start:end]
-        logger.info(f"Updating assets in database for chunk {i+1}/{num_chunks}")
+        logger.info(f"Updating assets in database for chunk {i + 1}/{num_chunks}")
 
         try:
             updates = []
@@ -1716,8 +1788,8 @@ def update_assets_in_db(
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.error(f"Error updating assets in chunk {i+1}: {e}")
-            raise DatabaseInsertError(f"Failed to update assets in chunk {i+1}: {e}")
+            logger.error(f"Error updating assets in chunk {i + 1}: {e}")
+            raise DatabaseInsertError(f"Failed to update assets in chunk {i + 1}: {e}")
 
         if i < num_chunks - 1:
             time.sleep(delay_between_chunks)
@@ -1819,3 +1891,910 @@ def balances_need_update(existing_balances, all_balances):
     except Exception as e:
         logger.error(f"Error comparing balances: {str(e)}")
         return True
+
+
+def increment_stamp_view_count(db: Connection, stamp_id: int) -> None:
+    """
+    Increment the view count for a specific stamp.
+    Creates a new record if the stamp doesn't exist in the stamp_views table.
+
+    Args:
+        db: Database connection
+        stamp_id: The stamp ID to increment views for
+    """
+    try:
+        with db.cursor() as cursor:
+            # Use INSERT ... ON DUPLICATE KEY UPDATE to handle both new and existing records
+            query = f"""
+                INSERT INTO {STAMP_VIEWS_TABLE} (stamp, view_count, last_viewed)
+                VALUES (%s, 1, NOW())
+                ON DUPLICATE KEY UPDATE
+                    view_count = view_count + 1,
+                    last_viewed = NOW()
+            """  # nosec
+            cursor.execute(query, (stamp_id,))
+            db.commit()
+            logger.debug(f"Incremented view count for stamp {stamp_id}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error incrementing view count for stamp {stamp_id}: {e}")
+        raise DatabaseInsertError(f"Failed to increment view count for stamp {stamp_id}: {e}")
+
+
+def get_stamp_view_count(db: Connection, stamp_id: int) -> int:
+    """
+    Get the current view count for a specific stamp.
+
+    Args:
+        db: Database connection
+        stamp_id: The stamp ID to get view count for
+
+    Returns:
+        The current view count (0 if stamp has no views recorded)
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT view_count
+                FROM {STAMP_VIEWS_TABLE}
+                WHERE stamp = %s
+            """  # nosec
+            cursor.execute(query, (stamp_id,))
+            result = cursor.fetchone()
+            return result[0] if result else 0
+    except Exception as e:
+        logger.error(f"Error getting view count for stamp {stamp_id}: {e}")
+        return 0
+
+
+def get_popular_stamps(db: Connection, limit: int = 10) -> List[Tuple[int, int]]:
+    """
+    Get the most popular stamps by view count.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return (default: 10)
+
+    Returns:
+        List of tuples (stamp_id, view_count) ordered by view count descending
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT stamp, view_count
+                FROM {STAMP_VIEWS_TABLE}
+                ORDER BY view_count DESC, last_viewed DESC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting popular stamps: {e}")
+        return []
+
+
+def get_recently_viewed_stamps(db: Connection, limit: int = 10) -> List[Tuple[int, int]]:
+    """
+    Get the most recently viewed stamps.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return (default: 10)
+
+    Returns:
+        List of tuples (stamp_id, view_count) ordered by last_viewed descending
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT stamp, view_count
+                FROM {STAMP_VIEWS_TABLE}
+                ORDER BY last_viewed DESC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting recently viewed stamps: {e}")
+        return []
+
+
+def get_stamp_view_stats(db: Connection) -> Dict[str, Any]:
+    """
+    Get overall statistics about stamp views.
+
+    Args:
+        db: Database connection
+
+    Returns:
+        Dictionary with statistics: total_stamps_with_views, total_views, avg_views_per_stamp
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT
+                    COUNT(*) as total_stamps_with_views,
+                    SUM(view_count) as total_views,
+                    AVG(view_count) as avg_views_per_stamp
+                FROM {STAMP_VIEWS_TABLE}
+                WHERE view_count > 0
+            """  # nosec
+            cursor.execute(query)
+            result = cursor.fetchone()
+
+            if result:
+                return {
+                    "total_stamps_with_views": int(result[0]) if result[0] else 0,
+                    "total_views": int(result[1]) if result[1] else 0,
+                    "avg_views_per_stamp": float(result[2]) if result[2] else 0.0,
+                }
+            else:
+                return {"total_stamps_with_views": 0, "total_views": 0, "avg_views_per_stamp": 0.0}
+    except Exception as e:
+        logger.error(f"Error getting stamp view statistics: {e}")
+        return {"total_stamps_with_views": 0, "total_views": 0, "avg_views_per_stamp": 0.0}
+
+
+# =====================================================================
+# MARKET DATA ACCESS FUNCTIONS
+# =====================================================================
+# These functions provide direct database access for market data operations
+# and complement the MarketDataService for external API integrations
+# =====================================================================
+
+
+def get_stamp_market_data_raw(db: Connection, cpid: str) -> Optional[Tuple]:
+    """
+    Get raw stamp market data from database.
+
+    Args:
+        db: Database connection
+        cpid: Counterparty asset ID
+
+    Returns:
+        Raw database row or None if not found
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, floor_price_btc, recent_sale_price_btc,
+                    open_dispensers_count, closed_dispensers_count, total_dispensers_count,
+                    holder_count, unique_holder_count, top_holder_percentage, holder_distribution_score,
+                    volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
+                    price_source, volume_sources, data_quality_score, confidence_level,
+                    last_updated, last_dispenser_block, last_balance_block, last_price_update,
+                    update_frequency_minutes, created_at
+                FROM stamp_market_data
+                WHERE cpid = %s
+            """  # nosec
+            cursor.execute(query, (cpid,))
+            return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error getting raw stamp market data for {cpid}: {e}")
+        return None
+
+
+def get_src20_market_data_raw(db: Connection, tick: str) -> Optional[Tuple]:
+    """
+    Get raw SRC-20 market data from database.
+
+    Args:
+        db: Database connection
+        tick: SRC-20 token ticker
+
+    Returns:
+        Raw database row or None if not found
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    tick, price_btc, price_usd, floor_price_btc, market_cap_btc, market_cap_usd,
+                    volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
+                    price_change_24h_percent, price_change_7d_percent, price_change_30d_percent,
+                    holder_count, circulating_supply, max_supply,
+                    primary_exchange, exchange_sources, data_quality_score, confidence_level,
+                    last_updated, last_price_update, update_frequency_minutes, created_at
+                FROM src20_market_data
+                WHERE tick = %s
+            """  # nosec
+            cursor.execute(query, (tick,))
+            return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error getting raw SRC-20 market data for {tick}: {e}")
+        return None
+
+
+def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> None:
+    """
+    Insert or update stamp market data in the database.
+
+    Args:
+        db: Database connection
+        market_data: Dictionary containing market data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Build dynamic insert/update query
+            fields = []
+            values = []
+            update_fields = []
+
+            # Required field
+            cpid = market_data.get("cpid")
+            if not cpid:
+                raise ValueError("cpid is required for stamp market data")
+
+            # Map of allowed fields
+            field_mapping = {
+                "floor_price_btc": "floor_price_btc",
+                "recent_sale_price_btc": "recent_sale_price_btc",
+                "open_dispensers_count": "open_dispensers_count",
+                "closed_dispensers_count": "closed_dispensers_count",
+                "total_dispensers_count": "total_dispensers_count",
+                "holder_count": "holder_count",
+                "unique_holder_count": "unique_holder_count",
+                "top_holder_percentage": "top_holder_percentage",
+                "holder_distribution_score": "holder_distribution_score",
+                "volume_24h_btc": "volume_24h_btc",
+                "volume_7d_btc": "volume_7d_btc",
+                "volume_30d_btc": "volume_30d_btc",
+                "total_volume_btc": "total_volume_btc",
+                "price_source": "price_source",
+                "volume_sources": "volume_sources",
+                "data_quality_score": "data_quality_score",
+                "confidence_level": "confidence_level",
+                "last_dispenser_block": "last_dispenser_block",
+                "last_balance_block": "last_balance_block",
+                "last_price_update": "last_price_update",
+                "update_frequency_minutes": "update_frequency_minutes",
+            }
+
+            # Build field lists
+            fields.append("cpid")
+            values.append(cpid)
+
+            for field, db_field in field_mapping.items():
+                if field in market_data:
+                    fields.append(db_field)
+                    values.append(market_data[field])
+                    update_fields.append(f"{db_field} = VALUES({db_field})")
+
+            # Add timestamps
+            fields.extend(["last_updated", "created_at"])
+            values.extend([None, None])  # Will be replaced by NOW()
+            update_fields.append("last_updated = NOW()")
+
+            # Build query
+            placeholders = ", ".join(["%s"] * (len(fields) - 2)) + ", NOW(), NOW()"
+            field_list = ", ".join(fields)
+            update_clause = ", ".join(update_fields)
+
+            query = f"""
+                INSERT INTO stamp_market_data ({field_list})
+                VALUES ({placeholders})
+                ON DUPLICATE KEY UPDATE {update_clause}
+            """  # nosec
+
+            cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
+            db.commit()
+            logger.debug(f"Inserted/updated stamp market data for: {cpid}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting stamp market data for {cpid}: {e}")
+        raise DatabaseInsertError(f"Failed to insert stamp market data: {e}")
+
+
+def insert_src20_market_data(db: Connection, market_data: Dict[str, Any]) -> None:
+    """
+    Insert or update SRC-20 market data in the database.
+
+    Args:
+        db: Database connection
+        market_data: Dictionary containing market data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Build dynamic insert/update query
+            fields = []
+            values = []
+            update_fields = []
+
+            # Required field
+            tick = market_data.get("tick")
+            if not tick:
+                raise ValueError("tick is required for SRC-20 market data")
+
+            # Map of allowed fields
+            field_mapping = {
+                "price_btc": "price_btc",
+                "price_usd": "price_usd",
+                "floor_price_btc": "floor_price_btc",
+                "market_cap_btc": "market_cap_btc",
+                "market_cap_usd": "market_cap_usd",
+                "volume_24h_btc": "volume_24h_btc",
+                "volume_7d_btc": "volume_7d_btc",
+                "volume_30d_btc": "volume_30d_btc",
+                "total_volume_btc": "total_volume_btc",
+                "price_change_24h_percent": "price_change_24h_percent",
+                "price_change_7d_percent": "price_change_7d_percent",
+                "price_change_30d_percent": "price_change_30d_percent",
+                "holder_count": "holder_count",
+                "circulating_supply": "circulating_supply",
+                "max_supply": "max_supply",
+                "primary_exchange": "primary_exchange",
+                "exchange_sources": "exchange_sources",
+                "data_quality_score": "data_quality_score",
+                "confidence_level": "confidence_level",
+                "last_price_update": "last_price_update",
+                "update_frequency_minutes": "update_frequency_minutes",
+            }
+
+            # Build field lists
+            fields.append("tick")
+            values.append(tick)
+
+            for field, db_field in field_mapping.items():
+                if field in market_data:
+                    fields.append(db_field)
+                    values.append(market_data[field])
+                    update_fields.append(f"{db_field} = VALUES({db_field})")
+
+            # Add timestamps
+            fields.extend(["last_updated", "created_at"])
+            values.extend([None, None])  # Will be replaced by NOW()
+            update_fields.append("last_updated = NOW()")
+
+            # Build query
+            placeholders = ", ".join(["%s"] * (len(fields) - 2)) + ", NOW(), NOW()"
+            field_list = ", ".join(fields)
+            update_clause = ", ".join(update_fields)
+
+            query = f"""
+                INSERT INTO src20_market_data ({field_list})
+                VALUES ({placeholders})
+                ON DUPLICATE KEY UPDATE {update_clause}
+            """  # nosec
+
+            cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
+            db.commit()
+            logger.debug(f"Inserted/updated SRC-20 market data for: {tick}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting SRC-20 market data for {tick}: {e}")
+        raise DatabaseInsertError(f"Failed to insert SRC-20 market data: {e}")
+
+
+def get_stamp_holders_raw(db: Connection, cpid: str, limit: int = 100) -> List[Tuple]:
+    """
+    Get raw stamp holder data from database.
+
+    Args:
+        db: Database connection
+        cpid: Counterparty asset ID
+        limit: Maximum number of holders to return
+
+    Returns:
+        List of raw database rows
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, address, quantity, percentage, rank_position,
+                    balance_source, last_updated, last_tx_block
+                FROM stamp_holder_cache
+                WHERE cpid = %s
+                ORDER BY rank_position ASC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (cpid, limit))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting raw stamp holders for {cpid}: {e}")
+        return []
+
+
+def insert_stamp_holder_data(db: Connection, holder_data: Dict[str, Any]) -> None:
+    """
+    Insert or update stamp holder data in the database.
+
+    Args:
+        db: Database connection
+        holder_data: Dictionary containing holder data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Required fields
+            cpid = holder_data.get("cpid")
+            address = holder_data.get("address")
+            if not cpid or not address:
+                raise ValueError("cpid and address are required for stamp holder data")
+
+            query = """
+                INSERT INTO stamp_holder_cache (
+                    cpid, address, quantity, percentage, rank_position,
+                    balance_source, last_updated, last_tx_block
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
+                ON DUPLICATE KEY UPDATE
+                    quantity = VALUES(quantity),
+                    percentage = VALUES(percentage),
+                    rank_position = VALUES(rank_position),
+                    balance_source = VALUES(balance_source),
+                    last_updated = NOW(),
+                    last_tx_block = VALUES(last_tx_block)
+            """  # nosec
+
+            values = (
+                cpid,
+                address,
+                holder_data.get("quantity", 0),
+                holder_data.get("percentage", 0),
+                holder_data.get("rank_position", 0),
+                holder_data.get("balance_source", "counterparty"),
+                holder_data.get("last_tx_block"),
+            )
+
+            cursor.execute(query, values)
+            db.commit()
+            logger.debug(f"Inserted/updated holder data for {cpid}:{address}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting holder data for {cpid}:{address}: {e}")
+        raise DatabaseInsertError(f"Failed to insert holder data: {e}")
+
+
+def get_market_data_sources(db: Connection, asset_type: Optional[str] = None, asset_id: Optional[str] = None) -> List[Tuple]:
+    """
+    Get market data sources from database.
+
+    Args:
+        db: Database connection
+        asset_type: Optional filter by asset type ('stamp' or 'src20')
+        asset_id: Optional filter by asset ID
+
+    Returns:
+        List of raw database rows
+    """
+    try:
+        with db.cursor() as cursor:
+            where_conditions = []
+            params = []
+
+            if asset_type:
+                where_conditions.append("asset_type = %s")
+                params.append(asset_type)
+
+            if asset_id:
+                where_conditions.append("asset_id = %s")
+                params.append(asset_id)
+
+            where_clause = ""
+            if where_conditions:
+                where_clause = "WHERE " + " AND ".join(where_conditions)
+
+            query = f"""
+                SELECT
+                    id, asset_type, asset_id, source_name,
+                    price_btc, volume_24h_btc, holder_count, market_cap_btc,
+                    source_confidence, api_response_time_ms, success_rate_24h,
+                    last_success, last_failure, consecutive_failures,
+                    last_updated, update_count_24h, created_at
+                FROM market_data_sources
+                {where_clause}
+                ORDER BY source_confidence DESC, success_rate_24h DESC
+            """  # nosec
+
+            cursor.execute(query, params)
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting market data sources: {e}")
+        return []
+
+
+def insert_market_data_source(db: Connection, source_data: Dict[str, Any]) -> None:
+    """
+    Insert or update market data source information.
+
+    Args:
+        db: Database connection
+        source_data: Dictionary containing source data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Required fields
+            asset_type = source_data.get("asset_type")
+            asset_id = source_data.get("asset_id")
+            source_name = source_data.get("source_name")
+
+            if not all([asset_type, asset_id, source_name]):
+                raise ValueError("asset_type, asset_id, and source_name are required")
+
+            query = """
+                INSERT INTO market_data_sources (
+                    asset_type, asset_id, source_name,
+                    price_btc, volume_24h_btc, holder_count, market_cap_btc,
+                    source_confidence, api_response_time_ms, success_rate_24h,
+                    last_success, last_failure, consecutive_failures,
+                    last_updated, update_count_24h, created_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, NOW()
+                )
+                ON DUPLICATE KEY UPDATE
+                    price_btc = VALUES(price_btc),
+                    volume_24h_btc = VALUES(volume_24h_btc),
+                    holder_count = VALUES(holder_count),
+                    market_cap_btc = VALUES(market_cap_btc),
+                    source_confidence = VALUES(source_confidence),
+                    api_response_time_ms = VALUES(api_response_time_ms),
+                    success_rate_24h = VALUES(success_rate_24h),
+                    last_success = VALUES(last_success),
+                    last_failure = VALUES(last_failure),
+                    consecutive_failures = VALUES(consecutive_failures),
+                    last_updated = NOW(),
+                    update_count_24h = VALUES(update_count_24h)
+            """  # nosec
+
+            values = (
+                asset_type,
+                asset_id,
+                source_name,
+                source_data.get("price_btc"),
+                source_data.get("volume_24h_btc", 0),
+                source_data.get("holder_count", 0),
+                source_data.get("market_cap_btc", 0),
+                source_data.get("source_confidence", 5.0),
+                source_data.get("api_response_time_ms", 0),
+                source_data.get("success_rate_24h", 100.0),
+                source_data.get("last_success"),
+                source_data.get("last_failure"),
+                source_data.get("consecutive_failures", 0),
+                source_data.get("update_count_24h", 0),
+            )
+
+            cursor.execute(query, values)
+            db.commit()
+            logger.debug(f"Inserted/updated market data source: {asset_type}:{asset_id}:{source_name}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting market data source: {e}")
+        raise DatabaseInsertError(f"Failed to insert market data source: {e}")
+
+
+def get_stamps_needing_market_update(db: Connection, update_interval_minutes: int, limit: int) -> List[str]:
+    """
+    Get list of stamp CPIDs that need market data updates.
+    Includes stamps with ident='STAMP' or ident='SRC-721'.
+
+    Args:
+        db: Database connection
+        update_interval_minutes: Minutes since last update
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of CPIDs needing updates
+    """
+    try:
+        with db.cursor() as cursor:
+            # Include stamps with ident='STAMP' or 'SRC-721'
+            # Named assets like FUCKTHAT already have ident='STAMP'
+            query = """
+                SELECT DISTINCT s.cpid, s.block_index
+                FROM StampTableV4 s
+                LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
+                WHERE s.ident IN ('STAMP', 'SRC-721')
+                AND (
+                    smd.last_updated IS NULL
+                    OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+                )
+                ORDER BY s.block_index DESC
+                LIMIT %s
+            """  # nosec
+
+            cursor.execute(query, (update_interval_minutes, limit))
+            results = cursor.fetchall()
+            return [row[0] for row in results]
+
+    except Exception as e:
+        logger.error(f"Error getting stamps needing market update: {e}")
+        return []
+
+
+def get_trending_stamps(db: Connection, limit: int = 20) -> List[Tuple]:
+    """
+    Get trending stamps using the optimized view.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of tuples with trending stamp data
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, stamp, creator, floor_price_btc, holder_count,
+                    volume_24h_btc, volume_7d_btc, holder_distribution_score,
+                    trending_score
+                FROM v_trending_stamps
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting trending stamps: {e}")
+        return []
+
+
+def get_stamp_market_overview(db: Connection, limit: int = 100) -> List[Tuple]:
+    """
+    Get stamp market overview using the optimized view.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of tuples with market overview data
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, stamp, creator, stamp_url, stamp_mimetype,
+                    floor_price_btc, holder_count, volume_24h_btc,
+                    data_quality_score, last_updated, cache_status
+                FROM v_stamp_market_overview
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting stamp market overview: {e}")
+        return []
+
+
+def import_csv_data(cursor, csv_url, insert_query, is_url=False):
+    """Import CSV data from URL or local file with ETag caching."""
+    max_int = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(max_int)
+            break
+        except OverflowError:
+            max_int = int(max_int / 10)
+
+    if not is_url:
+        # Handle local file case (unchanged)
+        with open(csv_url, "r") as file:
+            csv_reader = csv.reader(file)
+            for row in csv_reader:
+                cursor.execute(insert_query, tuple(row))
+        return
+
+    # Handle URL case with ETag checking
+    try:
+        filename = Path(csv_url).name
+        etag_file = CACHE_DIR / f".{filename}.etag"
+        headers = {}
+        current_etag = None
+
+        if etag_file.exists():
+            try:
+                current_etag = etag_file.read_text().strip()
+                if current_etag:
+                    headers["If-None-Match"] = current_etag
+                    logger.debug(f"Found local ETag for {filename}: '{current_etag}'")
+                else:
+                    logger.debug(f"ETag file {etag_file} was empty.")
+            except Exception as e:
+                logger.warning(f"Could not read ETag file {etag_file}: {e}")
+        else:
+            logger.debug(f"ETag file {etag_file} not found.")
+
+        logger.info(f"Checking bootstrap data from {csv_url}")
+        logger.debug(f"Sending request headers: {headers}")
+        response = requests.get(csv_url, headers=headers, timeout=config.REQUESTS_TIMEOUT)
+        logger.debug(f"Received response status: {response.status_code}")
+        logger.debug(f"Received response headers: {response.headers}")
+
+        if response.status_code == 304:
+            logger.info(f"Bootstrap data for {filename} is unchanged (ETag: {current_etag}). Skipping download/processing.")
+            return  # File hasn't changed, nothing more to do
+
+        response.raise_for_status()  # Raise an exception for other HTTP errors (4xx, 5xx)
+
+        # Process the CSV data if status code was 200 OK
+        logger.info(f"Processing bootstrap data from {csv_url} (ETag: {response.headers.get('ETag') or 'None'})")
+        new_etag = response.headers.get("ETag")
+        logger.debug(f"Received new ETag from server: '{new_etag}'")
+        csv_reader = csv.reader(response.text.splitlines())
+
+        # Execute the insert_query for each row.
+        # The query itself (passed as argument) handles INSERT or UPDATE logic.
+        rows_processed = 0
+        for row in csv_reader:
+            # Skip empty rows if any
+            if not any(field.strip() for field in row):
+                continue
+            try:
+                cursor.execute(insert_query, tuple(row))
+                rows_processed += 1
+            except Exception as e:
+                logger.error(f"Error processing row {row} from {filename}: {e}")
+                # Decide if you want to continue or raise the exception
+                # raise # Uncomment to stop processing on the first error
+                continue  # Comment out to stop processing on the first error
+
+        logger.info(f"Finished processing {rows_processed} rows from {filename}")
+
+        # Save the new ETag
+        if new_etag:
+            try:
+                etag_file.write_text(new_etag)
+                logger.debug(f"Saved new ETag '{new_etag}' to {etag_file}")
+            except Exception as e:
+                logger.warning(f"Could not write ETag file {etag_file}: {e}")
+        elif current_etag:  # If server didn't send ETag, remove old one
+            logger.debug(f"Server did not send ETag for {filename}. Removing local ETag file {etag_file}.")
+            try:
+                etag_file.unlink()
+            except OSError as e:
+                logger.warning(f"Could not remove ETag file {etag_file}: {e}")
+
+    except requests.RequestException as e:
+        logger.error(f"Error checking/downloading bootstrap data from {csv_url}: {e}")
+        # Optionally: Add logic here to use a cached local version if download fails
+        raise
+
+
+def initialize_tables(db):
+    """Initialize database tables from schema file."""
+    try:
+        logger.info("initializing tables...")
+        cursor = db.cursor()
+
+        # Check if tables already exist to avoid unnecessary schema execution
+        required_tables = [
+            "blocks",
+            "transactions",
+            "StampTableV4",
+            "srcbackground",
+            "creator",
+            "SRC20",
+            "SRC20Valid",
+            "balances",
+            "s3objects",
+            "collections",
+            "collection_creators",
+            "collection_stamps",
+            "src20_metadata",
+            "SRC101",
+            "SRC101Valid",
+            "owners",
+            "recipients",
+            "src101price",
+            "src20_token_stats",
+            "stamp_views",
+            # Enhanced Market Data Cache Tables
+            "stamp_market_data",
+            "stamp_holder_cache",
+            "market_data_sources",
+            "src20_market_data",
+            "collection_market_data",
+        ]
+
+        # Quick check if all tables exist
+        cursor.execute(
+            """
+            SELECT COUNT(*) as table_count
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            AND table_name IN ({})
+        """.format(
+                ",".join(["%s"] * len(required_tables))
+            ),
+            required_tables,
+        )
+
+        existing_count = cursor.fetchone()[0]
+
+        if existing_count == len(required_tables):
+            logger.info(f"All {len(required_tables)} required tables already exist, skipping schema execution")
+        else:
+            logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing schema...")
+            # Get the path to table_schema.sql relative to this file
+            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "table_schema.sql")
+            with open(schema_path, "r") as file:
+                sql_script = file.read()
+            sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
+            for command in sql_commands:
+                try:
+                    db_manager.execute_with_retry(cursor, command)
+                except Exception as e:
+                    logger.error(f"Error executing command:{command};\nerror:{e}")
+                    raise e
+
+        import_csv_data(
+            cursor,
+            config.BOOTSTRAP_CREATOR_CSV_URL,
+            """
+            INSERT INTO creator (address, creator)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE creator = VALUES(creator)
+            """,
+            is_url=True,
+        )
+        import_csv_data(
+            cursor,
+            config.BOOTSTRAP_SRCBACKGROUND_CSV_URL,
+            """INSERT INTO srcbackground
+            (tick, tick_hash, base64, font_size, text_color, unicode, p)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            base64 = VALUES(base64),
+            font_size = VALUES(font_size),
+            text_color = VALUES(text_color),
+            unicode = VALUES(unicode),
+            p = VALUES(p)""",
+            is_url=True,
+        )
+        db.commit()
+        cursor.close()
+    except Exception as e:
+        logger.error("Error initializing tables: {}".format(e))
+        raise e
+
+
+def initialize_db():
+    """Initialize database connection and tables."""
+    logger.info("Initializing database...")
+    if config.FORCE:
+        logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
+
+    max_retries = 5
+    retry_delay = 5
+    attempt = 0
+
+    while attempt < max_retries:
+        try:
+            # Get connection from database manager
+            db = db_manager.connect()
+
+            # Test connection first
+            with db.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                logger.info("Successfully connected to database server")
+
+            # Now try to create and use the database
+            with db.cursor() as cursor:
+                database_name = os.environ.get("RDS_DATABASE", "btc_stamps")
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
+                cursor.execute(f"USE `{database_name}`")
+                db.commit()
+                logger.info(f"Successfully initialized database: {database_name}")
+
+            util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+            # Initialize tables from schema
+            initialize_tables(db)
+
+            return db
+
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_retries:
+                logger.error(f"Failed to initialize database after {max_retries} attempts: {e}")
+                raise
+            else:
+                logger.warning(f"Database initialization attempt {attempt} failed: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff

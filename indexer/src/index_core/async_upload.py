@@ -173,7 +173,7 @@ def stop_upload_worker() -> None:
     global _upload_worker_running
 
     if not _upload_worker_running:
-        logger.warning("Upload worker thread is not running, but will proceed to shutdown executor")
+        logger.debug("Upload worker thread is not running, but will proceed to shutdown executor")
     else:
         logger.info("Stopping async upload worker thread...")
         _upload_worker_running = False

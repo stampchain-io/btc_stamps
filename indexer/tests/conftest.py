@@ -14,6 +14,21 @@ os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 
 
+@pytest.fixture(autouse=True)
+def clear_caches():
+    """Automatically clear all caches before each test to ensure test isolation."""
+    # Import here to avoid circular imports
+    from index_core.caching import cache_manager
+
+    # Clear caches before the test
+    cache_manager.clear_all()
+
+    yield
+
+    # Optionally clear caches after the test as well
+    cache_manager.clear_all()
+
+
 class MockDB:
     """Mock database connection for testing."""
 

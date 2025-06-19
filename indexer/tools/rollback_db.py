@@ -10,6 +10,12 @@ import sys
 import pymysql
 from dotenv import load_dotenv
 
+# Add the src directory to the path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from index_core.database import perform_complete_rollback
+from index_core.fallback_state import get_fallback_state_manager
+
 
 def clear_database(block_index, db_host=None, db_user=None, db_password=None, db_name=None):
     """
@@ -48,25 +54,25 @@ def clear_database(block_index, db_host=None, db_user=None, db_password=None, db
 
         # Core tables
         print("Clearing transactions table...")
-        cursor.execute(f"DELETE FROM transactions WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM transactions WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from transactions")
 
         print("Clearing blocks table...")
-        cursor.execute(f"DELETE FROM blocks WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM blocks WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from blocks")
 
         # Stamp related
         print("Clearing StampTableV4 table...")
-        cursor.execute(f"DELETE FROM StampTableV4 WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM StampTableV4 WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from StampTableV4")
 
         # SRC20 related
         print("Clearing SRC20 table...")
-        cursor.execute(f"DELETE FROM SRC20 WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM SRC20 WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC20")
 
         print("Clearing SRC20Valid table...")
-        cursor.execute(f"DELETE FROM SRC20Valid WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM SRC20Valid WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC20Valid")
 
         print("Clearing balances table...")
@@ -75,19 +81,19 @@ def clear_database(block_index, db_host=None, db_user=None, db_password=None, db
 
         # SRC101 related
         print("Clearing SRC101 table...")
-        cursor.execute(f"DELETE FROM SRC101 WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM SRC101 WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC101")
 
         print("Clearing SRC101Valid table...")
-        cursor.execute(f"DELETE FROM SRC101Valid WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM SRC101Valid WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from SRC101Valid")
 
         print("Clearing src101price table...")
-        cursor.execute(f"DELETE FROM src101price WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM src101price WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from src101price")
 
         print("Clearing recipients table...")
-        cursor.execute(f"DELETE FROM recipients WHERE block_index >= {block_index};")
+        cursor.execute(f"DELETE FROM recipients WHERE block_index >= {block_index};")  # nosec B608
         print(f"Deleted {cursor.rowcount} rows from recipients")
 
         print("Clearing owners table...")
@@ -100,6 +106,18 @@ def clear_database(block_index, db_host=None, db_user=None, db_password=None, db
         # Commit the changes
         conn.commit()
         print("Database cleared successfully!")
+
+        # Check if we should clear fallback state
+        fallback_manager = get_fallback_state_manager()
+        if fallback_manager.is_fallback_active():
+            fallback_start_block = fallback_manager.get_fallback_start_block()
+            if fallback_start_block and block_index <= fallback_start_block:
+                print(f"\nClearing fallback state (started at block {fallback_start_block})...")
+                fallback_manager.end_fallback_mode()
+                print("Fallback state cleared successfully!")
+            else:
+                print(f"\nNote: Fallback mode is active (started at block {fallback_start_block})")
+                print(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")
 
     except Exception as e:
         conn.rollback()
@@ -120,10 +138,18 @@ def main():
     parser.add_argument("--user", help="Database user")
     parser.add_argument("--password", help="Database password")
     parser.add_argument("--database", help="Database name")
+    parser.add_argument(
+        "--use-indexer-method", action="store_true", help="Use the same rollback method as the indexer (recommended)"
+    )
 
     args = parser.parse_args()
 
-    clear_database(args.block_index, args.host, args.user, args.password, args.database)
+    if args.use_indexer_method or not any([args.host, args.user, args.password]):
+        # Use the indexer's rollback method (recommended)
+        perform_complete_rollback(args.block_index)
+    else:
+        # Use the legacy direct SQL method
+        clear_database(args.block_index, args.host, args.user, args.password, args.database)
 
 
 if __name__ == "__main__":
