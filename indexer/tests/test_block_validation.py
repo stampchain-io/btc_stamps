@@ -589,7 +589,7 @@ class TestBlockValidationEdgeCases:
             pos_missing = txlist_content.find("'tx_hash': 'tx1'")  # The one without stamp_number
             pos2 = txlist_content.find("'stamp_number': 2")
             pos3 = txlist_content.find("'stamp_number': 3")
-            
+
             # Verify ordering: missing (0) < 2 < 3
             assert pos_missing < pos2 < pos3
             assert result == ("hash1", "hash2", "hash3")
