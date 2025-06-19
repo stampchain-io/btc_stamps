@@ -19,22 +19,22 @@ cd indexer
 poetry run pytest --cov=src tests/
 
 # Run coverage with HTML report
-poetry run run-coverage-local --html --open
+poetry run coverage-local --html --open
 
-# Run fast coverage (unit tests only)
-poetry run run-coverage-fast
+# Run quick coverage (unit tests only)
+poetry run coverage-quick --html
 ```
 
 ### Available Commands
 
-#### 1. **run-coverage-local** (Recommended for development)
+#### 1. **coverage-local** (Recommended for development)
 Enhanced local coverage runner with multiple options:
 
 ```bash
 # Run coverage on specific test groups
-poetry run run-coverage-local --group unit --html --open
-poetry run run-coverage-local --group integration --fail-under 70
-poetry run run-coverage-local --group aws --xml
+poetry run coverage-local --group unit --html --open
+poetry run coverage-local --group integration --fail-under 70
+poetry run coverage-local --group aws --xml
 
 # Available test groups:
 # - unit: Core unit tests (fast)
@@ -45,34 +45,38 @@ poetry run run-coverage-local --group aws --xml
 # - all: All tests (default)
 
 # Generate all report formats
-poetry run run-coverage-local --all-formats
+poetry run coverage-local --all-formats
 
 # Run with parallel execution
-poetry run run-coverage-local --parallel --html
+poetry run coverage-local --parallel --html
 ```
 
-#### 2. **run-coverage** (Standard coverage)
-Basic coverage runner with format options:
+#### 2. **coverage** (Standard coverage - 55% threshold)
+Main coverage runner with flexible format options:
 
 ```bash
-# Terminal report
-poetry run run-coverage
+# Terminal report (default)
+poetry run coverage
 
 # HTML report with auto-open
-poetry run run-coverage --format html --open-html
+poetry run coverage --html --open
 
-# Multiple formats
-poetry run run-coverage --format all
+# Multiple formats  
+poetry run coverage --all-formats
 
-# With minimum coverage threshold
-poetry run run-coverage --fail-under 80
+# With custom threshold
+poetry run coverage --fail-under 80
 ```
 
-#### 3. **run-coverage-fast** (CI-optimized)
-Fast coverage for quick feedback:
+#### 3. **coverage-quick** (Development - 50% threshold)
+Quick coverage excluding integration tests:
 
 ```bash
-poetry run run-coverage-fast
+# Quick coverage for development
+poetry run coverage-quick
+
+# With HTML report
+poetry run coverage-quick --html
 ```
 
 ### Configuration Files
@@ -186,20 +190,20 @@ def test_large_dataset_processing():
 2. **Missing coverage data**
    ```bash
    # Clean and regenerate
-   poetry run run-coverage-local --clean --html
+   poetry run coverage-local --clean --html
    ```
 
 3. **Slow coverage runs**
    ```bash
    # Use parallel execution
-   poetry run run-coverage-local --parallel --group unit
+   poetry run coverage-local --parallel --group unit
    ```
 
 ### Coverage Gaps
 
 To identify and fix coverage gaps:
 
-1. Generate HTML report: `poetry run run-coverage-local --html --open`
+1. Generate HTML report: `poetry run coverage-local --html --open`
 2. Navigate to red (uncovered) lines
 3. Write tests for uncovered code paths
 4. Re-run coverage to verify

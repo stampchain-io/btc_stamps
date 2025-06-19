@@ -534,9 +534,9 @@ def main():
     print_header("summary")
     # Build a dynamically sized results table
     rows = [
-        ("Code Quality Checks", "💣 PASS" if code_quality_ok else f"💀 FAIL"),
-        ("Rust Checks", "💣 PASS" if rust_ok else f"💀 FAIL"),
-        ("Integration Tests", "💣 PASS" if integration_ok else f"💀 FAIL"),
+        ("Code Quality Checks", "💣 PASS" if code_quality_ok else "💀 FAIL"),
+        ("Rust Checks", "💣 PASS" if rust_ok else "💀 FAIL"),
+        ("Integration Tests", "💣 PASS" if integration_ok else "💀 FAIL"),
     ]
     # Determine column widths based on content
     name_w = max(len(name) for name, _ in rows + [("💻 Check Type", "")])
@@ -782,7 +782,7 @@ def run_linters_only(auto_fix=False, with_coverage=False):
         # Use the quick coverage script that avoids problematic test files
         logger.info("Generating coverage report (quick mode)...")
         if run_command("poetry run coverage-quick --html", ignore_errors=True):
-            logger.info(colored("💣 PASS: coverage threshold met (>70%)", "green"))
+            logger.info(colored("💣 PASS: coverage threshold met (>50%)", "green"))
         else:
             linter_failures.append("coverage")
             logger.error(colored("💀 FAIL: coverage below threshold", "red"))

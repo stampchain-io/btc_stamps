@@ -6,10 +6,8 @@ with the main test suite.
 """
 
 import argparse
-import ast
 import subprocess
 import sys
-from pathlib import Path
 
 
 def get_test_files_from_run_checks():
@@ -49,7 +47,7 @@ def run_quick_coverage(html=False, fail_under=50):
 
     # Run the coverage command
     try:
-        result = subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True)
         print("\n✅ Coverage check passed!")
         return 0
     except subprocess.CalledProcessError as e:
@@ -83,7 +81,7 @@ def run_fast_coverage_analysis():
     try:
         subprocess.run(cmd, check=True)
         print("\n✅ Fast coverage analysis completed!")
-        print("💡 For full coverage, use: poetry run run-coverage")
+        print("💡 For full coverage, use: poetry run coverage")
         return 0
     except subprocess.CalledProcessError as e:
         print(f"\n❌ Fast coverage analysis failed with exit code {e.returncode}")

@@ -131,6 +131,10 @@ class FallbackStateManager:
         if "failed_cp_blocks" not in self.state:
             self.state["failed_cp_blocks"] = set()
 
+        # Ensure failed_cp_blocks is a set (convert from list if needed)
+        if isinstance(self.state["failed_cp_blocks"], list):
+            self.state["failed_cp_blocks"] = set(self.state["failed_cp_blocks"])
+
         logger.info(f"Fallback mode started at block {start_block}")
         self._save_state()
 
@@ -138,6 +142,10 @@ class FallbackStateManager:
         """Add a block that failed CP processing."""
         if "failed_cp_blocks" not in self.state:
             self.state["failed_cp_blocks"] = set()
+
+        # Ensure failed_cp_blocks is a set (convert from list if needed)
+        if isinstance(self.state["failed_cp_blocks"], list):
+            self.state["failed_cp_blocks"] = set(self.state["failed_cp_blocks"])
 
         self.state["failed_cp_blocks"].add(block_index)
         self._save_state()
@@ -164,6 +172,8 @@ class FallbackStateManager:
         failed_blocks = self.state.get("failed_cp_blocks", set())
         if isinstance(failed_blocks, list):
             failed_blocks = set(failed_blocks)
+            # Update the state to use the set instead of the list to prevent future errors
+            self.state["failed_cp_blocks"] = failed_blocks
         return failed_blocks
 
     def get_fallback_info(self) -> Dict:
