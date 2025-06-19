@@ -61,7 +61,7 @@ jobs:
         run: |
           # Run comprehensive coverage analysis with both HTML and XML output
           # This generates both formats from the same test run for consistency
-          poetry run run-coverage --format=all
+          poetry run coverage --all-formats
         working-directory: ./indexer
         
       - name: Upload coverage to Codecov

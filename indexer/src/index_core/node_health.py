@@ -622,8 +622,9 @@ def update_healthy_nodes():
                     # Double-check against the node health tracker for persistent issues
                     node_health = node_health_tracker.get(node_name)
                     if node_health:
-                        # Check if the node has been experiencing persistent failures
-                        if node_health.consecutive_failures > 0 or node_health.minor_failures >= 5:
+                        # Only exclude nodes with significant persistent issues
+                        # Allow 1-2 consecutive failures if they just passed a health check
+                        if node_health.consecutive_failures >= 3 or node_health.minor_failures >= 5:
                             logger.warning(
                                 f"Node {node_name} passed health check but has persistent issues "
                                 f"(consecutive: {node_health.consecutive_failures}, minor: {node_health.minor_failures}). "
@@ -633,6 +634,12 @@ def update_healthy_nodes():
                         elif not node_health.can_retry():
                             logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
                             is_healthy = False
+                        elif node_health.consecutive_failures > 0:
+                            # Log but allow nodes with 1-2 failures if they pass health check
+                            logger.debug(
+                                f"Node {node_name} has {node_health.consecutive_failures} consecutive failures "
+                                f"but passed health check - allowing in healthy nodes list"
+                            )
 
                 if is_healthy:
                     # Add to healthy nodes list
@@ -709,11 +716,11 @@ def get_healthy_nodes():
                     node_health = node_health_tracker.get(node_name)
 
                     if node_health:
-                        # Skip nodes that are in backoff or have persistent issues
+                        # Skip nodes that are in backoff or have significant persistent issues
                         if not node_health.can_retry():
                             logger.debug(f"Excluding {node_name}: in backoff period")
                             continue
-                        if node_health.consecutive_failures > 0:
+                        if node_health.consecutive_failures >= 3:
                             logger.debug(f"Excluding {node_name}: has {node_health.consecutive_failures} consecutive failures")
                             continue
                         if node_health.minor_failures >= 5:

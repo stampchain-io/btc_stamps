@@ -130,7 +130,7 @@ class FallbackStateManager:
         self.state["fallback_started_at"] = start_block
         if "failed_cp_blocks" not in self.state:
             self.state["failed_cp_blocks"] = set()
-        
+
         # Ensure failed_cp_blocks is a set (convert from list if needed)
         if isinstance(self.state["failed_cp_blocks"], list):
             self.state["failed_cp_blocks"] = set(self.state["failed_cp_blocks"])
@@ -142,7 +142,7 @@ class FallbackStateManager:
         """Add a block that failed CP processing."""
         if "failed_cp_blocks" not in self.state:
             self.state["failed_cp_blocks"] = set()
-        
+
         # Ensure failed_cp_blocks is a set (convert from list if needed)
         if isinstance(self.state["failed_cp_blocks"], list):
             self.state["failed_cp_blocks"] = set(self.state["failed_cp_blocks"])

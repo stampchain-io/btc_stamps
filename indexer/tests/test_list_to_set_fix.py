@@ -37,19 +37,19 @@ class TestListToSetFix(unittest.TestCase):
             "fallback_started_at": 900000,
             "failed_cp_blocks": [900001, 900002, 900003],  # This is a list!
             "last_updated": 1234567890,
-            "version": "1.0"
+            "version": "1.0",
         }
-        
-        with open(self.state_file, 'w') as f:
+
+        with open(self.state_file, "w") as f:
             json.dump(state_data, f)
-        
+
         # Load the state manager
         manager = FallbackStateManager(self.state_file)
-        
+
         # Verify that failed_cp_blocks was converted to a set internally
         self.assertIsInstance(manager.state["failed_cp_blocks"], set)
         self.assertEqual(manager.state["failed_cp_blocks"], {900001, 900002, 900003})
-        
+
         # Verify that get_failed_blocks returns the correct set
         failed_blocks = manager.get_failed_blocks()
         self.assertIsInstance(failed_blocks, set)
@@ -63,16 +63,16 @@ class TestListToSetFix(unittest.TestCase):
             "fallback_started_at": 900000,
             "failed_cp_blocks": [900001, 900002],  # This is a list!
             "last_updated": 1234567890,
-            "version": "1.0"
+            "version": "1.0",
         }
-        
-        with open(self.state_file, 'w') as f:
+
+        with open(self.state_file, "w") as f:
             json.dump(state_data, f)
-        
+
         # Load the state manager but manually revert to list to simulate the bug
         manager = FallbackStateManager(self.state_file)
         manager.state["failed_cp_blocks"] = [900001, 900002]  # Force it back to a list
-        
+
         # This should not raise "'list' object has no attribute 'add'" error
         try:
             manager.add_failed_block(900003)
@@ -81,7 +81,7 @@ class TestListToSetFix(unittest.TestCase):
                 self.fail("add_failed_block failed with list conversion error")
             else:
                 raise  # Re-raise if it's a different AttributeError
-        
+
         # Verify the state was converted to a set and the block was added
         self.assertIsInstance(manager.state["failed_cp_blocks"], set)
         self.assertEqual(manager.state["failed_cp_blocks"], {900001, 900002, 900003})
@@ -94,19 +94,19 @@ class TestListToSetFix(unittest.TestCase):
             "fallback_started_at": None,
             "failed_cp_blocks": [900001, 900002],  # This is a list!
             "last_updated": 1234567890,
-            "version": "1.0"
+            "version": "1.0",
         }
-        
-        with open(self.state_file, 'w') as f:
+
+        with open(self.state_file, "w") as f:
             json.dump(state_data, f)
-        
+
         # Load the state manager but manually revert to list
         manager = FallbackStateManager(self.state_file)
         manager.state["failed_cp_blocks"] = [900001, 900002]  # Force it back to a list
-        
+
         # This should not raise an error and should convert the list to set
         manager.start_fallback_mode(900005)
-        
+
         # Verify the state was converted to a set
         self.assertIsInstance(manager.state["failed_cp_blocks"], set)
         self.assertEqual(manager.state["failed_cp_blocks"], {900001, 900002})
@@ -121,27 +121,27 @@ class TestListToSetFix(unittest.TestCase):
             "fallback_started_at": 900000,
             "failed_cp_blocks": [900001, 900002, 900003],  # This is a list!
             "last_updated": 1234567890,
-            "version": "1.0"
+            "version": "1.0",
         }
-        
-        with open(self.state_file, 'w') as f:
+
+        with open(self.state_file, "w") as f:
             json.dump(state_data, f)
-        
+
         # Load the state manager but manually revert to list to test conversion
         manager = FallbackStateManager(self.state_file)
         manager.state["failed_cp_blocks"] = [900001, 900002, 900003]  # Force it back to a list
-        
+
         # Verify it's currently a list
         self.assertIsInstance(manager.state["failed_cp_blocks"], list)
-        
+
         # Call get_failed_blocks - this should convert the state to a set
         failed_blocks = manager.get_failed_blocks()
-        
+
         # Verify the state was permanently updated to use a set
         self.assertIsInstance(manager.state["failed_cp_blocks"], set)
         self.assertEqual(manager.state["failed_cp_blocks"], {900001, 900002, 900003})
         self.assertEqual(failed_blocks, {900001, 900002, 900003})
-        
+
         # Subsequent calls to add_failed_block should now work without issues
         manager.add_failed_block(900004)
         self.assertEqual(manager.state["failed_cp_blocks"], {900001, 900002, 900003, 900004})
@@ -149,44 +149,44 @@ class TestListToSetFix(unittest.TestCase):
     def test_roundtrip_save_load_preserves_functionality(self):
         """Test that saving and loading state preserves set functionality."""
         manager = FallbackStateManager(self.state_file)
-        
+
         # Start fallback mode and add some blocks
         manager.start_fallback_mode(900000)
         manager.add_failed_block(900001)
         manager.add_failed_block(900002)
-        
+
         # Verify state is correct
         self.assertEqual(manager.get_failed_blocks(), {900001, 900002})
-        
+
         # Create a new manager instance (simulating restart)
         manager2 = FallbackStateManager(self.state_file)
-        
+
         # Verify the loaded state is still functional
         self.assertEqual(manager2.get_failed_blocks(), {900001, 900002})
-        
+
         # Add another block with the new manager
         manager2.add_failed_block(900003)
         self.assertEqual(manager2.get_failed_blocks(), {900001, 900002, 900003})
-        
+
         # Verify the state is still a set internally
         self.assertIsInstance(manager2.state["failed_cp_blocks"], set)
 
     def test_empty_state_initialization(self):
         """Test that initializing with no existing state file works correctly."""
         manager = FallbackStateManager(self.state_file)
-        
+
         # Verify initial state
         self.assertFalse(manager.is_fallback_active())
         self.assertEqual(manager.get_failed_blocks(), set())
         self.assertIsInstance(manager.state["failed_cp_blocks"], set)
-        
+
         # Add blocks and verify functionality
         manager.start_fallback_mode(900000)
         manager.add_failed_block(900001)
-        
+
         self.assertTrue(manager.is_fallback_active())
         self.assertEqual(manager.get_failed_blocks(), {900001})
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

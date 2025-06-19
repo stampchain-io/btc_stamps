@@ -159,9 +159,9 @@ class TestEnhancedNodeFailover(unittest.TestCase):
     def test_update_healthy_nodes_excludes_persistent_failures(self, mock_get):
         """Test that update_healthy_nodes excludes nodes with persistent failures."""
 
-        # Create node with persistent failures
+        # Create node with persistent failures (3+ to trigger exclusion)
         bad_node = NodeHealth("bad-node", "http://bad:4000/v2")
-        bad_node.consecutive_failures = 2  # Has consecutive failures
+        bad_node.consecutive_failures = 3  # Has enough consecutive failures to be excluded
         node_health_module.node_health_tracker["bad-node"] = bad_node
 
         # Mock successful health checks for both

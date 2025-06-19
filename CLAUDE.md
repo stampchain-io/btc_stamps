@@ -20,9 +20,9 @@
 - `cd indexer && poetry run check-rust` - Rust checks
 - `cd indexer && poetry run lint` - Run only linters (isort, black, flake8, mypy, bandit)
 - `cd indexer && poetry run lint --auto-fix` - Run linters with auto-fix for isort and black
-- `cd indexer && poetry run lint --with-coverage` - Run linters and validate test coverage
-- `cd indexer && poetry run coverage` - Run fast coverage report
-- `cd indexer && poetry run coverage-quick` - Run quick coverage on working tests only
+- `cd indexer && poetry run lint --with-coverage` - Run linters and validate test coverage  
+- `cd indexer && poetry run coverage` - Run comprehensive coverage (55% threshold)
+- `cd indexer && poetry run coverage-quick` - Run quick coverage on unit tests only (50% threshold)
 - `cd indexer && poetry run coverage-quick --html` - Generate HTML coverage report
 
 ## Debug Tools

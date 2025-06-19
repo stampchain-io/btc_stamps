@@ -53,13 +53,31 @@ def main():
         default="terminal",
         help="Coverage report format (default: terminal)",
     )
+    # Flag-based format options (for consistency with other coverage scripts)
+    parser.add_argument("--html", action="store_true", help="Generate HTML report (equivalent to --format html)")
+    parser.add_argument("--xml", action="store_true", help="Generate XML report (equivalent to --format xml)")
+    parser.add_argument("--json", action="store_true", help="Generate JSON report (equivalent to --format json)")
+    parser.add_argument("--all-formats", action="store_true", help="Generate all report formats (equivalent to --format all)")
+
     parser.add_argument("--tests", default="tests/", help="Test directory or specific test files (default: tests/)")
-    parser.add_argument("--min-coverage", type=int, default=0, help="Minimum coverage percentage (fails if below, default: 0)")
+    parser.add_argument(
+        "--min-coverage", type=int, default=55, help="Minimum coverage percentage (fails if below, default: 55)"
+    )
     parser.add_argument("--branch", action="store_true", default=True, help="Include branch coverage (default: True)")
     parser.add_argument("--fail-under", type=int, help="Fail if coverage is under this percentage")
-    parser.add_argument("--open-html", action="store_true", help="Open HTML report in browser after generation")
+    parser.add_argument("--open", action="store_true", help="Open HTML report in browser after generation")
 
     args = parser.parse_args()
+
+    # Handle flag-based format options (convert to format string for consistency)
+    if args.html:
+        args.format = "html"
+    elif args.xml:
+        args.format = "xml"
+    elif args.json:
+        args.format = "json"
+    elif args.all_formats:
+        args.format = "all"
 
     # Base coverage command
     # Note: By default, this runs ALL tests including integration tests
@@ -78,15 +96,25 @@ def main():
     success = True
 
     # Generate different report formats
-    if args.format == "terminal" or args.format == "all":
+    # Always show terminal output for better visibility
+    if args.format == "terminal" or args.format == "all" or args.format == "html":
         cmd = base_cmd + " --cov-report=term-missing"
         success &= run_command(cmd, "Running coverage with terminal report")
 
     if args.format == "html" or args.format == "all":
-        cmd = base_cmd + " --cov-report=html"
-        success &= run_command(cmd, "Generating HTML coverage report")
+        # For HTML, run a separate command to generate HTML report
+        # This ensures we get both terminal output and HTML file
+        if args.format == "html":
+            # If only HTML was requested, we already ran terminal above
+            # Now add HTML report generation
+            cmd = base_cmd + " --cov-report=html --cov-append"
+            success &= run_command(cmd, "Generating HTML coverage report")
+        else:
+            # For 'all' format, generate HTML report
+            cmd = base_cmd + " --cov-report=html"
+            success &= run_command(cmd, "Generating HTML coverage report")
 
-        if success and args.open_html:
+        if success and args.open:
             html_path = Path("htmlcov/index.html").absolute()
             if html_path.exists():
                 print(f"📊 Opening coverage report: {html_path}")
@@ -115,9 +143,10 @@ def main():
 
         print()
         print("💡 Pro tips:")
-        print("   • Use --open-html to automatically open HTML reports")
+        print("   • Use --html --open to automatically open HTML reports")
         print("   • Set --fail-under=80 for CI quality gates")
         print("   • Use --tests=tests/test_specific.py for targeted coverage")
+        print("   • Use --all-formats for comprehensive reporting")
 
     else:
         print("💥 Coverage analysis failed!")

@@ -518,34 +518,56 @@ async def fetch_xcp_async(
             logger.debug(f"Async fetch from {node['name']} at URL: {url} with params: {params}")
 
             try:
+                # Check if we're in a shutdown state first
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop.is_closed():
+                        logger.warning(f"Event loop is closed, skipping {node['name']}")
+                        continue
+                except RuntimeError:
+                    logger.warning(f"No running event loop, skipping {node['name']}")
+                    continue
+
                 # Create timeout and connector configuration for aiohttp
                 timeout_obj = aiohttp.ClientTimeout(total=timeout, connect=5)
-                connector = aiohttp.TCPConnector(
-                    limit=20,  # Reduced total connection pool size
-                    limit_per_host=10,  # Reduced connections per host for external APIs
-                    ttl_dns_cache=300,  # DNS cache TTL
-                    use_dns_cache=True,
-                    keepalive_timeout=30,  # Keep connections alive
-                    enable_cleanup_closed=True,
-                )
 
-                async with aiohttp.ClientSession(
-                    timeout=timeout_obj, connector=connector, headers={"Connection": "keep-alive"}
-                ) as session:
-                    async with session.get(url, params=params) as response:
-                        logger.debug(f"Response status from {node['name']}: {response.status}")
-                        if response.status == 200:
-                            data = await response.json()
-                            health_tracker = node_health_tracker.get(node["name"])
-                            if health_tracker:
-                                health_tracker.mark_success()
-                            return data
-                        else:
-                            error_text = await response.text()
-                            logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
-                            health_tracker = node_health_tracker.get(node["name"])
-                            if health_tracker:
-                                health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+                try:
+                    connector = aiohttp.TCPConnector(
+                        limit=20,  # Reduced total connection pool size
+                        limit_per_host=10,  # Reduced connections per host for external APIs
+                        ttl_dns_cache=300,  # DNS cache TTL
+                        use_dns_cache=True,
+                        keepalive_timeout=30,  # Keep connections alive
+                        enable_cleanup_closed=True,
+                    )
+
+                    async with aiohttp.ClientSession(
+                        timeout=timeout_obj, connector=connector, headers={"Connection": "keep-alive"}
+                    ) as session:
+                        async with session.get(url, params=params) as response:
+                            logger.debug(f"Response status from {node['name']}: {response.status}")
+                            if response.status == 200:
+                                data = await response.json()
+                                health_tracker = node_health_tracker.get(node["name"])
+                                if health_tracker:
+                                    health_tracker.mark_success()
+                                return data
+                            else:
+                                error_text = await response.text()
+                                logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
+                                health_tracker = node_health_tracker.get(node["name"])
+                                if health_tracker:
+                                    health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+
+                except RuntimeError as re:
+                    if "cannot schedule new futures after shutdown" in str(re):
+                        logger.warning(f"Event loop shutting down, cannot connect to {node['name']}")
+                        health_tracker = node_health_tracker.get(node["name"])
+                        if health_tracker:
+                            health_tracker.mark_failure("Event loop shutdown")
+                        continue
+                    else:
+                        raise  # Re-raise if it's a different RuntimeError
 
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout fetching from {node['name']} (during session.get for {url})")
@@ -785,12 +807,13 @@ async def fetch_block_transactions_with_pagination(
                     break
                 if retry_attempt < max_retries - 1:
                     logger.warning(
-                        f"Retrying page {page_count} for block {block_index} (attempt {retry_attempt+1}/{max_retries})"
+                        f"Retrying page {page_count} for block {block_index} (attempt {retry_attempt + 1}/{max_retries})"
                     )
                     await asyncio.sleep(1 * (retry_attempt + 1))
             except Exception as e:
                 logger.error(
-                    f"Error fetching page {page_count} for block {block_index} (attempt {retry_attempt+1}): {e}", exc_info=True
+                    f"Error fetching page {page_count} for block {block_index} (attempt {retry_attempt + 1}): {e}",
+                    exc_info=True,
                 )
                 if retry_attempt < max_retries - 1:
                     await asyncio.sleep(1 * (retry_attempt + 1))
