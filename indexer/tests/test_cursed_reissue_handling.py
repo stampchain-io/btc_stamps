@@ -145,7 +145,7 @@ def test_stamp_processor_creates_validstamp_for_positive_btc_stamp(
 def test_check_reissue_detects_cursed_and_positive_equally():
     """Test that reissue detection works equally for cursed and positive stamps."""
     cpid_shared = "A1111222233334"
-    
+
     # Block with both cursed and positive stamps using the same CPID
     valid_stamps_in_block = [
         {"cpid": cpid_shared, "is_btc_stamp": True},  # positive stamp
