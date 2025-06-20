@@ -372,7 +372,9 @@ class CPBlocksPipeline:
             if block_index == self.current_block:
                 block_data = self.queue.pop(block_index, None)
                 if block_data:
-                    logger.debug(f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}")
+                    logger.debug(
+                        f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}"
+                    )
                     # Advance the processor's position. The worker will fetch from this new position.
                     self.current_block += 1
                     return block_data
@@ -828,7 +830,9 @@ class CPBlocksPipeline:
                 # Log if we got fewer blocks than requested
                 missing = set(block_indices) - set(result.keys())
                 if missing:
-                    logger.warning(f"Fetched {len(result)} out of {len(block_indices)} requested blocks. Missing: {sorted(list(missing))}")
+                    logger.warning(
+                        f"Fetched {len(result)} out of {len(block_indices)} requested blocks. Missing: {sorted(list(missing))}"
+                    )
 
                 # This method should NOT modify the pipeline's state. It only returns data.
                 return result
