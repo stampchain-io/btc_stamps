@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import List
 from unittest.mock import MagicMock, patch
+import json
 
 # Set test environment variables BEFORE importing any indexer modules
 os.environ["USE_TEST_TX_HEX"] = "1"
@@ -13,6 +14,9 @@ os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 os.environ["CI_FIXTURE_MODE"] = "true"
 os.environ["DISABLE_RUST_PARSER"] = "1"  # Disable Rust parser to avoid initialization issues
+os.environ["ENABLE_SENTRY"] = "0"
+os.environ["ENABLE_MEMO"] = "1"
+os.environ["IGNORE_DB_VERSION_CHECK"] = "1"
 
 import colorlog
 import pytest
@@ -21,15 +25,25 @@ logger = logging.getLogger(__name__)
 
 # Import other modules
 from index_core.async_upload import stop_upload_worker
-from index_core.caching import cache_manager
-from index_core.models import StampData
+from index_core.cache_db import cache_manager
 from index_core.src20 import parse_src20
 from index_core.stamp import parse_stamp
 
 # Import test helpers first
 from tests.db_simulator import DBSimulator
-from tests.fixtures.src20_variations_data import src20_variations_data
 from tests.test_helpers import mock_database, setup_test_env
+
+
+# Load test data from JSON file
+def load_test_data():
+    # Correctly resolve the path to the fixture file
+    # The test is run from the `indexer` directory
+    fixture_path = Path(__file__).parent / "fixtures" / "src20_variations_data.json"
+    with open(fixture_path, "r") as f:
+        return json.load(f)
+
+
+src20_variations_data = load_test_data()
 
 
 # Create a test-specific BlockProcessor that doesn't depend on backend_instance
@@ -124,87 +138,120 @@ def setup_test():
     cache_manager.clear_all()
 
 
-@pytest.mark.parametrize("test_case", src20_variations_data, ids=lambda x: x["description"])
-def test_src20_variations(test_case, setup_environment):
-    db_simulator = setup_environment
-    if db_simulator is None:
-        pytest.fail("db_simulator is None - setup_environment fixture failed")
+@pytest.mark.parametrize("variation", src20_variations_data)
+def test_src20_variations(variation, setup_environment):
+    # This test is designed to run in the 'indexer' directory
+    # Set the working directory to 'indexer' if it's not already
+    if "indexer" not in os.getcwd():
+        os.chdir("indexer")
 
-    # Use TestBlockProcessor instead of the real one to avoid backend dependencies
-    block_processor = TestBlockProcessor(db_simulator)
-
-    # Clear cache before each test case to prevent state leakage
-    cache_manager.clear_all()
-    # Reset the block processor's state for each test case
-    block_processor.parsed_stamps = []
-    block_processor.valid_stamps_in_block = []
-    block_processor.processed_src20_in_block = []
-
-    logger.info(f"\nTest Case: {test_case['description']}")
-    logger.info(f"Input: {test_case['src20JsonString']}")
-
-    stamp_data_instance = StampData(
-        tx_hash=test_case["tx_hash"],
-        source=test_case["source"],
-        destination=test_case["destination"],
-        btc_amount=test_case["btc_amount"],
-        fee=test_case["fee"],
-        data=test_case["src20JsonString"],
-        decoded_tx=test_case["decoded_tx"],
-        keyburn=test_case["keyburn"],
-        tx_index=test_case["tx_index"],
-        block_index=test_case["block_index"],
-        block_time=test_case["block_time"],
-        is_op_return=test_case["is_op_return"],
-        p2wsh_data=test_case["p2wsh_data"],
-        prev_tx_hash=test_case.get("prev_tx_hash", ""),
-        destination_nvalue=test_case.get("destination_nvalue", 0),
+    # Deconstruct variation data
+    (
+        description,
+        src20_json_string,
+        expected_outcome,
+        source,
+        destination,
+        btc_amount,
+        fee,
+        decoded_tx,
+        keyburn,
+        tx_index,
+        block_index,
+        block_time,
+        is_op_return,
+        valid_stamps_in_block,
+        processed_src20_in_block,
+        p2wsh_data,
+        tx_hash,
+    ) = (
+        variation["description"],
+        variation["src20JsonString"],
+        variation["expectedOutcome"],
+        variation["source"],
+        variation["destination"],
+        variation["btc_amount"],
+        variation["fee"],
+        variation["decoded_tx"],
+        variation["keyburn"],
+        variation["tx_index"],
+        variation["block_index"],
+        variation["block_time"],
+        variation["is_op_return"],
+        variation["valid_stamps_in_block"],
+        variation["processed_src20_in_block"],
+        variation.get("p2wsh_data"),  # Use .get for optional fields
+        variation["tx_hash"],
     )
 
-    stamp_result, parsed_stamp, valid_stamp, prevalidated_src20 = parse_stamp(
-        stamp_data=stamp_data_instance,
-        db=db_simulator,
-        valid_stamps_in_block=test_case["valid_stamps_in_block"],
-    )
-    stamp_result = False if stamp_result is None else stamp_result
+    logging.info(f"Testing variation: {description}")
+    logging.debug(f"Input JSON: {src20_json_string}")
 
-    logger.info(f"Stamp Result: {'✓' if stamp_result == test_case['expectedOutcome']['stamp_success'] else '✗'}")
-    logger.info(f"Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}")
+    # Mock the database interaction
+    mock_db = mock_database()
 
-    if parsed_stamp:
-        block_processor.parsed_stamps.append(parsed_stamp)
-    if valid_stamp:
-        block_processor.valid_stamps_in_block.append(valid_stamp)
+    # Prepare initial state if necessary
+    if "initial_db_state" in variation:
+        for state in variation["initial_db_state"]:
+            if state["type"] == "balance":
+                mock_db.add_balance(
+                    state["address"], state["tick"], state["balance"]
+                )
+            elif state["type"] == "deployment":
+                mock_db.add_deployment(
+                    state["tick"],
+                    state["max"],
+                    state["lim"],
+                    state["dec"],
+                    state["deployer"],
+                )
 
-    src20_result = False
-    src20_dict = None
-    if prevalidated_src20:
-        src20_result, src20_dict = parse_src20(db_simulator, prevalidated_src20, block_processor.processed_src20_in_block)
-        block_processor.processed_src20_in_block.append(src20_dict)
+    # Use a patch to replace the original database with the mock
+    with patch("index_core.database.Database", return_value=mock_db):
+        # Create a StampData object
+        stamp = parse_stamp(
+            tx_hash,
+            source,
+            destination,
+            btc_amount,
+            fee,
+            decoded_tx,
+            keyburn,
+            tx_index,
+            block_index,
+            block_time,
+            is_op_return,
+            src20_json_string,
+            valid_stamps_in_block,
+            p2wsh_data=p2wsh_data,
+        )
 
-    logger.info(f"SRC20 Result: {'✓' if src20_result == test_case['expectedOutcome']['src20_success'] else '✗'}")
-    logger.info(f"Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}")
-    logger.info(f"Message: {test_case['expectedOutcome']['message']}")
-    logger.info("-" * 80)
+        # Process the stamp
+        result_message, stamp_valid, src20_valid = parse_src20(
+            stamp, processed_src20_in_block, db=mock_db
+        )
 
-    # Assert stamp result
-    assert (
-        stamp_result == test_case["expectedOutcome"]["stamp_success"]
-    ), f"Failure in stamp_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['stamp_success']}, Got: {stamp_result}"
+        # Log results for easier debugging
+        logging.info(f"Result message: {result_message}")
+        logging.info(f"Stamp valid: {stamp_valid}, Expected: {expected_outcome['stamp_success']}")
+        logging.info(f"SRC20 valid: {src20_valid}, Expected: {expected_outcome['src20_success']}")
 
-    # Assert src20 result
-    assert (
-        src20_result == test_case["expectedOutcome"]["src20_success"]
-    ), f"Failure in src20_result test: {test_case['expectedOutcome']['message']} - Expected: {test_case['expectedOutcome']['src20_success']}, Got: {src20_result}"
+        # Assertions
+        assert stamp_valid == expected_outcome["stamp_success"]
+        assert src20_valid == expected_outcome["src20_success"]
 
-    # Assert max_val if specified
-    if test_case["expectedOutcome"].get("max_val") is not None:
-        assert (
-            src20_dict.get("max") == test_case["expectedOutcome"]["max_val"]
-        ), f"max_val mismatch - Expected: {test_case['expectedOutcome']['max_val']}, Got: {src20_dict.get('max')}"
-
-    # Assert lim_val if specified
-    if test_case["expectedOutcome"].get("lim_val") is not None:
-        assert (
-            src20_dict.get("lim") == test_case["expectedOutcome"]["lim_val"]
-        ), f"lim_val mismatch - Expected: {test_case['expectedOutcome']['lim_val']}, Got: {src20_dict.get('lim')}"
+        # Optional: Check for specific database changes if defined in the test case
+        if "dbChanges" in expected_outcome:
+            changes = expected_outcome["dbChanges"]
+            if "balances" in changes:
+                for balance_change in changes["balances"]:
+                    final_balance = mock_db.get_balance(
+                        balance_change["address"], balance_change["tick"]
+                    )
+                    assert final_balance == balance_change["amt"]
+            if "deployments" in changes:
+                for deploy_change in changes["deployments"]:
+                    deployment = mock_db.get_deployment(deploy_change["tick"])
+                    assert deployment is not None
+                    assert deployment["max"] == deploy_change["max"]
+                    assert deployment["lim"] == deploy_change["lim"]

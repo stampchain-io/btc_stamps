@@ -1,18 +1,11 @@
-src20_variations_data = [
+[
     {
         "description": "SRC20.01 - Valid DEPLOY with all required fields",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "DEPLOY",
-          "tick": "TEST",
-          "dec": 8,
-          "lim": 1000000,
-          "max": 1000000000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"DEPLOY\",\n          \"tick\": \"TEST\",\n          \"dec\": 8,\n          \"lim\": 1000000,\n          \"max\": 1000000000\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Valid token deployment with all required fields",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Valid token deployment with all required fields"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -23,26 +16,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.02 - TRANSFER fails due to insufficient balance",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "TRANSFER",
-          "tick": "TEST",
-          "from": "2SourceAddr",
-          "to": "1DestAddr",
-          "amt": 5000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"TRANSFER\",\n          \"tick\": \"TEST\",\n          \"from\": \"2SourceAddr\",\n          \"to\": \"1DestAddr\",\n          \"amt\": 5000\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "TRANSFER failed: Insufficient balance for requested amount",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "TRANSFER failed: Insufficient balance for requested amount"
         },
         "source": "2SourceAddr",
         "destination": "1DestAddr",
@@ -53,25 +39,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.03 - MINT fails due to token not deployed",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "MINT",
-          "tick": "TEST",
-          "to": "1DestAddr",
-          "amt": 10000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"MINT\",\n          \"tick\": \"TEST\",\n          \"to\": \"1DestAddr\",\n          \"amt\": 10000\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "MINT failed: Token must be deployed before minting",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "MINT failed: Token must be deployed before minting"
         },
         "source": "3SourceAddr",
         "destination": "1DestAddr",
@@ -82,23 +62,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.04 - Invalid operation type",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "INVALID_OP",
-          "tick": "TEST"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"INVALID_OP\",\n          \"tick\": \"TEST\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "OPERATION failed: Invalid operation type specified",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "OPERATION failed: Invalid operation type specified"
         },
         "source": "4SourceAddr",
         "destination": "1DestAddr",
@@ -109,35 +85,28 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.05 - TRANSFER with invalid tick length",
-        "src20JsonString": """{
-          "op": "TRANSFER",
-          "p": "SRC-20",
-          "tick": "SPECIALTOKEN",
-          "from": "5SpecialSourceAddr",
-          "to": "1SpecialDestAddr",
-          "amt": 100000
-        }""",
+        "src20JsonString": "{\n          \"op\": \"TRANSFER\",\n          \"p\": \"SRC-20\",\n          \"tick\": \"SPECIALTOKEN\",\n          \"from\": \"5SpecialSourceAddr\",\n          \"to\": \"1SpecialDestAddr\",\n          \"amt\": 100000\n        }",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
+            "stamp_success": false,
+            "src20_success": false,
             "message": "TRANSFER op invalid tick length",
             "dbChanges": {
                 "balances": [
                     {
                         "address": "1SpecialDestAddr",
                         "tick": "SPECIALTOKEN",
-                        "amt": 100000,
+                        "amt": 100000
                     }
                 ]
-            },
+            }
         },
         "source": "5SpecialSourceAddr",
         "destination": "1SpecialDestAddr",
@@ -148,24 +117,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.06 - Valid MINT with prior deployment",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "MINT",
-          "tick": "KEVIN",
-          "amt": 100000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"MINT\",\n          \"tick\": \"KEVIN\",\n          \"amt\": 100000\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "6SourceAddr",
         "destination": "1DestAddr",
@@ -176,25 +140,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.1 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": "1.0"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": \"1.0\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Token not previously deployed - UPDATE SRC20 Results",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Token not previously deployed - UPDATE SRC20 Results"
         },
         "source": "1v1SourceAddr",
         "destination": "1DestAddr",
@@ -205,25 +163,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.1 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": "1.0"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": \"1.0\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed - UPDATE SRC20 Results",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed - UPDATE SRC20 Results"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -234,25 +186,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.2 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": 1.0
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": 1.0\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed ",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -263,25 +209,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.2 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": 1.0
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": 1.0\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -292,25 +232,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.3 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": "1.1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": \"1.1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed - UPDATE SRC20 Results",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed - UPDATE SRC20 Results"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -321,25 +255,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.3 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": "1.1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": \"1.1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed - UPDATE SRC20 Results",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed - UPDATE SRC20 Results"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -350,25 +278,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.4 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": 1.1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": 1.1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed ",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -379,25 +301,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.4 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": 1.1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": 1.1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -408,25 +324,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.5 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": "1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": \"1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -437,25 +347,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.5 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": 1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": 1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -466,25 +370,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.5 (Variant 3)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": "1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": \"1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -495,25 +393,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.5 (Variant 4)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": 1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": 1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -524,25 +416,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.6 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": "01"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": \"01\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -553,25 +439,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.6 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": "01"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": \"01\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -582,25 +462,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.8 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "T8",
-          "max": "1",
-          "lim": "1 "
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"T8\",\n          \"max\": \"1\",\n          \"lim\": \"1 \"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token not previously deployed, extra whitespace",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token not previously deployed, extra whitespace"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -611,25 +485,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.8 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "T8",
-          "max": "1",
-          "lim": " 1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"T8\",\n          \"max\": \"1\",\n          \"lim\": \" 1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token not previously deployed, extra whitespace",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token not previously deployed, extra whitespace"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -640,25 +508,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.8 (Variant 3)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "T8",
-          "lim": "1",
-          "max": "1 "
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"T8\",\n          \"lim\": \"1\",\n          \"max\": \"1 \"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token not previously deployed, extra whitespace",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token not previously deployed, extra whitespace"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -669,25 +531,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.8 (Variant 4)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "T8",
-          "lim": "1",
-          "max": " 1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"T8\",\n          \"lim\": \"1\",\n          \"max\": \" 1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token not previously deployed, extra whitespace",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token not previously deployed, extra whitespace"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -698,24 +554,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.9 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -726,24 +577,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.9 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -754,24 +600,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.9 (Variant 3)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -782,24 +623,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.9 (Variant 4)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -810,24 +646,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.10 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1.00"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.00\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -838,24 +669,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.10 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1.00"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.00\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -866,24 +692,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.11",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 1.00
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.00\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -894,24 +715,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.12",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 1.00
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.00\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -922,24 +738,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.13 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1.1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -950,24 +761,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.13 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1.1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -978,24 +784,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.14",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 1.1234
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.1234\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token previously deployed, current FAIL/FAIL - UPDATE STAMP Result? cannot mint fractions was was prior expectation",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token previously deployed, current FAIL/FAIL - UPDATE STAMP Result? cannot mint fractions was was prior expectation"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1006,24 +807,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.15",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 1.1234
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.1234\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1034,24 +830,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.16 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1.12340"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.12340\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, 4 decimals, trailing 0 in amt dec value",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, 4 decimals, trailing 0 in amt dec value"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1062,24 +853,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.16 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1.12340"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.12340\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed - user has simulated balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed - user has simulated balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1090,24 +876,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.17",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 1.12340
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.12340\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1118,24 +899,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.18",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 1.12340
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.12340\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- user has simulated balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- user has simulated balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1146,25 +922,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.19 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1.12345",
-          "dec": "4"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.12345\",\n          \"dec\": \"4\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE ? ",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE ? "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1175,25 +945,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.19 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1.12345",
-          "dec": "4"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.12345\",\n          \"dec\": \"4\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE ",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1204,25 +968,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.20",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 1.12345,
-          "dec": 4
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.12345,\n          \"dec\": 4\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1233,25 +991,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token operations, scenario No.21",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 1.12345,
-          "dec": "4"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.12345,\n          \"dec\": \"4\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE ",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token previously deployed, - THIS IS OVER THE DEC VALUE "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1262,24 +1014,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token operations, scenario No.22 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec0",
-          "amt": "1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec0\",\n          \"amt\": \"1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, DEBUG SIM FOR 0 DEC",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, DEBUG SIM FOR 0 DEC"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1290,24 +1037,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token operations, scenario No.22 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec0",
-          "amt": 1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec0\",\n          \"amt\": 1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token previously deployed, DEBUG SIM FOR 0 DEC",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token previously deployed, DEBUG SIM FOR 0 DEC"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1318,24 +1060,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.22 (Variant 3)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec0",
-          "amt": "1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec0\",\n          \"amt\": \"1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed - DEBUG SIM FOR 0 DEC",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed - DEBUG SIM FOR 0 DEC"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1346,24 +1083,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.22 (Variant 4)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec0",
-          "amt": 1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec0\",\n          \"amt\": 1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- DEBUG SIM FOR 0 DEC",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- DEBUG SIM FOR 0 DEC"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1374,24 +1106,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.23 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec0",
-          "amt": "1.0"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec0\",\n          \"amt\": \"1.0\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, valid amt with 0 value decimal",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, valid amt with 0 value decimal"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1402,24 +1129,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.23 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec0",
-          "amt": "1.0"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec0\",\n          \"amt\": \"1.0\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1430,24 +1152,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.24",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec0",
-          "amt": 1.0
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec0\",\n          \"amt\": 1.0\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1458,24 +1175,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.25",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec0",
-          "amt": 1.0
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec0\",\n          \"amt\": 1.0\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1486,24 +1198,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.26 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec0",
-          "amt": "1.1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec0\",\n          \"amt\": \"1.1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1514,24 +1221,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.26 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec0",
-          "amt": "1.1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec0\",\n          \"amt\": \"1.1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1542,24 +1244,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.27",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec0",
-          "amt": 1.1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec0\",\n          \"amt\": 1.1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1570,24 +1267,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.28",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec0",
-          "amt": 1.1
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec0\",\n          \"amt\": 1.1\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1598,24 +1290,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.29 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": ".1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \".1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1626,24 +1313,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.29 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": ".1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \".1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1654,24 +1336,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.30",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": .1234
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": .1234\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1682,24 +1359,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.31",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": .1234
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": .1234\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1710,24 +1382,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.32 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "01.1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"01.1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1738,24 +1405,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.32 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "01.1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"01.1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1766,24 +1428,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.33",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 01.1234
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 01.1234\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1794,24 +1451,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.34",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 01.1234
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 01.1234\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1822,24 +1474,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.35 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1 "
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1 \"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1850,24 +1497,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.35 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": " 1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \" 1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1878,24 +1520,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.35 (Variant 3)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1.1234 "
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.1234 \"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1906,24 +1543,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.35 (Variant 4)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": " 1.1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \" 1.1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1934,24 +1566,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.35 (Variant 5)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1 "
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1 \"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1962,24 +1589,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.35 (Variant 6)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": " 1"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \" 1\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -1990,24 +1612,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.35 (Variant 7)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1.1234 "
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.1234 \"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2018,24 +1635,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.35 (Variant 8)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": " 1.1234"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \" 1.1234\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2046,25 +1658,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.36 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": "1."
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": \"1.\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Token not previously deployed - UPDATE SRC20 Results",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Token not previously deployed - UPDATE SRC20 Results"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2075,25 +1681,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.36 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": 1.
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": 1.\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed ",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2104,25 +1704,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.36 (Variant 3)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": "1."
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": \"1.\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Token not previously deployed - UPDATE SRC20 Results",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Token not previously deployed - UPDATE SRC20 Results"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2133,25 +1727,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment, scenario No.36 (Variant 4)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": 1.
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": 1.\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed ",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed "
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2162,24 +1750,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.37 (Variant 1)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": "1."
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2190,24 +1773,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.37 (Variant 2)",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": "1."
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": \"1.\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2218,24 +1796,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token mint, scenario No.38",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "mint",
-          "tick": "dec4",
-          "amt": 1.
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"mint\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed, current FAIL/FAIL - UPDATE STAMP Result - could have historic stamp implications - will need activation block"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2246,24 +1819,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.39",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "dec4",
-          "amt": 1.
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"dec4\",\n          \"amt\": 1.\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token  previously deployed -- debug to give user balance",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token  previously deployed -- debug to give user balance"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2274,19 +1842,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token transfer, scenario No.40",
-        "src20JsonString": '{"p":"src-20","op":"transfer","tick":"kevin","amt":.1234}',
+        "src20JsonString": "{\"p\":\"src-20\",\"op\":\"transfer\",\"tick\":\"kevin\",\"amt\":.1234}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2297,25 +1865,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deploy uint64 str, scenario No.41",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "uin64",
-          "max": "18446744073709551615",
-          "lim": "18446744073709551615"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"uin64\",\n          \"max\": \"18446744073709551615\",\n          \"lim\": \"18446744073709551615\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2326,25 +1888,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deploy uint64 dec, scenario No.42",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "uin64",
-          "max": 18446744073709551615,
-          "lim": 18446744073709551615
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"uin64\",\n          \"max\": 18446744073709551615,\n          \"lim\": 18446744073709551615\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2355,26 +1911,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "utest",
+        "p2wsh_data": null,
+        "tx_hash": "utest"
     },
     {
         "description": "SRC-20 token deploy uint64 Decimal(dec.dec), scenario No.43",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "uin64",
-          "max": "18446744073709551614.999999999999999999",
-          "lim": "18446744073709551614.999999999999999999",
-          "dec": 18
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"uin64\",\n          \"max\": \"18446744073709551614.999999999999999999\",\n          \"lim\": \"18446744073709551614.999999999999999999\",\n          \"dec\": 18\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token not previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token not previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2385,25 +1934,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "utest",
+        "p2wsh_data": null,
+        "tx_hash": "utest"
     },
     {
         "description": "SRC-20 token transfer uint64 dec.dec, scenario No.44",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "transfer",
-          "tick": "u64x",
-          "amt": 18446744073709551614.999999999999999999,
-          "dec": 18
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"transfer\",\n          \"tick\": \"u64x\",\n          \"amt\": 18446744073709551614.999999999999999999,\n          \"dec\": 18\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "token previously deployed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "token previously deployed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2414,26 +1957,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "utest44",
+        "p2wsh_data": null,
+        "tx_hash": "utest44"
     },
     {
         "description": "SRC-20 invalid src20_data json string, scenario No.45",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "DEPLOY",
-          "tick": "TEST",
-          "dec": 8,
-          "lim": 1000000,
-          "max": ""1000000000"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"DEPLOY\",\n          \"tick\": \"TEST\",\n          \"dec\": 8,\n          \"lim\": 1000000,\n          \"max\": \"\"1000000000\"\n        }",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Invalid Stamp Data: Invalid string representation of a dictionary",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Invalid Stamp Data: Invalid string representation of a dictionary"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2444,26 +1980,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "Invalid p with src20JsonString, scenario No.46",
-        "src20JsonString": """{
-          "p": "BRC-20",
-          "op": "DEPLOY",
-          "tick": "TEST",
-          "dec": 8,
-          "lim": 1000000,
-          "max": 1000000000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"BRC-20\",\n          \"op\": \"DEPLOY\",\n          \"tick\": \"TEST\",\n          \"dec\": 8,\n          \"lim\": 1000000,\n          \"max\": 1000000000\n        }",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Invalid p with src20JsonString",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Invalid p with src20JsonString"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2474,25 +2003,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "No tick attribute cause AttributeError, scenario No.47",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "DEPLOY",
-          "dec": 8,
-          "lim": 1000000,
-          "max": 1000000000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"DEPLOY\",\n          \"dec\": 8,\n          \"lim\": 1000000,\n          \"max\": 1000000000\n        }",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "No tick attribute cause AttributeError",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "No tick attribute cause AttributeError"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2503,24 +2026,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "Sci Notation Incoming, scenario No.48",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "tick": "TCT3",
-          "op": "MINT",
-          "amt": "1e-18",
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"tick\": \"TCT3\",\n          \"op\": \"MINT\",\n          \"amt\": \"1e-18\",\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Sci Notation rejected in check_format",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Sci Notation rejected in check_format"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2531,26 +2049,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "Deploy with missing lim, scenario No.49",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "DEPLOY",
-          "tick": "TEST",
-          "dec": 8,
-          "lim": "",
-          "max": 1000000000
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"DEPLOY\",\n          \"tick\": \"TEST\",\n          \"dec\": 8,\n          \"lim\": \"\",\n          \"max\": 1000000000\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "SRC-20 token deploy, missing lim",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "SRC-20 token deploy, missing lim"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2561,26 +2072,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "Deploy with missing max, scenario No.50",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "DEPLOY",
-          "tick": "TEST",
-          "dec": 8,
-          "lim": "1000000000",
-          "max": ""
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"DEPLOY\",\n          \"tick\": \"TEST\",\n          \"dec\": 8,\n          \"lim\": \"1000000000\",\n          \"max\": \"\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "SRC-20 token deploy, missing max",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "SRC-20 token deploy, missing max"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2591,27 +2095,21 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment decimal in lim string, scenario No.51",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": "1.9"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": \"1.9\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
+            "stamp_success": true,
+            "src20_success": true,
             "message": "invalid max/lim",
             "max_val": 1,
-            "lim_val": 1,
+            "lim_val": 1
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2622,27 +2120,21 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment decimal in max string, scenario No.52",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": "1.9"
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": \"1.9\"\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
+            "stamp_success": true,
+            "src20_success": true,
             "message": "invalid max/lim",
             "max_val": 1,
-            "lim_val": 1,
+            "lim_val": 1
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2653,27 +2145,21 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment decimal in lim number, scenario No.53",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "max": "1",
-          "lim": 1.9
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"max\": \"1\",\n          \"lim\": 1.9\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
+            "stamp_success": true,
+            "src20_success": true,
             "message": "invalid max/lim",
             "max_val": 1,
-            "lim_val": 1,
+            "lim_val": 1
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2684,27 +2170,21 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC-20 token deployment decimal in max number, scenario No.54",
-        "src20JsonString": """{
-          "p": "src-20",
-          "op": "deploy",
-          "tick": "test",
-          "lim": "1",
-          "max": 1.9
-        }""",
+        "src20JsonString": "{\n          \"p\": \"src-20\",\n          \"op\": \"deploy\",\n          \"tick\": \"test\",\n          \"lim\": \"1\",\n          \"max\": 1.9\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
+            "stamp_success": true,
+            "src20_success": true,
             "message": "invalid max/lim",
             "max_val": 1,
-            "lim_val": 1,
+            "lim_val": 1
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2715,27 +2195,20 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "name": "tick_with_dot_notation",
         "description": "Tick with period/dot notation should be valid",
-        "src20JsonString": """{
-          "p": "SRC-20",
-          "op": "DEPLOY",
-          "tick": "10.10",
-          "lim": "1000",
-          "max": "21000000",
-          "dec": 18
-        }""",
+        "src20JsonString": "{\n          \"p\": \"SRC-20\",\n          \"op\": \"DEPLOY\",\n          \"tick\": \"10.10\",\n          \"lim\": \"1000\",\n          \"max\": \"21000000\",\n          \"dec\": 18\n        }",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Tick with period/dot notation should be valid",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Tick with period/dot notation should be valid"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2746,20 +2219,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 865002,
         "block_time": 1679616000,
-        "is_op_return": True,
+        "is_op_return": true,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "p2wsh_data": null,
+        "tx_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
     },
-    # JSON Structural Malformation Tests
     {
         "description": "SRC20.JSON.01 - Malformed JSON: Missing closing brace",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Invalid JSON format - missing closing brace",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Invalid JSON format - missing closing brace"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2770,19 +2242,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.JSON.02 - Malformed JSON: Trailing comma",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000,}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000,}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Trailing comma actually passes both stamp and src20 validation",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Trailing comma actually passes both stamp and src20 validation"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2793,19 +2265,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.JSON.03 - Malformed JSON: Unquoted keys",
-        "src20JsonString": """{p: "SRC-20", op: "DEPLOY", tick: "TEST", max: 1000, lim: 1000}""",
+        "src20JsonString": "{p: \"SRC-20\", op: \"DEPLOY\", tick: \"TEST\", max: 1000, lim: 1000}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Invalid JSON format - unquoted keys",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Invalid JSON format - unquoted keys"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2816,20 +2288,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Scientific Notation Tests (should be rejected)
     {
         "description": "SRC20.VAL.01 - Scientific notation in max field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": "1e6", "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": \"1e6\", \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Scientific notation rejected at src20 level but passes stamp",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Scientific notation rejected at src20 level but passes stamp"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2840,19 +2311,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.VAL.02 - Scientific notation in amt field",
-        "src20JsonString": """{"p": "SRC-20", "op": "MINT", "tick": "TEST", "amt": "1.5e3"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"MINT\", \"tick\": \"TEST\", \"amt\": \"1.5e3\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Scientific notation rejected at src20 level but passes stamp",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Scientific notation rejected at src20 level but passes stamp"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2863,20 +2334,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Numeric Value Malformation Tests
     {
         "description": "SRC20.VAL.05 - Negative values in max field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": -1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": -1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Negative values not allowed in max field",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Negative values not allowed in max field"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2887,19 +2357,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.VAL.06 - Non-numeric string in amt field",
-        "src20JsonString": """{"p": "SRC-20", "op": "TRANSFER", "tick": "TEST", "amt": "abc123"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"TRANSFER\", \"tick\": \"TEST\", \"amt\": \"abc123\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Invalid numeric value in amt field",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Invalid numeric value in amt field"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2910,19 +2380,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.VAL.03 - Mixed alphanumeric in decimal field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000, "dec": "8a"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000, \"dec\": \"8a\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "SRC20 failed: Decimal field must contain only numeric characters",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "SRC20 failed: Decimal field must contain only numeric characters"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2933,19 +2403,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.VAL.04 - Decimal field exceeding maximum (>18)",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000, "dec": 25}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000, \"dec\": 25}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Decimal value exceeding 18 passes validation",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Decimal value exceeding 18 passes validation"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2956,20 +2426,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # String Field Malformation Tests
     {
         "description": "SRC20.TICK.01 - Empty tick field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Empty tick not allowed",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Empty tick not allowed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -2980,19 +2449,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.TICK.02 - Invalid characters in tick field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST@#", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST@#\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Invalid tick characters",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Invalid tick characters"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3003,19 +2472,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.PROTO.01 - Case insensitive protocol field",
-        "src20JsonString": """{"p": "src-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"src-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Protocol case insensitive - should pass",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Protocol case insensitive - should pass"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3026,20 +2495,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Type Mismatch Tests
     {
         "description": "SRC20.TYPE.01 - String value in numeric field (max)",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": "not_a_number", "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": \"not_a_number\", \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Type mismatch - non-numeric string in max field fails",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Type mismatch - non-numeric string in max field fails"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3050,20 +2518,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Boundary Condition Tests
     {
         "description": "SRC20.BOUND.01 - Maximum uint64 value test",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 18446744073709551615, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 18446744073709551615, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "Max uint64 value should be accepted",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "Max uint64 value should be accepted"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3074,19 +2541,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.BOUND.02 - Value exceeding uint64 maximum",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 18446744073709551616, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 18446744073709551616, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Value exceeding uint64 maximum fails at check_format level",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Value exceeding uint64 maximum fails at check_format level"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3097,19 +2564,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.BOUND.03 - Zero values in required fields",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 0, "lim": 0, "dec": 0}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 0, \"lim\": 0, \"dec\": 0}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Zero values in max/lim fields cause deployment failure",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Zero values in max/lim fields cause deployment failure"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3120,19 +2587,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.REQ.01 - Missing required fields for DEPLOY",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Missing required max and lim fields passes stamp but fails src20",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Missing required max and lim fields passes stamp but fails src20"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3143,20 +2610,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Unicode and Special Character Tests
     {
         "description": "SRC20.TICK.03 - Unicode characters in tick field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "测试", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"\u6d4b\u8bd5\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Unicode tick fails at check_format level",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Unicode tick fails at check_format level"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3167,19 +2633,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.TICK.04 - Control characters in tick field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TE\nST", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TE\nST\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Control characters should be rejected",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Control characters should be rejected"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3190,20 +2656,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Decimal Precision Edge Cases
     {
         "description": "SRC20.PREC.01 - Amount with excessive decimal precision",
-        "src20JsonString": """{"p": "SRC-20", "op": "MINT", "tick": "TEST", "amt": "1.123456789012345678901"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"MINT\", \"tick\": \"TEST\", \"amt\": \"1.123456789012345678901\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "Decimal precision exceeds limit",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "Decimal precision exceeds limit"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3214,19 +2679,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.PROTO.02 - Missing protocol field",
-        "src20JsonString": """{"op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Missing protocol field",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Missing protocol field"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3237,19 +2702,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.PROTO.03 - Wrong protocol field",
-        "src20JsonString": """{"p": "BRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 1000, "dec": 8}""",
+        "src20JsonString": "{\"p\": \"BRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 1000, \"dec\": 8}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "Wrong protocol - not SRC-20",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "Wrong protocol - not SRC-20"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3260,20 +2725,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
-    # Additional edge case tests
     {
         "description": "SRC20.STRUCT.01 - Valid DEPLOY with fields in different order",
-        "src20JsonString": """{"max": 1000, "op": "DEPLOY", "p": "SRC-20", "lim": 100, "tick": "TEST"}""",
+        "src20JsonString": "{\"max\": 1000, \"op\": \"DEPLOY\", \"p\": \"SRC-20\", \"lim\": 100, \"tick\": \"TEST\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Field order does not affect validation",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Field order does not affect validation"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3284,19 +2748,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.STRUCT.02 - DEPLOY with extra unknown fields",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 100, "extra": "ignored", "version": "1.0"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 100, \"extra\": \"ignored\", \"version\": \"1.0\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Unknown fields are ignored",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Unknown fields are ignored"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3307,19 +2771,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.STR.01 - Empty string in required tick field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "", "max": 1000, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"\", \"max\": 1000, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "STAMP failed: Empty string in required tick field",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "STAMP failed: Empty string in required tick field"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3330,19 +2794,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.DEC.01 - Decimal field as string zero",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 100, "dec": "0"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 100, \"dec\": \"0\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Zero decimals is valid",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Zero decimals is valid"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3353,19 +2817,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.DEC.02 - Decimal field as number zero",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 100, "dec": 0}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 100, \"dec\": 0}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Zero decimals as number is valid",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Zero decimals as number is valid"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3376,19 +2840,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.DEC.03 - Decimal field with leading zeros",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000, "lim": 100, "dec": "08"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000, \"lim\": 100, \"dec\": \"08\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Leading zeros in decimal field are acceptable",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Leading zeros in decimal field are acceptable"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3399,19 +2863,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.TICK.05 - Tick with only numbers",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "12345", "max": 1000, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"12345\", \"max\": 1000, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Numeric tick is valid",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Numeric tick is valid"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3422,19 +2886,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.TICK.06 - Mixed case tick conversion",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TeSt", "max": 1000, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TeSt\", \"max\": 1000, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Tick converted to lowercase",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Tick converted to lowercase"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3445,19 +2909,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.TICK.07 - Single character tick",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "X", "max": 1000, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"X\", \"max\": 1000, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Single character tick is valid",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Single character tick is valid"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3468,19 +2932,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.NUM.01 - Boolean value in numeric field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": true, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": true, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "SRC20 failed: Boolean values not allowed in numeric fields",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "SRC20 failed: Boolean values not allowed in numeric fields"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3491,19 +2955,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.NUM.02 - Float value in max field",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1000.5, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1000.5, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Float values rounded down in max/lim fields",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Float values rounded down in max/lim fields"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3514,19 +2978,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.BOUND.04 - Minimum valid numeric values",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TEST", "max": 1, "lim": 1}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TEST\", \"max\": 1, \"lim\": 1}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: Minimum valid values accepted",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Minimum valid values accepted"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3537,19 +3001,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.BOUND.05 - Maximum tick length exactly 5",
-        "src20JsonString": """{"p": "SRC-20", "op": "DEPLOY", "tick": "TESTS", "max": 1000, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"TESTS\", \"max\": 1000, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": True,
-            "message": "DEPLOY successful: 5-character tick is maximum allowed",
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: 5-character tick is maximum allowed"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3560,19 +3024,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.OP.01 - MINT with extra DEPLOY fields",
-        "src20JsonString": """{"p": "SRC-20", "op": "MINT", "tick": "TEST", "amt": 100, "max": 1000, "lim": 100}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"MINT\", \"tick\": \"TEST\", \"amt\": 100, \"max\": 1000, \"lim\": 100}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "MINT failed: Token must be deployed before minting",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "MINT failed: Token must be deployed before minting"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3583,19 +3047,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.OP.02 - TRANSFER missing amt field",
-        "src20JsonString": """{"p": "SRC-20", "op": "TRANSFER", "tick": "TEST"}""",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"TRANSFER\", \"tick\": \"TEST\"}",
         "expectedOutcome": {
-            "stamp_success": True,
-            "src20_success": False,
-            "message": "SRC20 failed: Missing required amt field for TRANSFER",
+            "stamp_success": true,
+            "src20_success": false,
+            "message": "SRC20 failed: Missing required amt field for TRANSFER"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3606,19 +3070,19 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     },
     {
         "description": "SRC20.JSON.04 - JSON array instead of object",
-        "src20JsonString": """["SRC-20", "DEPLOY", "TEST", 1000, 100]""",
+        "src20JsonString": "[\"SRC-20\", \"DEPLOY\", \"TEST\", 1000, 100]",
         "expectedOutcome": {
-            "stamp_success": False,
-            "src20_success": False,
-            "message": "STAMP failed: JSON must be an object, not an array",
+            "stamp_success": false,
+            "src20_success": false,
+            "message": "STAMP failed: JSON must be an object, not an array"
         },
         "source": "1SourceAddr",
         "destination": "1DestAddr",
@@ -3629,10 +3093,10 @@ src20_variations_data = [
         "tx_index": 0,
         "block_index": 0,
         "block_time": 0,
-        "is_op_return": False,
+        "is_op_return": false,
         "valid_stamps_in_block": [],
         "processed_src20_in_block": [],
-        "p2wsh_data": None,
-        "tx_hash": "dummy_tx_hash",
-    },
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
+    }
 ]

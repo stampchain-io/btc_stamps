@@ -142,11 +142,14 @@ class TestCPBlocksPipeline:
         assert result is None
 
     def test_worker_fetches_and_populates_queue(self, mock_backend_instance, mock_health, mock_fetch_blocks):
-        pipeline = CPBlocksPipeline()
+        pipeline = CPBlocksPipeline(target_queue_size=10)
         pipeline.start(820000)
-        # Give the worker a moment to run and fetch blocks
-        time.sleep(0.5)
+
+        # Let the worker run and then stop it, which now waits for tasks to complete
+        time.sleep(0.2)  # A short sleep to ensure the worker starts
         pipeline.stop()
+
+        # Check queue has items and the first block is present
         assert len(pipeline.queue) > 0
         assert 820000 in pipeline.queue
         assert "transactions" in pipeline.queue[820000]
@@ -191,9 +194,12 @@ class TestCPBlocksPipeline:
 
     def test_fetch_batch_success(self, mock_fetch_blocks):
         pipeline = CPBlocksPipeline()
+        # The _fetch_blocks_batch is an internal method, we test it directly
         result = pipeline._fetch_blocks_batch(list(range(820000, 820005)), "http://test-node")
         assert len(result) == 5
         assert 820000 in result
+        # Verify that the mocked function was called correctly
+        mock_fetch_blocks.assert_called_once_with(820000, 820004)
 
     def test_fetch_batch_failure(self, mock_fetch_blocks):
         mock_fetch_blocks.side_effect = Exception("Total fetch failure")
@@ -201,15 +207,22 @@ class TestCPBlocksPipeline:
         result = pipeline._fetch_blocks_batch(list(range(820000, 820005)), "http://test-node")
         assert result == {}
 
-    def test_fallback_mode_integration(self, mock_backend_instance, mock_health):
+    def test_fallback_mode_enters_and_persists_state(self, mock_backend_instance, mock_health, mock_fsm, mock_pipeline_logger):
         # Simulate no healthy nodes
         mock_health["get"].return_value = []
+
         pipeline = CPBlocksPipeline()
-        with mock.patch.object(pipeline, "_enter_fallback_mode") as mock_enter_fallback:
-            pipeline.start(820000)
-            time.sleep(0.1)  # Allow worker to run
-            pipeline.stop()
-            mock_enter_fallback.assert_called()
+        pipeline.start(820000)
+
+        # Allow worker to run and detect node failure
+        time.sleep(1)
+
+        # Stop the pipeline to ensure state is flushed if needed
+        pipeline.stop()
+
+        # Assert that fallback mode was entered and state was persisted
+        assert pipeline.fallback_started_at == 820000
+        mock_fsm.start_fallback_mode.assert_called_once_with(820000)
 
     def test_concurrent_access(self, mock_backend_instance, mock_health, mock_fetch_blocks):
         pipeline = CPBlocksPipeline()
