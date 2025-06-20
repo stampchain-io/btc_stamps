@@ -316,7 +316,9 @@ class CPBlocksPipeline:
         Returns:
             Block data dictionary or None if not available
         """
+        logger.debug(f"get_block({block_index}) called, acquiring lock...")
         with self._lock:
+            logger.debug(f"get_block({block_index}) acquired lock, checking queue...")
             block_data = self.queue.get(block_index)
 
             if block_data:
