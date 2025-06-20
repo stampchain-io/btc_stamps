@@ -349,13 +349,17 @@ class CPBlocksPipeline:
 
                 # Log queue state after removing the block
                 remaining_queue_size = len(self.queue)
-                logger.info(f"Retrieved block {block_index} from pipeline queue (remaining queue size: {remaining_queue_size})")
+                logger.info(
+                    f"Retrieved block {block_index} from pipeline queue (remaining queue size: {remaining_queue_size})"
+                )
 
                 # CRITICAL: Always advance current_block when we consume a block
                 # This ensures the pipeline continues fetching new blocks
                 if self.current_block <= block_index:
                     self.current_block = block_index + 1
-                    logger.info(f"Advanced pipeline current_block to {self.current_block} after retrieving block {block_index}")
+                    logger.info(
+                        f"Advanced pipeline current_block to {self.current_block} after retrieving block {block_index}"
+                    )
 
                 # Check if we should prefetch the next sequential block
                 if block_index + 1 not in self.queue and block_index + 1 <= backend_instance.getblockcount():
@@ -689,7 +693,7 @@ class CPBlocksPipeline:
                     next_block = self.current_block
                     # Keep a local copy of queue blocks for calculations outside the lock
                     local_queue_blocks = set(queue_keys)
-                    
+
                     # CRITICAL FIX: When queue is empty, use current_block as the processor position
                     # This prevents the pipeline from thinking it's far ahead when it's actually behind
                     if queue_keys:
@@ -703,7 +707,9 @@ class CPBlocksPipeline:
 
                 # Calculate the absolute maximum block index allowed for fetching based on processor position
                 max_fetch_block = lowest_queued_block + self.max_lookahead
-                logger.info(f"Lookahead calculation: lowest_queued_block={lowest_queued_block}, max_lookahead={self.max_lookahead}, max_fetch_block={max_fetch_block}")
+                logger.info(
+                    f"Lookahead calculation: lowest_queued_block={lowest_queued_block}, max_lookahead={self.max_lookahead}, max_fetch_block={max_fetch_block}"
+                )
                 # --- End: Calculate effective tip ---
 
                 # Get current blockchain tip
@@ -810,9 +816,11 @@ class CPBlocksPipeline:
                 # Only proceed if there are blocks to fetch *and* queue is below a threshold
                 # CRITICAL: Use a lower threshold to keep the queue full
                 trigger_fetch_threshold = int(self.target_queue_size * 0.5)  # Fetch if below 50% target
-                
-                logger.info(f"Fetch decision: queue_size={queue_size}, threshold={trigger_fetch_threshold}, missing_blocks={len(missing_blocks_batch) if missing_blocks_batch else 0}")
-                
+
+                logger.info(
+                    f"Fetch decision: queue_size={queue_size}, threshold={trigger_fetch_threshold}, missing_blocks={len(missing_blocks_batch) if missing_blocks_batch else 0}"
+                )
+
                 if queue_size < trigger_fetch_threshold and missing_blocks_batch:
                     try:
                         logger.info(
