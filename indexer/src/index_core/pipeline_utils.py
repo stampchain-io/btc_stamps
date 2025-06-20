@@ -703,7 +703,7 @@ class CPBlocksPipeline:
                         # Queue is empty - processor has consumed all blocks
                         # Use current_block - 1 as the processor position to ensure we continue fetching
                         lowest_queued_block = self.current_block - 1
-                        logger.info(f"Queue empty: using current_block - 1 ({lowest_queued_block}) as processor position")
+                        logger.info(f"⚠️ CRITICAL: Queue empty! Using current_block - 1 ({lowest_queued_block}) as processor position to continue fetching")
 
                 # Calculate the absolute maximum block index allowed for fetching based on processor position
                 max_fetch_block = lowest_queued_block + self.max_lookahead
