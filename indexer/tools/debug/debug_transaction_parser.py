@@ -46,6 +46,9 @@ except ImportError:
 
 def get_tx_hash_for_asset(asset_id: str) -> Optional[str]:
     """Get the issuance transaction hash for a given asset ID."""
+    from index_core.node_health import initialize_node_health
+
+    initialize_node_health()  # Ensure nodes are checked before fetching
     logger.info(f"Fetching asset details for {asset_id} to find issuance transaction...")
     asset_data = get_xcp_asset(asset_id)
     if asset_data:
@@ -339,7 +342,7 @@ if __name__ == "__main__":
     identifier = args.tx_or_asset_id
     txid_to_debug = None
 
-    # Check if the identifier is a potential asset ID (starts with 'A' and the rest are digits)
+    # Check if the identifier is a potential asset ID
     if identifier.startswith("A") and identifier[1:].isdigit():
         txid_to_debug = get_tx_hash_for_asset(identifier)
         if not txid_to_debug:
