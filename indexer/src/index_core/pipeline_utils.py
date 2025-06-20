@@ -21,14 +21,24 @@ backend_instance = Backend()
 class CPBlocksPipeline:
     """Background worker that prefetches blocks and keeps them in a queue."""
 
-    def __init__(self, max_queue_size=600, target_queue_size=250, max_lookahead=500, fallback_mode=True):
+    def __init__(
+        self,
+        max_queue_size=600,
+        target_queue_size=250,
+        max_lookahead=500,
+        initial_fetch_size=50,
+        max_batch_size=150,
+        fallback_mode=True,
+    ):
         """
         Initialize the pipeline with an empty queue.
 
         Args:
             max_queue_size (int): Maximum number of blocks to keep in the queue.
-            target_queue_size (int): Ideal number of blocks to keep prefetched ahead.
+            target_queue_size (int): Target number of blocks to keep prefetched ahead.
             max_lookahead (int): Maximum number of blocks to fetch ahead of the slowest consumer.
+            initial_fetch_size (int): Number of blocks to fetch on startup (default: 50).
+            max_batch_size (int): Maximum blocks per API call (default: 150).
             fallback_mode (bool): If True, continue processing without CP data when nodes fail.
         """
         self.queue = {}  # Block data by index
@@ -41,16 +51,17 @@ class CPBlocksPipeline:
         self.max_queue_size = max_queue_size
         self.target_queue_size = target_queue_size
         self.max_lookahead = max_lookahead
+        self.initial_fetch_size = initial_fetch_size  # How many blocks to fetch on startup
+        self.max_batch_size = max_batch_size  # Maximum blocks per API call
         self.current_block = None
-        self.initial_batch_size = 50
         self.running = False
         self.fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         # Number of blocks needed before signaling ready for processing
         self.min_blocks_ready = 1  # Signal ready when we have at least 1 block
-        self.processing_start_delay = 0.5  # Short delay to ensure blocks are registered before processing starts
         self.blocks_being_fetched = set()  # Track which blocks are currently being fetched
         self._blocks_fetch_lock = threading.Lock()  # Separate lock for fetching state
         self.fetch_futures_lock = threading.Lock()  # Lock for fetch_futures dictionary
+        self.fetch_futures = {}  # Track active fetch futures
         self.blocks_fetch_timestamps = {}  # Track when each block started being fetched
         self.fetch_timeout = 60  # Timeout for block fetches in seconds
 
@@ -109,21 +120,27 @@ class CPBlocksPipeline:
                 # Set initial blocks ready flag since there's nothing to fetch
                 self.initial_blocks_ready.set()
                 return
-            elif blocks_available < self.initial_batch_size:
-                logger.debug(
-                    f"Only {blocks_available} blocks available (fewer than requested initial batch size {self.initial_batch_size})"
-                )
-                # Adjust initial batch size expectations
-                self.initial_batch_size = blocks_available
         except Exception as e:
             logger.warning(f"Could not check block tip before starting pipeline: {e}")
 
         # Initialize node health with a timeout to avoid deadlocks
         try:
             update_healthy_nodes()
+            # Check if we have healthy nodes after update
+            initial_nodes = get_healthy_nodes()
+            if not initial_nodes and not self.fallback_mode:
+                logger.error("No healthy Counterparty nodes available and fallback mode is disabled")
+                raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
+            elif not initial_nodes and self.fallback_mode:
+                logger.warning("No healthy Counterparty nodes detected at startup - will start in fallback mode")
+                # Enter fallback mode immediately
+                self._enter_fallback_mode()
+                # Set initial blocks ready since we won't be fetching any CP data
+                self.initial_blocks_ready.set()
         except Exception as e:
             logger.error(f"Error initializing node health: {e}")
-            raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
+            if not self.fallback_mode:
+                raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
 
         # Start the worker thread
         if self.worker_thread and self.worker_thread.is_alive():
@@ -191,62 +208,29 @@ class CPBlocksPipeline:
         Returns:
             bool: True if initial blocks are ready, False if timeout
         """
-        # First, check if enough blocks are already available
         if min_blocks is None:
             min_blocks = self.min_blocks_ready
 
-        # Scale timeout based on the expected batch size
-        adjusted_timeout = min(60, max(timeout, self.initial_batch_size // 5))
+        # Wait for blocks to be available in the queue
+        start_time = time.time()
 
-        # Start with a small delay to ensure blocks get registered in the queue
-        # before blocks.py tries to access them
-        time.sleep(self.processing_start_delay)
+        while time.time() - start_time < timeout:
+            # Check if the ready flag is set or if we have enough blocks
+            if self.initial_blocks_ready.is_set():
+                return True
 
-        # Wait for the initial ready signal
-        ready = self.initial_blocks_ready.wait(timeout=adjusted_timeout)
-
-        if ready:
+            # Also check queue directly
             with self._lock:
-                blocks_available = len(self.queue)
-
-                # If any blocks are available and we only need 1, we're good to go
-                if blocks_available >= min_blocks:
-                    logger.debug(f"Initial blocks ready: {blocks_available} blocks available")
+                if len(self.queue) >= min_blocks:
+                    logger.debug(f"Found {len(self.queue)} blocks in queue, marking as ready")
+                    self.initial_blocks_ready.set()
                     return True
 
-                # If we need more than 1 block, verify that the requested blocks are actually ready
-                start_block = self.current_block - self.initial_batch_size
-                if start_block < 0:
-                    start_block = self.current_block  # Fallback if calculation is wrong
+            # Short sleep to avoid busy waiting
+            time.sleep(0.1)
 
-                # Check for required blocks - we only need 5 consecutive blocks to start
-                # This is more lenient than checking for all initial_batch_size blocks
-                consecutive_needed = min(5, self.initial_batch_size)
-                required_blocks = set(range(start_block, start_block + consecutive_needed))
-                available_blocks = set(self.queue.keys())
-                missing_blocks = required_blocks - available_blocks
-
-                if missing_blocks:
-                    logger.warning(f"Initial blocks ready signal received but blocks {missing_blocks} still missing")
-
-                    # Check for essential blocks that must be available
-                    critical_blocks = [b for b in missing_blocks if b in [820662, 820668]]
-                    if critical_blocks:
-                        logger.error(f"Critical blocks missing: {critical_blocks}")
-                        return False
-
-                    # Only proceed if we have most of the required blocks
-                    if len(missing_blocks) > consecutive_needed // 3:  # Allow missing up to 1/3
-                        logger.error(
-                            f"Too many blocks missing ({len(missing_blocks)}/{consecutive_needed}) - cannot proceed without Counterparty data"
-                        )
-                        return False
-
-                # Return true only if we have sufficient consecutive blocks
-                return blocks_available >= min_blocks and len(missing_blocks) <= consecutive_needed // 3
-        else:
-            logger.warning(f"Timeout waiting for initial blocks after {adjusted_timeout}s")
-            return False
+        logger.warning(f"Timeout waiting for initial blocks after {timeout}s")
+        return False
 
     def _cleanup_stuck_fetches(self):
         """Remove blocks that have been in blocks_being_fetched for too long"""
@@ -312,7 +296,23 @@ class CPBlocksPipeline:
         # Shut down the executor
         try:
             logger.debug("Shutting down fetch executor...")
-            self.fetch_executor.shutdown(wait=False)
+            # Cancel any pending fetch futures to avoid blocking on shutdown
+            futures_to_cancel = []
+            with self.fetch_futures_lock:
+                # Get copies of futures from our tracking dict
+                futures_to_cancel = list(set(self.fetch_futures.values()))
+
+            # Cancel futures that aren't done
+            cancelled_count = 0
+            for future in futures_to_cancel:
+                if not future.done() and future.cancel():
+                    cancelled_count += 1
+
+            if cancelled_count > 0:
+                logger.debug(f"Cancelled {cancelled_count} pending fetch tasks")
+
+            # Now shutdown with wait=True, which will complete quickly since we cancelled pending tasks
+            self.fetch_executor.shutdown(wait=True)
         except Exception as e:
             logger.error(f"Error shutting down fetch executor: {e}")
 
@@ -528,6 +528,20 @@ class CPBlocksPipeline:
             self.state_manager.start_fallback_mode(current_block)
             logger.info(f"Fallback state persisted starting at block {current_block}")
 
+        # Create initial fallback blocks if queue is empty to prevent blocking
+        with self._lock:
+            if len(self.queue) == 0:
+                logger.info("Creating initial fallback blocks to prevent startup blocking")
+                # Create a few fallback blocks to get started
+                for i in range(5):  # Create 5 blocks ahead
+                    block_idx = current_block + i
+                    self.queue[block_idx] = self.create_fallback_block(block_idx)
+
+                # Set the initial blocks ready flag to unblock wait_for_initial_blocks()
+                if not self.initial_blocks_ready.is_set():
+                    logger.info("Setting initial_blocks_ready flag for fallback mode")
+                    self.initial_blocks_ready.set()
+
     def _perform_runtime_rollback(self):
         """
         Perform automatic rollback during runtime when CP nodes become healthy again.
@@ -616,12 +630,14 @@ class CPBlocksPipeline:
     def _fetch_blocks_worker(self):
         """Background worker that continuously prefetches blocks."""
         logger.info(f"CPBlocksPipeline worker starting from block {self.current_block}")
-        fetch_futures = {}
+
+        # Immediately start fetching the initial blocks
+        initial_fetch_complete = False
 
         while not self.shutdown_flag.is_set() and self.running:
             try:
                 # 1. Process any futures that have completed their work.
-                self._process_completed_futures(fetch_futures)
+                self._process_completed_futures()
 
                 # 2. Check for node health and handle fallback mode.
                 if self.fallback_mode:
@@ -650,8 +666,20 @@ class CPBlocksPipeline:
                     f"tip={block_tip}, effective_tip={effective_tip}"
                 )
 
-                # Condition to fetch is simple: queue is not full, and we're not at the tip.
-                should_fetch = queue_size < self.target_queue_size and processor_position <= effective_tip
+                # For initial fetch, use initial_fetch_size to get a reasonable starting batch
+                if not initial_fetch_complete:
+                    # On startup, fetch initial_fetch_size blocks (limited by effective_tip)
+                    fetch_end_block = min(processor_position + self.initial_fetch_size - 1, effective_tip)
+                    should_fetch = True
+                    logger.debug(
+                        f"Initial fetch: targeting {self.initial_fetch_size} blocks from {processor_position} to {fetch_end_block}"
+                    )
+                else:
+                    # Normal operation: try to maintain target_queue_size blocks in queue
+                    should_fetch = queue_size < self.target_queue_size and processor_position <= effective_tip
+                    # Calculate how many blocks we need to reach target_queue_size
+                    blocks_needed = self.target_queue_size - queue_size
+                    fetch_end_block = min(processor_position + blocks_needed - 1, effective_tip)
 
                 if not should_fetch:
                     logger.debug("Queue is full or processor is caught up. Waiting.")
@@ -659,8 +687,6 @@ class CPBlocksPipeline:
                     continue
 
                 # 4. Identify which blocks to fetch.
-                # We want to fill the queue up to the target size, starting from where the processor is.
-                fetch_end_block = min(processor_position + self.target_queue_size, effective_tip)
                 potential_blocks = list(range(processor_position, fetch_end_block + 1))
 
                 if not potential_blocks:
@@ -676,7 +702,7 @@ class CPBlocksPipeline:
                     blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
 
                 # Limit the batch size for a single API call
-                blocks_to_fetch_now = blocks_to_fetch_now[:150]  # Hardcoded max batch size
+                blocks_to_fetch_now = blocks_to_fetch_now[: self.max_batch_size]
 
                 if not blocks_to_fetch_now:
                     logger.debug("No new blocks to fetch in the target range. Waiting.")
@@ -685,14 +711,38 @@ class CPBlocksPipeline:
 
                 logger.debug(
                     f"Identified {len(blocks_to_fetch_now)} blocks to fetch, "
-                    f"from {blocks_to_fetch_now[0]} to {blocks_to_fetch_now[-1]}"
+                    f"from {blocks_to_fetch_now[0]} to {blocks_to_fetch_now[-1]} "
+                    f"(limited by max_batch_size={self.max_batch_size})"
                 )
 
                 # 5. Submit the fetch task.
                 nodes = get_healthy_nodes()
                 if not nodes:
                     logger.warning("No healthy nodes available for fetching.")
-                    time.sleep(10)
+                    # Trigger fallback mode if enabled
+                    if self.fallback_mode and self.fallback_started_at is None:
+                        self._enter_fallback_mode()
+
+                    # If we're in fallback mode, create fallback blocks instead of waiting
+                    if self.fallback_mode and self.fallback_started_at is not None:
+                        logger.info(f"Creating fallback blocks for {blocks_to_fetch_now}")
+                        with self._lock:
+                            for block_idx in blocks_to_fetch_now:
+                                if block_idx not in self.queue:
+                                    self.queue[block_idx] = self.create_fallback_block(block_idx)
+                                    # Track this block as needing CP data later
+                                    self.failed_cp_blocks.add(block_idx)
+
+                            # Signal ready if initial fetch
+                            if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
+                                logger.debug(f"Initial fallback fetch has {len(self.queue)} blocks, setting ready flag.")
+                                self.initial_blocks_ready.set()
+
+                        # Mark initial fetch as complete
+                        if not initial_fetch_complete:
+                            initial_fetch_complete = True
+                    else:
+                        time.sleep(10)
                     continue
 
                 with self._blocks_fetch_lock:
@@ -706,7 +756,13 @@ class CPBlocksPipeline:
 
                     with self.fetch_futures_lock:
                         for block_idx in blocks_to_fetch_now:
-                            fetch_futures[block_idx] = future
+                            self.fetch_futures[block_idx] = future
+
+                # Check if initial fetch is complete
+                # We consider it complete once we've made at least one successful fetch
+                if not initial_fetch_complete and len(self.queue) >= self.min_blocks_ready:
+                    initial_fetch_complete = True
+                    logger.debug(f"Initial fetch complete with {len(self.queue)} blocks in queue")
 
             except Exception as e:
                 logger.error(f"Unexpected error in fetch worker loop: {e}", exc_info=True)
@@ -714,13 +770,13 @@ class CPBlocksPipeline:
 
         logger.info("CPBlocksPipeline worker thread exiting")
 
-    def _process_completed_futures(self, fetch_futures):
+    def _process_completed_futures(self):
         """Helper to process completed futures and update queue."""
         completed_futures_map = {}
         with self.fetch_futures_lock:
-            futures_to_remove = [block_idx for block_idx, future in fetch_futures.items() if future.done()]
+            futures_to_remove = [block_idx for block_idx, future in self.fetch_futures.items() if future.done()]
             for block_idx in futures_to_remove:
-                completed_futures_map[block_idx] = fetch_futures.pop(block_idx)
+                completed_futures_map[block_idx] = self.fetch_futures.pop(block_idx)
 
         processed_futures = set()
         for block_idx, future in completed_futures_map.items():
@@ -749,7 +805,7 @@ class CPBlocksPipeline:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
                                 logger.warning(f"Block {res_block_index} fetch failed within batch: {error_msg}")
 
-                    # Signal ready if it's the initial fetch
+                    # Signal ready if it's the initial fetch and we have enough blocks
                     if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
                         logger.debug(f"Initial fetch has {len(self.queue)} blocks, setting ready flag.")
                         self.initial_blocks_ready.set()
@@ -792,7 +848,7 @@ class CPBlocksPipeline:
         for attempt in range(max_retries + 1):
             try:
                 # Check for shutdown before each attempt
-                if self.shutdown_flag.is_set() or is_shutdown_requested() or not self.running:
+                if self.shutdown_flag.is_set() or is_shutdown_requested():
                     logger.info("Shutdown detected before batch fetch, stopping")
                     return {}
 
@@ -815,6 +871,7 @@ class CPBlocksPipeline:
                 if start_block <= 781141 <= end_block:
                     if 781141 in blocks_data:
                         import json
+
                         logger.warning(f"DEBUG 781141: {json.dumps(blocks_data[781141], indent=2)}")
                     else:
                         logger.warning("DEBUG 781141: not in blocks_data")
@@ -881,15 +938,21 @@ def test_pipeline_simple(start_block=None, num_blocks=10, max_wait=60):
 
     try:
         # Create pipeline with smaller queue size for faster testing
-        pipeline = CPBlocksPipeline(max_queue_size=50)
-        print(f"PIPELINE TEST: Created pipeline with min_blocks_ready={pipeline.min_blocks_ready}")
-        # Set smaller initial batch size for testing
-        pipeline.initial_batch_size = min(20, num_blocks * 2)
-        pipeline.target_queue_size = min(50, num_blocks * 5)
-        print(
-            f"PIPELINE TEST: Using initial_batch_size={pipeline.initial_batch_size}, target_queue_size={pipeline.target_queue_size}"
+        pipeline = CPBlocksPipeline(
+            max_queue_size=50,
+            target_queue_size=min(50, num_blocks * 5),
+            initial_fetch_size=min(20, num_blocks),  # Fetch up to 20 blocks initially
+            max_batch_size=50,  # Allow smaller batches for testing
         )
-        logger.debug(f"Using initial_batch_size={pipeline.initial_batch_size}, target_queue_size={pipeline.target_queue_size}")
+        print("PIPELINE TEST: Created pipeline with:")
+        print(f"  - initial_fetch_size={pipeline.initial_fetch_size}")
+        print(f"  - target_queue_size={pipeline.target_queue_size}")
+        print(f"  - max_batch_size={pipeline.max_batch_size}")
+        print(f"  - min_blocks_ready={pipeline.min_blocks_ready}")
+        logger.debug(
+            f"Pipeline config: initial_fetch_size={pipeline.initial_fetch_size}, "
+            f"target_queue_size={pipeline.target_queue_size}, max_batch_size={pipeline.max_batch_size}"
+        )
 
         # Start the pipeline
         print(f"PIPELINE TEST: Starting pipeline at block {start_block}")

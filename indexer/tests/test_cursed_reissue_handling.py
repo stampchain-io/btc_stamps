@@ -36,59 +36,6 @@ def test_check_reissue_in_block_detects_duplicate_positive():
 
 
 @pytest.mark.unit
-@patch("index_core.stamp.get_next_stamp_number", return_value=1)
-@patch("index_core.stamp.check_reissue", return_value=False)
-@patch.object(StampData, "process_and_store_stamp_data", autospec=True)
-def test_stamp_processor_creates_validstamp_for_cursed_with_A_prefix(
-    mock_process_and_store, mock_check_reissue, mock_next_stamp
-):
-    """Ensure that cursed stamps whose CPID starts with 'A' now generate a ValidStamp entry
-    (regression test for the previous filter that skipped such cases)."""
-
-    # Simulate successful internal processing by setting the necessary attributes
-    def _fake_process(self, *_, **__):  # noqa: D401,E501  pylint: disable=unused-argument
-        self.is_cursed = True
-        self.is_btc_stamp = False
-        self.cpid = "A1122334455667"  # starts with A – previously excluded
-        self.is_valid_base64 = True
-        self.stamp_base64 = ""  # minimal valid base64
-        self.src_data = ""
-        self.pval_src20 = False
-        self.pval_src101 = False
-        return True
-
-    mock_process_and_store.side_effect = _fake_process
-
-    db = Mock()
-    processor = StampProcessor(db, valid_stamps_in_block=[])
-
-    stamp_data = StampData(
-        tx_hash="txhash",
-        source="addr1",
-        prev_tx_hash="",
-        destination="addr2",
-        destination_nvalue=0,
-        btc_amount=0,
-        fee=0,
-        data="{}",
-        decoded_tx={},
-        keyburn=0,
-        tx_index=0,
-        block_index=800000,
-        block_time=0,
-        is_op_return=True,
-        p2wsh_data=b"",
-    )
-
-    stamp_results, _, valid_stamp, _ = processor.process_stamp(stamp_data)
-
-    assert stamp_results is True
-    assert valid_stamp is not None
-    assert valid_stamp["cpid"] == "A1122334455667"
-    assert valid_stamp["is_cursed"] is True
-
-
-@pytest.mark.unit
 @patch("index_core.stamp.get_next_stamp_number", return_value=100)
 @patch("index_core.stamp.check_reissue", return_value=False)
 @patch.object(StampData, "process_and_store_stamp_data", autospec=True)

@@ -562,7 +562,13 @@ def follow(
 
         # Initialize CP blocks pipeline if enabled, using already fetched block_tip
         if cp_pipeline:
-            cp_pipeline_instance = CPBlocksPipeline(max_queue_size=200, fallback_mode=config.CP_FALLBACK_MODE)
+            cp_pipeline_instance = CPBlocksPipeline(
+                max_queue_size=200,
+                target_queue_size=100,  # Maintain 100 blocks ahead
+                initial_fetch_size=30,  # Fetch 30 blocks on startup for quick start
+                max_batch_size=150,  # API limit per call
+                fallback_mode=config.CP_FALLBACK_MODE,
+            )
             cp_pipeline_instance.start(block_index)
             stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
 
