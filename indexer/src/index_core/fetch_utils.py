@@ -554,7 +554,7 @@ async def fetch_xcp_async(
                                 return data
                             else:
                                 error_text = await response.text()
-                                logger.warning(f"Error from {node['name']}: HTTP {response.status}, {error_text}")
+                                logger.info(f"Received non-200 response from {node['name']}: HTTP {response.status}, {error_text}")
                                 health_tracker = node_health_tracker.get(node["name"])
                                 if health_tracker:
                                     health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
@@ -801,7 +801,8 @@ async def fetch_block_transactions_with_pagination(
         data = None
         for retry_attempt in range(max_retries):
             try:
-                timeout = 15 if page_count > 1 else 10
+                # Increased timeout for large blocks
+                timeout = 30 if page_count > 1 else 20
                 data = await fetch_xcp_async(endpoint, params, timeout=timeout)
                 if data:
                     break
@@ -947,7 +948,7 @@ async def _fetch_blocks_range_async(
     start_block: int, end_block: int, progress_indicator: bool = False
 ) -> Dict[int, Dict[str, Any]]:
     """
-    Async implementation to fetch a range of blocks.
+    Async implementation to fetch a range of blocks with robust retry logic.
 
     Args:
         start_block: First block to fetch
@@ -957,51 +958,33 @@ async def _fetch_blocks_range_async(
     Returns:
         Dictionary mapping block indices to block data
     """
-    # Initialize result and counters
     results = {}
+    max_retries_per_block = 3
 
-    # Adaptive concurrency based on node type
-    healthy_nodes = get_healthy_nodes()
-    if healthy_nodes:
-        primary_node_url = healthy_nodes[0].get("url", "")
-        # Use higher concurrency for local nodes, moderate for external APIs
-        if "127.0.0.1" in primary_node_url or "localhost" in primary_node_url:
-            max_concurrent_semaphore = 3  # Local node can handle more
-        else:
-            max_concurrent_semaphore = 2  # External API - still concurrent but gentle
-    else:
-        max_concurrent_semaphore = 2  # Default to moderate
-
-    logger.debug(f"Using concurrency limit of {max_concurrent_semaphore} for block fetching")
-    # Create a semaphore to limit concurrency
-    semaphore = asyncio.Semaphore(max_concurrent_semaphore)
-
-    # Create tasks for each block to fetch
-    async def fetch_block_with_semaphore(block_idx):
-        async with semaphore:
+    async def fetch_block_with_retry(block_idx):
+        for attempt in range(max_retries_per_block):
             try:
+                # This function now returns None on any failure
                 block_data = await fetch_block_transactions_with_pagination(block_idx)
                 if block_data:
                     if progress_indicator and block_idx % 10 == 0:
                         logger.info(f"Progress: Fetched block {block_idx}")
                     return block_idx, block_data
                 else:
-                    # Ensure a consistent structure for blocks that might fail to fetch or have no data
                     logger.warning(
-                        f"No block data returned from fetch_block_transactions_with_pagination for block {block_idx}"
+                        f"Fetch for block {block_idx} failed (attempt {attempt + 1}/{max_retries_per_block}). Retrying with next node..."
                     )
-                    return block_idx, {
-                        "block_index": block_idx,
-                        "error": "Failed to fetch block or no data",
-                        "issuances": [],
-                        "transactions": [],
-                    }
+                    # Force health update to cycle to the next node
+                    update_healthy_nodes()
+                    await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
             except Exception as e:
-                logger.error(f"Error fetching block {block_idx} in _fetch_blocks_range_async: {e}", exc_info=True)
-                return block_idx, {"block_index": block_idx, "error": str(e), "issuances": [], "transactions": []}
+                logger.error(f"Unhandled exception fetching block {block_idx} (attempt {attempt + 1}): {e}", exc_info=True)
+                await asyncio.sleep(1 * (attempt + 1))
 
-    # Create tasks for each block
-    tasks = [fetch_block_with_semaphore(i) for i in range(start_block, end_block + 1)]
+        logger.error(f"Failed to fetch block {block_idx} after {max_retries_per_block} attempts.")
+        return block_idx, None  # Final failure
+
+    tasks = [fetch_block_with_retry(i) for i in range(start_block, end_block + 1)]
 
     # Wait for all tasks to complete
     blocks_data_results = await asyncio.gather(*tasks)

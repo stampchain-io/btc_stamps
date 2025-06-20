@@ -31,6 +31,7 @@ from index_core import backend as backend_module
 from index_core import script
 from index_core.transaction_utils import quick_filter_src20_transaction
 from index_core.exceptions import DecodeError
+from index_core.fetch_utils import get_xcp_asset
 
 # Try to import Rust parser
 try:
@@ -44,6 +45,19 @@ try:
 except ImportError:
     RUST_PARSER_AVAILABLE = False
     logger.warning("Rust parser is not available")
+
+
+def get_tx_hash_for_asset(asset_id: str) -> Optional[str]:
+    """Get the issuance transaction hash for a given asset ID."""
+    logger.info(f"Fetching asset details for {asset_id} to find issuance transaction...")
+    asset_data = get_xcp_asset(asset_id)
+    if asset_data:
+        issuance_tx = asset_data.get("first_issuance", {}).get("tx_hash")
+        if issuance_tx:
+            logger.info(f"Found issuance transaction hash: {issuance_tx}")
+            return issuance_tx
+    logger.error(f"Could not find issuance transaction for asset {asset_id}")
+    return None
 
 
 def try_extract_json(data: bytes) -> Optional[Dict]:
@@ -84,13 +98,13 @@ def try_concatenate_outputs(outputs, verbose: bool = False) -> None:
     # Try to decode as UTF-8
     try:
         decoded = p2wsh_data.decode("utf-8", errors="replace")
-        logger.info(f"\n=== Concatenated P2WSH Data ===")
+        logger.info("\n=== Concatenated P2WSH Data ===")
         logger.info(f"Combined from outputs: {[idx for idx, _ in p2wsh_outputs]}")
         logger.info(f"Raw concatenated data: {decoded}")
 
         # Check for stamp: prefix
         if "stamp:" in decoded:
-            logger.info(f"Found 'stamp:' prefix in concatenated data")
+            logger.info("Found 'stamp:' prefix in concatenated data")
 
             # Try to extract JSON
             json_data = try_extract_json(p2wsh_data)
@@ -106,7 +120,7 @@ def try_concatenate_outputs(outputs, verbose: bool = False) -> None:
 
         # Look for other protocol indicators
         elif any(pattern in decoded for pattern in ["src-20", "src-721", "src-1010", "OLGA"]):
-            logger.info(f"Found protocol indicator in concatenated data")
+            logger.info("Found protocol indicator in concatenated data")
 
             # Try to extract JSON
             json_data = try_extract_json(p2wsh_data)
@@ -114,7 +128,7 @@ def try_concatenate_outputs(outputs, verbose: bool = False) -> None:
                 logger.info(f"Extracted JSON: {json.dumps(json_data, indent=2)}")
     except UnicodeDecodeError:
         if verbose:
-            logger.info(f"Could not decode concatenated data as UTF-8")
+            logger.info("Could not decode concatenated data as UTF-8")
             logger.info(f"Hex representation: {binascii.hexlify(p2wsh_data).decode('utf-8')}")
 
 
@@ -261,7 +275,7 @@ def debug_transaction(txid: str, verbose: bool = False):
                         logger.info(f"  PREFIX found at position 2: {prefix_found}")
                         logger.info(f"  Expected PREFIX: {binascii.hexlify(config.PREFIX).decode('utf-8')}")
                         logger.info(
-                            f"  Found at position 2: {binascii.hexlify(decrypted_chunk[2:2+len(config.PREFIX)]).decode('utf-8')}"
+                            f"  Found at position 2: {binascii.hexlify(decrypted_chunk[2: 2 + len(config.PREFIX)]).decode('utf-8')}"
                         )
 
                         # Try to extract and decode data if PREFIX is found
@@ -314,7 +328,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Debug Bitcoin Stamps transaction parsing")
-    parser.add_argument("txid", help="Transaction ID to analyze")
+    parser.add_argument("tx_or_asset_id", help="Transaction ID or Asset ID (e.g., A123...) to analyze")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument("--env", "-e", help="Path to .env file", default=".env")
 
@@ -325,4 +339,16 @@ if __name__ == "__main__":
         load_dotenv(args.env)
         logger.info(f"Loaded environment variables from {args.env}")
 
-    debug_transaction(args.txid, args.verbose)
+    identifier = args.tx_or_asset_id
+    txid_to_debug = None
+
+    # Check if the identifier is a potential asset ID
+    if identifier.startswith("A") and not all(c in "0123456789abcdef" for c in identifier.lower()):
+        txid_to_debug = get_tx_hash_for_asset(identifier)
+        if not txid_to_debug:
+            sys.exit(1)
+    else:
+        # Assume it's a txid
+        txid_to_debug = identifier
+
+    debug_transaction(txid_to_debug, args.verbose)
