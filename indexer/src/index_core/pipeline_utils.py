@@ -812,6 +812,13 @@ class CPBlocksPipeline:
                 # This handles pagination, block formatting and concurrent fetching
                 blocks_data = fetch_xcp_blocks_concurrent(start_block, end_block)
 
+                if start_block <= 781141 <= end_block:
+                    if 781141 in blocks_data:
+                        import json
+                        logger.warning(f"DEBUG 781141: {json.dumps(blocks_data[781141], indent=2)}")
+                    else:
+                        logger.warning("DEBUG 781141: not in blocks_data")
+
                 if not blocks_data:
                     if attempt < max_retries:
                         logger.warning(

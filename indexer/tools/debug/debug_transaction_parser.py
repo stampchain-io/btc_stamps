@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Import necessary modules
 import config  # Import config directly, not from index_core
 from index_core import arc4, backend as backend_module, script
-from index_core.fetch_utils import get_xcp_asset
+from index_core.fetch_utils import get_xcp_asset, get_xcp_tx_info
 from index_core.transaction_utils import quick_filter_src20_transaction
 
 # Try to import Rust parser
@@ -42,6 +42,20 @@ try:
 except ImportError:
     RUST_PARSER_AVAILABLE = False
     logger.warning("Rust parser is not available")
+
+
+def get_cp_issuance_for_tx(txid: str) -> Optional[Dict]:
+    """Get counterparty issuance data for a given transaction ID."""
+    logger.info(f"Fetching Counterparty issuance details for {txid}...")
+    tx_data = get_xcp_tx_info(txid)
+    if tx_data and tx_data.get("issuances"):
+        # Assuming one issuance per tx for this debug script
+        issuance = tx_data["issuances"][0]
+        logger.info("Found issuance data:")
+        logger.info(json.dumps(issuance, indent=2))
+        return issuance
+    logger.error(f"Could not find issuance data for transaction {txid}")
+    return None
 
 
 def get_tx_hash_for_asset(asset_id: str) -> Optional[str]:
@@ -139,6 +153,12 @@ def debug_transaction(txid: str, verbose: bool = False):
     # Set a debug environment variable to enable Rust debug logging if verbose
     if verbose and "RUST_LOG" not in os.environ:
         os.environ["RUST_LOG"] = "debug"
+
+    # Fetch Counterparty issuance data first, as it's often the source of truth for metadata
+    try:
+        get_cp_issuance_for_tx(txid)
+    except Exception as e:
+        logger.error(f"Failed to fetch Counterparty issuance data: {e}")
 
     # Initialize the backend
     b = backend_module.Backend()
