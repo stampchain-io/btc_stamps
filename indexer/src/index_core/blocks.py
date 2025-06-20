@@ -759,7 +759,7 @@ def follow(
                             logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
                             time.sleep(xcp_sync_delay)
                         else:
-                            logger.debug(
+                            logger.info(
                                 f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch"
                             )
 
