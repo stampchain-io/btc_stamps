@@ -145,14 +145,15 @@ class TestCPBlocksPipeline:
         pipeline = CPBlocksPipeline(target_queue_size=10)
         pipeline.start(820000)
 
-        # Let the worker run and then stop it, which now waits for tasks to complete
-        time.sleep(0.2)  # A short sleep to ensure the worker starts
-        pipeline.stop()
+        # Give the worker a moment to run and fetch blocks
+        time.sleep(0.5)
 
-        # Check queue has items and the first block is present
+        # Check queue before stopping (stop() clears the queue)
         assert len(pipeline.queue) > 0
         assert 820000 in pipeline.queue
         assert "transactions" in pipeline.queue[820000]
+
+        pipeline.stop()
 
     def test_worker_respects_shutdown_flag(self, mock_backend_instance, mock_health, mock_fetch_blocks):
         pipeline = CPBlocksPipeline()
@@ -173,20 +174,26 @@ class TestCPBlocksPipeline:
                 820001: {"block_index": 820001, "issuances": []},
             }
         )
-        fetch_futures = {820000: future, 820001: future}
-        pipeline._process_completed_futures(fetch_futures)
+        # Set up the pipeline's internal fetch_futures dict
+        with pipeline.fetch_futures_lock:
+            pipeline.fetch_futures = {820000: future, 820001: future}
+        pipeline._process_completed_futures()
         with pipeline._lock:
             assert 820000 in pipeline.queue
             assert 820001 in pipeline.queue
-        assert not fetch_futures  # Should be empty after processing
+        # Check that fetch_futures is now empty
+        with pipeline.fetch_futures_lock:
+            assert not pipeline.fetch_futures  # Should be empty after processing
 
     def test_process_completed_futures_discards_old_blocks(self, mock_pipeline_logger):
         pipeline = CPBlocksPipeline()
         pipeline.current_block = 820010  # Processor has moved on
         future = concurrent.futures.Future()
         future.set_result({820005: {"block_index": 820005, "issuances": []}})
-        fetch_futures = {820005: future}
-        pipeline._process_completed_futures(fetch_futures)
+        # Set up the pipeline's internal fetch_futures dict
+        with pipeline.fetch_futures_lock:
+            pipeline.fetch_futures = {820005: future}
+        pipeline._process_completed_futures()
         assert 820005 not in pipeline.queue
         mock_pipeline_logger.warning.assert_called_with(
             "Discarding already processed block 820005 from completed future (processor is at 820010)."
