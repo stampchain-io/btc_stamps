@@ -399,7 +399,8 @@ class TestCPBlocksPipeline:
         # Old blocks should be removed
         with pipeline._lock:
             assert 820000 not in pipeline.queue
-            assert 820350 in pipeline.queue
+            # Block 820350 should also be removed after get_block (using pop)
+            assert 820350 not in pipeline.queue
 
     def test_create_fallback_block(self, mock_fallback_state_manager):
         """Test creating fallback block data."""

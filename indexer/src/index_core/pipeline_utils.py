@@ -348,7 +348,8 @@ class CPBlocksPipeline:
         it returns None, and the worker thread is expected to fetch it.
 
         This method ensures the processor's position is only advanced upon
-        successful retrieval of a sequential block.
+        successful retrieval of a sequential block. It also handles cases
+        where the consumer is lagging behind the pipeline's state.
 
         Args:
             block_index: The block index to retrieve
@@ -357,27 +358,35 @@ class CPBlocksPipeline:
             Block data dictionary or None if not available
         """
         with self._lock:
-            # We only care about the block the processor is currently waiting for.
-            if block_index != self.current_block:
-                # If a different block is requested, it might be a reorg check or other logic.
-                # Return it if we have it, but don't change the processor's state.
+            # The consumer (blocks.py) is asking for a block that is behind
+            # the pipeline's internal processor position.
+            if block_index < self.current_block:
                 logger.warning(
-                    f"Out-of-sequence get_block request for {block_index}, processor is at {self.current_block}. "
-                    "Returning data without advancing state."
+                    f"Out-of-sequence get_block request for {block_index}, which is behind processor at {self.current_block}. "
+                    "Returning block and allowing consumer to catch up."
                 )
+                # Provide the old block but also remove it from the queue so the consumer can advance.
+                return self.queue.pop(block_index, None)
+
+            # The consumer is asking for the exact block the pipeline is ready for.
+            if block_index == self.current_block:
+                block_data = self.queue.pop(block_index, None)
+                if block_data:
+                    logger.info(f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}")
+                    # Advance the processor's position. The worker will fetch from this new position.
+                    self.current_block += 1
+                    return block_data
+                else:
+                    # The required sequential block is not in the queue. The processor must wait.
+                    logger.info(f"Block {block_index} not in queue. Processor is waiting for fetcher.")
+                    return None
+
+            # The consumer is asking for a block ahead of the processor.
+            # This should not happen in normal operation but can occur during reorgs.
+            # Return the data if we have it, but do not advance the primary 'current_block' state.
+            if block_index > self.current_block:
+                logger.warning(f"Ahead-of-sequence get_block request for {block_index}, processor is at {self.current_block}.")
                 return self.queue.get(block_index)
-
-            block_data = self.queue.pop(block_index, None)
-
-            if block_data:
-                logger.info(f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}")
-                # Advance the processor's position. The worker will fetch from this new position.
-                self.current_block += 1
-                return block_data
-            else:
-                # The required block is not in the queue. The processor must wait.
-                logger.info(f"Block {block_index} not in queue. Processor is waiting for fetcher.")
-                return None
 
     def create_fallback_block(self, block_index):
         """
@@ -726,13 +735,9 @@ class CPBlocksPipeline:
                     with self._lock:
                         for res_block_index, block_data in result_dict.items():
                             if block_data and "error" not in block_data:
-                                # CRITICAL FIX: Only add block if it's not already processed.
-                                if res_block_index >= self.current_block:
+                                # Only add block if it's not already in the queue.
+                                if res_block_index not in self.queue:
                                     self.queue[res_block_index] = block_data
-                                else:
-                                    logger.warning(
-                                        f"Discarding already processed block {res_block_index} from completed future."
-                                    )
                             else:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
                                 logger.warning(f"Block {res_block_index} fetch failed within batch: {error_msg}")
