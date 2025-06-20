@@ -52,9 +52,24 @@ class StampProcessor:
             raise ValueError("stamp_number must be set")
 
         stamp_data.stamp = cast(int, stamp_data.stamp)
-        if (stamp_data.cpid and stamp_data.is_btc_stamp) or (
-                            stamp_data.is_cursed and stamp_data.cpid and not stamp_data.cpid.startswith("A")
-                                    ):
+        # Determine if the asset is a type that needs a reissuance check.
+        is_numeric_asset = stamp_data.cpid and stamp_data.cpid.startswith("A") and stamp_data.cpid[1:].isdigit()
+        reissuance_check_required = is_numeric_asset or (stamp_data.is_cursed and stamp_data.cpid)
+
+        if reissuance_check_required:
+            # Check if this CPID has already been validated in the current block.
+            if any(vs.cpid == stamp_data.cpid for vs in self.valid_stamps_in_block):
+                logger.debug(f"INVALID STAMP DATA: Reissue in same block for CPID {stamp_data.cpid}")
+                return (None,) * 4  # Do not proceed with this stamp.
+
+            # Check if this CPID has been issued in a previous block.
+            if check_reissue(self.db, stamp_data.cpid):
+                logger.debug(f"INVALID STAMP DATA: Reissue (database) for CPID {stamp_data.cpid}")
+                return (None,) * 4  # Do not proceed with this stamp.
+
+        # After passing all checks, determine if we should create a valid_stamp object.
+        # A stamp is valid for inclusion if it's a standard btc_stamp or a cursed stamp, and has a CPID.
+        if (stamp_data.cpid and stamp_data.is_btc_stamp) or (stamp_data.is_cursed and stamp_data.cpid):
             valid_stamp = create_valid_stamp_dict(
                 stamp_data.stamp,
                 stamp_data.tx_hash,
@@ -65,6 +80,7 @@ class StampProcessor:
                 bool(stamp_data.is_cursed) if stamp_data.is_cursed is not None else False,
                 stamp_data.src_data if stamp_data.src_data is not None else "",
             )
+            self.valid_stamps_in_block.append(valid_stamp)
 
         if stamp_data.pval_src20:
             src_dict = stamp_data.src20_dict
