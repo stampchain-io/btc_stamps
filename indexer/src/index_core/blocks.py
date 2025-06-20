@@ -691,7 +691,7 @@ def follow(
 
                 logger.info(f"Block loop: block_index={block_index}, block_tip={block_tip}")
                 if block_index <= block_tip:
-                    logger.debug(f"Processing block {block_index} (tip: {block_tip})")
+                    logger.info(f"Entering block processing for block {block_index} (tip: {block_tip})")
                     # Check shutdown flag before heavy operations
                     if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                         break
@@ -1153,6 +1153,7 @@ def follow(
                             time.sleep(5)
 
                 else:
+                    logger.info(f"ELSE BRANCH: block_index ({block_index}) > block_tip ({block_tip})")
                     # CRITICAL: Before declaring we're caught up, invalidate cache and get fresh block count
                     # This prevents false "caught up" state during initial sync where block_tip may be
                     # cached from the start of processing. Without this check, the indexer can incorrectly
