@@ -554,7 +554,9 @@ async def fetch_xcp_async(
                                 return data
                             else:
                                 error_text = await response.text()
-                                logger.info(f"Received non-200 response from {node['name']}: HTTP {response.status}, {error_text}")
+                                logger.info(
+                                    f"Received non-200 response from {node['name']}: HTTP {response.status}, {error_text}"
+                                )
                                 health_tracker = node_health_tracker.get(node["name"])
                                 if health_tracker:
                                     health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
