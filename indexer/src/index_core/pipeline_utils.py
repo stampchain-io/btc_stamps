@@ -50,6 +50,8 @@ class CPBlocksPipeline:
         self.processing_start_delay = 0.5  # Short delay to ensure blocks are registered before processing starts
         self.blocks_being_fetched = set()  # Track which blocks are currently being fetched
         self._blocks_fetch_lock = threading.Lock()  # Separate lock for fetching state
+        self.blocks_fetch_timestamps = {}  # Track when each block started being fetched
+        self.fetch_timeout = 60  # Timeout for block fetches in seconds
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
@@ -244,6 +246,39 @@ class CPBlocksPipeline:
         else:
             logger.warning(f"Timeout waiting for initial blocks after {adjusted_timeout}s")
             return False
+
+    def _cleanup_stuck_fetches(self):
+        """Remove blocks that have been in blocks_being_fetched for too long"""
+        current_time = time.time()
+        blocks_to_clean = []
+        
+        with self._blocks_fetch_lock:
+            # Log current state
+            if self.blocks_being_fetched:
+                oldest_fetch_time = min(self.blocks_fetch_timestamps.get(b, current_time) for b in self.blocks_being_fetched)
+                oldest_age = current_time - oldest_fetch_time
+                logger.debug(f"Cleanup check: {len(self.blocks_being_fetched)} blocks in blocks_being_fetched, oldest: {oldest_age:.1f}s old")
+            
+            for block in list(self.blocks_being_fetched):
+                if block in self.blocks_fetch_timestamps:
+                    fetch_time = self.blocks_fetch_timestamps[block]
+                    age = current_time - fetch_time
+                    if age > self.fetch_timeout:
+                        logger.warning(f"Block {block} has been fetching for {age:.1f}s (timeout: {self.fetch_timeout}s), removing from blocks_being_fetched")
+                        blocks_to_clean.append(block)
+                else:
+                    # Block in set but no timestamp - shouldn't happen but clean it up
+                    logger.warning(f"Block {block} in blocks_being_fetched but no timestamp, cleaning up")
+                    blocks_to_clean.append(block)
+            
+            # Clean up stuck blocks
+            for block in blocks_to_clean:
+                self.blocks_being_fetched.discard(block)
+                self.blocks_fetch_timestamps.pop(block, None)
+            
+            if blocks_to_clean:
+                logger.info(f"✅ Cleaned up {len(blocks_to_clean)} stuck blocks from blocks_being_fetched")
+                logger.info(f"Remaining blocks in blocks_being_fetched: {len(self.blocks_being_fetched)}")
 
     def stop(self):
         """Stop the background worker thread"""
@@ -919,12 +954,21 @@ class CPBlocksPipeline:
                             ]
                             # Then check against the broader blocks_being_fetched set
                             blocks_to_fetch_now = [b for b in blocks_not_in_futures if b not in self.blocks_being_fetched]
+                            
+                            # Log what's being filtered out
+                            if blocks_not_in_futures:
+                                blocks_already_fetching = [b for b in blocks_not_in_futures if b in self.blocks_being_fetched]
+                                if blocks_already_fetching:
+                                    logger.info(f"🚫 Filtering out {len(blocks_already_fetching)} blocks already in blocks_being_fetched: {blocks_already_fetching[:5]}...")
 
                             if blocks_to_fetch_now:
                                 logger.debug(f"Starting async fetch task for {len(blocks_to_fetch_now)} blocks")
 
-                                # Add blocks to the being fetched set
+                                # Add blocks to the being fetched set with timestamps
+                                current_timestamp = time.time()
                                 self.blocks_being_fetched.update(blocks_to_fetch_now)
+                                for block in blocks_to_fetch_now:
+                                    self.blocks_fetch_timestamps[block] = current_timestamp
 
                                 # Use the first healthy node (we've already verified they work)
                                 node_url = nodes[0]["url"]
@@ -952,6 +996,8 @@ class CPBlocksPipeline:
                                     # Remove blocks from being fetched if submission fails
                                     with self._blocks_fetch_lock:
                                         self.blocks_being_fetched.difference_update(blocks_to_fetch_now)
+                                        for block in blocks_to_fetch_now:
+                                            self.blocks_fetch_timestamps.pop(block, None)
                             else:
                                 logger.debug(
                                     f"Skipping fetch for batch {batch_to_submit} as blocks are already being fetched or pending."
@@ -981,6 +1027,9 @@ class CPBlocksPipeline:
                 # Check for CP node recovery during fallback mode
                 if self.fallback_mode and self.fallback_started_at:
                     self.check_cp_node_recovery()
+                
+                # Clean up any stuck fetches periodically
+                self._cleanup_stuck_fetches()
 
                 # --- Moved processing of completed futures outside the fetch initiation logic ---
                 # Check for completed fetches (always do this every loop iteration)
@@ -1066,6 +1115,8 @@ class CPBlocksPipeline:
                     # Regardless of success/failure in processing, remove associated blocks from being_fetched set
                     with self._blocks_fetch_lock:
                         self.blocks_being_fetched.difference_update(blocks_associated_with_this_future)
+                        for block in blocks_associated_with_this_future:
+                            self.blocks_fetch_timestamps.pop(block, None)
                         logger.debug(
                             f"Removed {len(blocks_associated_with_this_future)} blocks from blocks_being_fetched set."
                         )
@@ -1130,6 +1181,8 @@ class CPBlocksPipeline:
                     logger.info("Shutdown detected before batch fetch, stopping")
                     with self._blocks_fetch_lock:
                         self.blocks_being_fetched.difference_update(block_indices)
+                        for block in block_indices:
+                            self.blocks_fetch_timestamps.pop(block, None)
                     return {}
 
                 # Determine start and end blocks for the range
