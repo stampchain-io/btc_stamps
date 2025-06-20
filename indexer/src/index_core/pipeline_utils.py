@@ -316,10 +316,17 @@ class CPBlocksPipeline:
         Returns:
             Block data dictionary or None if not available
         """
-        logger.debug(f"get_block({block_index}) called, acquiring lock...")
+        logger.info(f"get_block({block_index}) called, acquiring lock...")
         with self._lock:
-            logger.debug(f"get_block({block_index}) acquired lock, checking queue...")
+            logger.info(f"get_block({block_index}) acquired lock, checking queue...")
+            queue_size = len(self.queue)
+            has_block = block_index in self.queue
+            logger.info(f"Queue has {queue_size} blocks, has block {block_index}: {has_block}")
+            if queue_size > 0:
+                queue_keys = sorted(list(self.queue.keys()))
+                logger.info(f"Queue blocks range: {queue_keys[0]} to {queue_keys[-1]}")
             block_data = self.queue.get(block_index)
+            logger.info(f"Queue.get({block_index}) returned: {block_data is not None}")
 
             if block_data:
                 if "issuances" not in block_data:
@@ -339,14 +346,18 @@ class CPBlocksPipeline:
                         for old_block in old_blocks:
                             self.queue.pop(old_block, None)
 
-                logger.debug(f"Retrieved block {block_index} from pipeline queue (queue size: {len(self.queue)})")
+                logger.info(f"Retrieved block {block_index} from pipeline queue (queue size: {len(self.queue)})")
+
+                # CRITICAL: Always advance current_block when we consume a block
+                # This ensures the pipeline continues fetching new blocks
+                if self.current_block <= block_index:
+                    self.current_block = block_index + 1
+                    logger.info(f"Advanced pipeline current_block to {self.current_block} after retrieving block {block_index}")
 
                 # Check if we should prefetch the next sequential block
                 if block_index + 1 not in self.queue and block_index + 1 <= backend_instance.getblockcount():
                     # This will trigger the worker to prioritize fetching the next block
-                    logger.debug(f"Triggering prefetch for next block {block_index + 1}")
-                    if self.current_block <= block_index:
-                        self.current_block = block_index + 1
+                    logger.info(f"Triggering prefetch for next block {block_index + 1}")
 
                 return block_data
             else:
@@ -355,9 +366,9 @@ class CPBlocksPipeline:
                     is_being_fetched = block_index in self.blocks_being_fetched
 
                 if is_being_fetched:
-                    logger.debug(f"Block {block_index} is currently being fetched (not yet in queue)")
+                    logger.info(f"Block {block_index} is currently being fetched (not yet in queue)")
                 else:
-                    logger.debug(
+                    logger.info(
                         f"Block {block_index} not found in pipeline queue and not being fetched (queue size: {len(self.queue)})"
                     )
 
@@ -379,10 +390,11 @@ class CPBlocksPipeline:
                     # Return None but don't log as error - expected behavior
                     return None
 
-                # Update the current block pointer if we're requesting blocks ahead
-                if block_index > self.current_block:
-                    logger.debug(f"Updating current_block from {self.current_block} to {block_index} based on request")
-                    self.current_block = block_index
+                # CRITICAL: Update the current block pointer if we're requesting blocks ahead
+                # This ensures the pipeline continues fetching new blocks
+                if block_index >= self.current_block:
+                    self.current_block = block_index + 1
+                    logger.info(f"Advanced current_block to {self.current_block} based on request for block {block_index}")
 
                 # In fallback mode, create empty block data when CP data is not available
                 if self.fallback_mode and (self.fallback_started_at is None or block_index >= self.fallback_started_at):
@@ -669,16 +681,26 @@ class CPBlocksPipeline:
                 # --- Start: Calculate effective tip based on lookahead ---
                 with self._lock:
                     queue_keys = self.queue.keys()
-                    # Approximate processor position with the lowest block index in queue
-                    lowest_queued_block = min(queue_keys) if queue_keys else self.current_block
                     queue_size = len(queue_keys)
                     # next_block is the block the *fetcher* is looking at
                     next_block = self.current_block
                     # Keep a local copy of queue blocks for calculations outside the lock
                     local_queue_blocks = set(queue_keys)
+                    
+                    # CRITICAL FIX: When queue is empty, use current_block as the processor position
+                    # This prevents the pipeline from thinking it's far ahead when it's actually behind
+                    if queue_keys:
+                        # Approximate processor position with the lowest block index in queue
+                        lowest_queued_block = min(queue_keys)
+                    else:
+                        # Queue is empty - processor has consumed all blocks
+                        # Use current_block - 1 as the processor position to ensure we continue fetching
+                        lowest_queued_block = self.current_block - 1
+                        logger.info(f"Queue empty: using current_block - 1 ({lowest_queued_block}) as processor position")
 
                 # Calculate the absolute maximum block index allowed for fetching based on processor position
                 max_fetch_block = lowest_queued_block + self.max_lookahead
+                logger.info(f"Lookahead calculation: lowest_queued_block={lowest_queued_block}, max_lookahead={self.max_lookahead}, max_fetch_block={max_fetch_block}")
                 # --- End: Calculate effective tip ---
 
                 # Get current blockchain tip
@@ -690,8 +712,8 @@ class CPBlocksPipeline:
 
                 # Limit how far ahead we fetch based on the lowest queued block (processor position)
                 effective_tip = min(block_tip, max_fetch_block)
-                logger.debug(
-                    f"Current blockchain tip: {block_tip}, Effective fetch tip (lookahead limited): {effective_tip}, Fetcher at: {next_block}, Processor approx at: {lowest_queued_block}"
+                logger.info(
+                    f"Pipeline state: blockchain_tip={block_tip}, effective_tip={effective_tip}, fetcher_at={next_block}, processor_at={lowest_queued_block}, queue_size={queue_size}"
                 )
 
                 # If the fetcher has hit or surpassed the effective tip, throttle
@@ -703,7 +725,7 @@ class CPBlocksPipeline:
 
                     # Check if we're actually caught up to the real blockchain tip
                     if next_block >= block_tip:
-                        logger.debug(f"Fetcher at {next_block} has reached blockchain tip {block_tip}. Waiting.")
+                        logger.info(f"Fetcher at {next_block} has reached blockchain tip {block_tip}. Waiting.")
                         time.sleep(2)  # Shorter wait at chain tip
                         continue
                     else:
@@ -718,8 +740,8 @@ class CPBlocksPipeline:
                                 )
                                 continue
 
-                        logger.debug(
-                            f"Fetcher at {next_block} reached effective tip {effective_tip} but blockchain tip is {block_tip}. Waiting."
+                        logger.info(
+                            f"Fetcher at {next_block} reached effective tip {effective_tip} but blockchain tip is {block_tip}. Waiting due to lookahead limit."
                         )
                         time.sleep(2)
                         continue
@@ -729,9 +751,8 @@ class CPBlocksPipeline:
                 blocks_to_fetch_count = max(0, blocks_to_fetch_count)  # Ensure it's not negative
 
                 # Enhanced logging for fetching calculations
-                logger.debug(
-                    f"Blocks to fetch calculation: target_queue_size={self.target_queue_size}, current_queue_size={queue_size}, "
-                    f"blocks_to_effective_tip={effective_tip - next_block + 1}, calculated_fetch_count={blocks_to_fetch_count}"
+                logger.info(
+                    f"Fetch calculation: need_blocks={self.target_queue_size - queue_size}, blocks_to_tip={effective_tip - next_block + 1}, will_fetch={blocks_to_fetch_count}"
                 )
                 # Increase fetch batch size for initial fetch to speed up loading
                 if initial_fetch:
@@ -753,6 +774,7 @@ class CPBlocksPipeline:
                 current_seq_block = next_block
                 # Identify gaps in sequential blocks up to the target or effective tip
                 sequential_target_end = min(next_block + self.target_queue_size, effective_tip)
+                logger.info(f"Looking for sequential blocks from {next_block} to {sequential_target_end}")
                 while current_seq_block <= sequential_target_end:
                     # Use the local copy of queue blocks
                     if current_seq_block not in local_queue_blocks:
@@ -783,11 +805,15 @@ class CPBlocksPipeline:
                 missing_blocks_batch = missing_blocks[:max_batch_fetch]
 
                 # Only proceed if there are blocks to fetch *and* queue is below a threshold
-                trigger_fetch_threshold = int(self.target_queue_size * 0.8)  # Fetch if below 80% target
+                # CRITICAL: Use a lower threshold to keep the queue full
+                trigger_fetch_threshold = int(self.target_queue_size * 0.5)  # Fetch if below 50% target
+                
+                logger.info(f"Fetch decision: queue_size={queue_size}, threshold={trigger_fetch_threshold}, missing_blocks={len(missing_blocks_batch) if missing_blocks_batch else 0}")
+                
                 if queue_size < trigger_fetch_threshold and missing_blocks_batch:
                     try:
-                        logger.debug(
-                            f"Queue size {queue_size} < {trigger_fetch_threshold}, attempting fetch of {len(missing_blocks_batch)} blocks."
+                        logger.info(
+                            f"Queue below threshold ({queue_size} < {trigger_fetch_threshold}), fetching {len(missing_blocks_batch)} blocks"
                         )
                         if missing_blocks_batch:
                             logger.debug(f"Missing block batch range: {missing_blocks_batch[0]} to {missing_blocks_batch[-1]}")
@@ -907,11 +933,11 @@ class CPBlocksPipeline:
                             consecutive_errors = 0  # Reset after backoff
                 elif not missing_blocks_batch:
                     # Log if no blocks are needed, but still process completed futures below
-                    logger.debug("No missing blocks identified in the target range/batch size.")
+                    logger.info("No missing blocks identified in the target range/batch size.")
                     # Still process completed futures below, small sleep if nothing else to do
                     time.sleep(0.5)
                 else:  # Queue is above threshold, but not full. Wait longer before re-checking.
-                    logger.debug(f"Queue size {queue_size} >= fetch trigger threshold {trigger_fetch_threshold}. Waiting.")
+                    logger.info(f"Queue size {queue_size} >= fetch trigger threshold {trigger_fetch_threshold}. Waiting.")
                     # Still process completed futures below, but sleep longer before next fetch check
                     time.sleep(self.fetch_interval * 2)
 
