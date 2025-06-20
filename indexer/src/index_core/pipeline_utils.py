@@ -46,7 +46,7 @@ class CPBlocksPipeline:
         self.running = False
         self.fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         # Number of blocks needed before signaling ready for processing
-        self.min_blocks_ready = 1  # Signal ready as soon as we have even 1 block
+        self.min_blocks_ready = 1  # Signal ready when we have at least 1 block
         self.processing_start_delay = 0.5  # Short delay to ensure blocks are registered before processing starts
         self.blocks_being_fetched = set()  # Track which blocks are currently being fetched
         self._blocks_fetch_lock = threading.Lock()  # Separate lock for fetching state
