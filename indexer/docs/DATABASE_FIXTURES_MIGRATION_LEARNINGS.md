@@ -69,6 +69,32 @@ mock_cursor.fetchone.return_value = (data_tuple)
 mock_cursor.fetchall.return_value = [data_list]
 ```
 
+## Additional Learnings from test_database_manager Migration
+
+### New Patterns Discovered
+
+1. **Context Manager Testing**
+   - PooledConnection returns `self` in `__enter__`, not the underlying connection
+   - Need to understand the actual implementation behavior
+
+2. **Method Signature Awareness**
+   - `execute_with_retry` takes cursor as first parameter
+   - Always check actual method signatures when migrating
+
+3. **Default Value Changes**
+   - ConnectionPool default timeout is 30, not 60
+   - Pool size assertions need to be flexible (>= min_connections)
+
+4. **Fixture Benefits for Complex Tests**
+   - Thread safety tests become much cleaner
+   - Populated data fixtures can be reused across test methods
+   - Error scenarios are consistent with `mock_db_with_errors`
+
+5. **@patch Decorator Reduction**
+   - Eliminated 9 @patch decorators in this migration
+   - Replaced with cleaner fixture parameters
+   - Only use patch for environment variables or specific overrides
+
 ## Migration Plan for Remaining Tests
 
 ### Phase 1: High-Value Targets (Week 1)
