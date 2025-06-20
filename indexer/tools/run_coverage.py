@@ -66,6 +66,15 @@ def main():
     parser.add_argument("--branch", action="store_true", default=True, help="Include branch coverage (default: True)")
     parser.add_argument("--fail-under", type=int, help="Fail if coverage is under this percentage")
     parser.add_argument("--open", action="store_true", help="Open HTML report in browser after generation")
+    parser.add_argument(
+        "--exclude-markers",
+        help="Pytest markers to exclude (e.g., 'requires_bitcoin_node' or 'integration and requires_bitcoin_node')"
+    )
+    parser.add_argument(
+        "--all-available",
+        action="store_true",
+        help="Run all tests that are available in the current environment (default behavior)"
+    )
 
     args = parser.parse_args()
 
@@ -81,8 +90,12 @@ def main():
 
     # Base coverage command
     # Note: By default, this runs ALL tests including integration tests
-    # Use --tests with specific markers to exclude certain test types
+    # Use --exclude-markers to exclude certain test types
     base_cmd = f"poetry run pytest {args.tests} --cov=src"
+    
+    # Add marker exclusions if specified
+    if args.exclude_markers:
+        base_cmd += f" -m 'not ({args.exclude_markers})'"
 
     if args.branch:
         base_cmd += " --cov-branch"
@@ -93,40 +106,32 @@ def main():
     elif args.min_coverage > 0:
         base_cmd += f" --cov-fail-under={args.min_coverage}"
 
-    success = True
-
-    # Generate different report formats
-    # Always show terminal output for better visibility
-    if args.format == "terminal" or args.format == "all" or args.format == "html":
-        cmd = base_cmd + " --cov-report=term-missing"
-        success &= run_command(cmd, "Running coverage with terminal report")
-
+    # Build coverage report options based on requested format
+    report_options = []
+    
+    # Always include terminal output for better visibility
+    if args.format in ["terminal", "html", "all"]:
+        report_options.append("--cov-report=term-missing")
+    
     if args.format == "html" or args.format == "all":
-        # For HTML, run a separate command to generate HTML report
-        # This ensures we get both terminal output and HTML file
-        if args.format == "html":
-            # If only HTML was requested, we already ran terminal above
-            # Now add HTML report generation
-            cmd = base_cmd + " --cov-report=html --cov-append"
-            success &= run_command(cmd, "Generating HTML coverage report")
-        else:
-            # For 'all' format, generate HTML report
-            cmd = base_cmd + " --cov-report=html"
-            success &= run_command(cmd, "Generating HTML coverage report")
-
-        if success and args.open:
-            html_path = Path("htmlcov/index.html").absolute()
-            if html_path.exists():
-                print(f"📊 Opening coverage report: {html_path}")
-                open_html_report(html_path)
-
+        report_options.append("--cov-report=html")
+    
     if args.format == "xml" or args.format == "all":
-        cmd = base_cmd + " --cov-report=xml"
-        success &= run_command(cmd, "Generating XML coverage report")
-
+        report_options.append("--cov-report=xml")
+    
     if args.format == "json" or args.format == "all":
-        cmd = base_cmd + " --cov-report=json"
-        success &= run_command(cmd, "Generating JSON coverage report")
+        report_options.append("--cov-report=json")
+    
+    # Run tests once with all requested report formats
+    cmd = base_cmd + " " + " ".join(report_options)
+    success = run_command(cmd, f"Running coverage with {args.format} report format(s)")
+    
+    # Open HTML report if requested
+    if success and args.open and (args.format == "html" or args.format == "all"):
+        html_path = Path("htmlcov/index.html").absolute()
+        if html_path.exists():
+            print(f"📊 Opening coverage report: {html_path}")
+            open_html_report(html_path)
 
     # Summary
     print("=" * 80)
