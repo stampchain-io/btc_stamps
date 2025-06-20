@@ -22,6 +22,20 @@ from .fixtures.src20_test_fixtures import (  # noqa: F401
     valid_transactions,
 )
 
+# Import database fixtures to make them available globally
+from .fixtures.database_fixtures import (  # noqa: F401
+    assert_database_called,
+    db_error_scenarios,
+    mock_block_response,
+    mock_cursor,
+    mock_db_connection,
+    mock_db_manager,
+    mock_db_with_errors,
+    mock_transaction_response,
+    populated_src20_db,
+    populated_stamp_db,
+)
+
 
 @pytest.fixture(autouse=True)
 def clear_caches():
