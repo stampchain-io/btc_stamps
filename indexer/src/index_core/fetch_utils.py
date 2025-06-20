@@ -895,7 +895,7 @@ async def fetch_block_transactions_with_pagination(
     block_data = {
         "block_index": block_index,
         "xcp_block_hash": block_hash,
-        # "transactions": all_transactions,
+        "transactions": all_transactions,
         "issuances": issuances,
     }
 
