@@ -712,6 +712,7 @@ def follow(
                     # Find the section where the block is fetched from the pipeline
                     # Try to get block from pipeline first
                     block_data = cp_pipeline_instance.get_block(block_index) if cp_pipeline_instance else None
+                    logger.info(f"Pipeline get_block({block_index}) returned: {'block data' if block_data else 'None'}")
 
                     if block_data:
                         logger.debug(f"Got block {block_index} from CP pipeline")
