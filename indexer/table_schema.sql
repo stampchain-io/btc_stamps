@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
-  -- cpid is unique (hash-based for SRC20, extremely low collision probability)
-  INDEX `cpid_index` (`cpid`),
+  -- cpid can be duplicated for cursed stamps, but the combination of cpid and stamp is unique
+  UNIQUE KEY `unique_cpid_stamp` (`cpid`, `stamp`),
   INDEX `ident_index` (`ident`),
   INDEX `creator_index` (`creator`(42)),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
@@ -480,8 +480,8 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   `update_frequency_minutes` INTEGER DEFAULT 30 COMMENT 'How often this stamp should be updated (adaptive)',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
   
-  -- Foreign Key Constraint (works with existing cpid index)
-  CONSTRAINT `fk_stamp_market_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
+  -- Foreign key was removed to allow for duplicate cpids in StampTableV4 (e.g. cursed stamps)
+  -- CONSTRAINT `fk_stamp_market_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
   
   -- Performance Indexes
   INDEX `idx_floor_price_btc` (`floor_price_btc` DESC) COMMENT 'For floor price filtering and sorting',
@@ -508,8 +508,8 @@ CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
   `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last update time',
   `last_tx_block` INTEGER NULL COMMENT 'Block of last transaction affecting this balance',
   
-  -- Foreign Key Constraint (works with existing cpid index)
-  CONSTRAINT `fk_stamp_holder_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
+  -- Foreign key was removed to allow for duplicate cpids in StampTableV4 (e.g. cursed stamps)
+  -- CONSTRAINT `fk_stamp_holder_cpid` FOREIGN KEY (`cpid`) REFERENCES `StampTableV4`(`cpid`),
   
   -- Ensure one record per stamp-address combination
   UNIQUE KEY `unique_cpid_address` (`cpid`, `address`) COMMENT 'One record per stamp-address pair',
