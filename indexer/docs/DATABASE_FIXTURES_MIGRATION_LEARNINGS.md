@@ -95,6 +95,35 @@ mock_cursor.fetchall.return_value = [data_list]
    - Replaced with cleaner fixture parameters
    - Only use patch for environment variables or specific overrides
 
+## Additional Learnings from test_src20_worker_integration Migration
+
+### Complex Mock Patterns Simplified
+
+1. **Deeply Nested Patches**
+   - Original had up to 5 levels of nested `with patch` statements
+   - Replaced with fixture composition (all_apis_fail_setup)
+   - Much more readable and maintainable
+
+2. **API Side Effect Functions**
+   - Common pattern: different responses based on endpoint/params
+   - Created `kucoin_api_side_effect` fixture for reuse
+   - Eliminates duplicate side_effect functions
+
+3. **Test Class Conversion**
+   - unittest.TestCase → pytest classes
+   - Use `@pytest.mark.usefixtures` for class-level fixtures
+   - Fixtures as method parameters for cleaner code
+
+4. **Behavior Changes During Migration**
+   - Test expected `None` but worker has fallback behavior
+   - Important to understand actual behavior vs test assumptions
+   - Update tests to match current implementation
+
+5. **Fixture Composition Benefits**
+   - `all_apis_fail_setup` combines 4 related mocks
+   - Helper fixtures like `assert_market_data_valid`
+   - Reusable response data fixtures
+
 ## Migration Plan for Remaining Tests
 
 ### Phase 1: High-Value Targets (Week 1)

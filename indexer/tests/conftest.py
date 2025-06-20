@@ -12,16 +12,6 @@ os.environ["TESTING"] = "1"
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 
-# Import SRC20 integration test fixtures to make them available
-# These imports look unused but are actually used by pytest's fixture system  # noqa: F401
-from .fixtures.src20_test_fixtures import (  # noqa: F401
-    cached_transactions,
-    invalid_transactions,
-    transaction_by_hash,
-    transaction_hashes_data,
-    valid_transactions,
-)
-
 # Import database fixtures to make them available globally
 from .fixtures.database_fixtures import (  # noqa: F401
     assert_database_called,
@@ -34,6 +24,36 @@ from .fixtures.database_fixtures import (  # noqa: F401
     mock_transaction_response,
     populated_src20_db,
     populated_stamp_db,
+)
+
+# Import SRC20 worker fixtures
+from .fixtures.src20_worker_fixtures import (  # noqa: F401
+    all_apis_fail_setup,
+    assert_market_data_valid,
+    btc_rate_cache_setup,
+    expected_market_data_fields,
+    kucoin_api_side_effect,
+    mock_btc_usdt_response,
+    mock_kucoin_api_failure,
+    mock_kucoin_api_success,
+    mock_kucoin_api_timeout,
+    mock_openstamp_api,
+    mock_reliability_tracker,
+    mock_stamp_orderbook_response,
+    mock_stamp_ticker_response,
+    mock_stampscan_api,
+    src20_worker,
+    stamp_exchange_config,
+)
+
+# Import SRC20 integration test fixtures to make them available
+# These imports look unused but are actually used by pytest's fixture system  # noqa: F401
+from .fixtures.src20_test_fixtures import (  # noqa: F401
+    cached_transactions,
+    invalid_transactions,
+    transaction_by_hash,
+    transaction_hashes_data,
+    valid_transactions,
 )
 
 
