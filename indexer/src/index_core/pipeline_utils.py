@@ -252,31 +252,35 @@ class CPBlocksPipeline:
         """Remove blocks that have been in blocks_being_fetched for too long"""
         current_time = time.time()
         blocks_to_clean = []
-        
+
         with self._blocks_fetch_lock:
             # Log current state
             if self.blocks_being_fetched:
                 oldest_fetch_time = min(self.blocks_fetch_timestamps.get(b, current_time) for b in self.blocks_being_fetched)
                 oldest_age = current_time - oldest_fetch_time
-                logger.debug(f"Cleanup check: {len(self.blocks_being_fetched)} blocks in blocks_being_fetched, oldest: {oldest_age:.1f}s old")
-            
+                logger.debug(
+                    f"Cleanup check: {len(self.blocks_being_fetched)} blocks in blocks_being_fetched, oldest: {oldest_age:.1f}s old"
+                )
+
             for block in list(self.blocks_being_fetched):
                 if block in self.blocks_fetch_timestamps:
                     fetch_time = self.blocks_fetch_timestamps[block]
                     age = current_time - fetch_time
                     if age > self.fetch_timeout:
-                        logger.warning(f"Block {block} has been fetching for {age:.1f}s (timeout: {self.fetch_timeout}s), removing from blocks_being_fetched")
+                        logger.warning(
+                            f"Block {block} has been fetching for {age:.1f}s (timeout: {self.fetch_timeout}s), removing from blocks_being_fetched"
+                        )
                         blocks_to_clean.append(block)
                 else:
                     # Block in set but no timestamp - shouldn't happen but clean it up
                     logger.warning(f"Block {block} in blocks_being_fetched but no timestamp, cleaning up")
                     blocks_to_clean.append(block)
-            
+
             # Clean up stuck blocks
             for block in blocks_to_clean:
                 self.blocks_being_fetched.discard(block)
                 self.blocks_fetch_timestamps.pop(block, None)
-            
+
             if blocks_to_clean:
                 logger.info(f"✅ Cleaned up {len(blocks_to_clean)} stuck blocks from blocks_being_fetched")
                 logger.info(f"Remaining blocks in blocks_being_fetched: {len(self.blocks_being_fetched)}")
@@ -340,11 +344,11 @@ class CPBlocksPipeline:
 
     def get_block(self, block_index):
         """
-        Get a block from the queue, returns None if not available.
+        Get a block from the queue. If the requested block is not available,
+        it returns None, and the worker thread is expected to fetch it.
 
-        This method ensures sequential blocks are available and processes all transaction types
-        consistently with no special handling. It triggers direct fetch for missing blocks
-        that are needed for sequential processing.
+        This method ensures the processor's position is only advanced upon
+        successful retrieval of a sequential block.
 
         Args:
             block_index: The block index to retrieve
@@ -352,109 +356,27 @@ class CPBlocksPipeline:
         Returns:
             Block data dictionary or None if not available
         """
-        logger.info(f"get_block({block_index}) called, acquiring lock...")
         with self._lock:
-            logger.info(f"get_block({block_index}) acquired lock, checking queue...")
-            queue_size = len(self.queue)
-            has_block = block_index in self.queue
-            logger.info(f"Queue has {queue_size} blocks, has block {block_index}: {has_block}")
-            if queue_size > 0:
-                queue_keys = sorted(list(self.queue.keys()))
-                logger.info(f"Queue blocks range: {queue_keys[0]} to {queue_keys[-1]}")
-            # CRITICAL: Use pop() to remove the block from queue after retrieval
+            # We only care about the block the processor is currently waiting for.
+            if block_index != self.current_block:
+                # If a different block is requested, it might be a reorg check or other logic.
+                # Return it if we have it, but don't change the processor's state.
+                logger.warning(
+                    f"Out-of-sequence get_block request for {block_index}, processor is at {self.current_block}. "
+                    "Returning data without advancing state."
+                )
+                return self.queue.get(block_index)
+
             block_data = self.queue.pop(block_index, None)
-            logger.info(f"Queue.pop({block_index}) returned: {block_data is not None}")
 
             if block_data:
-                if "issuances" not in block_data:
-                    block_data["issuances"] = []
-
-                # Calculate how many old blocks we can safely remove from the queue
-                # Keep a reasonable window of old blocks for potential reorgs
-                if len(self.queue) > self.max_queue_size // 2:  # Only clean if queue is getting large
-                    reorg_window = 10  # Keep blocks for potential recent reorgs
-                    cutoff_block = block_index - reorg_window
-                    # Find blocks older than cutoff that can be removed
-                    old_blocks = [b for b in self.queue.keys() if b < cutoff_block]
-
-                    # Remove old blocks
-                    if old_blocks:
-                        logger.debug(f"Removing {len(old_blocks)} older blocks from queue (before block {cutoff_block})")
-                        for old_block in old_blocks:
-                            self.queue.pop(old_block, None)
-
-                # Log queue state after removing the block
-                remaining_queue_size = len(self.queue)
-                logger.info(
-                    f"Retrieved block {block_index} from pipeline queue (remaining queue size: {remaining_queue_size})"
-                )
-
-                # CRITICAL: Always advance current_block when we consume a block
-                # This ensures the pipeline continues fetching new blocks
-                if self.current_block <= block_index:
-                    self.current_block = block_index + 1
-                    logger.info(
-                        f"Advanced pipeline current_block to {self.current_block} after retrieving block {block_index}"
-                    )
-
-                # Check if we should prefetch the next sequential block
-                if block_index + 1 not in self.queue and block_index + 1 <= backend_instance.getblockcount():
-                    # This will trigger the worker to prioritize fetching the next block
-                    logger.info(f"Triggering prefetch for next block {block_index + 1}")
-
+                logger.info(f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}")
+                # Advance the processor's position. The worker will fetch from this new position.
+                self.current_block += 1
                 return block_data
             else:
-                # Check if this block is currently being fetched
-                with self._blocks_fetch_lock:
-                    is_being_fetched = block_index in self.blocks_being_fetched
-
-                if is_being_fetched:
-                    logger.info(f"Block {block_index} is currently being fetched (not yet in queue)")
-                else:
-                    logger.info(
-                        f"Block {block_index} not found in pipeline queue and not being fetched (queue size: {len(self.queue)})"
-                    )
-
-                # Check if the queue contains blocks nearby - this helps debug out of order issues
-                if self.queue:
-                    queue_keys = sorted(self.queue.keys())
-                    logger.debug(
-                        f"Queue contains blocks: {queue_keys[:5]}{'...' if len(queue_keys) > 5 else ''} (showing first 5 of {len(queue_keys)})"
-                    )
-
-                    # If we have the next block but not the current one, something is out of order
-                    if block_index + 1 in self.queue:
-                        logger.warning(f"Block sequence issue: Missing block {block_index} but have block {block_index + 1}")
-
-                # Check if we're requesting a block that's at the chain tip
-                block_tip = backend_instance.getblockcount()
-                if block_index == block_tip:
-                    logger.debug(f"Block {block_index} is at chain tip, might not be available in XCP yet")
-                    # Return None but don't log as error - expected behavior
-                    return None
-
-                # CRITICAL: Update the current block pointer if we're requesting blocks ahead
-                # This ensures the pipeline continues fetching new blocks
-                if block_index >= self.current_block:
-                    self.current_block = block_index + 1
-                    logger.info(f"Advanced current_block to {self.current_block} based on request for block {block_index}")
-
-                # In fallback mode, create empty block data when CP data is not available
-                if self.fallback_mode and (self.fallback_started_at is None or block_index >= self.fallback_started_at):
-                    logger.debug(f"Fallback mode: Creating empty block data for block {block_index}")
-                    fallback_data = self.create_fallback_block(block_index)
-                    self.failed_cp_blocks.add(block_index)
-
-                    # Persist failed block to state
-                    if self.state_manager:
-                        self.state_manager.add_failed_block(block_index)
-
-                    # Store in queue for consistency
-                    with self._lock:
-                        self.queue[block_index] = fallback_data
-
-                    return fallback_data
-
+                # The required block is not in the queue. The processor must wait.
+                logger.info(f"Block {block_index} not in queue. Processor is waiting for fetcher.")
                 return None
 
     def create_fallback_block(self, block_index):
@@ -681,476 +603,154 @@ class CPBlocksPipeline:
             raise RuntimeError(f"Failed to perform startup rollback: {e}")
 
     def _fetch_blocks_worker(self):
-        """Background worker that continuously prefetches blocks"""
-        initial_fetch = True
-        consecutive_errors = 0
-        max_consecutive_errors = 3
-        fetch_futures = {}  # Track async fetch operations
+        """Background worker that continuously prefetches blocks."""
+        logger.info(f"CPBlocksPipeline worker starting from block {self.current_block}")
+        fetch_futures = {}
 
-        # Set a fixed number of initial blocks to fetch
-        # Use self.current_block which is initialized in start()
-        if self.current_block is None:
-            logger.error("Pipeline worker started before current_block was set.")
-            return  # Cannot proceed without a starting block
-
-        initial_target = self.current_block + self.initial_batch_size
-
-        logger.info(f"CPBlocksPipeline worker starting - target initial blocks up to {initial_target}")
-
-        # Print executor state to ensure it's properly initialized
-        logger.info(f"Using thread pool executor: {self.fetch_executor}, max_workers: {self.fetch_executor._max_workers}")
-
-        last_log_time = time.time()
-        iterations = 0
-
-        while not self.shutdown_flag.is_set() and not is_shutdown_requested() and self.running:
-            iterations += 1
-            # Log every 10 seconds to show the worker is alive
-            if time.time() - last_log_time > 10:
-                logger.info(f"🔄 Pipeline worker alive: iteration {iterations}, running={self.running}")
-                last_log_time = time.time()
+        while not self.shutdown_flag.is_set() and self.running:
             try:
-                current_time = time.time()
+                # 1. Process any futures that have completed their work.
+                self._process_completed_futures(fetch_futures)
 
-                # Rate limit fetching (except for initial batch)
-                if not initial_fetch and current_time - self.last_fetch_time < self.fetch_interval:
-                    # Don't log this too often - it's normal
-                    time.sleep(0.1)
-                    continue
-
-                # Check shutdown flag more frequently
-                if self.shutdown_flag.is_set() or is_shutdown_requested() or not self.running:
-                    logger.info("Shutdown flag detected in CP blocks pipeline, stopping worker")
-                    break
-
-                # Check for CP node recovery if in fallback mode, or check for failures to enter fallback mode
+                # 2. Check for node health and handle fallback mode.
                 if self.fallback_mode:
-                    self.check_cp_node_recovery()
+                    if self.check_cp_node_recovery():
+                        continue
                 else:
-                    # Check if we need to enter fallback mode due to node failures
-                    self.check_for_fallback_entry()
+                    if self.check_for_fallback_entry():
+                        continue
 
-                # --- Start: Calculate effective tip based on lookahead ---
+                # 3. Decide if we need to fetch more blocks.
                 with self._lock:
-                    queue_keys = self.queue.keys()
-                    queue_size = len(queue_keys)
-                    # next_block is the block the *fetcher* is looking at
-                    next_block = self.current_block
-                    # Keep a local copy of queue blocks for calculations outside the lock
-                    local_queue_blocks = set(queue_keys)
+                    processor_position = self.current_block
+                    queue_size = len(self.queue)
 
-                    # CRITICAL FIX: When queue is empty, use current_block as the processor position
-                    # This prevents the pipeline from thinking it's far ahead when it's actually behind
-                    if queue_keys:
-                        # Approximate processor position with the lowest block index in queue
-                        lowest_queued_block = min(queue_keys)
-                    else:
-                        # Queue is empty - processor has consumed all blocks
-                        # Use current_block - 1 as the processor position to ensure we continue fetching
-                        lowest_queued_block = self.current_block - 1
-                        logger.info(
-                            f"⚠️ CRITICAL: Queue empty! Using current_block - 1 ({lowest_queued_block}) as processor position to continue fetching"
-                        )
-
-                # Calculate the absolute maximum block index allowed for fetching based on processor position
-                max_fetch_block = lowest_queued_block + self.max_lookahead
-                logger.info(
-                    f"Lookahead calculation: lowest_queued_block={lowest_queued_block}, max_lookahead={self.max_lookahead}, max_fetch_block={max_fetch_block}"
-                )
-                # --- End: Calculate effective tip ---
-
-                # Get current blockchain tip
                 block_tip = backend_instance.getblockcount()
                 if block_tip is None:
-                    logger.warning("Could not get block tip, retrying in 2 seconds...")
+                    logger.warning("Could not get block tip, retrying...")
                     time.sleep(2)
                     continue
 
-                # Limit how far ahead we fetch based on the lowest queued block (processor position)
-                effective_tip = min(block_tip, max_fetch_block)
-                logger.info(
-                    f"Pipeline state: blockchain_tip={block_tip}, effective_tip={effective_tip}, fetcher_at={next_block}, processor_at={lowest_queued_block}, queue_size={queue_size}"
-                )
-
-                # If the fetcher has hit or surpassed the effective tip, throttle
-                if next_block >= effective_tip:
-                    if initial_fetch:
-                        logger.info(f"Initial fetch reached effective tip {effective_tip}, setting initial_blocks_ready flag")
-                        self.initial_blocks_ready.set()
-                        initial_fetch = False
-
-                    # Check if we're actually caught up to the real blockchain tip
-                    if next_block >= block_tip:
-                        logger.info(f"Fetcher at {next_block} has reached blockchain tip {block_tip}. Waiting.")
-                        time.sleep(2)  # Shorter wait at chain tip
-                        continue
-                    else:
-                        # We're at effective tip but not blockchain tip - might be due to lookahead limit
-                        # Update current_block to move forward if processor has caught up
-                        with self._lock:
-                            if len(self.queue) < self.target_queue_size // 2:
-                                # Queue is getting low, advance current_block to fetch more
-                                self.current_block = next_block + 1
-                                logger.info(
-                                    f"Queue low ({len(self.queue)} blocks), advancing current_block to {self.current_block}"
-                                )
-                                continue
-
-                        logger.info(
-                            f"Fetcher at {next_block} reached effective tip {effective_tip} but blockchain tip is {block_tip}. Waiting due to lookahead limit."
-                        )
-                        time.sleep(2)
-                        continue
-
-                # Calculate how many blocks ahead of current fetcher position to fetch, respecting effective_tip
-                blocks_to_fetch_count = min(self.target_queue_size - queue_size, effective_tip - next_block + 1)
-                blocks_to_fetch_count = max(0, blocks_to_fetch_count)  # Ensure it's not negative
-
-                # Enhanced logging for fetching calculations
-                logger.info(
-                    f"Fetch calculation: need_blocks={self.target_queue_size - queue_size}, blocks_to_tip={effective_tip - next_block + 1}, will_fetch={blocks_to_fetch_count}"
-                )
-                # Increase fetch batch size for initial fetch to speed up loading
-                if initial_fetch:
-                    # Cap the fetch range but make it larger for initial fetch
-                    max_batch_fetch = min(100, self.initial_batch_size)
-                else:
-                    # Standard fetch after initial - Increased batch size
-                    max_batch_fetch = 150
-
-                # Determine the end block for the *next batch* fetch operation
-                fetch_batch_end = min(next_block + max_batch_fetch - 1, next_block + blocks_to_fetch_count - 1, effective_tip)
-
-                # Always fetch at least one block if possible and needed
-                if fetch_batch_end < next_block and next_block <= effective_tip and blocks_to_fetch_count > 0:
-                    fetch_batch_end = next_block
-
-                # Calculate missing blocks with guaranteed sequential order first
-                sequential_blocks = []
-                current_seq_block = next_block
-                # Identify gaps in sequential blocks up to the target or effective tip
-                sequential_target_end = min(next_block + self.target_queue_size, effective_tip)
-                logger.info(f"Looking for sequential blocks from {next_block} to {sequential_target_end}")
-                while current_seq_block <= sequential_target_end:
-                    # Use the local copy of queue blocks
-                    if current_seq_block not in local_queue_blocks:
-                        sequential_blocks.append(current_seq_block)
-                        # Limit the sequential filling to a reasonable batch size
-                        if len(sequential_blocks) >= max_batch_fetch:
-                            break
-                    current_seq_block += 1
-
-                # If we need more blocks beyond sequential ones, add them
-                if not sequential_blocks and blocks_to_fetch_count > 0:
-                    # Calculate missing blocks in the range we want to have prefetched, respecting effective_tip
-                    target_prefetch_end = min(next_block + self.target_queue_size, effective_tip)
-                    target_blocks = set(range(next_block, target_prefetch_end + 1))
-                    # Use the local copy of queue blocks
-                    missing_blocks = sorted(list(target_blocks - local_queue_blocks))
-                    logger.info(f"Non-sequential: Need {len(missing_blocks)} blocks up to {target_prefetch_end}")
-                elif sequential_blocks:
-                    # Use the sequential blocks we identified
-                    missing_blocks = sequential_blocks
-                    logger.info(
-                        f"Sequential: Prioritizing {len(sequential_blocks)} blocks: {missing_blocks[:5]}{'...' if len(missing_blocks) > 5 else ''}"
-                    )
-                else:
-                    missing_blocks = []  # No blocks needed
-                    logger.info("❌ No missing blocks identified!")
-                    
-                    # CRITICAL: If queue is empty, force fetch the next blocks
-                    if queue_size == 0 and next_block <= effective_tip:
-                        logger.info(f"🚨 CRITICAL: Queue empty! Force fetching next {max_batch_fetch} blocks from {next_block}")
-                        missing_blocks = list(range(next_block, min(next_block + max_batch_fetch, effective_tip + 1)))
-
-                # Limit missing_blocks to max_batch_fetch size for the current iteration
-                missing_blocks_batch = missing_blocks[:max_batch_fetch]
-
-                # Only proceed if there are blocks to fetch *and* queue is below a threshold
-                # CRITICAL: Use a lower threshold to keep the queue full
-                trigger_fetch_threshold = int(self.target_queue_size * 0.5)  # Fetch if below 50% target
+                # Respect the lookahead limit from the processor's position
+                effective_tip = min(block_tip, processor_position + self.max_lookahead)
 
                 logger.info(
-                    f"Fetch decision: queue_size={queue_size}, threshold={trigger_fetch_threshold}, missing_blocks={len(missing_blocks_batch) if missing_blocks_batch else 0}"
+                    f"Pipeline state: processor_at={processor_position}, queue_size={queue_size}, "
+                    f"tip={block_tip}, effective_tip={effective_tip}"
                 )
 
-                # CRITICAL FIX: Force fetch when queue is empty or very low
-                force_fetch = queue_size == 0 or (queue_size < 10 and missing_blocks_batch)
-                
-                if (queue_size < trigger_fetch_threshold and missing_blocks_batch) or force_fetch:
-                    try:
-                        if force_fetch:
-                            logger.info(
-                                f"🚨 FORCE FETCH: Queue critically low ({queue_size}), fetching {len(missing_blocks_batch)} blocks"
-                            )
-                        else:
-                            logger.info(
-                                f"Queue below threshold ({queue_size} < {trigger_fetch_threshold}), fetching {len(missing_blocks_batch)} blocks"
-                            )
-                        if missing_blocks_batch:
-                            logger.debug(f"Missing block batch range: {missing_blocks_batch[0]} to {missing_blocks_batch[-1]}")
+                # Condition to fetch is simple: queue is not full, and we're not at the tip.
+                should_fetch = queue_size < self.target_queue_size and processor_position <= effective_tip
 
-                        # Get fresh list of healthy nodes with retry logic
-                        nodes = get_healthy_nodes()
-                        if not nodes:
-                            logger.warning("No healthy nodes available, attempting to update node list")
-                            try:
-                                update_healthy_nodes()
-                                nodes = get_healthy_nodes()
-                            except Exception as e:
-                                logger.error(f"Failed to update healthy nodes: {e}")
+                if not should_fetch:
+                    logger.debug("Queue is full or processor is caught up. Waiting.")
+                    time.sleep(self.fetch_interval)
+                    continue
 
-                            if not nodes:
-                                if self.fallback_mode:
-                                    # Check if we should enter fallback mode
-                                    if not self.fallback_started_at:
-                                        logger.warning("🚨 NO HEALTHY NODES - entering fallback mode immediately")
-                                        self._enter_fallback_mode()
+                # 4. Identify which blocks to fetch.
+                # We want to fill the queue up to the target size, starting from where the processor is.
+                fetch_end_block = min(processor_position + self.target_queue_size, effective_tip)
+                potential_blocks = list(range(processor_position, fetch_end_block + 1))
 
-                                    logger.warning("No healthy Counterparty nodes available - continuing in fallback mode")
-                                    # In fallback mode, create empty blocks for the missing batch
-                                    with self._lock:
-                                        for block_idx in missing_blocks_batch:
-                                            if block_idx not in self.queue:
-                                                fallback_data = self.create_fallback_block(block_idx)
-                                                self.queue[block_idx] = fallback_data
-                                                self.failed_cp_blocks.add(block_idx)
-                                                logger.debug(f"Added fallback block {block_idx} to queue")
+                if not potential_blocks:
+                    time.sleep(1)
+                    continue
 
-                                        # Update current_block to move forward
-                                        if missing_blocks_batch:
-                                            max_block_added = max(missing_blocks_batch)
-                                            if max_block_added >= self.current_block:
-                                                self.current_block = max_block_added + 1
-                                                logger.debug(
-                                                    f"Advanced current_block to {self.current_block} in fallback mode"
-                                                )
+                # Figure out which blocks we need from the potential list
+                with self._blocks_fetch_lock:
+                    with self._lock:  # Need lock for self.queue
+                        existing_in_queue = set(self.queue.keys())
 
-                                    # Reset consecutive errors since we successfully created fallback blocks
-                                    consecutive_errors = 0
-                                    time.sleep(5)  # Shorter wait in fallback mode
-                                    continue
-                                else:
-                                    logger.error("No healthy Counterparty nodes available after update - cannot fetch blocks")
-                                    consecutive_errors += 1
-                                    if consecutive_errors >= max_consecutive_errors:
-                                        logger.error("Too many consecutive node failures - stopping pipeline")
-                                        self.running = False
-                                        break
-                                    time.sleep(10)  # Longer wait when nodes are down
-                                    continue
+                    blocks_already_present = self.blocks_being_fetched.union(existing_in_queue)
+                    blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
 
-                        # Debug the nodes we're using for fetch
-                        logger.debug(f"Using nodes for fetch: {[node['name'] for node in nodes]}")
+                # Limit the batch size for a single API call
+                blocks_to_fetch_now = blocks_to_fetch_now[:150]  # Hardcoded max batch size
 
-                        # Start async fetch of missing blocks batch by batch
-                        # Note: _fetch_blocks_batch handles fetching potentially sparse indices within the batch range
-                        batch_to_submit = missing_blocks_batch  # Submit the exact blocks needed for this batch
+                if not blocks_to_fetch_now:
+                    logger.debug("No new blocks to fetch in the target range. Waiting.")
+                    time.sleep(1)
+                    continue
 
-                        # Skip blocks that are already being fetched
-                        with self._blocks_fetch_lock:
-                            # Check against fetch_futures first (more accurate for pending tasks)
-                            with self.fetch_futures_lock:
-                                blocks_not_in_futures = [
-                                    b for b in batch_to_submit if b not in fetch_futures or fetch_futures[b].done()
-                                ]
-                            # Then check against the broader blocks_being_fetched set
-                            blocks_to_fetch_now = [b for b in blocks_not_in_futures if b not in self.blocks_being_fetched]
-                            
-                            # Log what's being filtered out
-                            if blocks_not_in_futures:
-                                blocks_already_fetching = [b for b in blocks_not_in_futures if b in self.blocks_being_fetched]
-                                if blocks_already_fetching:
-                                    logger.info(f"🚫 Filtering out {len(blocks_already_fetching)} blocks already in blocks_being_fetched: {blocks_already_fetching[:5]}...")
+                logger.info(
+                    f"Identified {len(blocks_to_fetch_now)} blocks to fetch, "
+                    f"from {blocks_to_fetch_now[0]} to {blocks_to_fetch_now[-1]}"
+                )
 
-                            if blocks_to_fetch_now:
-                                logger.debug(f"Starting async fetch task for {len(blocks_to_fetch_now)} blocks")
+                # 5. Submit the fetch task.
+                nodes = get_healthy_nodes()
+                if not nodes:
+                    logger.warning("No healthy nodes available for fetching.")
+                    time.sleep(10)
+                    continue
 
-                                # Add blocks to the being fetched set with timestamps
-                                current_timestamp = time.time()
-                                self.blocks_being_fetched.update(blocks_to_fetch_now)
-                                for block in blocks_to_fetch_now:
-                                    self.blocks_fetch_timestamps[block] = current_timestamp
+                with self._blocks_fetch_lock:
+                    current_timestamp = time.time()
+                    self.blocks_being_fetched.update(blocks_to_fetch_now)
+                    for block in blocks_to_fetch_now:
+                        self.blocks_fetch_timestamps[block] = current_timestamp
 
-                                # Use the first healthy node (we've already verified they work)
-                                node_url = nodes[0]["url"]
-                                logger.debug(f"Using node URL: {node_url}")
+                    node_url = nodes[0]["url"]
+                    future = self.fetch_executor.submit(self._fetch_blocks_batch, blocks_to_fetch_now, node_url)
 
-                                # Add direct debug for the submission
-                                try:
-                                    # Submit the fetch task to the executor to run asynchronously
-                                    logger.info(
-                                        f"Submitting async task for {len(blocks_to_fetch_now)} blocks: {blocks_to_fetch_now[0]}-{blocks_to_fetch_now[-1]}"
-                                    )
-                                    future = self.fetch_executor.submit(
-                                        self._fetch_blocks_batch, blocks_to_fetch_now, node_url
-                                    )
-
-                                    # Register the future for each block being fetched in this task
-                                    with self.fetch_futures_lock:
-                                        for block_idx in blocks_to_fetch_now:
-                                            fetch_futures[block_idx] = future
-
-                                    # Update the last fetch time
-                                    self.last_fetch_time = current_time
-
-                                except Exception as e:
-                                    logger.error(f"Error submitting fetch task: {e}", exc_info=True)
-                                    # Remove blocks from being fetched if submission fails
-                                    with self._blocks_fetch_lock:
-                                        self.blocks_being_fetched.difference_update(blocks_to_fetch_now)
-                                        for block in blocks_to_fetch_now:
-                                            self.blocks_fetch_timestamps.pop(block, None)
-                            else:
-                                logger.debug(
-                                    f"Skipping fetch for batch {batch_to_submit} as blocks are already being fetched or pending."
-                                )
-
-                        # Check for completed fetches (moved outside the batch loop)
-                        # Process completed futures (moved outside the batch loop)
-
-                    except Exception as e:
-                        logger.error(f"Error during block fetching preparation: {e}", exc_info=True)
-                        consecutive_errors += 1
-                        if consecutive_errors >= max_consecutive_errors:
-                            logger.error(f"Too many consecutive errors ({consecutive_errors}), retrying after delay")
-                            time.sleep(5)  # Longer backoff
-                            consecutive_errors = 0  # Reset after backoff
-                elif not missing_blocks_batch:
-                    # Log if no blocks are needed, but still process completed futures below
-                    logger.info("No missing blocks identified in the target range/batch size.")
-                    # Still process completed futures below, small sleep if nothing else to do
-                    time.sleep(0.5)
-                else:  # Queue is above threshold, but not full. Wait longer before re-checking.
-                    logger.info(f"Queue size {queue_size} >= fetch trigger threshold {trigger_fetch_threshold}. Waiting.")
-                    # Still process completed futures below, but sleep longer before next fetch check
-                    logger.info(f"😴 Pipeline sleeping: queue above threshold, sleeping for {self.fetch_interval * 2}s")
-                    time.sleep(self.fetch_interval * 2)
-
-                # Check for CP node recovery during fallback mode
-                if self.fallback_mode and self.fallback_started_at:
-                    self.check_cp_node_recovery()
-                
-                # Clean up any stuck fetches periodically
-                self._cleanup_stuck_fetches()
-
-                # --- Moved processing of completed futures outside the fetch initiation logic ---
-                # Check for completed fetches (always do this every loop iteration)
-                completed_futures_map = {}  # block_idx -> future
-                with self.fetch_futures_lock:
-                    futures_to_remove = []
-                    for block_idx, future in fetch_futures.items():
-                        if future.done():
-                            completed_futures_map[block_idx] = future
-                            futures_to_remove.append(block_idx)
-
-                    # Remove completed futures from the main tracking dict
-                    for block_idx in futures_to_remove:
-                        fetch_futures.pop(block_idx, None)
-
-                # Process completed futures (unique futures only)
-                processed_futures = set()
-                for block_idx, future in completed_futures_map.items():
-                    if future in processed_futures:
-                        continue  # Already processed this future instance
-
-                    processed_futures.add(future)
-                    blocks_associated_with_this_future = [idx for idx, fut in completed_futures_map.items() if fut == future]
-
-                    try:
-                        # Get the result dictionary {block_index: block_data}
-                        result_dict = future.result(timeout=1)  # Short timeout, should be done
-                        if result_dict:
-                            logger.debug(f"Processing result for {len(result_dict)} blocks from a completed future.")
-                            # Process the results
-                            with self._lock:  # Lock needed for queue and current_block updates
-                                added_count = 0
-                                for res_block_index, block_data in result_dict.items():
-                                    if block_data and "error" not in block_data:
-                                        # Only add to queue if not already present
-                                        if res_block_index not in self.queue:
-                                            # Store block data in queue
-                                            self.queue[res_block_index] = block_data
-                                            added_count += 1
-                                            logger.debug(f"Added block {res_block_index} to queue")
-                                        else:
-                                            logger.debug(f"Block {res_block_index} already in queue, skipping")
-                                        # Only update current_block if it's the next sequential block we were waiting for
-                                        if res_block_index == self.current_block:
-                                            # Advance current_block past all contiguous blocks added
-                                            start_advance = self.current_block
-                                            while self.current_block in self.queue:
-                                                self.current_block += 1
-                                            if self.current_block > start_advance:
-                                                logger.debug(
-                                                    f"Advanced current_block from {start_advance} to {self.current_block}"
-                                                )
-                                    else:  # Handle block fetch error within the batch
-                                        logger.warning(
-                                            f"Block {res_block_index} fetch failed within batch: {block_data.get('error', 'Unknown error')}"
-                                        )
-
-                                    # Update queue state log after processing batch result
-                                    current_queue_size = len(self.queue)
-                                    if current_queue_size > 0:
-                                        queue_block_keys = sorted(list(self.queue.keys()))
-                                        logger.debug(
-                                            f"Queue now contains {current_queue_size} blocks. Range: {queue_block_keys[0]} to {queue_block_keys[-1]}"
-                                        )
-                                    else:
-                                        logger.debug("Queue is currently empty.")
-
-                        else:
-                            logger.warning(
-                                f"Future for blocks {blocks_associated_with_this_future} completed but returned no result."
-                            )
-
-                    except concurrent.futures.TimeoutError:
-                        logger.error(
-                            f"Timeout retrieving result from supposedly done future for blocks {blocks_associated_with_this_future}"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing future result for blocks {blocks_associated_with_this_future}: {e}",
-                            exc_info=True,
-                        )
-
-                    # Regardless of success/failure in processing, remove associated blocks from being_fetched set
-                    with self._blocks_fetch_lock:
-                        self.blocks_being_fetched.difference_update(blocks_associated_with_this_future)
-                        for block in blocks_associated_with_this_future:
-                            self.blocks_fetch_timestamps.pop(block, None)
-                        logger.debug(
-                            f"Removed {len(blocks_associated_with_this_future)} blocks from blocks_being_fetched set."
-                        )
-
-                # Set initial_blocks_ready flag much earlier - as soon as we have a few blocks
-                # Check this after processing results
-                with self._lock:
-                    current_queue_size = len(self.queue)
-                if initial_fetch and current_queue_size >= self.min_blocks_ready:
-                    logger.info(
-                        f"Initial fetch has {current_queue_size} blocks in queue (needed {self.min_blocks_ready}), setting ready flag"
-                    )
-                    self.initial_blocks_ready.set()
-                    initial_fetch = False
+                    with self.fetch_futures_lock:
+                        for block_idx in blocks_to_fetch_now:
+                            fetch_futures[block_idx] = future
 
             except Exception as e:
                 logger.error(f"Unexpected error in fetch worker loop: {e}", exc_info=True)
-                consecutive_errors += 1
-                if consecutive_errors >= max_consecutive_errors:
-                    logger.error(f"Too many consecutive errors ({consecutive_errors}), backing off")
-                    time.sleep(5)  # Longer backoff
-                    consecutive_errors = 0  # Reset after backoff
-                else:
-                    time.sleep(1)  # Shorter sleep for non-consecutive errors
-
-        # Make sure initial_blocks_ready is set on exit to prevent hanging
-        if not self.initial_blocks_ready.is_set():
-            logger.info("Setting initial_blocks_ready flag on worker exit")
-            self.initial_blocks_ready.set()
+                time.sleep(5)
 
         logger.info("CPBlocksPipeline worker thread exiting")
+
+    def _process_completed_futures(self, fetch_futures):
+        """Helper to process completed futures and update queue."""
+        completed_futures_map = {}
+        with self.fetch_futures_lock:
+            futures_to_remove = [block_idx for block_idx, future in fetch_futures.items() if future.done()]
+            for block_idx in futures_to_remove:
+                completed_futures_map[block_idx] = fetch_futures.pop(block_idx)
+
+        processed_futures = set()
+        for block_idx, future in completed_futures_map.items():
+            if future in processed_futures:
+                continue
+            processed_futures.add(future)
+
+            blocks_in_future = [idx for idx, fut in completed_futures_map.items() if fut == future]
+
+            try:
+                result_dict = future.result(timeout=1)  # Should be done, so short timeout
+                if result_dict:
+                    logger.debug(f"Processing result for {len(result_dict)} blocks from a completed future.")
+                    with self._lock:
+                        for res_block_index, block_data in result_dict.items():
+                            if block_data and "error" not in block_data:
+                                # CRITICAL FIX: Only add block if it's not already processed.
+                                if res_block_index >= self.current_block:
+                                    self.queue[res_block_index] = block_data
+                                else:
+                                    logger.warning(
+                                        f"Discarding already processed block {res_block_index} from completed future."
+                                    )
+                            else:
+                                error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
+                                logger.warning(f"Block {res_block_index} fetch failed within batch: {error_msg}")
+
+                    # Signal ready if it's the initial fetch
+                    if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
+                        logger.info(f"Initial fetch has {len(self.queue)} blocks, setting ready flag.")
+                        self.initial_blocks_ready.set()
+                else:
+                    logger.warning(f"Future for blocks {blocks_in_future} completed but returned no result.")
+            except Exception as e:
+                logger.error(f"Error processing future result for blocks {blocks_in_future}: {e}", exc_info=True)
+
+            # Clean up from the 'being fetched' set
+            with self._blocks_fetch_lock:
+                self.blocks_being_fetched.difference_update(blocks_in_future)
+                for block in blocks_in_future:
+                    self.blocks_fetch_timestamps.pop(block, None)
 
     def _fetch_blocks_batch(self, block_indices, node_url):
         """
