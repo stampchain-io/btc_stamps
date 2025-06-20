@@ -42,7 +42,7 @@ class CPBlocksPipeline:
         self.target_queue_size = target_queue_size
         self.max_lookahead = max_lookahead
         self.current_block = None
-        self.initial_batch_size = 10
+        self.initial_batch_size = 50
         self.running = False
         self.fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         # Number of blocks needed before signaling ready for processing
