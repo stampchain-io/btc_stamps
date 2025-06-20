@@ -681,7 +681,7 @@ class CPBlocksPipeline:
                     time.sleep(1)
                     continue
 
-                logger.info(
+                logger.debug(
                     f"Identified {len(blocks_to_fetch_now)} blocks to fetch, "
                     f"from {blocks_to_fetch_now[0]} to {blocks_to_fetch_now[-1]}"
                 )
