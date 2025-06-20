@@ -1150,9 +1150,33 @@ def follow(
                             time.sleep(5)
 
                 else:
-                    # Indexer is caught up (block_index > block_tip), wait for new blocks
-                    logger.debug(f"Indexer caught up at block {block_index} (tip: {block_tip}), waiting for new blocks...")
-                    db.rollback()  # Rollback any uncommitted transaction before waiting
+                    # CRITICAL: Before declaring we're caught up, invalidate cache and get fresh block count
+                    # This prevents false "caught up" state during initial sync where block_tip may be
+                    # cached from the start of processing. Without this check, the indexer can incorrectly
+                    # think it's caught up after processing the initial batch and start market data jobs
+                    # prematurely instead of continuing to sync to the actual blockchain tip.
+                    backend_instance.invalidate_blockcount_cache()
+                    fresh_block_tip = backend_instance.getblockcount()
+
+                    # Double-check if we're actually caught up with fresh data
+                    if block_index > fresh_block_tip:
+                        # Indexer is caught up (block_index > fresh_block_tip), wait for new blocks
+                        logger.debug(
+                            f"Indexer caught up at block {block_index} (fresh tip: {fresh_block_tip}), waiting for new blocks..."
+                        )
+                        db.rollback()  # Rollback any uncommitted transaction before waiting
+                    else:
+                        # We're not actually caught up - the cached block_tip was stale
+                        blocks_behind = fresh_block_tip - block_index + 1
+                        logger.info(
+                            f"Stale block tip detected. Continuing sync: block {block_index}, actual tip: {fresh_block_tip} ({blocks_behind} blocks behind)"
+                        )
+                        logger.debug(
+                            f"Cached block_tip was {block_tip}, fresh is {fresh_block_tip} (difference: {fresh_block_tip - block_tip})"
+                        )
+                        block_tip = fresh_block_tip  # Update block_tip with fresh value
+                        db.rollback()
+                        continue  # Continue processing without entering "caught up" mode
 
                     if server.shutdown_flag.is_set():
                         logger.info("Shutdown flag detected, completing current block processing...")
