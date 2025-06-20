@@ -57,14 +57,9 @@ class StampProcessor:
         reissuance_check_required = is_numeric_asset or (stamp_data.is_cursed and stamp_data.cpid)
 
         if reissuance_check_required:
-            # Check if this CPID has already been validated in the current block.
-            if any(vs.cpid == stamp_data.cpid for vs in self.valid_stamps_in_block):
-                logger.debug(f"INVALID STAMP DATA: Reissue in same block for CPID {stamp_data.cpid}")
-                return (None,) * 4  # Do not proceed with this stamp.
-
-            # Check if this CPID has been issued in a previous block.
-            if check_reissue(self.db, stamp_data.cpid):
-                logger.debug(f"INVALID STAMP DATA: Reissue (database) for CPID {stamp_data.cpid}")
+            # Check if this CPID has already been issued in a previous block or in the current block.
+            if check_reissue(self.db, stamp_data.cpid, self.valid_stamps_in_block):
+                logger.debug(f"INVALID STAMP DATA: Reissue (database or in-block) for CPID {stamp_data.cpid}")
                 return (None,) * 4  # Do not proceed with this stamp.
 
         # After passing all checks, determine if we should create a valid_stamp object.
