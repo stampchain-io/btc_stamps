@@ -13,12 +13,12 @@ import logging
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 from dotenv import load_dotenv
 
 # Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -26,12 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Import necessary modules
 import config  # Import config directly, not from index_core
-from index_core import arc4
-from index_core import backend as backend_module
-from index_core import script
-from index_core.transaction_utils import quick_filter_src20_transaction
-from index_core.exceptions import DecodeError
+from index_core import arc4, backend as backend_module, script
 from index_core.fetch_utils import get_xcp_asset
+from index_core.transaction_utils import quick_filter_src20_transaction
 
 # Try to import Rust parser
 try:
@@ -113,7 +110,7 @@ def try_concatenate_outputs(outputs, verbose: bool = False) -> None:
 
                 # If it's an SRC-20 transaction, provide additional context
                 if json_data.get("p") == "src-20":
-                    logger.info(f"SRC-20 Transaction:")
+                    logger.info("SRC-20 Transaction:")
                     logger.info(f"  Operation: {json_data.get('op', 'unknown')}")
                     logger.info(f"  Tick: {json_data.get('tick', 'unknown')}")
                     logger.info(f"  Amount: {json_data.get('amt', 'unknown')}")
@@ -289,11 +286,11 @@ def debug_transaction(txid: str, verbose: bool = False):
                                     json_data = json.loads(data)
                                     logger.info(f"  JSON data: {json.dumps(json_data, indent=2)}")
                                 except json.JSONDecodeError:
-                                    logger.info(f"  Data is not valid JSON")
+                                    logger.info("  Data is not valid JSON")
                             except Exception as e:
                                 logger.error(f"  Error extracting data: {e}")
                     else:
-                        logger.info(f"  Decrypted chunk too short for PREFIX check")
+                        logger.info("  Decrypted chunk too short for PREFIX check")
 
                     # If Rust parser is available, get more output info
                     if RUST_PARSER_AVAILABLE:
@@ -342,8 +339,8 @@ if __name__ == "__main__":
     identifier = args.tx_or_asset_id
     txid_to_debug = None
 
-    # Check if the identifier is a potential asset ID
-    if identifier.startswith("A") and not all(c in "0123456789abcdef" for c in identifier.lower()):
+    # Check if the identifier is a potential asset ID (starts with 'A' and the rest are digits)
+    if identifier.startswith("A") and identifier[1:].isdigit():
         txid_to_debug = get_tx_hash_for_asset(identifier)
         if not txid_to_debug:
             sys.exit(1)
