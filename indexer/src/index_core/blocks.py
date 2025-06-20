@@ -799,13 +799,6 @@ def follow(
                                     block_index, end_block, progress_indicator=(block_index + 1 == block_tip)
                                 )
 
-                                if block_index <= 781141 <= end_block:
-                                    if 781141 in stamp_issuances_list:
-                                        import json
-                                        logger.warning(f"DEBUG 781141 (blocks.py): {json.dumps(stamp_issuances_list[781141], indent=2)}")
-                                    else:
-                                        logger.warning("DEBUG 781141 (blocks.py): not in stamp_issuances_list")
-
                                 if stamp_issuances_list or not at_chain_tip:
                                     break
 

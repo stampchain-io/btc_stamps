@@ -4,7 +4,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import List
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 # Set test environment variables BEFORE importing any indexer modules
 os.environ["USE_TEST_TX_HEX"] = "1"
@@ -28,7 +28,7 @@ from index_core.stamp import parse_stamp
 
 # Import test helpers first
 from tests.db_simulator import DBSimulator
-from tests.src20_variations_data import src20_variations_data
+from tests.fixtures.src20_variations_data import src20_variations_data
 from tests.test_helpers import mock_database, setup_test_env
 
 
@@ -48,8 +48,6 @@ class TestBlockProcessor:
 
 @pytest.fixture(scope="function")
 def setup_environment():
-    from tests.test_isolation_utils import TestIsolationManager
-
     # Configure logging to show all test case details
     root_logger = logging.getLogger()
     handler = logging.StreamHandler()
