@@ -361,7 +361,7 @@ class CPBlocksPipeline:
             # The consumer (blocks.py) is asking for a block that is behind
             # the pipeline's internal processor position.
             if block_index < self.current_block:
-                logger.warning(
+                logger.debug(
                     f"Out-of-sequence get_block request for {block_index}, which is behind processor at {self.current_block}. "
                     "Returning block and allowing consumer to catch up."
                 )
@@ -372,20 +372,20 @@ class CPBlocksPipeline:
             if block_index == self.current_block:
                 block_data = self.queue.pop(block_index, None)
                 if block_data:
-                    logger.info(f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}")
+                    logger.debug(f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}")
                     # Advance the processor's position. The worker will fetch from this new position.
                     self.current_block += 1
                     return block_data
                 else:
                     # The required sequential block is not in the queue. The processor must wait.
-                    logger.info(f"Block {block_index} not in queue. Processor is waiting for fetcher.")
+                    logger.debug(f"Block {block_index} not in queue. Processor is waiting for fetcher.")
                     return None
 
             # The consumer is asking for a block ahead of the processor.
             # This should not happen in normal operation but can occur during reorgs.
             # Return the data if we have it, but do not advance the primary 'current_block' state.
             if block_index > self.current_block:
-                logger.warning(f"Ahead-of-sequence get_block request for {block_index}, processor is at {self.current_block}.")
+                logger.debug(f"Ahead-of-sequence get_block request for {block_index}, processor is at {self.current_block}.")
                 return self.queue.get(block_index)
 
     def create_fallback_block(self, block_index):
@@ -643,7 +643,7 @@ class CPBlocksPipeline:
                 # Respect the lookahead limit from the processor's position
                 effective_tip = min(block_tip, processor_position + self.max_lookahead)
 
-                logger.info(
+                logger.debug(
                     f"Pipeline state: processor_at={processor_position}, queue_size={queue_size}, "
                     f"tip={block_tip}, effective_tip={effective_tip}"
                 )
