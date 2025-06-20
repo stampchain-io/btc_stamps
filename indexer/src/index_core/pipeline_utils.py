@@ -698,9 +698,29 @@ class CPBlocksPipeline:
                         logger.info(f"Initial fetch reached effective tip {effective_tip}, setting initial_blocks_ready flag")
                         self.initial_blocks_ready.set()
                         initial_fetch = False
-                    logger.debug(f"Fetcher at {next_block} has reached or passed effective tip {effective_tip}. Waiting.")
-                    time.sleep(2)  # Shorter wait at chain tip/lookahead limit
-                    continue
+
+                    # Check if we're actually caught up to the real blockchain tip
+                    if next_block >= block_tip:
+                        logger.debug(f"Fetcher at {next_block} has reached blockchain tip {block_tip}. Waiting.")
+                        time.sleep(2)  # Shorter wait at chain tip
+                        continue
+                    else:
+                        # We're at effective tip but not blockchain tip - might be due to lookahead limit
+                        # Update current_block to move forward if processor has caught up
+                        with self._lock:
+                            if len(self.queue) < self.target_queue_size // 2:
+                                # Queue is getting low, advance current_block to fetch more
+                                self.current_block = next_block + 1
+                                logger.info(
+                                    f"Queue low ({len(self.queue)} blocks), advancing current_block to {self.current_block}"
+                                )
+                                continue
+
+                        logger.debug(
+                            f"Fetcher at {next_block} reached effective tip {effective_tip} but blockchain tip is {block_tip}. Waiting."
+                        )
+                        time.sleep(2)
+                        continue
 
                 # Calculate how many blocks ahead of current fetcher position to fetch, respecting effective_tip
                 blocks_to_fetch_count = min(self.target_queue_size - queue_size, effective_tip - next_block + 1)
@@ -796,6 +816,18 @@ class CPBlocksPipeline:
                                                 self.queue[block_idx] = fallback_data
                                                 self.failed_cp_blocks.add(block_idx)
                                                 logger.debug(f"Added fallback block {block_idx} to queue")
+
+                                        # Update current_block to move forward
+                                        if missing_blocks_batch:
+                                            max_block_added = max(missing_blocks_batch)
+                                            if max_block_added >= self.current_block:
+                                                self.current_block = max_block_added + 1
+                                                logger.debug(
+                                                    f"Advanced current_block to {self.current_block} in fallback mode"
+                                                )
+
+                                    # Reset consecutive errors since we successfully created fallback blocks
+                                    consecutive_errors = 0
                                     time.sleep(5)  # Shorter wait in fallback mode
                                     continue
                                 else:
