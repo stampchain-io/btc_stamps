@@ -199,12 +199,20 @@ env = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-v -p no:warnings"
+addopts = "-v -p no:warnings --strict-markers --tb=short -ra --cov-config=.coveragerc"
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
     "ignore::sqlalchemy.exc.MovedIn20Warning",
     "ignore::UserWarning"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "requires_db: marks tests that require database access",
+    "requires_network: marks tests that require network access",
+    "requires_bitcoin_node: marks tests that require a local Bitcoin node (RPC)"
 ]
 
 [tool.coverage.run]
