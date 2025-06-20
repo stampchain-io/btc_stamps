@@ -6,11 +6,21 @@ import pytest
 
 from index_core.parser import Parser, ParserError
 
-# Sample transaction hex from Bitcoin testnet
-SAMPLE_TX_HEX = "0200000001268171371edff285e937adeea4b37b78000c0566cbb3ad64641713ca42171bf6000000006a473044022070b2245123e6bf474d60c5b50c043d4c691a5d2435f09a34a7662a9dc251790a022001329ca9dacf280bdf30740ec0390422422c81cb45839457aeb76fc12edd95b3012102657d118d3357b8e0f4c2cd46db7b39f6d9c38d9a70abcb9b2de5dc8dbfe4ce31feffffff02d3dff505000000001976a914d0c59903c5bac2868760e90fd521a4665aa7652088ac00e1f5050000000017a9143545e6e33b832c47050f24d3eeb93c9c03948bc787b32e1300"
+# Real transaction hex from Bitcoin mainnet (block 820000)
+SAMPLE_TX_HEX = "01000000000101361530b8037243b3f1c953c332061d9753a4995ded1ab376a83d885b3744b7b08500000000ffffffff0138630100000000001976a9146f77d225c5a10047afceccf98daace58a511b4d488ac024730440220038bb62199060044624e593fab989833ea174089245fd7e255c3b2402ab1af120220413693fea1a7ccd3d3828ee5c1a0c1305f836205f20d97ab8b5c71c3389a57bf0121021fccd86a0099f854af13ab77afc02ac0ba184b5ad834a006252a23fb08cac6da00000000"
 
-# Sample block hex (you'll need to provide a real one)
-SAMPLE_BLOCK_HEX = "..."  # Add a real block hex for testing
+# Load block hex from fixtures file to avoid embedding huge hex string
+import json
+from pathlib import Path
+
+fixtures_path = Path(__file__).parent / "fixtures" / "test_data.json"
+if fixtures_path.exists():
+    with open(fixtures_path) as f:
+        fixtures = json.load(f)
+        SAMPLE_BLOCK_HEX = fixtures["block"]["hex"]
+else:
+    # Fallback for CI or when fixtures aren't available
+    SAMPLE_BLOCK_HEX = None
 
 
 def test_parser_initialization():
@@ -78,7 +88,7 @@ def test_batch_parse_transactions():
         assert hasattr(result, "nVersion")
 
 
-@pytest.mark.skip(reason="Need real block hex data")
+@pytest.mark.skipif(SAMPLE_BLOCK_HEX is None, reason="Block fixtures not available")
 def test_parse_block():
     """Test block parsing."""
     parser = Parser()
@@ -89,6 +99,12 @@ def test_parse_block():
     assert isinstance(timestamp, int)
     assert isinstance(prev_hash, str)
     assert difficulty is None  # Not implemented yet
+
+    # Additional assertions with real data
+    assert len(tx_hashes) > 0  # Block should have transactions
+    assert len(raw_txs) == len(tx_hashes)  # Should have raw data for each tx
+    assert all(isinstance(tx_hash, str) and len(tx_hash) == 64 for tx_hash in tx_hashes)
+    assert all(isinstance(raw_tx, str) for raw_tx in raw_txs.values())
 
 
 def test_parallel_processing():
