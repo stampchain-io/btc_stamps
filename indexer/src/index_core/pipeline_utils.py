@@ -50,6 +50,7 @@ class CPBlocksPipeline:
         self.processing_start_delay = 0.5  # Short delay to ensure blocks are registered before processing starts
         self.blocks_being_fetched = set()  # Track which blocks are currently being fetched
         self._blocks_fetch_lock = threading.Lock()  # Separate lock for fetching state
+        self.fetch_futures_lock = threading.Lock()  # Lock for fetch_futures dictionary
         self.blocks_fetch_timestamps = {}  # Track when each block started being fetched
         self.fetch_timeout = 60  # Timeout for block fetches in seconds
 
@@ -949,9 +950,10 @@ class CPBlocksPipeline:
                         # Skip blocks that are already being fetched
                         with self._blocks_fetch_lock:
                             # Check against fetch_futures first (more accurate for pending tasks)
-                            blocks_not_in_futures = [
-                                b for b in batch_to_submit if b not in fetch_futures or fetch_futures[b].done()
-                            ]
+                            with self.fetch_futures_lock:
+                                blocks_not_in_futures = [
+                                    b for b in batch_to_submit if b not in fetch_futures or fetch_futures[b].done()
+                                ]
                             # Then check against the broader blocks_being_fetched set
                             blocks_to_fetch_now = [b for b in blocks_not_in_futures if b not in self.blocks_being_fetched]
                             
@@ -985,8 +987,9 @@ class CPBlocksPipeline:
                                     )
 
                                     # Register the future for each block being fetched in this task
-                                    for block_idx in blocks_to_fetch_now:
-                                        fetch_futures[block_idx] = future
+                                    with self.fetch_futures_lock:
+                                        for block_idx in blocks_to_fetch_now:
+                                            fetch_futures[block_idx] = future
 
                                     # Update the last fetch time
                                     self.last_fetch_time = current_time
@@ -1034,16 +1037,12 @@ class CPBlocksPipeline:
                 # --- Moved processing of completed futures outside the fetch initiation logic ---
                 # Check for completed fetches (always do this every loop iteration)
                 completed_futures_map = {}  # block_idx -> future
-                active_block_indices_in_futures = set()
-                with self._blocks_fetch_lock:  # Lock needed when accessing fetch_futures potentially shared state? Check usage pattern.
-                    # Accessing items() should be safe for iteration if additions/deletions are locked.
+                with self.fetch_futures_lock:
                     futures_to_remove = []
                     for block_idx, future in fetch_futures.items():
                         if future.done():
                             completed_futures_map[block_idx] = future
                             futures_to_remove.append(block_idx)
-                        else:
-                            active_block_indices_in_futures.add(block_idx)
 
                     # Remove completed futures from the main tracking dict
                     for block_idx in futures_to_remove:
@@ -1068,10 +1067,14 @@ class CPBlocksPipeline:
                                 added_count = 0
                                 for res_block_index, block_data in result_dict.items():
                                     if block_data and "error" not in block_data:
-                                        # Store block data in queue
-                                        self.queue[res_block_index] = block_data
-                                        added_count += 1
-                                        logger.debug(f"Added block {res_block_index} to queue")
+                                        # Only add to queue if not already present
+                                        if res_block_index not in self.queue:
+                                            # Store block data in queue
+                                            self.queue[res_block_index] = block_data
+                                            added_count += 1
+                                            logger.debug(f"Added block {res_block_index} to queue")
+                                        else:
+                                            logger.debug(f"Block {res_block_index} already in queue, skipping")
                                         # Only update current_block if it's the next sequential block we were waiting for
                                         if res_block_index == self.current_block:
                                             # Advance current_block past all contiguous blocks added
