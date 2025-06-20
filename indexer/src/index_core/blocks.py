@@ -689,6 +689,7 @@ def follow(
                 if block_tip - block_index <= 3:
                     pause_interval = config.BACKEND_POLL_INTERVAL * 2
 
+                logger.info(f"Block loop: block_index={block_index}, block_tip={block_tip}")
                 if block_index <= block_tip:
                     logger.debug(f"Processing block {block_index} (tip: {block_tip})")
                     # Check shutdown flag before heavy operations
@@ -1110,6 +1111,7 @@ def follow(
                             is_zmq_notification,
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                        logger.info(f"After commit: block_index now {block_index}, continuing to next iteration")
                         profiler.end_block_profiling()  # End profiling for this block
 
                         if single_block:
