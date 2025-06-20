@@ -325,8 +325,9 @@ class CPBlocksPipeline:
             if queue_size > 0:
                 queue_keys = sorted(list(self.queue.keys()))
                 logger.info(f"Queue blocks range: {queue_keys[0]} to {queue_keys[-1]}")
-            block_data = self.queue.get(block_index)
-            logger.info(f"Queue.get({block_index}) returned: {block_data is not None}")
+            # CRITICAL: Use pop() to remove the block from queue after retrieval
+            block_data = self.queue.pop(block_index, None)
+            logger.info(f"Queue.pop({block_index}) returned: {block_data is not None}")
 
             if block_data:
                 if "issuances" not in block_data:
@@ -346,7 +347,9 @@ class CPBlocksPipeline:
                         for old_block in old_blocks:
                             self.queue.pop(old_block, None)
 
-                logger.info(f"Retrieved block {block_index} from pipeline queue (queue size: {len(self.queue)})")
+                # Log queue state after removing the block
+                remaining_queue_size = len(self.queue)
+                logger.info(f"Retrieved block {block_index} from pipeline queue (remaining queue size: {remaining_queue_size})")
 
                 # CRITICAL: Always advance current_block when we consume a block
                 # This ensures the pipeline continues fetching new blocks
