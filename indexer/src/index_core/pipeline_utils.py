@@ -664,12 +664,21 @@ class CPBlocksPipeline:
         # Print executor state to ensure it's properly initialized
         logger.info(f"Using thread pool executor: {self.fetch_executor}, max_workers: {self.fetch_executor._max_workers}")
 
+        last_log_time = time.time()
+        iterations = 0
+
         while not self.shutdown_flag.is_set() and not is_shutdown_requested() and self.running:
+            iterations += 1
+            # Log every 10 seconds to show the worker is alive
+            if time.time() - last_log_time > 10:
+                logger.info(f"🔄 Pipeline worker alive: iteration {iterations}, running={self.running}")
+                last_log_time = time.time()
             try:
                 current_time = time.time()
 
                 # Rate limit fetching (except for initial batch)
                 if not initial_fetch and current_time - self.last_fetch_time < self.fetch_interval:
+                    # Don't log this too often - it's normal
                     time.sleep(0.1)
                     continue
 
@@ -703,7 +712,9 @@ class CPBlocksPipeline:
                         # Queue is empty - processor has consumed all blocks
                         # Use current_block - 1 as the processor position to ensure we continue fetching
                         lowest_queued_block = self.current_block - 1
-                        logger.info(f"⚠️ CRITICAL: Queue empty! Using current_block - 1 ({lowest_queued_block}) as processor position to continue fetching")
+                        logger.info(
+                            f"⚠️ CRITICAL: Queue empty! Using current_block - 1 ({lowest_queued_block}) as processor position to continue fetching"
+                        )
 
                 # Calculate the absolute maximum block index allowed for fetching based on processor position
                 max_fetch_block = lowest_queued_block + self.max_lookahead
@@ -800,15 +811,21 @@ class CPBlocksPipeline:
                     target_blocks = set(range(next_block, target_prefetch_end + 1))
                     # Use the local copy of queue blocks
                     missing_blocks = sorted(list(target_blocks - local_queue_blocks))
-                    logger.debug(f"Need {len(missing_blocks)} non-sequential blocks up to {target_prefetch_end}")
+                    logger.info(f"Non-sequential: Need {len(missing_blocks)} blocks up to {target_prefetch_end}")
                 elif sequential_blocks:
                     # Use the sequential blocks we identified
                     missing_blocks = sequential_blocks
-                    logger.debug(
-                        f"Prioritizing {len(sequential_blocks)} sequential blocks: {missing_blocks[:5]}{'...' if len(missing_blocks) > 5 else ''}"
+                    logger.info(
+                        f"Sequential: Prioritizing {len(sequential_blocks)} blocks: {missing_blocks[:5]}{'...' if len(missing_blocks) > 5 else ''}"
                     )
                 else:
                     missing_blocks = []  # No blocks needed
+                    logger.info("❌ No missing blocks identified!")
+                    
+                    # CRITICAL: If queue is empty, force fetch the next blocks
+                    if queue_size == 0 and next_block <= effective_tip:
+                        logger.info(f"🚨 CRITICAL: Queue empty! Force fetching next {max_batch_fetch} blocks from {next_block}")
+                        missing_blocks = list(range(next_block, min(next_block + max_batch_fetch, effective_tip + 1)))
 
                 # Limit missing_blocks to max_batch_fetch size for the current iteration
                 missing_blocks_batch = missing_blocks[:max_batch_fetch]
@@ -821,11 +838,19 @@ class CPBlocksPipeline:
                     f"Fetch decision: queue_size={queue_size}, threshold={trigger_fetch_threshold}, missing_blocks={len(missing_blocks_batch) if missing_blocks_batch else 0}"
                 )
 
-                if queue_size < trigger_fetch_threshold and missing_blocks_batch:
+                # CRITICAL FIX: Force fetch when queue is empty or very low
+                force_fetch = queue_size == 0 or (queue_size < 10 and missing_blocks_batch)
+                
+                if (queue_size < trigger_fetch_threshold and missing_blocks_batch) or force_fetch:
                     try:
-                        logger.info(
-                            f"Queue below threshold ({queue_size} < {trigger_fetch_threshold}), fetching {len(missing_blocks_batch)} blocks"
-                        )
+                        if force_fetch:
+                            logger.info(
+                                f"🚨 FORCE FETCH: Queue critically low ({queue_size}), fetching {len(missing_blocks_batch)} blocks"
+                            )
+                        else:
+                            logger.info(
+                                f"Queue below threshold ({queue_size} < {trigger_fetch_threshold}), fetching {len(missing_blocks_batch)} blocks"
+                            )
                         if missing_blocks_batch:
                             logger.debug(f"Missing block batch range: {missing_blocks_batch[0]} to {missing_blocks_batch[-1]}")
 
@@ -950,6 +975,7 @@ class CPBlocksPipeline:
                 else:  # Queue is above threshold, but not full. Wait longer before re-checking.
                     logger.info(f"Queue size {queue_size} >= fetch trigger threshold {trigger_fetch_threshold}. Waiting.")
                     # Still process completed futures below, but sleep longer before next fetch check
+                    logger.info(f"😴 Pipeline sleeping: queue above threshold, sleeping for {self.fetch_interval * 2}s")
                     time.sleep(self.fetch_interval * 2)
 
                 # Check for CP node recovery during fallback mode
