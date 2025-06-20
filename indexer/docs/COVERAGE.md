@@ -27,6 +27,11 @@ poetry run coverage-quick --html
 
 ### Available Commands
 
+#### Available Coverage Commands
+- `poetry run coverage` - Standard coverage command (55% threshold)
+- `poetry run coverage-quick` - Quick unit tests only (50% threshold)
+- `poetry run coverage-local` - Enhanced local coverage with test groups
+
 #### 1. **coverage-local** (Recommended for development)
 Enhanced local coverage runner with multiple options:
 
@@ -219,7 +224,7 @@ Add coverage check to pre-commit:
   hooks:
     - id: coverage-check
       name: Check test coverage
-      entry: poetry run run-coverage-fast
+      entry: poetry run coverage-quick
       language: system
       pass_filenames: false
       always_run: true
