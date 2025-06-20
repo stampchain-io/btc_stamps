@@ -953,7 +953,7 @@ async def _fetch_blocks_range_async(
     Args:
         start_block: First block to fetch
         end_block: Last block to fetch (inclusive)
-        progress_indicator: Whether to show progress indicators
+        progress_indicator: Whether to show progress indicators for blocks
 
     Returns:
         Dictionary mapping block indices to block data
@@ -968,7 +968,7 @@ async def _fetch_blocks_range_async(
                 block_data = await fetch_block_transactions_with_pagination(block_idx)
                 if block_data:
                     if progress_indicator and block_idx % 10 == 0:
-                        logger.info(f"Progress: Fetched block {block_idx}")
+                        logger.debug(f"Progress: Fetched block {block_idx}")
                     return block_idx, block_data
                 else:
                     logger.warning(
