@@ -735,9 +735,14 @@ class CPBlocksPipeline:
                     with self._lock:
                         for res_block_index, block_data in result_dict.items():
                             if block_data and "error" not in block_data:
-                                # Only add block if it's not already in the queue.
-                                if res_block_index not in self.queue:
+                                # CRITICAL FIX: Only add block if it's not already processed.
+                                # This prevents the queue from being polluted with blocks the consumer has already moved past.
+                                if res_block_index >= self.current_block:
                                     self.queue[res_block_index] = block_data
+                                else:
+                                    logger.warning(
+                                        f"Discarding already processed block {res_block_index} from completed future (processor is at {self.current_block})."
+                                    )
                             else:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
                                 logger.warning(f"Block {res_block_index} fetch failed within batch: {error_msg}")
@@ -787,10 +792,6 @@ class CPBlocksPipeline:
                 # Check for shutdown before each attempt
                 if self.shutdown_flag.is_set() or is_shutdown_requested() or not self.running:
                     logger.info("Shutdown detected before batch fetch, stopping")
-                    with self._blocks_fetch_lock:
-                        self.blocks_being_fetched.difference_update(block_indices)
-                        for block in block_indices:
-                            self.blocks_fetch_timestamps.pop(block, None)
                     return {}
 
                 # Determine start and end blocks for the range
@@ -819,69 +820,17 @@ class CPBlocksPipeline:
                         continue
                     else:
                         logger.error(f"Failed to fetch blocks {start_block} to {end_block} after {max_retries + 1} attempts")
-
-                        # Check for immediate fallback entry after total fetch failure
-                        if self.fallback_mode and not self.fallback_started_at:
-                            logger.warning("🚨 TOTAL FETCH FAILURE - checking for immediate fallback entry")
-                            try:
-                                # Force immediate health update and check for fallback
-                                update_healthy_nodes()
-                                healthy_nodes = get_healthy_nodes()
-                                if not healthy_nodes:
-                                    logger.warning(
-                                        "🚨 No healthy nodes after fetch failure - entering fallback mode immediately"
-                                    )
-                                    self._enter_fallback_mode()
-                            except Exception as e:
-                                logger.warning(f"Error during immediate fallback check: {e}")
-
-                        with self._blocks_fetch_lock:
-                            self.blocks_being_fetched.difference_update(block_indices)
                         return {}
 
                 # Filter the results to only include the requested blocks
                 result = {idx: data for idx, data in blocks_data.items() if idx in block_indices}
 
-                # Check if we got sufficient blocks
+                # Log if we got fewer blocks than requested
                 missing = set(block_indices) - set(result.keys())
-                if missing and len(missing) > len(block_indices) // 2:  # More than half missing
-                    if attempt < max_retries:
-                        logger.warning(
-                            f"Too many missing blocks ({len(missing)}/{len(block_indices)}) on attempt {attempt + 1}, retrying..."
-                        )
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        continue
-                    else:
-                        logger.error(f"Failed to fetch sufficient blocks after {max_retries + 1} attempts. Missing: {missing}")
-
-                # Log if we got fewer blocks than requested (but proceed if it's not too many)
                 if missing:
-                    logger.warning(f"Fetched {len(result)} out of {len(block_indices)} requested blocks. Missing: {missing}")
+                    logger.warning(f"Fetched {len(result)} out of {len(block_indices)} requested blocks. Missing: {sorted(list(missing))}")
 
-                # Update the queue with fetched blocks
-                with self._lock:
-                    for idx, block_data in result.items():
-                        if block_data and "error" not in block_data:
-                            self.queue[idx] = block_data
-                            # Only update current_block if it's the next sequential block
-                            if idx == self.current_block:
-                                self.current_block = idx + 1
-
-                    # Set ready flag as soon as we have enough blocks
-                    # This ensures blocks.py can start processing without waiting for all blocks
-                    if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
-                        logger.info(f"Fetched {len(self.queue)} blocks, signaling ready")
-                        self.initial_blocks_ready.set()
-
-                logger.debug(
-                    f"Successfully fetched {len(result)} blocks out of {len(block_indices)} requested (attempt {attempt + 1})"
-                )
-
-                # Remove blocks from being fetched, even if they weren't found
-                with self._blocks_fetch_lock:
-                    self.blocks_being_fetched.difference_update(block_indices)
-
+                # This method should NOT modify the pipeline's state. It only returns data.
                 return result
 
             except Exception as e:
@@ -892,9 +841,6 @@ class CPBlocksPipeline:
                     continue
                 else:
                     logger.error(f"Error in _fetch_blocks_batch after {max_retries + 1} attempts: {e}", exc_info=True)
-                    # Remove blocks from being fetched on error
-                    with self._blocks_fetch_lock:
-                        self.blocks_being_fetched.difference_update(block_indices)
                     return {}
 
 
