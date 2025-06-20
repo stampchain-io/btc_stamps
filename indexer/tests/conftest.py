@@ -4,7 +4,6 @@ Shared pytest fixtures for the test suite.
 
 import os
 import threading
-from decimal import Decimal
 
 import pytest
 
@@ -12,6 +11,16 @@ import pytest
 os.environ["TESTING"] = "1"
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
+
+# Import SRC20 integration test fixtures to make them available
+# These imports look unused but are actually used by pytest's fixture system  # noqa: F401
+from .fixtures.src20_test_fixtures import (  # noqa: F401
+    cached_transactions,
+    invalid_transactions,
+    transaction_by_hash,
+    transaction_hashes_data,
+    valid_transactions,
+)
 
 
 @pytest.fixture(autouse=True)
