@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
   -- cpid is unique (hash-based for SRC20, extremely low collision probability)
-  UNIQUE INDEX `cpid_index` (`cpid`),
+  INDEX `cpid_index` (`cpid`),
   INDEX `ident_index` (`ident`),
   INDEX `creator_index` (`creator`(42)),
   INDEX `is_btc_stamp_index` (`is_btc_stamp`),
