@@ -44,7 +44,8 @@ class TestTransactions(unittest.TestCase):
                 result = process_transactions(tx_hashes, output_file=output_file)
 
                 # Verify the results
-                self.assertEqual(len(result), len(tx_hashes))
+                self.assertEqual(len(result), len(tx_hashes), 
+                               f"Expected {len(tx_hashes)} results, got {len(result)}. Mock call count: {mock_getrawtx.call_count}")
 
                 # Verify output file was written correctly
                 with open(output_file, "r") as f:
