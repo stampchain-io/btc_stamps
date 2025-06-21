@@ -9,14 +9,14 @@ from unittest import mock
 
 import pytest
 
-from tests.test_isolation_utils import TestIsolationManager
+from tests.test_isolation_utils import IsolationManager
 
 
 # Test fixtures to set up test environment
 @pytest.fixture(autouse=True, scope="module")
 def module_isolation():
     """Provide comprehensive isolation for this module."""
-    with TestIsolationManager().isolate_environment(MOCK_DB="1", USE_TEST_DB="1", TESTING="1"):
+    with IsolationManager().isolate_environment(MOCK_DB="1", USE_TEST_DB="1", TESTING="1"):
         yield
 
 

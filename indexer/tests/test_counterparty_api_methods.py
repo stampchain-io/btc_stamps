@@ -8,14 +8,14 @@ switch between methods when the upstream API bug is fixed.
 
 import asyncio
 import os
-from typing import Dict, Any, List
-from unittest.mock import patch, AsyncMock
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from src.index_core.fetch_utils import (
-    _fetch_block_transactions_workaround,
     _fetch_block_transactions_original,
+    _fetch_block_transactions_workaround,
     fetch_block_transactions_with_pagination,
 )
 
@@ -186,6 +186,7 @@ class TestCounterpartyAPIMethods:
         """Test that both methods produce identical results."""
         # Mock for workaround method
         with patch("src.index_core.fetch_utils.fetch_xcp_async") as mock_fetch:
+
             async def mock_fetch_impl(endpoint, params=None, timeout=None):
                 if "/transactions" in endpoint and params.get("verbose") == "false":
                     return mock_api_responses["transactions"]
@@ -212,9 +213,7 @@ class TestCounterpartyAPIMethods:
             assert len(workaround_result["issuances"]) == len(original_result["issuances"])
 
             # Compare transactions
-            for i, (tx1, tx2) in enumerate(
-                zip(workaround_result["transactions"], original_result["transactions"])
-            ):
+            for i, (tx1, tx2) in enumerate(zip(workaround_result["transactions"], original_result["transactions"])):
                 assert tx1["tx_hash"] == tx2["tx_hash"], f"Transaction {i} hash mismatch"
                 assert tx1["transaction_type"] == tx2["transaction_type"], f"Transaction {i} type mismatch"
                 assert len(tx1.get("events", [])) == len(tx2.get("events", [])), f"Transaction {i} events count mismatch"
@@ -223,6 +222,7 @@ class TestCounterpartyAPIMethods:
     async def test_configuration_flag_switching(self, mock_api_responses):
         """Test that configuration flag correctly switches between methods."""
         with patch("src.index_core.fetch_utils.fetch_xcp_async") as mock_fetch:
+
             async def mock_fetch_impl(endpoint, params=None, timeout=None):
                 if "/transactions" in endpoint and params.get("verbose") == "false":
                     return mock_api_responses["transactions"]
@@ -286,7 +286,7 @@ class TestCounterpartyAPIMethods:
     async def test_real_api_comparison(self):
         """
         Integration test comparing real API responses.
-        
+
         This test is marked as integration and will only run with --integration flag.
         It tests against the real Counterparty API to ensure both methods work correctly.
         """
@@ -294,7 +294,7 @@ class TestCounterpartyAPIMethods:
         test_block = 784325  # Known to have only 14 transactions
 
         workaround_result = await _fetch_block_transactions_workaround(test_block)
-        
+
         # Only test original method if it's expected to work (small block)
         original_result = None
         try:
@@ -306,7 +306,7 @@ class TestCounterpartyAPIMethods:
             # Compare results
             assert workaround_result["block_index"] == original_result["block_index"]
             assert len(workaround_result["transactions"]) == len(original_result["transactions"])
-            
+
             # Check that all transactions have the same tx_hash
             workaround_hashes = {tx["tx_hash"] for tx in workaround_result["transactions"]}
             original_hashes = {tx["tx_hash"] for tx in original_result["transactions"]}

@@ -260,7 +260,7 @@ def test_rollback_to_block_basic():
     assert result == 0  # Can't go below 0
 
 
-class TestBlockProcessor:
+class MockBlockProcessor:
     """Test BlockProcessor class methods."""
 
     def test_block_processor_init(self):

@@ -13,7 +13,12 @@ actual codebase with test-specific code.
 
 import json
 import logging
+import os
+import sys
 from typing import Any, Dict, List, Optional
+
+# Add src to path to allow imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from index_core.backend import Backend
 

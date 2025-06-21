@@ -153,7 +153,7 @@ def isolated_sys_path():
     return SysPathIsolation()
 
 
-class TestIsolationManager:
+class IsolationManager:
     """Comprehensive test isolation manager."""
 
     def __init__(self):

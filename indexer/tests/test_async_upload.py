@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(autouse=True, scope="module")
 def module_isolation():
     """Provide comprehensive isolation for this module."""
-    from tests.test_isolation_utils import TestIsolationManager
+    from tests.test_isolation_utils import IsolationManager
 
     modules_to_mock = ["boto3", "pymysql", "pymysql.connections", "pymysql.cursors"]
 
-    with TestIsolationManager().isolate_sys_modules(modules_to_mock).isolate_sys_path().isolate_logging():
+    with IsolationManager().isolate_sys_modules(modules_to_mock).isolate_sys_path().isolate_logging():
         # Mock AWS and database modules before importing any other modules
         sys.modules["boto3"] = MagicMock()
         sys.modules["pymysql"] = MagicMock()
