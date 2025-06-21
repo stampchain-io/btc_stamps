@@ -39,12 +39,13 @@ def mock_stamp_orderbook_response():
 def kucoin_api_side_effect(mock_btc_usdt_response, mock_stamp_ticker_response, mock_stamp_orderbook_response):
     """
     Returns a side effect function for mocking _kucoin_api_call.
-    
+
     This handles different endpoints and symbols to simulate the full API.
     """
+
     def api_side_effect(endpoint, params):
         symbol = params.get("symbol", "")
-        
+
         if "BTC-USDT" in symbol:
             return mock_btc_usdt_response
         elif "STAMP-USDT" in symbol:
@@ -53,7 +54,7 @@ def kucoin_api_side_effect(mock_btc_usdt_response, mock_stamp_ticker_response, m
             elif "orderbook" in endpoint:
                 return mock_stamp_orderbook_response
         return None
-    
+
     return api_side_effect
 
 
@@ -111,6 +112,7 @@ def mock_reliability_tracker():
 def src20_worker():
     """Create a fresh SRC20Worker instance for testing."""
     from index_core.src20_worker import SRC20Worker
+
     return SRC20Worker()
 
 
@@ -131,14 +133,11 @@ def expected_market_data_fields():
 @pytest.fixture
 def stamp_exchange_config():
     """Expected STAMP configuration in exchange mappings."""
-    return {
-        "kucoin": "STAMP-USDT",
-        "symbol": "STAMP",
-        "base_currency": "USDT"
-    }
+    return {"kucoin": "STAMP-USDT", "symbol": "STAMP", "base_currency": "USDT"}
 
 
 # Helper fixtures for complex test scenarios
+
 
 @pytest.fixture
 def all_apis_fail_setup(mock_kucoin_api_timeout, mock_stampscan_api, mock_openstamp_api, mock_reliability_tracker):
@@ -147,7 +146,7 @@ def all_apis_fail_setup(mock_kucoin_api_timeout, mock_stampscan_api, mock_openst
         "kucoin": mock_kucoin_api_timeout,
         "stampscan": mock_stampscan_api,
         "openstamp": mock_openstamp_api,
-        "tracker": mock_reliability_tracker
+        "tracker": mock_reliability_tracker,
     }
 
 
@@ -162,19 +161,20 @@ def btc_rate_cache_setup(mock_btc_usdt_response):
 @pytest.fixture
 def assert_market_data_valid():
     """Helper to validate market data response structure."""
+
     def _assert(result, expected_tick="STAMP"):
         assert result is not None
         assert result["tick"] == expected_tick
-        
+
         # Check numeric fields
         price_btc = float(result["price_btc"])
         volume_btc = float(result["volume_24h_btc"])
         confidence = float(result["confidence_level"])
-        
+
         assert price_btc > 0
         assert volume_btc > 0
         assert 0.0 <= confidence <= 10.0
-        
+
         return True
-    
+
     return _assert

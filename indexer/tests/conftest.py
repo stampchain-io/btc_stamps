@@ -26,6 +26,16 @@ from .fixtures.database_fixtures import (  # noqa: F401
     populated_stamp_db,
 )
 
+# Import SRC20 integration test fixtures to make them available
+# These imports look unused but are actually used by pytest's fixture system  # noqa: F401
+from .fixtures.src20_test_fixtures import (  # noqa: F401
+    cached_transactions,
+    invalid_transactions,
+    transaction_by_hash,
+    transaction_hashes_data,
+    valid_transactions,
+)
+
 # Import SRC20 worker fixtures
 from .fixtures.src20_worker_fixtures import (  # noqa: F401
     all_apis_fail_setup,
@@ -44,16 +54,6 @@ from .fixtures.src20_worker_fixtures import (  # noqa: F401
     mock_stampscan_api,
     src20_worker,
     stamp_exchange_config,
-)
-
-# Import SRC20 integration test fixtures to make them available
-# These imports look unused but are actually used by pytest's fixture system  # noqa: F401
-from .fixtures.src20_test_fixtures import (  # noqa: F401
-    cached_transactions,
-    invalid_transactions,
-    transaction_by_hash,
-    transaction_hashes_data,
-    valid_transactions,
 )
 
 

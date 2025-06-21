@@ -31,10 +31,7 @@ class TestSRC20WorkerIntegrationMigrated:
             assert 100000 < rate < 200000  # Reasonable BTC price range
 
             # Verify API was called correctly
-            mock_kucoin_api_success.assert_called_once_with(
-                "/api/v1/market/orderbook/level1", 
-                {"symbol": "BTC-USDT"}
-            )
+            mock_kucoin_api_success.assert_called_once_with("/api/v1/market/orderbook/level1", {"symbol": "BTC-USDT"})
 
     def test_btc_usdt_rate_caching(self, src20_worker, btc_rate_cache_setup):
         """Test BTC/USDT rate caching mechanism."""
@@ -69,7 +66,7 @@ class TestSRC20WorkerIntegrationMigrated:
         """Test volume conversion when BTC rate is unavailable."""
         with patch.object(src20_worker, "_kucoin_api_call", mock_kucoin_api_failure):
             result = src20_worker.process_src20_market_data("STAMP")
-            
+
             # Worker now has fallback behavior - it returns data even without BTC rate
             # It uses USDT values without conversion when BTC rate unavailable
             if result is not None:
@@ -97,15 +94,16 @@ class TestSRC20WorkerIntegrationMigrated:
             confidence = float(result["confidence_level"])
             assert 0.0 <= confidence <= 10.0
 
-    def test_complete_integration_flow(self, src20_worker, mock_kucoin_api_success, 
-                                     expected_market_data_fields, assert_market_data_valid):
+    def test_complete_integration_flow(
+        self, src20_worker, mock_kucoin_api_success, expected_market_data_fields, assert_market_data_valid
+    ):
         """Test the complete integration flow from API to processed data."""
         with patch.object(src20_worker, "_kucoin_api_call", mock_kucoin_api_success):
             result = src20_worker.process_src20_market_data("STAMP")
 
             # Verify complete result structure
             assert result is not None
-            
+
             # Check all required fields are present
             for field in expected_market_data_fields:
                 assert field in result, f"Missing required field: {field}"
@@ -138,10 +136,12 @@ class TestSRC20WorkerIntegrationMigrated:
         with patch.object(src20_worker, "_kucoin_api_call", all_apis_fail_setup["kucoin"]):
             with patch.object(src20_worker, "_fetch_stampscan_data", all_apis_fail_setup["stampscan"]):
                 with patch.object(src20_worker, "_fetch_openstamp_data", all_apis_fail_setup["openstamp"]):
-                    with patch("index_core.src20_worker.create_reliability_tracker", return_value=all_apis_fail_setup["tracker"]):
+                    with patch(
+                        "index_core.src20_worker.create_reliability_tracker", return_value=all_apis_fail_setup["tracker"]
+                    ):
                         with patch("index_core.src20_worker.record_call_metrics"):
                             result = src20_worker.process_src20_market_data("STAMP")
-                            
+
                             # Should return None when all sources fail
                             assert result is None
 
@@ -149,7 +149,7 @@ class TestSRC20WorkerIntegrationMigrated:
         """Test that the worker respects rate limiting."""
         mock_api = Mock()
         mock_api.return_value = mock_stamp_ticker_response
-        
+
         with patch.object(src20_worker, "_kucoin_api_call", mock_api):
             start_time = time.time()
 
@@ -172,17 +172,17 @@ class TestSRC20WorkerIntegrationMigrated:
             "high": "0.0000000002",
             "low": "0.0000000001",
         }
-        
+
         def low_price_side_effect(endpoint, params):
             if "STAMP-USDT" in params.get("symbol", "") and "stats" in endpoint:
                 return low_price_response
             return mock_kucoin_api_success.side_effect(endpoint, params)
-        
+
         mock_api = Mock(side_effect=low_price_side_effect)
-        
+
         with patch.object(src20_worker, "_kucoin_api_call", mock_api):
             result = src20_worker.process_src20_market_data("STAMP")
-            
+
             if result:  # If processing succeeded
                 price = float(result["price_btc"])
                 # Should be at least MIN_PRICE (1e-10)
@@ -208,7 +208,7 @@ class TestSRC20WorkerLiveIntegrationMigrated:
 
         if result is not None:  # Only test if API is accessible
             assert result["tick"] == "STAMP"
-            
+
             # Check required fields
             for field in ["price_btc", "volume_24h_btc", "confidence_level"]:
                 assert field in result

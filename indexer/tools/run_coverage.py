@@ -68,12 +68,12 @@ def main():
     parser.add_argument("--open", action="store_true", help="Open HTML report in browser after generation")
     parser.add_argument(
         "--exclude-markers",
-        help="Pytest markers to exclude (e.g., 'requires_bitcoin_node' or 'integration and requires_bitcoin_node')"
+        help="Pytest markers to exclude (e.g., 'requires_bitcoin_node' or 'integration and requires_bitcoin_node')",
     )
     parser.add_argument(
         "--all-available",
         action="store_true",
-        help="Run all tests that are available in the current environment (default behavior)"
+        help="Run all tests that are available in the current environment (default behavior)",
     )
 
     args = parser.parse_args()
@@ -92,7 +92,7 @@ def main():
     # Note: By default, this runs ALL tests including integration tests
     # Use --exclude-markers to exclude certain test types
     base_cmd = f"poetry run pytest {args.tests} --cov=src"
-    
+
     # Add marker exclusions if specified
     if args.exclude_markers:
         base_cmd += f" -m 'not ({args.exclude_markers})'"
@@ -108,24 +108,24 @@ def main():
 
     # Build coverage report options based on requested format
     report_options = []
-    
+
     # Always include terminal output for better visibility
     if args.format in ["terminal", "html", "all"]:
         report_options.append("--cov-report=term-missing")
-    
+
     if args.format == "html" or args.format == "all":
         report_options.append("--cov-report=html")
-    
+
     if args.format == "xml" or args.format == "all":
         report_options.append("--cov-report=xml")
-    
+
     if args.format == "json" or args.format == "all":
         report_options.append("--cov-report=json")
-    
+
     # Run tests once with all requested report formats
     cmd = base_cmd + " " + " ".join(report_options)
     success = run_command(cmd, f"Running coverage with {args.format} report format(s)")
-    
+
     # Open HTML report if requested
     if success and args.open and (args.format == "html" or args.format == "all"):
         html_path = Path("htmlcov/index.html").absolute()
