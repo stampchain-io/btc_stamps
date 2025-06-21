@@ -4,6 +4,11 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
+from dotenv import load_dotenv
+
+# Load environment variables before importing database
+load_dotenv()
+
 from index_core.database_manager import DatabaseManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
