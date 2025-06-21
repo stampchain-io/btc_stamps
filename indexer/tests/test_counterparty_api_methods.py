@@ -235,7 +235,7 @@ class TestCounterpartyAPIMethods:
             mock_fetch.side_effect = mock_fetch_impl
 
             # Test with workaround enabled
-            with patch("src.config.CP_API_USE_VERBOSE_WORKAROUND", True):
+            with patch("src.index_core.fetch_utils.config.CP_API_USE_VERBOSE_WORKAROUND", True):
                 result = await fetch_block_transactions_with_pagination(784320)
                 assert result is not None
                 # Should have called transactions endpoint with verbose=false
@@ -245,7 +245,7 @@ class TestCounterpartyAPIMethods:
             mock_fetch.reset_mock()
 
             # Test with workaround disabled
-            with patch("src.config.CP_API_USE_VERBOSE_WORKAROUND", False):
+            with patch("src.index_core.fetch_utils.config.CP_API_USE_VERBOSE_WORKAROUND", False):
                 result = await fetch_block_transactions_with_pagination(784320)
                 assert result is not None
                 # Should have called transactions endpoint with verbose=true
