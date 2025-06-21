@@ -1,26 +1,22 @@
 import json
 import os
-import sys
 import tempfile
 import unittest
-
-# Add the parent directory to sys.path to allow relative imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from tests.bitcoin_fixtures_loader import BitcoinFixturesLoader
 from tests.mock_transaction import process_transactions
 from tests.test_helpers import create_mock_tx_lookup, mock_backend, setup_test_environment
 
 
-class TestTransactions(unittest.TestCase):
-    """Test transaction processing using shared Bitcoin fixtures."""
+class TestTransactionsWithFixtures(unittest.TestCase):
+    """Test transactions using shared Bitcoin fixtures."""
 
     @classmethod
     def setUpClass(cls):
         # Set up the test environment
         setup_test_environment()
 
-        # Load Bitcoin fixtures
+        # Load shared Bitcoin fixtures
         cls.fixtures_loader = BitcoinFixturesLoader()
 
         # Get special transactions from fixtures
@@ -28,22 +24,11 @@ class TestTransactions(unittest.TestCase):
 
         # Create transaction data dict from fixtures (first 2 transactions)
         cls.tx_data = {}
-        if len(special_txs) >= 2:
-            for tx in special_txs[:2]:
-                cls.tx_data[tx["txid"]] = tx["hex"]
-        else:
-            # Fallback to the stamp transactions from analyze_missing_txs.py
-            # These are actual SRC-20 stamp transactions from blocks 795419 and 795421
-            cls.tx_data = {
-                "e2aa459ebfe0ba3625c917143452678a3e80636489fe0ec8cc7e9651cfd4ddb2": (
-                    special_txs[0]["hex"] if special_txs else ""
-                ),
-                "359aefd7bf0bbd8398ee5c8c0f206799b78b158578f0f98e1e06bf58e70008dc": (
-                    special_txs[1]["hex"] if special_txs else ""
-                ),
-            }
+        for tx in special_txs[:2]:
+            cls.tx_data[tx["txid"]] = tx["hex"]
 
-    def test_process_transactions(self):
+    def test_process_transactions_with_fixtures(self):
+        """Test processing transactions using shared Bitcoin fixtures."""
         # Create a temporary file to store the results
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             output_file = temp_file.name
@@ -54,7 +39,7 @@ class TestTransactions(unittest.TestCase):
 
             # Use the mock_backend context manager to patch the Backend.getrawtransaction method
             with mock_backend() as mock_getrawtx:
-                # Set up the mock to use our create_mock_tx_lookup function
+                # Set up the mock to use our create_mock_tx_lookup function with fixtures data
                 mock_getrawtx.side_effect = create_mock_tx_lookup(self.tx_data)
 
                 # Call the function under test
@@ -77,6 +62,36 @@ class TestTransactions(unittest.TestCase):
 
         finally:
             # Clean up the temporary file
+            if os.path.exists(output_file):
+                os.unlink(output_file)
+
+    def test_process_special_transactions(self):
+        """Test processing special edge case transactions from fixtures."""
+        # Get stamp-related transactions from fixtures
+        stamp_txs = {}
+        for tx in self.fixtures_loader.get_special_transactions():
+            if "stamp" in tx.get("description", "").lower():
+                stamp_txs[tx["txid"]] = tx["hex"]
+
+        if not stamp_txs:
+            self.skipTest("No stamp transactions found in fixtures")
+
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            output_file = temp_file.name
+
+        try:
+            tx_hashes = list(stamp_txs.keys())
+
+            with mock_backend() as mock_getrawtx:
+                mock_getrawtx.side_effect = create_mock_tx_lookup(stamp_txs)
+
+                result = process_transactions(tx_hashes, output_file=output_file)
+
+                # Basic validation
+                self.assertGreater(len(result), 0)
+                self.assertEqual(mock_getrawtx.call_count, len(tx_hashes))
+
+        finally:
             if os.path.exists(output_file):
                 os.unlink(output_file)
 

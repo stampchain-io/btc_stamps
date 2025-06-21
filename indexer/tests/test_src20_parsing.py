@@ -47,7 +47,7 @@ src20_variations_data = load_test_data()
 
 
 # Create a test-specific BlockProcessor that doesn't depend on backend_instance
-class TestBlockProcessor:
+class MockBlockProcessor:
     """Test version of BlockProcessor that doesn't require backend_instance."""
 
     def __init__(self, db):

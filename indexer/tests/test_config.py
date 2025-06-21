@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from tests.test_isolation_utils import TestIsolationManager
+from tests.test_isolation_utils import IsolationManager
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -25,7 +25,7 @@ def module_isolation():
         "CP_FALLBACK_MODE",
     ]
 
-    with TestIsolationManager().isolate_sys_modules(["boto3"]).isolate_sys_path().isolate_environment(
+    with IsolationManager().isolate_sys_modules(["boto3"]).isolate_sys_path().isolate_environment(
         **{var: None for var in rpc_env_vars}
     ):
         # Ensure we import from the src directory

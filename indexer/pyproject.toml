@@ -80,6 +80,7 @@ pre-commit = "^4.1.0"
 types-toml = "^0.10.8"
 maturin = "^1.4.0"
 patchelf = "^0.17.2.2"
+pytest-asyncio = "^1.0.0"
 
 [tool.poetry.scripts]
 indexer = "start:main"
@@ -212,7 +213,8 @@ markers = [
     "unit: marks tests as unit tests",
     "requires_db: marks tests that require database access",
     "requires_network: marks tests that require network access",
-    "requires_bitcoin_node: marks tests that require a local Bitcoin node (RPC)"
+    "requires_bitcoin_node: marks tests that require a local Bitcoin node (RPC)",
+    "asyncio: marks tests as asynchronous tests that use asyncio"
 ]
 
 [tool.coverage.run]

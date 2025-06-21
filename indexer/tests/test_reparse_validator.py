@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from tests.test_isolation_utils import TestIsolationManager
+from tests.test_isolation_utils import IsolationManager
 
 # Store original state for cleanup
 _modules_to_mock = [
@@ -25,7 +25,7 @@ _modules_to_mock = [
 @pytest.fixture(autouse=True, scope="module")
 def module_isolation():
     """Provide comprehensive isolation for this module."""
-    with TestIsolationManager().isolate_sys_modules(_modules_to_mock).isolate_sys_path():
+    with IsolationManager().isolate_sys_modules(_modules_to_mock).isolate_sys_path():
         # Stub external dependencies before importing project modules
         # Use Any typing to suppress mypy attr-defined errors
 
