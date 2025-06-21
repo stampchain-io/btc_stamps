@@ -9,7 +9,7 @@ from btc_stamps_parser import FastTransactionParser
 
 class TestRustParserWithFixtures(unittest.TestCase):
     """Test Rust parser using fixtures instead of requiring a Bitcoin node."""
-    
+
     @classmethod
     def setUpClass(cls):
         """Load fixtures once for all tests."""
@@ -19,18 +19,18 @@ class TestRustParserWithFixtures(unittest.TestCase):
                 f"Fixtures file not found at {fixtures_path}. "
                 "Run 'poetry run python tools/debug/fetch_special_test_fixtures.py' to generate it."
             )
-        
+
         with open(fixtures_path) as f:
             cls.fixtures = json.load(f)
-        
+
         # Extract test data
         cls.special_transactions = cls.fixtures["special_transactions"]
         cls.test_block_data = cls.fixtures["test_block_700000"]
-        
+
         # Known includable transactions from fixtures
         cls.test_tx_hashes = [tx["txid"] for tx in cls.special_transactions]
         cls.test_tx_hexes = {tx["txid"]: tx["hex"] for tx in cls.special_transactions}
-        
+
         # Block data
         cls.test_block_hash = cls.test_block_data["hash"]
         cls.test_block_hex = cls.test_block_data["hex"]
@@ -65,7 +65,7 @@ class TestRustParserWithFixtures(unittest.TestCase):
         self.assertTrue(isinstance(raw_transactions, dict), "raw_transactions should be a dict")
         self.assertTrue(isinstance(timestamp, int), "timestamp should be an int")
         self.assertTrue(isinstance(prev_block_hash, str), "prev_block_hash should be a string")
-        
+
         # Verify against fixture data
         self.assertEqual(timestamp, self.test_block_data["timestamp"])
         self.assertEqual(prev_block_hash, self.test_block_data["prev_hash"])
@@ -84,7 +84,9 @@ class TestRustParserWithFixtures(unittest.TestCase):
             self.assertTrue(tx_info.should_include, f"Transaction {tx_info.txid} was returned but has should_include=False")
 
             # Verify the transaction is in our original list
-            self.assertIn(tx_info.txid, self.test_tx_hashes, f"Transaction {tx_info.txid} was not in the original list of transactions")
+            self.assertIn(
+                tx_info.txid, self.test_tx_hashes, f"Transaction {tx_info.txid} was not in the original list of transactions"
+            )
 
         # Verify that all expected transactions were returned
         returned_txids = {tx_info.txid for tx_info in tx_infos}
@@ -97,13 +99,13 @@ class TestRustParserWithFixtures(unittest.TestCase):
         for sample_tx in self.test_block_data["sample_txs"]:
             tx_hex = sample_tx["hex"]
             expected_txid = sample_tx["txid"]
-            
+
             # Parse transaction
             tx_info = self.parser.deserialize_transaction(tx_hex)
-            
+
             # Verify txid matches
             self.assertEqual(tx_info.txid, expected_txid)
-            
+
             # Verify basic structure
             self.assertTrue(hasattr(tx_info, "inputs"))
             self.assertTrue(hasattr(tx_info, "outputs"))

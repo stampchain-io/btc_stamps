@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class TestSpecialTransactionsWithFixtures(TestCase):
     """
     Test that special transactions are correctly identified by both Python and Rust implementations.
-    
+
     This version uses fixtures instead of requiring a Bitcoin node, making it suitable for CI/CD.
     """
 
@@ -34,10 +34,10 @@ class TestSpecialTransactionsWithFixtures(TestCase):
                 f"Fixtures file not found at {fixtures_path}. "
                 "Run 'poetry run python tools/debug/fetch_special_test_fixtures.py' to generate it."
             )
-        
+
         with open(fixtures_path) as f:
             cls.fixtures = json.load(f)
-        
+
         # Extract special transactions
         cls.raw_transactions = {}
         for tx_data in cls.fixtures["special_transactions"]:
@@ -48,7 +48,7 @@ class TestSpecialTransactionsWithFixtures(TestCase):
         """Set up the test environment."""
         # Create backend without requiring actual Bitcoin node
         self.backend = backend.Backend()
-        
+
         # These are the special transaction IDs from the fixtures
         self.special_txids = list(self.raw_transactions.keys())
 

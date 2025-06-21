@@ -8,33 +8,41 @@ Successfully migrated `test_src20_database_transactions.py` to use standardized 
 1. **Cursor Mocking Strategy**
    - The `update_balance_table` and similar functions create their own cursor with `db.cursor()`
    - This means we need to mock at the connection level, not pass in a mock cursor
-   - Solution: Override `db.cursor.return_value` with a custom mock cursor
+   - Solution: Override `db.cursor` directly to return the cursor mock (not a context manager)
 
-2. **Fixture Usage Pattern**
+2. **Bulk Test Execution Fix**
+   - When tests run individually vs in bulk, Mock behavior can differ
+   - Use `MagicMock` instead of `Mock` for better method call handling
+   - Always set `fetchall = MagicMock(return_value=[])` explicitly to avoid "Mock object is not iterable" errors
+   - Create a helper method to standardize cursor setup across all tests
+
+3. **Fixture Usage Pattern**
    ```python
-   def test_example(self, mock_db_manager):
-       # Get connection from fixture
-       db = mock_db_manager.connect()
+   @staticmethod
+   def setup_cursor_mock(db, cursor=None):
+       """Helper method to set up cursor mock consistently."""
+       if cursor is None:
+           cursor = MagicMock()
+           cursor.fetchall = MagicMock(return_value=[])
+           cursor.execute = MagicMock(return_value=None)
+           cursor.executemany = MagicMock(return_value=None)
        
-       # Create custom cursor with specific behavior
-       cursor = Mock()
-       cursor.fetchall.return_value = []
-       cursor.execute.side_effect = SomeError()
-       
-       # Override the connection's cursor method
-       db.cursor.return_value = cursor
+       # Override the connection's cursor method to return our cursor directly
+       db.cursor = MagicMock(return_value=cursor)
+       return cursor
    ```
 
-3. **Benefits Achieved**
+4. **Benefits Achieved**
    - Eliminated manual `MagicMock()` setup in setUp method
    - Removed unittest.TestCase inheritance in favor of pytest classes
    - More readable and maintainable test structure
    - Consistent mocking patterns across the codebase
+   - Fixed bulk execution issues with proper MagicMock usage
 
-4. **Migration Stats**
+5. **Migration Stats**
    - 17 tests migrated successfully
    - Reduced boilerplate by ~30%
-   - All tests passing without modification to test logic
+   - All tests passing in both individual and bulk execution
 
 ### Next Steps
 Continue migrating other database tests following this pattern:
