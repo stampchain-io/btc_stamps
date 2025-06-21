@@ -784,21 +784,177 @@ def verify_cp_block_hash(block_index: int, expected_hash: str | None = None, max
 async def fetch_block_transactions_with_pagination(
     block_index: int, node_url: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
-    """Fetch all transactions for a specific block from CP API with pagination support."""
-    logger.debug(f"Fetching block {block_index} transactions with pagination")
+    """
+    Fetch all transactions for a specific block from CP API.
+
+    This function supports two modes:
+    1. Workaround mode (default): Uses 2-step approach to avoid verbose=true pagination bug
+    2. Original mode: Uses verbose=true when the upstream bug is fixed
+
+    The mode is controlled by config.CP_API_USE_VERBOSE_WORKAROUND
+
+    Args:
+        block_index: The block index to fetch transactions for
+        node_url: Optional specific node URL to use
+
+    Returns:
+        Dictionary containing block data with transactions and their events
+    """
+    # Check if we should use the workaround
+    if config.CP_API_USE_VERBOSE_WORKAROUND:
+        logger.debug(f"Fetching block {block_index} transactions with 2-step workaround approach")
+        return await _fetch_block_transactions_workaround(block_index, node_url)
+    else:
+        logger.debug(f"Fetching block {block_index} transactions with original verbose=true method")
+        return await _fetch_block_transactions_original(block_index, node_url)
+
+
+async def _fetch_block_transactions_workaround(block_index: int, node_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Fetch transactions using 2-step workaround approach.
+
+    This implementation works around the Counterparty API verbose=true pagination bug by:
+    1. Fetching all transactions with verbose=false (which supports high limits)
+    2. Fetching all events for the block separately
+    3. Matching events to their corresponding transactions
+    """
+    logger.debug(f"Using 2-step workaround for block {block_index}")
+
+    # Step 1: Get all transactions with verbose=false (supports high limits)
+    logger.debug("Step 1: Fetching all transactions with verbose=false")
+    tx_endpoint = f"/blocks/{block_index}/transactions"
+    tx_params = {"verbose": "false", "limit": "2000", "show_unconfirmed": "false"}
+
+    tx_response = await fetch_xcp_async(tx_endpoint, tx_params, timeout=30)
+    if not tx_response or "result" not in tx_response:
+        logger.error(f"Failed to fetch transactions for block {block_index}")
+        return None
+
+    all_transactions = tx_response["result"]
+    logger.debug(f"Got {len(all_transactions)} transactions")
+
+    # Create a mapping of tx_hash to transaction for quick lookup
+    tx_map = {tx["tx_hash"]: tx for tx in all_transactions}
+
+    # Step 2: Get all events for the block
+    logger.debug("Step 2: Fetching all events for the block")
+    events_endpoint = f"/blocks/{block_index}/events"
+    all_events = []
+    next_cursor = None
+    page_count = 0
+    max_retries = 3
+
+    while True:
+        page_count += 1
+        params = {"limit": "1000"}  # Events endpoint supports high limits
+        if next_cursor:
+            params["cursor"] = next_cursor
+
+        # Retry logic for event fetching
+        events_data = None
+        for retry_attempt in range(max_retries):
+            try:
+                events_data = await fetch_xcp_async(events_endpoint, params, timeout=30)
+                if events_data:
+                    break
+                if retry_attempt < max_retries - 1:
+                    logger.warning(f"Retrying events page {page_count} (attempt {retry_attempt + 1}/{max_retries})")
+                    await asyncio.sleep(1 * (retry_attempt + 1))
+            except Exception as e:
+                logger.error(f"Error fetching events page {page_count}: {e}")
+                if retry_attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (retry_attempt + 1))
+
+        if not events_data or "result" not in events_data:
+            logger.warning(f"Failed to fetch events page {page_count} for block {block_index}")
+            break
+
+        page_events = events_data["result"]
+        all_events.extend(page_events)
+        logger.debug(f"Page {page_count}: Got {len(page_events)} events, total: {len(all_events)}")
+
+        # Check for more pages
+        if "next_cursor" in events_data and events_data["next_cursor"]:
+            next_cursor = events_data["next_cursor"]
+        else:
+            break
+
+    logger.debug(f"Got {len(all_events)} total events for block {block_index}")
+
+    # Step 3: Match events to transactions
+    logger.debug("Step 3: Matching events to transactions")
+    for event in all_events:
+        tx_hash = event.get("tx_hash")
+        if tx_hash and tx_hash in tx_map:
+            # Initialize events list if not present
+            if "events" not in tx_map[tx_hash]:
+                tx_map[tx_hash]["events"] = []
+            # Add event to the transaction
+            tx_map[tx_hash]["events"].append(event)
+
+    # Ensure all transactions have an events field (even if empty)
+    for tx in all_transactions:
+        if "events" not in tx:
+            tx["events"] = []
+
+    # Step 4: Parse issuances
+    logger.debug("Step 4: Parsing issuances from transactions")
+    issuances = []
+
+    for tx in all_transactions:
+        tx_type = tx.get("transaction_type")
+        if tx_type in ["issuance", "fairminter"]:
+            # Check for events in the transaction
+            events = tx.get("events", [])
+            for event in events:
+                if event.get("event") in ["ASSET_ISSUANCE", "NEW_FAIRMINT"]:
+                    # Use the proper issuance parsing function
+                    issuance_data = parse_issuance_from_transaction(tx, event)
+                    if issuance_data:
+                        # This is a valid STAMP issuance
+                        issuances.append(issuance_data)
+
+    logger.debug(f"Found {len(issuances)} stamp issuances")
+
+    # Get block hash from the transactions if available
+    block_hash = None
+    if all_transactions:
+        block_hash = all_transactions[0].get("block_hash")
+
+    # Create block data structure
+    block_data = {
+        "block_index": block_index,
+        "xcp_block_hash": block_hash,
+        "transactions": all_transactions,
+        "issuances": issuances,
+    }
+
+    return block_data
+
+
+async def _fetch_block_transactions_original(block_index: int, node_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Original implementation using verbose=true with pagination.
+
+    This method should be used when the Counterparty API pagination bug is fixed.
+    It fetches transactions with full event data in a single API call per page.
+
+    NOTE: As of Counterparty API v11.0.1, this method fails for blocks with many
+    transactions due to pagination issues with verbose=true when limit >= 26.
+    """
+    logger.debug(f"Using original verbose=true method for block {block_index}")
+
     endpoint = f"/blocks/{block_index}/transactions"
     all_transactions: List[Dict[str, Any]] = []
     next_cursor = None
     page_count = 0
     max_retries = 3
-    page_size = 100  # Increased from 10 due to verbose=false workaround
+    page_size = 25  # Must be <= 25 due to API bug with verbose=true
 
     while True:
         page_count += 1
-        # WORKAROUND: Use verbose=false due to pagination bug with verbose=true
-        # See: https://github.com/CounterpartyXCP/counterparty-core/issues
-        # This provides all necessary transaction data without the pagination failures
-        params = {"verbose": "false", "limit": str(page_size), "show_unconfirmed": "false"}
+        # Use verbose=true to get full transaction data including events
+        params = {"verbose": "true", "limit": str(page_size), "show_unconfirmed": "false"}
         if next_cursor:
             params["cursor"] = next_cursor
         logger.debug(f"Fetching page {page_count} of transactions for block {block_index}, cursor: {next_cursor}")
@@ -806,7 +962,7 @@ async def fetch_block_transactions_with_pagination(
         data = None
         for retry_attempt in range(max_retries):
             try:
-                # Increased timeout for large blocks
+                # Increased timeout for verbose responses
                 timeout = 30 if page_count > 1 else 20
                 data = await fetch_xcp_async(endpoint, params, timeout=timeout)
                 if data:
@@ -831,9 +987,9 @@ async def fetch_block_transactions_with_pagination(
             break
 
         page_transactions = data.get("result", [])
-        if page_transactions is None:  # Should not happen if data.get has a default, but good practice
+        if page_transactions is None:
             logger.error(f"Received None for result field in block {block_index}, page {page_count}. Data was: {data}")
-            page_transactions = []  # Ensure it's a list
+            page_transactions = []
 
         # Check for duplicates before adding
         tx_hashes_before = {tx.get("tx_hash") for tx in all_transactions if tx.get("tx_hash")}
@@ -842,27 +998,13 @@ async def fetch_block_transactions_with_pagination(
 
         if duplicate_hashes:
             logger.warning(f"Found {len(duplicate_hashes)} duplicate transactions in page {page_count}")
-            # Filter out duplicates to avoid adding the same transaction twice
             page_transactions = [tx for tx in page_transactions if tx.get("tx_hash") not in tx_hashes_before]
             logger.debug(f"After removing duplicates, adding {len(page_transactions)} transactions from page {page_count}")
 
         # Append transactions from this page
-        transaction_count_before = len(all_transactions)
         all_transactions.extend(page_transactions)
-        transaction_count_after = len(all_transactions)
 
-        # If we didn't add the expected number, log a warning about possible duplicates
-        expected_new_transactions = len(page_transactions)
-        actual_new_transactions = transaction_count_after - transaction_count_before
-        if actual_new_transactions != expected_new_transactions:
-            logger.warning(
-                f"Expected to add {expected_new_transactions} transactions but only added {actual_new_transactions} - possible duplicates detected"
-            )
-
-        # Log detailed info
-        logger.debug(
-            f"Added {len(page_transactions)} transactions from page {page_count}, total now: {transaction_count_after}"
-        )
+        logger.debug(f"Added {len(page_transactions)} transactions from page {page_count}, total now: {len(all_transactions)}")
 
         # Check if there are more pages
         if "next_cursor" in data and data["next_cursor"]:
@@ -872,25 +1014,17 @@ async def fetch_block_transactions_with_pagination(
             logger.debug(f"No more pages to fetch for block {block_index}")
             break
 
-    # Create the final result
-    if not all_transactions and page_count > 0:
-        logger.debug(f"No issuance transactions found for block {block_index} after {page_count} pages")
-
-    # Parse issuances
+    # Parse issuances (same logic as workaround method)
     issuances = []
     for tx in all_transactions:
         tx_type = tx.get("transaction_type")
         if tx_type in ["issuance", "fairminter"]:
-            # Check for events in the transaction
             events = tx.get("events", [])
             for event in events:
                 if event.get("event") in ["ASSET_ISSUANCE", "NEW_FAIRMINT"]:
-                    # Use the proper issuance parsing function
                     issuance_data = parse_issuance_from_transaction(tx, event)
                     if issuance_data:
-                        # This is a valid STAMP issuance
                         issuances.append(issuance_data)
-                        # break  # Only need to add the tx once
 
     # Get block hash from the transactions if available
     block_hash = None
