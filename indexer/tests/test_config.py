@@ -52,10 +52,10 @@ def reload_config():
     for module_name in sys.modules:
         if module_name == "config" or module_name.startswith("src.config"):
             modules_to_clear.append(module_name)
-    
+
     for module_name in modules_to_clear:
         del sys.modules[module_name]
-    
+
     return importlib.import_module("config")
 
 

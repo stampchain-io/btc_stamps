@@ -702,7 +702,7 @@ class CPBlocksPipeline:
                 # Respect the lookahead limit from the processor's position
                 effective_tip = min(block_tip, processor_position + self.max_lookahead)
 
-                logger.info(
+                logger.debug(
                     f"🔧 Pipeline state: processor_at={processor_position}, queue_size={queue_size}, "
                     f"tip={block_tip}, effective_tip={effective_tip}"
                 )
@@ -842,7 +842,7 @@ class CPBlocksPipeline:
             try:
                 result_dict = future.result(timeout=1)  # Should be done, so short timeout
                 if result_dict:
-                    logger.info(f"✅ Processing result for {len(result_dict)} blocks from a completed future.")
+                    logger.debug(f"✅ Processing result for {len(result_dict)} blocks from a completed future.")
                     with self._lock:
                         added_blocks = []
                         for res_block_index, block_data in result_dict.items():
@@ -869,7 +869,7 @@ class CPBlocksPipeline:
                             added_range = (
                                 f"{min(added_blocks)}-{max(added_blocks)}" if len(added_blocks) > 1 else str(added_blocks[0])
                             )
-                            logger.info(
+                            logger.debug(
                                 f"📦 Added {len(added_blocks)} blocks to queue: {added_range}. Queue size now: {len(self.queue)}"
                             )
 

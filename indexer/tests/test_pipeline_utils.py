@@ -276,7 +276,7 @@ class TestCPBlocksPipeline:
         # Signal consumer to stop and stop the pipeline
         stop_consumer.set()
         pipeline.stop()
-        
+
         # Wait for consumer to finish with timeout
         consumer.join(timeout=1)
 

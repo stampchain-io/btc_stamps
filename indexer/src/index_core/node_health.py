@@ -138,11 +138,11 @@ class NodeHealth:
                 # If parsing fails, default to treating it as severe
                 pass
 
-        # IMPROVED TIMEOUT HANDLING: Treat timeouts as severe after multiple consecutive timeout failures
+        # IMPROVED TIMEOUT HANDLING: Treat timeouts as severe after 2 consecutive timeout failures
         # This enables proper failover when a node is persistently timing out
         if "timeout" in error_info.lower() or "Timeout" in error_info:
             # If we already have multiple minor failures (indicating persistent issues), treat as severe
-            if self.minor_failures >= 3:
+            if self.minor_failures >= 2:
                 logger.warning(f"Node {self.name} has {self.minor_failures} timeout failures, treating as severe")
                 return True
             return False
@@ -630,10 +630,10 @@ def update_healthy_nodes():
                         with node_health._lock:
                             consecutive_failures = node_health.consecutive_failures
 
-                        # Exclude nodes with too many consecutive failures (3+)
-                        if consecutive_failures >= 3:
+                        # Exclude nodes with too many consecutive failures (2+) or persistent minor failures
+                        if consecutive_failures >= 2 or node_health.minor_failures >= 3:
                             logger.debug(
-                                f"Node {node_name} has {consecutive_failures} consecutive failures, excluding despite health check success"
+                                f"Node {node_name} has {consecutive_failures} consecutive failures or {node_health.minor_failures} minor failures, excluding despite health check success"
                             )
                             is_healthy = False
                         else:
@@ -722,10 +722,10 @@ def get_healthy_nodes():
                         if not node_health.can_retry():
                             logger.debug(f"Excluding {node_name}: in backoff period")
                             continue
-                        if node_health.consecutive_failures >= 3:
+                        if node_health.consecutive_failures >= 2:
                             logger.debug(f"Excluding {node_name}: has {node_health.consecutive_failures} consecutive failures")
                             continue
-                        if node_health.minor_failures >= 5:
+                        if node_health.minor_failures >= 3:
                             logger.debug(f"Excluding {node_name}: has {node_health.minor_failures} minor failures")
                             continue
 

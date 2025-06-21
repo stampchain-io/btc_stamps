@@ -14,23 +14,31 @@ As of Counterparty API v11.0.1, there is a critical bug when fetching transactio
 
 For detailed analysis, see `counterparty_api_error.md`.
 
-## The Workaround
+## The Hybrid Workaround
 
-We implemented a 2-step approach that fetches transactions and events separately:
+We implemented a hybrid approach that attempts safe pagination first, then falls back to a 2-step method:
 
+### Primary Method: Safe Verbose Pagination
+1. **First Attempt**: Use `verbose=true` with `limit=25` (the safe limit)
+2. **Paginate**: Continue with limit=25 for subsequent pages
+3. **Monitor**: If any page fails, immediately fallback to 2-step method
+
+### Fallback Method: 2-Step Approach
+When verbose pagination fails (even with safe limits):
 1. **Step 1**: Fetch all transactions with `verbose=false` (supports high limits up to 2000)
 2. **Step 2**: Fetch all events for the block separately using `/blocks/{block_index}/events`
 3. **Step 3**: Match events to their corresponding transactions locally
 
 ### Benefits
-- Works reliably for blocks of any size
-- Minimizes API calls (typically 2-3 calls per block)
-- Provides identical data structure to verbose=true
-- Avoids the pagination bug entirely
+- **Best of both worlds**: Uses native verbose=true when possible
+- **Automatic resilience**: Falls back seamlessly on problematic blocks
+- **Preserves data integrity**: Both methods produce identical data structures
+- **Handles edge cases**: Some blocks fail even with limit=25 (e.g., block 784320 page 2)
 
 ### Trade-offs
-- Slightly more complex implementation
-- Requires separate event fetching and matching logic
+- Slightly more complex implementation with dual approach
+- Requires monitoring for pagination failures
+- Fallback method requires separate event matching logic
 
 ## Configuration
 
@@ -139,18 +147,37 @@ Both methods produce identical data structures:
 
 ### File: `src/index_core/fetch_utils.py`
 
-- `fetch_block_transactions_with_pagination()`: Main entry point that checks the config flag
-- `_fetch_block_transactions_workaround()`: Implements the 2-step workaround
-- `_fetch_block_transactions_original()`: Original verbose=true implementation
+- `fetch_block_transactions_with_pagination()`: Main entry point that implements the hybrid approach
+- `_fetch_block_transactions_verbose_safe_pagination()`: Safe verbose=true pagination with limit=25
+- `_fetch_block_transactions_workaround()`: 2-step fallback method (transactions + events)
+- `_fetch_block_transactions_original()`: Original verbose=true implementation (deprecated)
+
+### Key Functions:
+```python
+async def _fetch_block_transactions_verbose_safe_pagination(block_index, node_url=None):
+    """Use verbose=true with safe limit=25, fallback to 2-step on pagination failure"""
+    
+async def fetch_block_transactions_with_pagination(block_index):
+    """Main entry point - always uses the hybrid approach when workaround is enabled"""
+```
 
 ### File: `src/config.py`
 
-- `CP_API_USE_VERBOSE_WORKAROUND`: Configuration flag (default: true)
+- `CP_API_USE_VERBOSE_WORKAROUND`: Configuration flag (default: true) - enables hybrid approach
 
 ## Monitoring
 
-When using the workaround, you'll see these log messages:
+When using the hybrid workaround, you'll see these log messages:
+
+**Successful verbose pagination:**
 ```
+INFO: Completed safe verbose pagination for block 784325: 14 transactions across 1 pages
+INFO: Completed safe verbose pagination for block 784330: 34 transactions across 2 pages
+```
+
+**Automatic fallback to 2-step method:**
+```
+WARNING: Pagination failed on block 784320 page 2, falling back to 2-step workaround
 DEBUG: Fetching block 784320 transactions with 2-step workaround approach
 DEBUG: Step 1: Fetching all transactions with verbose=false
 DEBUG: Got 65 transactions
@@ -161,22 +188,22 @@ DEBUG: Step 4: Parsing issuances from transactions
 DEBUG: Found 63 stamp issuances
 ```
 
-When using the original method:
+**When all nodes fail:**
 ```
-DEBUG: Fetching block 784320 transactions with original verbose=true method
-DEBUG: Using original verbose=true method for block 784320
-DEBUG: Fetching page 1 of transactions for block 784320
+WARNING: 🚨 ALL ASYNC NODES FAILED - waiting for natural recovery instead of forcing health update
+INFO: Nodes will be retried after their backoff periods expire
 ```
 
 ## Known Limitations
 
-1. The original method with `verbose=true` is limited to 25 transactions per page
-2. Blocks with > 50 transactions may require multiple pages even with the fix
-3. The workaround requires the events endpoint to be functional
+1. **Safe limit is 25**: Even with the safe pagination approach, we must use `limit=25` or less
+2. **Some blocks still fail**: Certain blocks (e.g., 784320) fail on page 2+ even with safe limits
+3. **Fallback dependency**: The 2-step fallback requires both transactions and events endpoints to be functional
+4. **Performance impact**: Blocks requiring fallback take slightly longer due to multiple API calls
 
 ## References
 
-- Counterparty API Issue: https://github.com/CounterpartyXCP/counterparty-core/issues/[TBD]
+- Counterparty API Issue: https://github.com/CounterpartyXCP/counterparty-core/issues/3193
 - Local Analysis: `counterparty_api_error.md`
 - Test Scripts: `tools/test_api_methods.py`, `tools/test_api_limits.py`
 
