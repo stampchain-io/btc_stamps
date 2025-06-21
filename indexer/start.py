@@ -130,7 +130,9 @@ def main():
 
     root_logger = logging.getLogger()
     verbose = os.environ.get("DEBUG", "false").lower() == "true"
-    log.set_up(root_logger, verbose=verbose, logfile=log_file)
+    # Clear log file by default for easier debugging (can be disabled via env var)
+    clear_logfile = os.environ.get("CLEAR_LOG_ON_START", "true").lower() == "true"
+    log.set_up(root_logger, verbose=verbose, logfile=log_file, clear_logfile=clear_logfile)
 
     # Log environment variables for debugging (excluding sensitive info)
     logger = logging.getLogger(__name__)

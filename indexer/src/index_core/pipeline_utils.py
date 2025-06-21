@@ -751,8 +751,8 @@ class CPBlocksPipeline:
                     for block in blocks_to_fetch_now:
                         self.blocks_fetch_timestamps[block] = current_timestamp
 
-                    node_url = nodes[0]["url"]
-                    future = self.fetch_executor.submit(self._fetch_blocks_batch, blocks_to_fetch_now, node_url)
+                    # Let the underlying fetch functions handle node selection with round-robin
+                    future = self.fetch_executor.submit(self._fetch_blocks_batch, blocks_to_fetch_now, None)
 
                     with self.fetch_futures_lock:
                         for block_idx in blocks_to_fetch_now:
@@ -820,9 +820,14 @@ class CPBlocksPipeline:
                 for block in blocks_in_future:
                     self.blocks_fetch_timestamps.pop(block, None)
 
-    def _fetch_blocks_batch(self, block_indices, node_url):
+    def _fetch_blocks_batch(self, block_indices, node_url=None):
         """
         Fetch a batch of blocks synchronously using fetch_utils functions with retry logic.
+
+        Node selection is handled by the underlying fetch functions which support:
+        - Round-robin load balancing for multi-node configurations (CP_NODE_POOL)
+        - Primary/fallback failover (CP_PRIMARY_NODE_URL/CP_FALLBACK_NODE_URL)
+        - Legacy single-node configuration (CP_RPC_URL)
 
         This method uses fetch_xcp_blocks_concurrent from fetch_utils to efficiently
         retrieve blocks while maintaining the expected data structure and transaction order.

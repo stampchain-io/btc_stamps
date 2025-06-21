@@ -87,7 +87,7 @@ LOGGING_SETUP = False
 LOGGING_TOFILE_SETUP = False
 
 
-def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
+def set_up(logger, verbose=False, logfile=None, console_logfilter=None, clear_logfile=True):
     global LOGGING_SETUP
     global LOGGING_TOFILE_SETUP
 
@@ -95,6 +95,15 @@ def set_up(logger, verbose=False, logfile=None, console_logfilter=None):
     def set_up_file_logging():
         if not logfile:
             raise ValueError("logfile must be defined")
+
+        # Clear log file if requested (useful for debugging)
+        if clear_logfile and os.path.exists(logfile):
+            try:
+                open(logfile, "w").close()  # Truncate the file
+                print(f"Cleared existing log file: {logfile}")
+            except Exception as e:
+                print(f"Warning: Could not clear log file {logfile}: {e}")
+
         max_log_size = 20 * 1024 * 1024  # 20 MB
         file_handler = RotatingFileHandler(logfile, maxBytes=max_log_size, backupCount=5)
         file_handler.setLevel(logging.DEBUG)
