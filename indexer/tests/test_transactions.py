@@ -54,6 +54,10 @@ class TestTransactions(unittest.TestCase):
         pass
 
     def test_process_transactions(self):
+        # Debug: ensure we have tx_data
+        self.assertIsNotNone(self.tx_data, "tx_data should not be None")
+        self.assertGreater(len(self.tx_data), 0, f"tx_data should have items, got: {self.tx_data}")
+
         # Create a temporary file to store the results
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             output_file = temp_file.name
@@ -61,6 +65,7 @@ class TestTransactions(unittest.TestCase):
         try:
             # Create a list of transaction hashes to process
             tx_hashes = list(self.tx_data.keys())
+            self.assertEqual(len(tx_hashes), 2, f"Expected 2 tx hashes, got {len(tx_hashes)}: {tx_hashes}")
 
             # Use the mock_backend context manager to patch the Backend.getrawtransaction method
             with mock_backend() as mock_getrawtx:
