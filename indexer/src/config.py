@@ -158,12 +158,17 @@ if not parsed_nodes:
     if os.environ.get("TESTING") != "1":
         logger.warning("No Counterparty node URLs configured, using defaults")
     parsed_nodes = [
-        {"name": "counterparty-public", "url": "https://api.counterparty.io:4000"},
-        {"name": "counterparty-local", "url": "http://127.0.0.1:4000"},
+        {"name": "counterparty-public", "url": "https://api.counterparty.io:4000/"},
+        {"name": "counterparty-local", "url": "http://127.0.0.1:4000/"},
     ]
 
 # Store the final parsed nodes for later use
 _CP_NODE_CONFIG = parsed_nodes
+
+# Set CP_RPC_URL for backward compatibility if not already set
+if not CP_RPC_URL and parsed_nodes:
+    # Use the first node's URL
+    CP_RPC_URL = parsed_nodes[0]["url"]
 
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "rpc")
@@ -292,11 +297,13 @@ for node in _CP_NODE_CONFIG:
     url = node["url"].rstrip("/").replace("/api/", "/")
     if not url.endswith("/v2"):
         url = f"{url}/v2"
-    
-    XCP_V2_NODES.append({
-        "name": node["name"],
-        "url": url,
-    })
+
+    XCP_V2_NODES.append(
+        {
+            "name": node["name"],
+            "url": url,
+        }
+    )
 
 # Also create NODES for compatibility with check_node_versions
 NODES = XCP_V2_NODES.copy()
