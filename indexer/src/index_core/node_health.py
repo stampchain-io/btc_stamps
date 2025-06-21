@@ -590,7 +590,7 @@ def update_healthy_nodes():
                 health_url = f"{node_url.rstrip('/')}/healthz"
                 logger.debug(f"Checking health of node {node_name} at {health_url}")
 
-                response = requests.get(health_url, timeout=5)
+                response = requests.get(health_url, timeout=15)
                 is_healthy = False
 
                 if response.status_code == 200:
@@ -606,7 +606,7 @@ def update_healthy_nodes():
                 if not is_healthy:
                     logger.debug(f"Healthz failed for {node_name}, trying root V2 endpoint")
                     root_url = node_url.rstrip("/")
-                    response = requests.get(root_url, timeout=5)
+                    response = requests.get(root_url, timeout=15)
 
                     if response.status_code == 200:
                         try:
@@ -645,7 +645,7 @@ def update_healthy_nodes():
                 else:
                     logger.debug(f"Node {node_name} failed both health checks")
             except requests.exceptions.Timeout:
-                logger.warning(f"Timeout checking health of {node_name} after 5 seconds")
+                logger.warning(f"Timeout checking health of {node_name} after 15 seconds")
             except requests.exceptions.ConnectionError:
                 logger.warning(f"Connection error checking health of {node_name}")
             except Exception as e:

@@ -110,14 +110,60 @@ ZMQ_BLOCK_PORT: int = ZMQ_PORT_MAINNET_BLOCK
 ZMQ_NOTIFICATION_DELAY = float(os.environ.get("ZMQ_NOTIFICATION_DELAY", "5.0"))  # Delay in seconds after ZMQ notification
 
 # CP RPC Configuration
+# Configuration hierarchy (first non-empty wins):
+# 1. CP_NODE_POOL - Advanced: comma-separated list of name::url pairs for multiple nodes
+# 2. CP_PRIMARY_NODE_URL + CP_FALLBACK_NODE_URL - Intermediate: explicit primary/fallback
+# 3. CP_RPC_URL - Legacy/Default: single node URL (auto-generates a fallback)
+# 4. Default: public API + local fallback
 CP_RPC_URL = os.environ.get("CP_RPC_URL")
-if not CP_RPC_URL:
-    # Only show warning if not in test mode
+CP_PRIMARY_NODE_URL = os.environ.get("CP_PRIMARY_NODE_URL")
+CP_FALLBACK_NODE_URL = os.environ.get("CP_FALLBACK_NODE_URL")
+CP_NODE_POOL = os.environ.get("CP_NODE_POOL")
+
+# Parse node pool if provided
+parsed_nodes = []
+if CP_NODE_POOL:
+    # Parse format: node1::url1,node2::url2,node3::url3
+    for node_spec in CP_NODE_POOL.split(","):
+        node_spec = node_spec.strip()
+        if "::" in node_spec:
+            name, url = node_spec.split("::", 1)
+            parsed_nodes.append({"name": name.strip(), "url": url.strip()})
+        else:
+            logger.warning(f"Invalid node specification in CP_NODE_POOL: {node_spec}")
+    if parsed_nodes:
+        logger.info(f"Using CP_NODE_POOL with {len(parsed_nodes)} nodes")
+
+# Fall back to primary/fallback URLs if no pool
+if not parsed_nodes and (CP_PRIMARY_NODE_URL or CP_FALLBACK_NODE_URL):
+    if CP_PRIMARY_NODE_URL:
+        parsed_nodes.append({"name": "counterparty-primary", "url": CP_PRIMARY_NODE_URL})
+        logger.info(f"Using configured CP_PRIMARY_NODE_URL: {CP_PRIMARY_NODE_URL}")
+    if CP_FALLBACK_NODE_URL:
+        parsed_nodes.append({"name": "counterparty-backup", "url": CP_FALLBACK_NODE_URL})
+        logger.info(f"Using configured CP_FALLBACK_NODE_URL: {CP_FALLBACK_NODE_URL}")
+
+# Fall back to legacy CP_RPC_URL if no other config
+if not parsed_nodes and CP_RPC_URL:
+    parsed_nodes.append({"name": "counterparty-primary", "url": CP_RPC_URL})
+    logger.info(f"Using legacy CP_RPC_URL: {CP_RPC_URL}")
+    # Auto-add a fallback based on primary
+    if "127.0.0.1" in CP_RPC_URL or "localhost" in CP_RPC_URL:
+        parsed_nodes.append({"name": "counterparty-backup", "url": "https://api.counterparty.io:4000"})
+    else:
+        parsed_nodes.append({"name": "counterparty-backup", "url": "http://127.0.0.1:4000"})
+
+# Use defaults if nothing is configured
+if not parsed_nodes:
     if os.environ.get("TESTING") != "1":
-        logger.warning("CP_RPC_URL not set in environment, using default counterparty.io endpoint")
-    CP_RPC_URL = "https://api.counterparty.io:4000/"
-else:
-    logger.info(f"Using configured CP_RPC_URL: {CP_RPC_URL}")
+        logger.warning("No Counterparty node URLs configured, using defaults")
+    parsed_nodes = [
+        {"name": "counterparty-public", "url": "https://api.counterparty.io:4000"},
+        {"name": "counterparty-local", "url": "http://127.0.0.1:4000"},
+    ]
+
+# Store the final parsed nodes for later use
+_CP_NODE_CONFIG = parsed_nodes
 
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "rpc")
@@ -239,27 +285,23 @@ logger.info(f"Final RPC URL format: {masked_url}")
 RPC_BATCH_SIZE = 75  # Optimized batch size for better throughput
 
 # Add new constants for the V2 CP API endpoints
-# Configure primary and backup nodes for automatic fallback
-primary_url = f"{CP_RPC_URL.rstrip('/').replace('/api/', '/')}/v2"
+# Build XCP_V2_NODES from the parsed node configuration
+XCP_V2_NODES = []
+for node in _CP_NODE_CONFIG:
+    # Ensure URL ends with /v2 for the V2 API
+    url = node["url"].rstrip("/").replace("/api/", "/")
+    if not url.endswith("/v2"):
+        url = f"{url}/v2"
+    
+    XCP_V2_NODES.append({
+        "name": node["name"],
+        "url": url,
+    })
 
-# Determine backup URL based on primary
-if "127.0.0.1" in primary_url or "localhost" in primary_url:
-    # If primary is local, use external as backup
-    backup_url = "https://api.counterparty.io:4000/v2"
-else:
-    # If primary is external, use local as backup
-    backup_url = "http://127.0.0.1:4000/v2"
+# Also create NODES for compatibility with check_node_versions
+NODES = XCP_V2_NODES.copy()
 
-XCP_V2_NODES = [
-    {
-        "name": "counterparty-primary",
-        "url": primary_url,
-    },
-    {
-        "name": "counterparty-backup",
-        "url": backup_url,
-    },
-]  # TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
+# TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
 
 logger.info("XCP V2 Node Configuration:")
 for node in XCP_V2_NODES:
