@@ -48,9 +48,10 @@ class TestTransactions(unittest.TestCase):
         """Set up each test method with fresh environment."""
         # Reset test environment for each test to avoid state pollution
         setup_test_environment()
-        
+
         # Clear Backend singleton to ensure fresh instance for each test
         from index_core.backend import Backend
+
         Backend._instance = None
 
     def tearDown(self):
