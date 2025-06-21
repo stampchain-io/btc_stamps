@@ -24,10 +24,10 @@ class CPBlocksPipeline:
     def __init__(
         self,
         max_queue_size=600,
-        target_queue_size=250,
+        target_queue_size=50,
         max_lookahead=500,
-        initial_fetch_size=50,
-        max_batch_size=150,
+        initial_fetch_size=10,
+        max_batch_size=30,
         fallback_mode=True,
     ):
         """
@@ -342,14 +342,39 @@ class CPBlocksPipeline:
         # Begin running again
         self.start(new_start_block)
 
+    def confirm_block_processed(self, block_index):
+        """
+        Confirm that a block has been successfully processed and can be removed from the queue.
+        This should be called by the block processor after successful commit to database.
+
+        Args:
+            block_index: The block index that was successfully processed
+        """
+        with self._lock:
+            # Remove the processed block from the queue
+            removed_block = self.queue.pop(block_index, None)
+            if removed_block:
+                logger.debug(f"Confirmed block {block_index} processed, removed from queue. Queue size: {len(self.queue)}")
+
+                # Update pipeline position to the next block that should be processed
+                if block_index >= self.current_block:
+                    self.current_block = block_index + 1
+                    logger.debug(f"Advanced pipeline position to {self.current_block}")
+
+                # Clean up old blocks from queue that are far behind the current position
+                blocks_to_remove = [blk for blk in self.queue.keys() if blk < block_index - 10]
+                for old_block in blocks_to_remove:
+                    self.queue.pop(old_block, None)
+
+                if blocks_to_remove:
+                    logger.debug(f"Cleaned up {len(blocks_to_remove)} old blocks from queue")
+            else:
+                logger.debug(f"Block {block_index} already removed from queue or never existed")
+
     def get_block(self, block_index):
         """
-        Get a block from the queue. If the requested block is not available,
-        it returns None, and the worker thread is expected to fetch it.
-
-        This method ensures the processor's position is only advanced upon
-        successful retrieval of a sequential block. It also handles cases
-        where the consumer is lagging behind the pipeline's state.
+        Get a block from the queue WITHOUT removing it. The block remains in the queue
+        until confirm_block_processed() is called.
 
         Args:
             block_index: The block index to retrieve
@@ -358,37 +383,53 @@ class CPBlocksPipeline:
             Block data dictionary or None if not available
         """
         with self._lock:
-            # The consumer (blocks.py) is asking for a block that is behind
-            # the pipeline's internal processor position.
-            if block_index < self.current_block:
-                logger.debug(
-                    f"Out-of-sequence get_block request for {block_index}, which is behind processor at {self.current_block}. "
-                    "Returning block and allowing consumer to catch up."
-                )
-                # Provide the old block but also remove it from the queue so the consumer can advance.
-                return self.queue.pop(block_index, None)
-
-            # The consumer is asking for the exact block the pipeline is ready for.
-            if block_index == self.current_block:
-                block_data = self.queue.pop(block_index, None)
-                if block_data:
+            # Check if we have the block in the queue
+            block_data = self.queue.get(block_index)
+            if block_data:
+                # Check if we need to adjust the pipeline position to fill the gap
+                if block_index < self.current_block:
+                    # The processor is asking for a block behind our current position
+                    # This means there's a gap - we need to go back and fetch it
                     logger.debug(
-                        f"Retrieved block {block_index} for processor. Advancing state. Queue size: {len(self.queue)}"
+                        f"Gap detected: processor needs {block_index} but pipeline is at {self.current_block}. Adjusting pipeline to fill gap."
                     )
-                    # Advance the processor's position. The worker will fetch from this new position.
-                    self.current_block += 1
-                    return block_data
-                else:
-                    # The required sequential block is not in the queue. The processor must wait.
-                    logger.debug(f"Block {block_index} not in queue. Processor is waiting for fetcher.")
-                    return None
+                    self.current_block = block_index
 
-            # The consumer is asking for a block ahead of the processor.
-            # This should not happen in normal operation but can occur during reorgs.
-            # Return the data if we have it, but do not advance the primary 'current_block' state.
-            if block_index > self.current_block:
-                logger.debug(f"Ahead-of-sequence get_block request for {block_index}, processor is at {self.current_block}.")
-                return self.queue.get(block_index)
+                logger.debug(f"Retrieved block {block_index} for processor (keeping in queue). Queue size: {len(self.queue)}")
+                return block_data
+            else:
+                # The required block is not in the queue.
+                # CRITICAL: Do NOT update processor position when block is missing
+                # This prevents the pipeline from jumping ahead and creating gaps
+
+                # Get detailed queue state for debugging
+                queue_blocks = sorted(self.queue.keys()) if self.queue else []
+                queue_range = f"{min(queue_blocks)}-{max(queue_blocks)}" if queue_blocks else "empty"
+
+                # Only log if pipeline is still running to avoid closed file errors
+                if self.running:
+                    logger.warning(f"❌ Block {block_index} not in queue. Queue size: {len(self.queue)}, range: {queue_range}")
+                    logger.warning(f"Pipeline current_block: {self.current_block}, requested: {block_index}")
+
+                    # Show blocks currently being fetched
+                    with self._blocks_fetch_lock:
+                        if self.blocks_being_fetched:
+                            fetching_list = sorted(list(self.blocks_being_fetched))
+                            fetching_range = f"{min(fetching_list)}-{max(fetching_list)}" if fetching_list else "none"
+                            logger.warning(
+                                f"Blocks being fetched: {len(self.blocks_being_fetched)} blocks, range: {fetching_range}"
+                            )
+
+                # Check if we need to adjust the pipeline position to fill the gap
+                if block_index < self.current_block:
+                    # The processor is asking for a block behind our current position
+                    # This means there's a gap - we need to go back and fetch it
+                    logger.warning(
+                        f"Gap detected: processor needs {block_index} but pipeline is at {self.current_block}. Adjusting pipeline to fill gap."
+                    )
+                    self.current_block = block_index
+
+                return None
 
     def create_fallback_block(self, block_index):
         """
@@ -661,8 +702,8 @@ class CPBlocksPipeline:
                 # Respect the lookahead limit from the processor's position
                 effective_tip = min(block_tip, processor_position + self.max_lookahead)
 
-                logger.debug(
-                    f"Pipeline state: processor_at={processor_position}, queue_size={queue_size}, "
+                logger.info(
+                    f"🔧 Pipeline state: processor_at={processor_position}, queue_size={queue_size}, "
                     f"tip={block_tip}, effective_tip={effective_tip}"
                 )
 
@@ -700,6 +741,18 @@ class CPBlocksPipeline:
 
                     blocks_already_present = self.blocks_being_fetched.union(existing_in_queue)
                     blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
+
+                # CRITICAL: Always prioritize the current processor block if it's missing
+                # This prevents gaps where queue has future blocks but processor is stuck
+                if processor_position not in existing_in_queue and processor_position not in self.blocks_being_fetched:
+                    if processor_position not in blocks_to_fetch_now:
+                        # Insert the processor block at the beginning of the fetch list
+                        blocks_to_fetch_now.insert(0, processor_position)
+                        logger.warning(
+                            f"🚨 Gap detected: prioritizing fetch of processor block {processor_position} "
+                            f"(queue range: {min(existing_in_queue) if existing_in_queue else 'empty'}-"
+                            f"{max(existing_in_queue) if existing_in_queue else 'empty'})"
+                        )
 
                 # Limit the batch size for a single API call
                 blocks_to_fetch_now = blocks_to_fetch_now[: self.max_batch_size]
@@ -789,21 +842,36 @@ class CPBlocksPipeline:
             try:
                 result_dict = future.result(timeout=1)  # Should be done, so short timeout
                 if result_dict:
-                    logger.debug(f"Processing result for {len(result_dict)} blocks from a completed future.")
+                    logger.info(f"✅ Processing result for {len(result_dict)} blocks from a completed future.")
                     with self._lock:
+                        added_blocks = []
                         for res_block_index, block_data in result_dict.items():
                             if block_data and "error" not in block_data:
-                                # CRITICAL FIX: Only add block if it's not already processed.
-                                # This prevents the queue from being polluted with blocks the consumer has already moved past.
-                                if res_block_index >= self.current_block:
-                                    self.queue[res_block_index] = block_data
-                                else:
+                                # Check if this block is already processed (older than current_block)
+                                if res_block_index < self.current_block:
                                     logger.warning(
                                         f"Discarding already processed block {res_block_index} from completed future (processor is at {self.current_block})."
                                     )
+                                    continue
+
+                                # Add block to queue if not already present
+                                if res_block_index not in self.queue:
+                                    self.queue[res_block_index] = block_data
+                                    added_blocks.append(res_block_index)
+                                    logger.debug(f"Added block {res_block_index} to pipeline queue")
+                                else:
+                                    logger.debug(f"Block {res_block_index} already in queue, skipping")
                             else:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
                                 logger.warning(f"Block {res_block_index} fetch failed within batch: {error_msg}")
+
+                        if added_blocks:
+                            added_range = (
+                                f"{min(added_blocks)}-{max(added_blocks)}" if len(added_blocks) > 1 else str(added_blocks[0])
+                            )
+                            logger.info(
+                                f"📦 Added {len(added_blocks)} blocks to queue: {added_range}. Queue size now: {len(self.queue)}"
+                            )
 
                     # Signal ready if it's the initial fetch and we have enough blocks
                     if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
