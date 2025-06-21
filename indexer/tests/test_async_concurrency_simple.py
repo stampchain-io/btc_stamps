@@ -164,8 +164,10 @@ class TestAsyncConcurrencySimple:
             call_counts[block_index] += 1
 
             # Block 101 fails first two attempts, succeeds on third
-            if block_index == 101 and call_counts[block_index] <= 2:
-                return None  # Failure
+            if block_index == 101:
+                if call_counts[block_index] <= 2:  # Fail attempts 1 and 2
+                    return None  # Failure
+                # Succeed on attempt 3
 
             return {"block_index": block_index, "xcp_block_hash": f"hash_{block_index}", "transactions": [], "issuances": []}
 
@@ -178,8 +180,42 @@ class TestAsyncConcurrencySimple:
                 assert result[101] is not None
                 assert result[101]["block_index"] == 101
 
-                # Should have called update_healthy_nodes for retries
-                assert mock_update.call_count >= 2  # At least 2 retry attempts
+                # Should have called update_healthy_nodes once before the final attempt
+                # (when attempt == 1, which is max_retries_per_block - 2)
+                assert mock_update.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_blocks_range_async_all_retries_fail(self):
+        """Test behavior when all retries fail - update_healthy_nodes should be called."""
+        call_counts = {}
+
+        async def mock_fetch_block(block_index):
+            if block_index not in call_counts:
+                call_counts[block_index] = 0
+            call_counts[block_index] += 1
+
+            # Block 101 always fails
+            if block_index == 101:
+                return None  # Always fail
+            
+            return {"block_index": block_index, "xcp_block_hash": f"hash_{block_index}", "transactions": [], "issuances": []}
+
+        with patch("src.index_core.fetch_utils.fetch_block_transactions_with_pagination", side_effect=mock_fetch_block):
+            with patch("src.index_core.fetch_utils.update_healthy_nodes") as mock_update:
+                result = await _fetch_blocks_range_async(100, 102)  # 3 blocks
+
+                # Should have 3 blocks, but block 101 will be None due to failures
+                assert len(result) == 3
+                assert result[100] is not None
+                assert result[101] is None  # Failed after all retries
+                assert result[102] is not None
+
+                # Should have called update_healthy_nodes once before the final retry
+                # (when attempt == 1, which is max_retries_per_block - 2)
+                assert mock_update.call_count == 1
+                
+                # Verify block 101 was attempted 3 times
+                assert call_counts[101] == 3
 
     @pytest.mark.asyncio
     async def test_concurrent_task_cancellation(self):
