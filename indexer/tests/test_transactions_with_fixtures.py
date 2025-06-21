@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 
 from tests.bitcoin_fixtures_loader import BitcoinFixturesLoader
 from tests.mock_transaction import process_transactions
@@ -52,8 +53,8 @@ class TestTransactionsWithFixtures(unittest.TestCase):
             tx_hashes = list(self.tx_data.keys())
             self.assertEqual(len(tx_hashes), 2, f"Expected 2 tx hashes, got {len(tx_hashes)}: {tx_hashes}")
 
-            # Use the mock_backend context manager to patch the Backend.getrawtransaction method
-            with mock_backend() as mock_getrawtx:
+            # Since Backend is a singleton, we need to patch its method directly
+            with unittest.mock.patch("index_core.backend.Backend.getrawtransaction") as mock_getrawtx:
                 # Set up the mock to use our create_mock_tx_lookup function with fixtures data
                 mock_getrawtx.side_effect = create_mock_tx_lookup(self.tx_data)
 
@@ -97,7 +98,8 @@ class TestTransactionsWithFixtures(unittest.TestCase):
         try:
             tx_hashes = list(stamp_txs.keys())
 
-            with mock_backend() as mock_getrawtx:
+            with unittest.mock.patch("index_core.backend.Backend.getrawtransaction") as mock_getrawtx:
+                # Set up the mock
                 mock_getrawtx.side_effect = create_mock_tx_lookup(stamp_txs)
 
                 result = process_transactions(tx_hashes, output_file=output_file)

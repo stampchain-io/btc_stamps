@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 # Add the parent directory to sys.path to allow relative imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -67,8 +68,8 @@ class TestTransactions(unittest.TestCase):
             tx_hashes = list(self.tx_data.keys())
             self.assertEqual(len(tx_hashes), 2, f"Expected 2 tx hashes, got {len(tx_hashes)}: {tx_hashes}")
 
-            # Use the mock_backend context manager to patch the Backend.getrawtransaction method
-            with mock_backend() as mock_getrawtx:
+            # Since Backend is a singleton, we need to patch its method directly
+            with unittest.mock.patch("index_core.backend.Backend.getrawtransaction") as mock_getrawtx:
                 # Set up the mock to use our create_mock_tx_lookup function
                 mock_getrawtx.side_effect = create_mock_tx_lookup(self.tx_data)
 
