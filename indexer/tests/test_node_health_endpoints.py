@@ -64,7 +64,7 @@ class TestNodeHealthEndpoints:
             assert result is True
 
             # Should have called healthz endpoint first
-            mock_get.assert_called_with("http://test-node:8080/v2/healthz", timeout=5)
+            mock_get.assert_called_with("http://test-node:8080/v2/healthz", timeout=15)
 
             # Should have healthy nodes
             healthy = get_healthy_nodes()
@@ -98,8 +98,8 @@ class TestNodeHealthEndpoints:
             # Should have tried both healthz and root endpoints
             assert mock_get.call_count == 2
             expected_calls = [
-                mock.call("http://unhealthy:8080/v2/healthz", timeout=5),
-                mock.call("http://unhealthy:8080/v2", timeout=5),
+                mock.call("http://unhealthy:8080/v2/healthz", timeout=15),
+                mock.call("http://unhealthy:8080/v2", timeout=15),
             ]
             mock_get.assert_has_calls(expected_calls)
 
@@ -176,8 +176,8 @@ class TestNodeHealthEndpoints:
             # Should return False (no healthy nodes due to timeout)
             assert result is False
 
-            # Should have tried healthz endpoint with 5 second timeout
-            mock_get.assert_called_with("http://timeout:8080/v2/healthz", timeout=5)
+            # Should have tried healthz endpoint with 15 second timeout
+            mock_get.assert_called_with("http://timeout:8080/v2/healthz", timeout=15)
 
             # Should have no healthy nodes
             healthy = get_healthy_nodes()

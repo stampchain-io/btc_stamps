@@ -390,6 +390,10 @@ healthy_nodes_lock = Lock()
 node_health_tracker: Dict[str, NodeHealth] = {}
 healthy_nodes = []
 
+# Round-robin node selection
+_round_robin_index = 0
+_round_robin_lock = Lock()
+
 
 def exponential_backoff(attempt: int) -> float:
     """Calculate exponential backoff time"""
@@ -632,7 +636,7 @@ def update_healthy_nodes():
                         # Initialize health tracker
                         node_health_tracker[node_name] = NodeHealth(node_name, node_url)
                         node_health = node_health_tracker[node_name]
-                    
+
                     # Now check if we should still exclude it (only for backoff period)
                     if node_health and not node_health.can_retry():
                         logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
@@ -761,3 +765,30 @@ def get_healthy_nodes():
         logger.error("⚠️  NO HEALTHY NODES AVAILABLE - this will cause fetch failures")
 
     return result
+
+
+def get_next_healthy_node_round_robin():
+    """
+    Get the next healthy node using round-robin selection.
+    This helps distribute load across multiple nodes.
+
+    Returns:
+        A single node dict or None if no healthy nodes available
+    """
+    global _round_robin_index
+
+    nodes = get_healthy_nodes()
+    if not nodes:
+        return None
+
+    # Use lock to ensure thread-safe index update
+    with _round_robin_lock:
+        # Get current node
+        node = nodes[_round_robin_index % len(nodes)]
+
+        # Advance to next node for next call
+        _round_robin_index = (_round_robin_index + 1) % len(nodes)
+
+        logger.debug(f"Round-robin selected node: {node.get('name', 'unknown')} (index: {_round_robin_index})")
+
+    return node

@@ -209,8 +209,8 @@ def test_src20_variations(variation, setup_environment):
     if db_simulator is None:
         pytest.fail("db_simulator is None - setup_environment fixture failed")
 
-    # Use TestBlockProcessor instead of the real one to avoid backend dependencies
-    block_processor = TestBlockProcessor(db_simulator)
+    # Use MockBlockProcessor instead of the real one to avoid backend dependencies
+    block_processor = MockBlockProcessor(db_simulator)
 
     # Clear cache before each test case to prevent state leakage
     cache_manager.clear_all()
