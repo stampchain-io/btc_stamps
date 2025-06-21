@@ -997,7 +997,7 @@ async def _fetch_block_transactions_verbose_safe_pagination(
     all_transactions: List[Dict[str, Any]] = []
     next_cursor = None
     page_count = 0
-    max_pages = 50  # Safety limit
+    max_pages = 500  # Safety limit (25 txs/page * 500 pages = 12,500 max txs per block)
 
     while page_count < max_pages:
         page_count += 1

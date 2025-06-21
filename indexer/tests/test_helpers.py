@@ -38,9 +38,11 @@ setup_test_env = setup_test_environment
 @contextmanager
 def mock_backend():
     """Context manager to mock the Backend class methods."""
-    # Use the string path to ensure we're mocking the right location
-    with mock.patch("index_core.backend.Backend.getrawtransaction") as mock_getrawtx:
-        yield mock_getrawtx
+    # Mock both the class method and any instance that might be created
+    with mock.patch("index_core.backend.Backend.getrawtransaction") as mock_class_method, mock.patch.object(
+        Backend, "getrawtransaction", mock_class_method
+    ):
+        yield mock_class_method
 
 
 def create_mock_tx_lookup(tx_data: Dict[str, str]) -> Callable:
