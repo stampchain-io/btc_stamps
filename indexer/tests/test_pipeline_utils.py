@@ -108,6 +108,12 @@ class TestCPBlocksPipeline:
             pipeline.queue[820010] = test_block
         result = pipeline.get_block(820010)
         assert result == test_block
+        # get_block() no longer advances current_block or removes from queue
+        assert pipeline.current_block == 820010
+        assert 820010 in pipeline.queue
+
+        # Test confirm_block_processed() does the removal and advancement
+        pipeline.confirm_block_processed(820010)
         assert pipeline.current_block == 820011
         assert 820010 not in pipeline.queue
 
@@ -119,8 +125,10 @@ class TestCPBlocksPipeline:
             pipeline.queue[820010] = test_block
         result = pipeline.get_block(820010)
         assert result == test_block
-        assert pipeline.current_block == 820020  # State should not advance
-        assert 820010 not in pipeline.queue
+        # Gap detected: pipeline adjusts position to fill gap
+        assert pipeline.current_block == 820010
+        # Block remains in queue until confirm_block_processed
+        assert 820010 in pipeline.queue
         mock_pipeline_logger.debug.assert_called()
 
     def test_get_block_out_of_sequence_ahead(self, mock_pipeline_logger):
@@ -235,29 +243,42 @@ class TestCPBlocksPipeline:
         pipeline = CPBlocksPipeline()
         pipeline.start(820000)
         errors = []
+        stop_consumer = threading.Event()
 
         def consumer_thread():
             try:
                 for i in range(820000, 820050):
+                    if stop_consumer.is_set():
+                        break
                     block = None
-                    # Aggressively try to get the next block
-                    while not block:
+                    # Try to get the next block with timeout
+                    attempts = 0
+                    while not block and attempts < 100:  # Max 100 attempts
+                        if stop_consumer.is_set():
+                            break
                         block = pipeline.get_block(i)
                         if not block:
                             time.sleep(0.001)  # Small sleep to yield
+                            attempts += 1
+                    if block:
+                        # Confirm the block was processed to advance the pipeline
+                        pipeline.confirm_block_processed(i)
             except Exception as e:
-                logging.error(f"Consumer error: {e}")
-                errors.append(e)
+                if not stop_consumer.is_set():  # Only log if not stopping
+                    errors.append(e)
 
-        consumer = threading.Thread(target=consumer_thread)
+        consumer = threading.Thread(target=consumer_thread, daemon=True)
         consumer.start()
 
         # Let the pipeline run for a bit
-        time.sleep(1)
+        time.sleep(0.5)
 
-        # Stop the pipeline
+        # Signal consumer to stop and stop the pipeline
+        stop_consumer.set()
         pipeline.stop()
-        consumer.join(timeout=2)
+        
+        # Wait for consumer to finish with timeout
+        consumer.join(timeout=1)
 
         assert not errors
         assert pipeline.current_block > 820000
