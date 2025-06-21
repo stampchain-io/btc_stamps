@@ -1267,9 +1267,10 @@ async def _fetch_blocks_range_async(
                     logger.warning(
                         f"Fetch for block {block_idx} failed (attempt {attempt + 1}/{max_retries_per_block}). Retrying with next node..."
                     )
-                    # Don't immediately update health - let the backoff period work
-                    # Only update health if we've exhausted all retries
-                    if attempt == max_retries_per_block - 1:
+                    # Update health nodes before the last attempt so it can use fresh nodes
+                    # This gives us one more chance with potentially new healthy nodes
+                    if attempt == max_retries_per_block - 2:  # Before the last attempt
+                        logger.info(f"Updating healthy nodes before final attempt for block {block_idx}")
                         update_healthy_nodes()
                     await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
             except Exception as e:

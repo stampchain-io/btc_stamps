@@ -238,9 +238,9 @@ class TestCounterpartyAPIMethods:
             with patch("src.index_core.fetch_utils.config.CP_API_USE_VERBOSE_WORKAROUND", True):
                 result = await fetch_block_transactions_with_pagination(784320)
                 assert result is not None
-                # Should have called transactions endpoint with verbose=false
+                # Should have called transactions endpoint with verbose=true (hybrid approach)
                 calls = [call for call in mock_fetch.call_args_list if "/transactions" in call[0][0]]
-                assert any(call[0][1].get("verbose") == "false" for call in calls)
+                assert any(call[0][1].get("verbose") == "true" for call in calls)
 
             mock_fetch.reset_mock()
 

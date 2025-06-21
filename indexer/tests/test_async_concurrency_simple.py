@@ -197,7 +197,7 @@ class TestAsyncConcurrencySimple:
             # Block 101 always fails
             if block_index == 101:
                 return None  # Always fail
-            
+
             return {"block_index": block_index, "xcp_block_hash": f"hash_{block_index}", "transactions": [], "issuances": []}
 
         with patch("src.index_core.fetch_utils.fetch_block_transactions_with_pagination", side_effect=mock_fetch_block):
@@ -213,7 +213,7 @@ class TestAsyncConcurrencySimple:
                 # Should have called update_healthy_nodes once before the final retry
                 # (when attempt == 1, which is max_retries_per_block - 2)
                 assert mock_update.call_count == 1
-                
+
                 # Verify block 101 was attempted 3 times
                 assert call_counts[101] == 3
 

@@ -1265,7 +1265,7 @@ def fetch_api_ledger_data(block_index: int):
 
     def fetch_url(url):
         try:
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=15)
             logger.debug(f"Fetching URL: {url}")
             logger.debug(f"Response status code: {response.status_code}")
             logger.debug(f"Response headers: {response.headers}")
