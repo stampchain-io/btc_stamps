@@ -12,6 +12,11 @@ import os
 import sys
 from typing import List, Optional
 
+from dotenv import load_dotenv
+
+# Load environment variables before any project imports
+load_dotenv()
+
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
