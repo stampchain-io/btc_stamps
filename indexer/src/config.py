@@ -49,6 +49,13 @@ MARKET_DATA_CACHE_SIZE = int(os.environ.get("MARKET_DATA_CACHE_SIZE", "5000"))  
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
 MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
 
+# Counterparty API configuration
+# WORKAROUND: Set to True to use the 2-step approach (transactions + events separately)
+# This works around the verbose=true pagination bug in Counterparty API v11.0.1
+# When the upstream bug is fixed, set this to False to use the original verbose=true method
+# Bug details: https://github.com/CounterpartyXCP/counterparty-core/issues (see counterparty_api_error.md)
+CP_API_USE_VERBOSE_WORKAROUND = os.environ.get("CP_API_USE_VERBOSE_WORKAROUND", "true").lower() == "true"
+
 # Production-optimized batch sizes for database operations
 # Larger batches reduce network round-trips to RDS - optimized defaults for production
 DB_TRANSACTION_BATCH_SIZE = int(os.environ.get("DB_TRANSACTION_BATCH_SIZE", "15000"))  # Optimized for RDS
