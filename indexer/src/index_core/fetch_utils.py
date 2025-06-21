@@ -1014,21 +1014,15 @@ async def _fetch_block_transactions_verbose_safe_pagination(
             data = await fetch_xcp_async(f"/blocks/{block_index}/transactions", params, timeout=30)
         except Exception as e:
             logger.error(f"Error fetching page {page_count} for block {block_index}: {e}")
-            if page_count > 1:
-                logger.warning(
-                    f"Pagination failed on block {block_index} page {page_count}, falling back to 2-step workaround"
-                )
-                return await _fetch_block_transactions_workaround(block_index, node_url)
-            return None
+            logger.warning(
+                f"Verbose pagination failed on block {block_index} page {page_count}, falling back to 2-step workaround"
+            )
+            return await _fetch_block_transactions_workaround(block_index, node_url)
 
         if not data or "result" not in data:
             logger.error(f"Invalid response for block {block_index} page {page_count}: {data}")
-            if page_count > 1:
-                logger.warning(
-                    f"Pagination failed on block {block_index} page {page_count}, falling back to 2-step workaround"
-                )
-                return await _fetch_block_transactions_workaround(block_index, node_url)
-            return None
+            logger.warning(f"Invalid response on block {block_index} page {page_count}, falling back to 2-step workaround")
+            return await _fetch_block_transactions_workaround(block_index, node_url)
 
         page_transactions = data["result"]
         logger.debug(f"Page {page_count}: received {len(page_transactions)} transactions for block {block_index}")
@@ -1060,7 +1054,7 @@ async def _fetch_block_transactions_verbose_safe_pagination(
             logger.debug(f"No more pages to fetch for block {block_index}")
             break
 
-    logger.info(
+    logger.debug(
         f"Completed safe verbose pagination for block {block_index}: {len(all_transactions)} transactions across {page_count} pages"
     )
 
@@ -1228,7 +1222,7 @@ def fetch_xcp_blocks_concurrent(
         logger.warning(f"Invalid block range: start_block {start_block} > end_block {end_block}")
         return {}
 
-    logger.info(f"Fetching blocks {start_block} to {end_block} concurrently from CP API")
+    logger.debug(f"Fetching blocks {start_block} to {end_block} concurrently from CP API")
 
     # Check for large ranges
     num_blocks = end_block - start_block + 1
@@ -1273,8 +1267,10 @@ async def _fetch_blocks_range_async(
                     logger.warning(
                         f"Fetch for block {block_idx} failed (attempt {attempt + 1}/{max_retries_per_block}). Retrying with next node..."
                     )
-                    # Force health update to cycle to the next node
-                    update_healthy_nodes()
+                    # Don't immediately update health - let the backoff period work
+                    # Only update health if we've exhausted all retries
+                    if attempt == max_retries_per_block - 1:
+                        update_healthy_nodes()
                     await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
             except Exception as e:
                 logger.error(f"Unhandled exception fetching block {block_idx} (attempt {attempt + 1}): {e}", exc_info=True)
