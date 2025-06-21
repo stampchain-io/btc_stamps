@@ -45,7 +45,7 @@ class TestEnhancedNodeFailover(unittest.TestCase):
         """Test that timeouts escalate to severe failures after multiple occurrences."""
         node = NodeHealth("test-node", "http://test:4000/v2")
 
-        # First few timeouts should be minor failures
+        # First two timeouts should be minor failures
         node.mark_failure("Timeout during session.get")
         self.assertEqual(node.consecutive_failures, 0)
         self.assertEqual(node.minor_failures, 1)
@@ -54,11 +54,7 @@ class TestEnhancedNodeFailover(unittest.TestCase):
         self.assertEqual(node.consecutive_failures, 0)
         self.assertEqual(node.minor_failures, 2)
 
-        node.mark_failure("Timeout during session.get")
-        self.assertEqual(node.consecutive_failures, 0)
-        self.assertEqual(node.minor_failures, 3)
-
-        # Fourth timeout should escalate to severe failure
+        # Third timeout should escalate to severe failure (after 2 minor failures)
         node.mark_failure("Timeout during session.get")
         self.assertEqual(node.consecutive_failures, 1)  # Now it's a severe failure
         self.assertTrue(node.backoff_until > time.time())  # Should be in backoff
