@@ -127,7 +127,7 @@ def calculate_batch_size(current_index: int, tip: int, min_size: int = 3, max_si
 #########################################################################
 
 
-def fetch_node_version_v2(node_url: str, timeout: int = 5) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+def fetch_node_version_v2(node_url: str, timeout: int = 15) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
     """
     Get Counterparty node version information from the V2 endpoint.
 
@@ -521,6 +521,8 @@ async def fetch_xcp_async(
                 logger.error("Still no healthy nodes after update")
                 return None
 
+        logger.info(f"🔄 Async round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
+
         # Get all healthy nodes for fallback, starting with the selected one
         healthy_nodes = get_healthy_nodes()
         nodes_to_try = [primary_node]
@@ -626,16 +628,11 @@ async def fetch_xcp_async(
 
     logger.error("All nodes failed in async fetch")
 
-    # CRITICAL: Immediately update global health state when all nodes fail
-    # This prevents the 30-second delay before fallback mode detection
-    logger.warning("🚨 ALL ASYNC NODES FAILED - triggering immediate health update")
-    try:
-        from index_core.node_health import update_healthy_nodes
-
-        update_healthy_nodes()
-        logger.info("Emergency health update completed after total async node failure")
-    except Exception as e:
-        logger.error(f"Failed to update node health after total async failure: {e}")
+    # CRITICAL: When all nodes fail, wait for natural recovery instead of forcing health update
+    # The emergency health update was too aggressive and marked nodes as healthy
+    # even when they were still returning HTTP 500 errors on API calls
+    logger.warning("🚨 ALL ASYNC NODES FAILED - waiting for natural recovery instead of forcing health update")
+    logger.info("Nodes will be retried after their backoff periods expire")
 
     return None
 
@@ -706,6 +703,8 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
                 if not primary_node:
                     logger.error("Still no healthy nodes after update")
                     return {"result": [], "next_cursor": None, "result_count": 0}
+
+            logger.info(f"🔄 Round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
 
             # Get all healthy nodes for fallback
             healthy_nodes = get_healthy_nodes()
@@ -840,8 +839,8 @@ async def fetch_block_transactions_with_pagination(
     Fetch all transactions for a specific block from CP API.
 
     This function supports two modes:
-    1. Workaround mode (default): Uses 2-step approach to avoid verbose=true pagination bug
-    2. Original mode: Uses verbose=true when the upstream bug is fixed
+    1. Workaround mode (default): Uses verbose=true with safe pagination (limit=25) to avoid API bug
+    2. Original mode: Uses verbose=true with larger limits when the upstream bug is fixed
 
     The mode is controlled by config.CP_API_USE_VERBOSE_WORKAROUND
 
@@ -854,8 +853,8 @@ async def fetch_block_transactions_with_pagination(
     """
     # Check if we should use the workaround
     if config.CP_API_USE_VERBOSE_WORKAROUND:
-        logger.debug(f"Fetching block {block_index} transactions with 2-step workaround approach")
-        return await _fetch_block_transactions_workaround(block_index, node_url)
+        logger.debug(f"Fetching block {block_index} transactions with verbose=true safe pagination workaround")
+        return await _fetch_block_transactions_verbose_safe_pagination(block_index, node_url)
     else:
         logger.debug(f"Fetching block {block_index} transactions with original verbose=true method")
         return await _fetch_block_transactions_original(block_index, node_url)
@@ -967,6 +966,115 @@ async def _fetch_block_transactions_workaround(block_index: int, node_url: Optio
                         issuances.append(issuance_data)
 
     logger.debug(f"Found {len(issuances)} stamp issuances")
+
+    # Get block hash from the transactions if available
+    block_hash = None
+    if all_transactions:
+        block_hash = all_transactions[0].get("block_hash")
+
+    # Create block data structure
+    block_data = {
+        "block_index": block_index,
+        "xcp_block_hash": block_hash,
+        "transactions": all_transactions,
+        "issuances": issuances,
+    }
+
+    return block_data
+
+
+async def _fetch_block_transactions_verbose_safe_pagination(
+    block_index: int, node_url: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch block transactions using verbose=true with safe pagination (limit=25).
+
+    This workaround addresses the Counterparty API bug where verbose=true fails
+    with limit >= 26, while preserving the complete event data structure.
+    """
+    logger.debug(f"Fetching block {block_index} transactions with verbose=true safe pagination (limit=25)")
+
+    all_transactions: List[Dict[str, Any]] = []
+    next_cursor = None
+    page_count = 0
+    max_pages = 50  # Safety limit
+
+    while page_count < max_pages:
+        page_count += 1
+
+        # Use limit=25 (safe limit for verbose=true)
+        params = {"verbose": "true", "limit": "25", "show_unconfirmed": "false"}  # Safe limit that works with verbose=true
+
+        if next_cursor:
+            params["cursor"] = next_cursor
+
+        logger.debug(f"Fetching page {page_count} for block {block_index} with params: {params}")
+
+        try:
+            data = await fetch_xcp_async(f"/blocks/{block_index}/transactions", params, timeout=30)
+        except Exception as e:
+            logger.error(f"Error fetching page {page_count} for block {block_index}: {e}")
+            if page_count > 1:
+                logger.warning(
+                    f"Pagination failed on block {block_index} page {page_count}, falling back to 2-step workaround"
+                )
+                return await _fetch_block_transactions_workaround(block_index, node_url)
+            return None
+
+        if not data or "result" not in data:
+            logger.error(f"Invalid response for block {block_index} page {page_count}: {data}")
+            if page_count > 1:
+                logger.warning(
+                    f"Pagination failed on block {block_index} page {page_count}, falling back to 2-step workaround"
+                )
+                return await _fetch_block_transactions_workaround(block_index, node_url)
+            return None
+
+        page_transactions = data["result"]
+        logger.debug(f"Page {page_count}: received {len(page_transactions)} transactions for block {block_index}")
+
+        if not page_transactions:
+            logger.debug(f"No transactions in page {page_count}, stopping pagination")
+            break
+
+        # Check for duplicates before adding
+        tx_hashes_before = {tx.get("tx_hash") for tx in all_transactions if tx.get("tx_hash")}
+        tx_hashes_page = {tx.get("tx_hash") for tx in page_transactions if tx.get("tx_hash")}
+        duplicate_hashes = tx_hashes_before.intersection(tx_hashes_page)
+
+        if duplicate_hashes:
+            logger.warning(f"Found {len(duplicate_hashes)} duplicate transactions in page {page_count}")
+            page_transactions = [tx for tx in page_transactions if tx.get("tx_hash") not in tx_hashes_before]
+            logger.debug(f"After removing duplicates, adding {len(page_transactions)} transactions from page {page_count}")
+
+        # Append transactions from this page
+        all_transactions.extend(page_transactions)
+
+        logger.debug(f"Added {len(page_transactions)} transactions from page {page_count}, total now: {len(all_transactions)}")
+
+        # Check if there are more pages
+        if "next_cursor" in data and data["next_cursor"]:
+            next_cursor = data["next_cursor"]
+            logger.debug(f"Found next cursor: {next_cursor}, continuing to next page")
+        else:
+            logger.debug(f"No more pages to fetch for block {block_index}")
+            break
+
+    logger.info(
+        f"Completed safe verbose pagination for block {block_index}: {len(all_transactions)} transactions across {page_count} pages"
+    )
+
+    # Parse issuances from the complete transaction data (which includes events)
+    issuances = []
+    for tx in all_transactions:
+        tx_type = tx.get("transaction_type")
+        if tx_type in ["issuance", "fairminter"]:
+            events = tx.get("events", [])
+            for event in events:
+                if event.get("event") in ["ASSET_ISSUANCE", "NEW_FAIRMINT"]:
+                    issuance_data = parse_issuance_from_transaction(tx, event)
+                    if issuance_data:
+                        issuances.append(issuance_data)
 
     # Get block hash from the transactions if available
     block_hash = None
