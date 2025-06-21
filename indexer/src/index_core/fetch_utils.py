@@ -14,6 +14,7 @@ import config
 from index_core.base64_utils import parse_base64_from_description
 from index_core.node_health import (
     get_healthy_nodes,
+    get_next_healthy_node_round_robin,
     is_shutdown_requested,
     node_health_tracker,
     update_healthy_nodes,
@@ -503,16 +504,43 @@ async def fetch_xcp_async(
     endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: int = 10
 ) -> Optional[Dict[str, Any]]:
     """Async version of fetch_xcp to get data from XCP V2 API."""
-    healthy_nodes = get_healthy_nodes()
-    if not healthy_nodes:
-        logger.error("No healthy nodes available for async fetch")
-        update_healthy_nodes()
+    # Check if we have multiple nodes configured for round-robin
+    use_round_robin = len(config.XCP_V2_NODES) > 2
+
+    if use_round_robin:
+        # Use round-robin for load balancing across multiple nodes
+        logger.debug(f"Using round-robin node selection ({len(config.XCP_V2_NODES)} nodes configured)")
+
+        # For round-robin, start with the next node in rotation
+        primary_node = get_next_healthy_node_round_robin()
+        if not primary_node:
+            logger.error("No healthy nodes available for round-robin fetch")
+            update_healthy_nodes()
+            primary_node = get_next_healthy_node_round_robin()
+            if not primary_node:
+                logger.error("Still no healthy nodes after update")
+                return None
+
+        # Get all healthy nodes for fallback, starting with the selected one
+        healthy_nodes = get_healthy_nodes()
+        nodes_to_try = [primary_node]
+        # Add other healthy nodes as fallback (excluding the primary)
+        for node in healthy_nodes:
+            if node["name"] != primary_node["name"] and node not in nodes_to_try:
+                nodes_to_try.append(node)
+    else:
+        # Use traditional failover approach for 2 or fewer nodes
         healthy_nodes = get_healthy_nodes()
         if not healthy_nodes:
-            logger.error("Still no healthy nodes after update")
-            return None
+            logger.error("No healthy nodes available for async fetch")
+            update_healthy_nodes()
+            healthy_nodes = get_healthy_nodes()
+            if not healthy_nodes:
+                logger.error("Still no healthy nodes after update")
+                return None
+        nodes_to_try = healthy_nodes
 
-    for node in healthy_nodes:
+    for node in nodes_to_try:
         try:
             url = f"{node['url'].rstrip('/')}{endpoint}"
             logger.debug(f"Async fetch from {node['name']} at URL: {url} with params: {params}")
@@ -664,15 +692,39 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
     if node:
         nodes_to_try = [node]
     else:
-        healthy_nodes = get_healthy_nodes()
-        if not healthy_nodes:
-            logger.error("No healthy nodes available for fetch")
-            update_healthy_nodes()  # Try updating nodes
+        # Check if we have multiple nodes configured for round-robin
+        use_round_robin = len(config.XCP_V2_NODES) > 2
+
+        if use_round_robin:
+            # Use round-robin for load balancing
+            logger.debug(f"Using round-robin node selection ({len(config.XCP_V2_NODES)} nodes configured)")
+            primary_node = get_next_healthy_node_round_robin()
+            if not primary_node:
+                logger.error("No healthy nodes available for round-robin fetch")
+                update_healthy_nodes()
+                primary_node = get_next_healthy_node_round_robin()
+                if not primary_node:
+                    logger.error("Still no healthy nodes after update")
+                    return {"result": [], "next_cursor": None, "result_count": 0}
+
+            # Get all healthy nodes for fallback
+            healthy_nodes = get_healthy_nodes()
+            nodes_to_try = [primary_node]
+            # Add other healthy nodes as fallback
+            for node in healthy_nodes:
+                if node["name"] != primary_node["name"] and node not in nodes_to_try:
+                    nodes_to_try.append(node)
+        else:
+            # Traditional failover approach
             healthy_nodes = get_healthy_nodes()
             if not healthy_nodes:
-                logger.error("Still no healthy nodes after update")
-                return {"result": [], "next_cursor": None, "result_count": 0}
-        nodes_to_try = healthy_nodes
+                logger.error("No healthy nodes available for fetch")
+                update_healthy_nodes()
+                healthy_nodes = get_healthy_nodes()
+                if not healthy_nodes:
+                    logger.error("Still no healthy nodes after update")
+                    return {"result": [], "next_cursor": None, "result_count": 0}
+            nodes_to_try = healthy_nodes
 
     # Try each node until success
     last_error = None
