@@ -307,7 +307,7 @@ class TestNodeHealthEndpoints:
             assert healthy[0]["url"] == "http://good:8080/v2"
 
             # Should have called the healthz endpoint
-            mock_get.assert_called_with("http://good:8080/v2/healthz", timeout=5)
+            mock_get.assert_called_with("http://good:8080/v2/healthz", timeout=15)
 
 
 if __name__ == "__main__":
