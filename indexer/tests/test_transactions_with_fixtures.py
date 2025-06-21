@@ -88,14 +88,14 @@ class TestTransactionsWithFixtures(unittest.TestCase):
 
     def test_process_special_transactions(self):
         """Test processing special edge case transactions from fixtures."""
-        # Get stamp-related transactions from fixtures
+        # Get all special transactions from fixtures (they are stamp-related)
         stamp_txs = {}
         for tx in self.fixtures_loader.get_special_transactions():
-            if "stamp" in tx.get("description", "").lower():
-                stamp_txs[tx["txid"]] = tx["hex"]
+            # All special transactions in our fixtures are stamp-related
+            stamp_txs[tx["txid"]] = tx["hex"]
 
         if not stamp_txs:
-            self.skipTest("No stamp transactions found in fixtures")
+            self.skipTest("No special transactions found in fixtures")
 
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             output_file = temp_file.name
