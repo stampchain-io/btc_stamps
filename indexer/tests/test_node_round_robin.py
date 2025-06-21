@@ -86,7 +86,7 @@ class TestNodeRoundRobin:
             assert node["name"] == "only_node"
 
     @patch(
-        "config.XCP_V2_NODES",
+        "index_core.fetch_utils.config.XCP_V2_NODES",
         [
             {"name": "node1", "url": "http://node1.com:4000/v2"},
             {"name": "node2", "url": "http://node2.com:4000/v2"},
@@ -128,7 +128,7 @@ class TestNodeRoundRobin:
             assert "node2.com" in call_args[0][0]  # URL should contain node2
 
     @patch(
-        "config.XCP_V2_NODES",
+        "index_core.fetch_utils.config.XCP_V2_NODES",
         [
             {"name": "node1", "url": "http://node1.com:4000/v2"},
             {"name": "node2", "url": "http://node2.com:4000/v2"},
