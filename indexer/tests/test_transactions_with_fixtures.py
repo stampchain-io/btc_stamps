@@ -27,6 +27,16 @@ class TestTransactionsWithFixtures(unittest.TestCase):
         for tx in special_txs[:2]:
             cls.tx_data[tx["txid"]] = tx["hex"]
 
+    def setUp(self):
+        """Set up each test method with fresh environment."""
+        # Reset test environment for each test to avoid state pollution
+        setup_test_environment()
+
+    def tearDown(self):
+        """Clean up after each test method."""
+        # Additional cleanup if needed
+        pass
+
     def test_process_transactions_with_fixtures(self):
         """Test processing transactions using shared Bitcoin fixtures."""
         # Create a temporary file to store the results

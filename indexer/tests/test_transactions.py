@@ -43,6 +43,16 @@ class TestTransactions(unittest.TestCase):
                 ),
             }
 
+    def setUp(self):
+        """Set up each test method with fresh environment."""
+        # Reset test environment for each test to avoid state pollution
+        setup_test_environment()
+
+    def tearDown(self):
+        """Clean up after each test method."""
+        # Additional cleanup if needed
+        pass
+
     def test_process_transactions(self):
         # Create a temporary file to store the results
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
