@@ -619,43 +619,29 @@ def update_healthy_nodes():
                             logger.debug(f"Error parsing root V2 response from {node_name}: {e}")
 
                 if is_healthy:
-                    # Double-check against the node health tracker for persistent issues
+                    # Update the NodeHealth tracker FIRST if it exists
                     node_health = node_health_tracker.get(node_name)
                     if node_health:
-                        # Only exclude nodes with significant persistent issues
-                        # Allow 1-2 consecutive failures if they just passed a health check
-                        if node_health.consecutive_failures >= 3 or node_health.minor_failures >= 5:
-                            logger.warning(
-                                f"Node {node_name} passed health check but has persistent issues "
-                                f"(consecutive: {node_health.consecutive_failures}, minor: {node_health.minor_failures}). "
-                                f"Excluding from healthy nodes list."
-                            )
-                            is_healthy = False
-                        elif not node_health.can_retry():
-                            logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
-                            is_healthy = False
-                        elif node_health.consecutive_failures > 0:
-                            # Log but allow nodes with 1-2 failures if they pass health check
-                            logger.debug(
-                                f"Node {node_name} has {node_health.consecutive_failures} consecutive failures "
-                                f"but passed health check - allowing in healthy nodes list"
-                            )
-
-                if is_healthy:
-                    # Add to healthy nodes list
-                    healthy_nodes_local.append(node)
-                    nodes_healthy += 1
-                    logger.debug(f"Node {node_name} is healthy")
-
-                    # Update the NodeHealth tracker if it exists
-                    if node_name in node_health_tracker:
                         try:
-                            node_health_tracker[node_name].mark_success()
+                            # Mark success to reset failure counters
+                            node_health.mark_success()
+                            logger.debug(f"Reset failure counters for {node_name} after successful health check")
                         except Exception as e:
                             logger.debug(f"Error updating health tracker for {node_name}: {e}")
                     else:
                         # Initialize health tracker
                         node_health_tracker[node_name] = NodeHealth(node_name, node_url)
+                        node_health = node_health_tracker[node_name]
+                    
+                    # Now check if we should still exclude it (only for backoff period)
+                    if node_health and not node_health.can_retry():
+                        logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
+                        is_healthy = False
+                    else:
+                        # Add to healthy nodes list
+                        healthy_nodes_local.append(node)
+                        nodes_healthy += 1
+                        logger.debug(f"Node {node_name} is healthy")
                 else:
                     logger.debug(f"Node {node_name} failed both health checks")
             except requests.exceptions.Timeout:
@@ -740,11 +726,18 @@ def get_healthy_nodes():
     if not result:
         logger.warning("No healthy nodes after filtering, forcing health update")
 
-        # Reset minor failures for nodes to give them another chance
+        # Reset ALL failure counters for nodes to give them another chance
+        # This prevents nodes from getting permanently stuck in failed state
         for node_health in node_health_tracker.values():
-            if node_health.minor_failures >= 5:
-                logger.info(f"Resetting minor failures for {node_health.name} to allow retry")
+            if node_health.consecutive_failures > 0 or node_health.minor_failures > 0:
+                logger.info(
+                    f"Resetting failure counters for {node_health.name} "
+                    f"(consecutive: {node_health.consecutive_failures}, minor: {node_health.minor_failures}) "
+                    f"to allow retry"
+                )
+                node_health.consecutive_failures = 0
                 node_health.minor_failures = 0
+                node_health.backoff_until = 0
 
         update_healthy_nodes()
         try:
