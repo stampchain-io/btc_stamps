@@ -53,6 +53,9 @@ def process_transactions(tx_hashes: List[str], output_file: Optional[str] = None
 
         except Exception as e:
             logger.error(f"Error processing transaction {tx_hash}: {e}")
+            # Continue processing other transactions instead of stopping
+
+    logger.info(f"[MOCK] Processed {len(results)} out of {len(tx_hashes)} transactions")
 
     # Save results to file if requested
     if output_file:

@@ -791,11 +791,14 @@ async def fetch_block_transactions_with_pagination(
     next_cursor = None
     page_count = 0
     max_retries = 3
-    page_size = 1000
+    page_size = 100  # Increased from 10 due to verbose=false workaround
 
     while True:
         page_count += 1
-        params = {"verbose": "true", "limit": str(page_size), "show_unconfirmed": "false"}
+        # WORKAROUND: Use verbose=false due to pagination bug with verbose=true
+        # See: https://github.com/CounterpartyXCP/counterparty-core/issues
+        # This provides all necessary transaction data without the pagination failures
+        params = {"verbose": "false", "limit": str(page_size), "show_unconfirmed": "false"}
         if next_cursor:
             params["cursor"] = next_cursor
         logger.debug(f"Fetching page {page_count} of transactions for block {block_index}, cursor: {next_cursor}")

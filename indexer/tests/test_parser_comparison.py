@@ -1,6 +1,6 @@
-from unittest.mock import MagicMock, patch
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -28,23 +28,23 @@ def real_src20_transactions():
     """Load real SRC20 transactions from cached fixtures."""
     fixtures_dir = Path(__file__).parent / "fixtures" / "transaction_cache"
     transactions = {}
-    
+
     if not fixtures_dir.exists():
         return transactions
-    
+
     # Load a few representative transactions
     sample_txids = [
         "0321905ca9053a5b8313be9524a2af146196982a479573e9a324e8b929231730",
         "049d1544e94c14deece7a468855ca9bff7c867476b3f4cba8c075000ed93babe",
-        "0698579e4f1997ec1d9b27cb9c1b4b7e40bfe3301213074fd0270cc4bc2d8ad5"
+        "0698579e4f1997ec1d9b27cb9c1b4b7e40bfe3301213074fd0270cc4bc2d8ad5",
     ]
-    
+
     for txid in sample_txids:
         tx_file = fixtures_dir / f"{txid}.json"
         if tx_file.exists():
             with open(tx_file, "r") as f:
                 transactions[txid] = json.load(f)
-    
+
     return transactions
 
 
@@ -64,44 +64,41 @@ def sample_transactions():
 def test_parser_comparison_src20_filtering(real_src20_transactions):
     """Compare transaction filtering results between Rust and Python parsers."""
     from index_core.parser import RUST_PARSER_AVAILABLE, Parser
-    
+
     if not RUST_PARSER_AVAILABLE:
         pytest.skip("Rust parser not available")
-    
+
     if not real_src20_transactions:
         pytest.skip("No cached transaction data available")
-    
+
     parser = Parser()
-    
+
     # Test with real SRC20 transactions
     for txid, tx_data in real_src20_transactions.items():
         tx_hex = tx_data.get("hex")
         if not tx_hex:
             continue
-            
+
         try:
             # Deserialize with Rust parser
             ctx = parser.deserialize_transaction(tx_hex)
-            
+
             # Test the quick filter function
             should_include = quick_filter_src20_transaction(ctx)
-            
+
             # Basic sanity checks
             assert isinstance(should_include, bool), "Filter should return boolean"
-            
+
             # Check if transaction has the expected structure
             assert hasattr(ctx, "vout"), "Transaction should have outputs"
             assert hasattr(ctx, "vin"), "Transaction should have inputs"
-            
+
             # For transactions with OP_RETURN or multisig, we expect them to be filtered
-            has_op_return = any(
-                output.get("script", "").startswith("6a") 
-                for output in tx_data.get("outputs", [])
-            )
-            
+            has_op_return = any(output.get("script", "").startswith("6a") for output in tx_data.get("outputs", []))
+
             # Log the result for debugging
             print(f"TX {txid[:8]}: filtered={should_include}, has_op_return={has_op_return}")
-            
+
         except Exception as e:
             pytest.fail(f"Failed to process transaction {txid}: {e}")
 

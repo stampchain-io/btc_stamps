@@ -40,7 +40,7 @@ class TestSrc20EdgeCases:
             cursor.fetchall = MagicMock(return_value=[])
             cursor.execute = MagicMock(return_value=None)
             cursor.executemany = MagicMock(return_value=None)
-        
+
         # Override the connection's cursor method to return our cursor directly
         db.cursor = MagicMock(return_value=cursor)
         return cursor
@@ -155,7 +155,7 @@ class TestSrc20EdgeCases:
         # Get database connection
         db = mock_db_manager.connect()
         cursor = self.setup_cursor_mock(db)
-        
+
         # Test empty address list
         result = get_running_user_balances(db, "TEST", "test_hash", [], [])
         assert result == []  # Returns empty list, not dict
@@ -168,11 +168,13 @@ class TestSrc20EdgeCases:
 
         # Test addresses with special characters
         special_addrs = ["addr_with_underscore", "addr-with-dash", "addr.with.dot"]
-        cursor.fetchall = MagicMock(return_value=[
-            ("addr_with_underscore", Decimal("10"), Decimal("0")),
-            ("addr-with-dash", Decimal("20"), Decimal("0")),
-            ("addr.with.dot", Decimal("30"), Decimal("0")),
-        ])
+        cursor.fetchall = MagicMock(
+            return_value=[
+                ("addr_with_underscore", Decimal("10"), Decimal("0")),
+                ("addr-with-dash", Decimal("20"), Decimal("0")),
+                ("addr.with.dot", Decimal("30"), Decimal("0")),
+            ]
+        )
         result = get_running_user_balances(db, "TEST", "test_hash", special_addrs, [])
         assert len(result) == 3
 
@@ -181,7 +183,7 @@ class TestSrc20EdgeCases:
         # Get database connection
         db = mock_db_manager.connect()
         cursor = self.setup_cursor_mock(db)
-        
+
         # Test empty updates
         balance_updates = []
         update_balance_table(db, balance_updates, 1000, 1000000)
@@ -216,7 +218,7 @@ class TestSrc20EdgeCases:
         # Get database connection
         db = mock_db_manager.connect()
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create mock src20_dict and processed_list
         src20_dict = {"op": "transfer", "tick": "TEST", "amt": "100"}
         processed_list = []
@@ -237,7 +239,7 @@ class TestSrc20EdgeCases:
         # Get database connection
         db = mock_db_manager.connect()
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create mock src20_dict and processed_list
         src20_dict = {"op": "transfer", "tick": "TEST", "amt": "100"}
         processed_list = []
@@ -298,7 +300,7 @@ class TestSrc20EdgeCases:
         """Test database transaction atomicity in balance updates."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Create processed_src20_in_block list
         processed_list = [
             {"op": "MINT", "tick": "TEST", "amt": "100", "valid": 1, "destination": "addr1", "tick_hash": "hash"}
@@ -333,7 +335,7 @@ class TestSrc20EdgeCases:
         # Get database connection
         db = mock_db_manager.connect()
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create mock src20_dict and processed_list
         src20_dict = {"op": "transfer", "tick": "TEST", "amt": "100"}
         processed_list = []
@@ -404,7 +406,7 @@ class TestSrc20EdgeCases:
         # Get database connection
         db = mock_db_manager.connect()
         cursor = self.setup_cursor_mock(db)
-        
+
         # Test with None balance results
         cursor.fetchall = MagicMock(return_value=[])
         balances = get_running_user_balances(db, "TEST", "hash", ["addr1"], [])

@@ -8,7 +8,7 @@ Migrated to use standardized database fixtures.
 import threading
 import time
 from decimal import Decimal
-from unittest.mock import Mock, MagicMock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
@@ -50,7 +50,7 @@ class TestSrc20DatabaseTransactions:
             cursor.fetchall = MagicMock(return_value=[])
             cursor.execute = MagicMock(return_value=None)
             cursor.executemany = MagicMock(return_value=None)
-        
+
         # Override the connection's cursor method to return our cursor directly
         db.cursor = MagicMock(return_value=cursor)
         return cursor
@@ -59,13 +59,13 @@ class TestSrc20DatabaseTransactions:
         """Test atomicity of balance table updates."""
         # Get database connection and set up cursor to fail
         db = mock_db_manager.connect()
-        
+
         # Create a custom cursor mock that will fail on executemany
         failing_cursor = MagicMock()
         failing_cursor.executemany.side_effect = OperationalError("Database connection lost")
         failing_cursor.fetchall = MagicMock(return_value=[])
         failing_cursor.execute = MagicMock(return_value=None)
-        
+
         self.setup_cursor_mock(db, failing_cursor)
 
         balance_updates = [
@@ -83,7 +83,7 @@ class TestSrc20DatabaseTransactions:
         """Test batch insert failure handling."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Create processed_src20_in_block list
         processed_list = [
             {"op": "MINT", "tick": "TEST", "amt": "100", "valid": 1, "destination": "addr1", "tick_hash": "hash1"},
@@ -104,14 +104,14 @@ class TestSrc20DatabaseTransactions:
         """Test rollback on partial batch update failure."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Create a custom cursor mock that will fail on execute
         failing_cursor = MagicMock()
         failing_cursor.execute.side_effect = DataError("Invalid decimal value")
         failing_cursor.fetchall = MagicMock(return_value=[])
-        
+
         self.setup_cursor_mock(db, failing_cursor)
-        
+
         # Setup balance updates
         balance_updates = [
             {"tick": "TEST1", "address": "addr1", "tick_hash": "hash", "credit": Decimal("100"), "debit": Decimal("0")},
@@ -133,10 +133,10 @@ class TestSrc20DatabaseTransactions:
                 time.sleep(delay)
                 # Get fresh connection for each thread
                 db = mock_db_manager.connect()
-                
+
                 # Set up cursor for this connection
                 cursor = self.setup_cursor_mock(db)
-                
+
                 balance_updates = [
                     {
                         "tick": "TEST",
@@ -171,12 +171,12 @@ class TestSrc20DatabaseTransactions:
         """Test deadlock detection and retry mechanism."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Create a custom cursor mock that will fail with deadlock
         failing_cursor = MagicMock()
         failing_cursor.execute.side_effect = OperationalError(1213, "Deadlock found")
         failing_cursor.fetchall = MagicMock(return_value=[])
-        
+
         self.setup_cursor_mock(db, failing_cursor)
 
         # update_balance_table doesn't retry on deadlock, it raises the exception
@@ -206,10 +206,10 @@ class TestSrc20DatabaseTransactions:
         """Test transaction isolation level handling."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Perform balance update
         balance_updates = [
             {"tick": "TEST", "address": "addr1", "tick_hash": "hash", "credit": Decimal("100"), "debit": Decimal("0")}
@@ -223,10 +223,10 @@ class TestSrc20DatabaseTransactions:
         """Test bulk insert optimization for large balance updates."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create large batch of balance updates
         processed_list = []
         for i in range(1000):
@@ -256,14 +256,14 @@ class TestSrc20DatabaseTransactions:
         """Test balance updates considering locked amounts."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor with existing balance data
         cursor = MagicMock()
         # Mock existing balance with locked amount
         cursor.fetchall = MagicMock(return_value=[("TEST_addr1", Decimal("1000"), Decimal("100"))])  # 100 locked
         cursor.execute = MagicMock(return_value=None)
         cursor.executemany = MagicMock(return_value=None)
-        
+
         self.setup_cursor_mock(db, cursor)
 
         # Try to update balance
@@ -286,10 +286,10 @@ class TestSrc20DatabaseTransactions:
         """Test cleanup of zero balance entries."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Update balance to zero
         balance_updates = [
             {
@@ -310,7 +310,7 @@ class TestSrc20DatabaseTransactions:
         """Test handling of database constraint violations."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Create a custom cursor mock that will fail with constraint violation
         failing_cursor = MagicMock()
         # Test foreign key violation
@@ -318,7 +318,7 @@ class TestSrc20DatabaseTransactions:
             1452, "Cannot add or update a child row: a foreign key constraint fails"
         )
         failing_cursor.fetchall = MagicMock(return_value=[])
-        
+
         self.setup_cursor_mock(db, failing_cursor)
 
         with pytest.raises(IntegrityError):
@@ -337,10 +337,10 @@ class TestSrc20DatabaseTransactions:
         """Test savepoint usage in nested transactions."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create mock src20_dict and processed_list
         src20_dict = {"op": "transfer", "tick": "TEST", "amt": "100"}
         processed_list = []
@@ -373,10 +373,10 @@ class TestSrc20DatabaseTransactions:
         """Test decimal precision handling in database operations."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Test with maximum precision decimals
         precise_balance = Decimal("123456789.123456789012345678")
 
@@ -429,13 +429,13 @@ class TestSrc20DatabaseTransactions:
         """Test retry logic on lock timeout."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Create a custom cursor mock that will fail with lock timeout
         failing_cursor = MagicMock()
         # Simulate lock timeout
         failing_cursor.execute.side_effect = OperationalError(1205, "Lock wait timeout exceeded")
         failing_cursor.fetchall = MagicMock(return_value=[])
-        
+
         self.setup_cursor_mock(db, failing_cursor)
 
         balance_updates = [
@@ -452,10 +452,10 @@ class TestSrc20DatabaseTransactions:
         """Test memory efficiency of large batch updates."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create very large batch
         processed_list = []
         for i in range(10000):
@@ -480,10 +480,10 @@ class TestSrc20DatabaseTransactions:
         """Test transaction spanning multiple tables."""
         # Get database connection
         db = mock_db_manager.connect()
-        
+
         # Set up cursor
         cursor = self.setup_cursor_mock(db)
-        
+
         # Create mock src20_dict and processed_list
         src20_dict = {"op": "transfer", "tick": "TEST", "amt": "100"}
         processed_list = []
