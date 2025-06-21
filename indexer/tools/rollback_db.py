@@ -10,6 +10,9 @@ import sys
 import pymysql
 from dotenv import load_dotenv
 
+# Load environment variables BEFORE any project imports
+load_dotenv()
+
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
