@@ -626,22 +626,34 @@ def update_healthy_nodes():
                     # Update the NodeHealth tracker FIRST if it exists
                     node_health = node_health_tracker.get(node_name)
                     if node_health:
-                        try:
-                            # Mark success to reset failure counters
-                            node_health.mark_success()
-                            logger.debug(f"Reset failure counters for {node_name} after successful health check")
-                        except Exception as e:
-                            logger.debug(f"Error updating health tracker for {node_name}: {e}")
+                        # Check for persistent failures before marking success
+                        with node_health._lock:
+                            consecutive_failures = node_health.consecutive_failures
+
+                        # Exclude nodes with too many consecutive failures (3+)
+                        if consecutive_failures >= 3:
+                            logger.debug(
+                                f"Node {node_name} has {consecutive_failures} consecutive failures, excluding despite health check success"
+                            )
+                            is_healthy = False
+                        else:
+                            try:
+                                # Mark success to reset failure counters
+                                node_health.mark_success()
+                                logger.debug(f"Reset failure counters for {node_name} after successful health check")
+                            except Exception as e:
+                                logger.debug(f"Error updating health tracker for {node_name}: {e}")
                     else:
                         # Initialize health tracker
                         node_health_tracker[node_name] = NodeHealth(node_name, node_url)
                         node_health = node_health_tracker[node_name]
 
-                    # Now check if we should still exclude it (only for backoff period)
-                    if node_health and not node_health.can_retry():
+                    # Now check if we should still exclude it (backoff period or was marked unhealthy above)
+                    if is_healthy and node_health and not node_health.can_retry():
                         logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
                         is_healthy = False
-                    else:
+
+                    if is_healthy:
                         # Add to healthy nodes list
                         healthy_nodes_local.append(node)
                         nodes_healthy += 1

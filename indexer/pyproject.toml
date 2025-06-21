@@ -201,6 +201,7 @@ env = [
 
 [tool.pytest.ini_options]
 addopts = "-v -p no:warnings --strict-markers --tb=short -ra --cov-config=.coveragerc"
+testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
