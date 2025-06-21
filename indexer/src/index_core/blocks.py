@@ -579,15 +579,26 @@ def follow(
                 logger.info("Pipeline initialized with strict mode - will stop if CP nodes fail")
 
         # Initialize market data job scheduler for time-based updates
-        # Only start if enabled and not in single block mode or reparse mode
+        # Only start if enabled, not in single block mode or reparse mode, AND we're close to the tip
+        blocks_behind = block_tip - block_index if block_tip > block_index else 0
+        market_data_threshold = 100  # Only start market data jobs when within 100 blocks of tip
+
         if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
-            try:
-                logger.info("Starting market data job scheduler...")
-                start_market_data_jobs(max_workers=3)  # Use 3 workers for market data jobs (stamp, src20, collection)
-                market_data_scheduler_started = True
-                logger.info("Market data job scheduler started successfully")
-            except Exception as e:
-                logger.warning(f"Failed to start market data scheduler: {e}")
+            if blocks_behind <= market_data_threshold:
+                try:
+                    logger.info(
+                        f"Starting market data job scheduler (within {market_data_threshold} blocks of tip: {blocks_behind} behind)..."
+                    )
+                    start_market_data_jobs(max_workers=3)  # Use 3 workers for market data jobs (stamp, src20, collection)
+                    market_data_scheduler_started = True
+                    logger.info("Market data job scheduler started successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to start market data scheduler: {e}")
+                    market_data_scheduler_started = False
+            else:
+                logger.info(
+                    f"Market data scheduler deferred - still {blocks_behind} blocks behind tip (threshold: {market_data_threshold})"
+                )
                 market_data_scheduler_started = False
         elif not config.ENABLE_MARKET_DATA_SCHEDULER:
             logger.info("Market data scheduler disabled by configuration")
@@ -690,14 +701,35 @@ def follow(
                 if block_index == block_tip:
                     logger.debug(f"Processing the latest block {block_index} at the chain tip")
 
+                # Start market data scheduler if we're now caught up and haven't started it yet
+                if (
+                    not market_data_scheduler_started
+                    and config.ENABLE_MARKET_DATA_SCHEDULER
+                    and not single_block
+                    and not reparse_mode
+                ):
+                    blocks_behind = block_tip - block_index if block_tip > block_index else 0
+                    market_data_threshold = 100  # Start when within 100 blocks of tip
+
+                    if blocks_behind <= market_data_threshold:
+                        try:
+                            logger.info(
+                                f"🚀 Starting market data job scheduler now that we're caught up (only {blocks_behind} blocks behind tip)..."
+                            )
+                            start_market_data_jobs(max_workers=3)
+                            market_data_scheduler_started = True
+                            logger.info("Market data job scheduler started successfully after catching up")
+                        except Exception as e:
+                            logger.warning(f"Failed to start market data scheduler after catching up: {e}")
+
                 # If we're close to the tip, increase the sleep interval to reduce load
                 pause_interval = config.BACKEND_POLL_INTERVAL
                 if block_tip - block_index <= 3:
                     pause_interval = config.BACKEND_POLL_INTERVAL * 2
 
-                logger.info(f"Block loop: block_index={block_index}, block_tip={block_tip}")
+                logger.debug(f"Block loop: block_index={block_index}, block_tip={block_tip}")
                 if block_index <= block_tip:
-                    logger.info(f"Entering block processing for block {block_index} (tip: {block_tip})")
+                    logger.debug(f"Entering block processing for block {block_index} (tip: {block_tip})")
                     # Check shutdown flag before heavy operations
                     if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                         break
@@ -718,7 +750,7 @@ def follow(
                     # Find the section where the block is fetched from the pipeline
                     # Try to get block from pipeline first
                     block_data = cp_pipeline_instance.get_block(block_index) if cp_pipeline_instance else None
-                    logger.info(f"Pipeline get_block({block_index}) returned: {'block data' if block_data else 'None'}")
+                    logger.debug(f"Pipeline get_block({block_index}) returned: {'block data' if block_data else 'None'}")
 
                     if block_data:
                         logger.debug(f"Got block {block_index} from CP pipeline")
@@ -736,7 +768,7 @@ def follow(
 
                         # Wait if the pipeline is actively fetching the block we need
                         if pipeline_fetching:
-                            logger.info(f"Block {block_index} is currently being fetched by the pipeline, waiting...")
+                            logger.debug(f"Block {block_index} is currently being fetched by the pipeline, waiting...")
                             time.sleep(3)  # Short wait to let the fetch complete
                             db.rollback()
                             continue
@@ -1118,7 +1150,11 @@ def follow(
                             is_zmq_notification,
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
-                        logger.info(f"After commit: block_index now {block_index}, continuing to next iteration")
+                        logger.debug(f"After commit: block_index now {block_index}, continuing to next iteration")
+
+                        # Confirm that the previous block was successfully processed by the pipeline
+                        if cp_pipeline_instance:
+                            cp_pipeline_instance.confirm_block_processed(block_index - 1)
                         profiler.end_block_profiling()  # End profiling for this block
 
                         if single_block:
@@ -1131,6 +1167,10 @@ def follow(
                         else:
                             # If handle_ledger_mismatch returns True (FORCE mode), continue processing
                             block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+
+                            # Confirm that the previous block was successfully processed by the pipeline
+                            if cp_pipeline_instance:
+                                cp_pipeline_instance.confirm_block_processed(block_index - 1)
                             profiler.end_block_profiling()  # End profiling for this block
 
                     except Exception as e:
