@@ -47,8 +47,15 @@ def reload_config():
     """
     Reload the config module to pick up current environment variables.
     """
-    if "config" in sys.modules:
-        del sys.modules["config"]
+    # Clear all config-related modules from cache
+    modules_to_clear = []
+    for module_name in sys.modules:
+        if module_name == "config" or module_name.startswith("src.config"):
+            modules_to_clear.append(module_name)
+    
+    for module_name in modules_to_clear:
+        del sys.modules[module_name]
+    
     return importlib.import_module("config")
 
 
@@ -57,6 +64,10 @@ def test_default_standard_rpc(monkeypatch):
     monkeypatch.delenv("QUICKNODE_URL", raising=False)
     monkeypatch.delenv("QUICKNODE_API_KEY", raising=False)
     monkeypatch.delenv("CP_RPC_URL", raising=False)
+    # Remove additional CP variables that might affect config
+    monkeypatch.delenv("CP_PRIMARY_NODE_URL", raising=False)
+    monkeypatch.delenv("CP_FALLBACK_NODE_URL", raising=False)
+    monkeypatch.delenv("CP_NODE_POOL", raising=False)
     # Remove TLS override
     monkeypatch.delenv("RPC_TLS", raising=False)
     # Remove any custom RPC credentials to fall back to defaults
