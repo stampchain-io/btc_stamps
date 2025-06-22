@@ -796,11 +796,12 @@ def get_next_healthy_node_round_robin():
     # Use lock to ensure thread-safe index update
     with _round_robin_lock:
         # Get current node
-        node = nodes[_round_robin_index % len(nodes)]
+        current_index = _round_robin_index % len(nodes)
+        node = nodes[current_index]
 
         # Advance to next node for next call
         _round_robin_index = (_round_robin_index + 1) % len(nodes)
 
-        logger.debug(f"Round-robin selected node: {node.get('name', 'unknown')} (index: {_round_robin_index})")
+        logger.debug(f"Round-robin selected node: {node.get('name', 'unknown')} (index: {current_index})")
 
     return node
