@@ -556,9 +556,8 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
             "amt": input_dict.get("amt", None),
         }
     if dict_to_use == {}:
-        logger.log(
-            logging.ERROR,
-            "dict_to_use is empty -- happens with invalid op value but a valid stamp",
+        logger.debug(
+            "dict_to_use is empty -- happens with invalid op value but a valid stamp"
         )  # FIXME: process svg string after validation
 
     sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
