@@ -365,7 +365,9 @@ class MarketDataJobScheduler:
                     # Convert back to original database case for processing
                     tokens_to_process = {database_tokens_normalized[token_norm] for token_norm in matching_tokens_normalized}
 
-                    logger.debug(f"Processing {len(tokens_to_process)} tokens (intersection of {len(database_tokens)} database and {len(openstamp_token_set)} OpenStamp tokens)")
+                    logger.debug(
+                        f"Processing {len(tokens_to_process)} tokens (intersection of {len(database_tokens)} database and {len(openstamp_token_set)} OpenStamp tokens)"
+                    )
 
                     # Process each token from the intersection
                     processed_count = 0
