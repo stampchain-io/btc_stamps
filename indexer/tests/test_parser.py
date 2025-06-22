@@ -166,7 +166,8 @@ class TestParser(unittest.TestCase):
 
     @patch("index_core.parser.RUST_PARSER_AVAILABLE", True)
     @patch("index_core.parser.FastTransactionParser")
-    def test_garbage_collection(self, mock_fast_parser):
+    @patch("index_core.parser.psutil.Process")
+    def test_garbage_collection(self, mock_process_class, mock_fast_parser):
         """Test garbage collection methods."""
         # Reset singleton for this test
         Parser._instance = None
@@ -174,24 +175,30 @@ class TestParser(unittest.TestCase):
         # Mock the Rust parser
         mock_parser_instance = MagicMock()
         mock_fast_parser.return_value = mock_parser_instance
+        
+        # Mock the psutil Process
+        mock_process = MagicMock()
+        mock_process_class.return_value = mock_process
 
         parser = Parser()
 
         # Test _should_collect_garbage
-        with patch.object(parser._process, "memory_percent", return_value=90.0):
+        mock_process.memory_percent.return_value = 90.0
+        with patch("index_core.parser.gc.get_count", return_value=(10001, 1001, 101)):
             should_gc = parser._should_collect_garbage()
             self.assertTrue(should_gc)
 
-        with patch.object(parser._process, "memory_percent", return_value=50.0):
+        mock_process.memory_percent.return_value = 50.0
+        with patch("index_core.parser.gc.get_count", return_value=(100, 10, 1)):
             should_gc = parser._should_collect_garbage()
             self.assertFalse(should_gc)
 
         # Test _perform_garbage_collection
         with patch("index_core.parser.gc") as mock_gc:
             mock_gc.get_count.return_value = (10001, 1001, 101)
-            with patch.object(parser._process, "memory_percent", side_effect=[80.0, 70.0]):
-                parser._perform_garbage_collection()
-                mock_gc.collect.assert_called()
+            mock_process.memory_percent.side_effect = [80.0, 70.0]
+            parser._perform_garbage_collection()
+            mock_gc.collect.assert_called()
 
 
 class TestEnhancedCTransaction(unittest.TestCase):
