@@ -103,7 +103,7 @@ class SRC20Worker:
                 kucoin_data = self._fetch_kucoin_data(tick, token_config)
                 if kucoin_data:
                     source_data["kucoin"] = kucoin_data
-                    logger.info(f"Successfully fetched KuCoin data for {tick}")
+                    logger.debug(f"Successfully fetched KuCoin data for {tick}")
                 else:
                     logger.warning(f"Failed to fetch KuCoin data for {tick}")
 
@@ -976,7 +976,7 @@ class SRC20Worker:
             new_tokens = all_openstamp_tokens - known_tokens
 
             if new_tokens:
-                logger.info(
+                logger.debug(
                     f"Discovered {len(new_tokens)} new SRC-20 tokens: {', '.join(sorted(list(new_tokens)[:10]))}{'...' if len(new_tokens) > 10 else ''}"
                 )
             else:
@@ -1010,7 +1010,7 @@ class SRC20Worker:
 
             if self._openstamp_cache:
                 all_tokens = self._openstamp_cache.get_all_tickers()
-                logger.info(f"Retrieved {len(all_tokens)} total SRC-20 tokens from OpenStamp")
+                logger.debug(f"Retrieved {len(all_tokens)} total SRC-20 tokens from OpenStamp")
                 return all_tokens
             else:
                 return []
@@ -1030,7 +1030,7 @@ class SRC20Worker:
             # Use cached data if available
             current_time = time.time()
             if self._openstamp_cache is None or (current_time - self._openstamp_cache_time) > self._openstamp_cache_ttl:
-                logger.info("Fetching fresh OpenStamp data for all tokens")
+                logger.debug("Fetching fresh OpenStamp data for all tokens")
                 openstamp_client = get_openstamp_client()
                 try:
                     self._openstamp_cache = openstamp_client.fetch_all_market_data()

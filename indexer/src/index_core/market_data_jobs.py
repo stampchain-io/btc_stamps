@@ -223,7 +223,7 @@ class MarketDataJobScheduler:
                     try:
                         # Check for exceptions
                         future.result()
-                        logger.info(f"Job {job_name} completed successfully")
+                        logger.debug(f"Job {job_name} completed successfully")
                     except Exception as e:
                         logger.error(f"Job {job_name} failed with error: {e}")
                         import traceback
@@ -240,7 +240,7 @@ class MarketDataJobScheduler:
 
         Follows the pattern from update_cpids_async in blocks.py.
         """
-        logger.info("🔄 Starting stamp market data update cycle")
+        logger.debug("Starting stamp market data update cycle")
         start_time = time.time()
 
         try:
@@ -255,12 +255,12 @@ class MarketDataJobScheduler:
                     logger.info("No stamps need market data updates")
                     return
 
-                logger.info(f"Updating market data for {len(stamps_to_update)} stamps")
+                logger.debug(f"Updating market data for {len(stamps_to_update)} stamps")
 
                 # Process stamps in batches to avoid overwhelming external APIs
                 batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
                 total_batches = len(batches)
-                logger.info(f"Processing {len(stamps_to_update)} stamps in {total_batches} batches of {STAMP_BATCH_SIZE}")
+                logger.debug(f"Processing {len(stamps_to_update)} stamps in {total_batches} batches")
 
                 for batch_num, batch in enumerate(batches, 1):
                     if self.shutdown_event.is_set():
@@ -268,7 +268,7 @@ class MarketDataJobScheduler:
                         break
 
                     if batch_num % 10 == 0 or batch_num == 1 or batch_num == total_batches:
-                        logger.info(f"Stamp update progress: {batch_num}/{total_batches} batches")
+                        logger.debug(f"Stamp update progress: {batch_num}/{total_batches} batches")
                     self._process_stamp_batch(task_db, batch)
 
                     # Rate limiting between batches
@@ -276,11 +276,7 @@ class MarketDataJobScheduler:
                         time.sleep(2)  # 2 second delay between batches
 
                 elapsed_time = time.time() - start_time
-                logger.info("📊 Stamp Update Cycle Complete:")
-                logger.info(f"   📊 Total stamps processed: {len(stamps_to_update)}")
-                logger.info(f"   📦 Total batches: {total_batches}")
-                logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
-                logger.info(f"   🔄 Next cycle in {STAMP_UPDATE_INTERVAL // 60} minutes")
+                logger.debug(f"Stamp update complete: {len(stamps_to_update)} stamps in {elapsed_time:.1f}s")
 
             finally:
                 task_db.close()
@@ -306,7 +302,7 @@ class MarketDataJobScheduler:
 
                 results = cursor.fetchall()
                 tokens = {row[0] for row in results}
-                logger.info(f"Found {len(tokens)} unique SRC-20 tokens in database")
+                logger.debug(f"Found {len(tokens)} unique SRC-20 tokens in database")
                 return tokens
 
         except Exception as e:
@@ -320,7 +316,7 @@ class MarketDataJobScheduler:
         Uses exchange APIs for SRC-20 token data.
         """
         try:
-            logger.info("🔄 Starting SRC-20 market data update cycle")
+            logger.debug("Starting SRC-20 market data update cycle")
             start_time = time.time()
 
             # Use existing database connection without initialization
@@ -350,7 +346,7 @@ class MarketDataJobScheduler:
                             openstamp_lookup[tick] = token_data
 
                     openstamp_token_set = set(openstamp_lookup.keys())
-                    logger.info(f"OpenStamp: Retrieved {len(openstamp_token_set)} tokens")
+                    logger.debug(f"OpenStamp: Retrieved {len(openstamp_token_set)} tokens")
 
                     # Create case-insensitive mappings for matching (with Unicode normalization)
                     def normalize_token(token):
@@ -369,11 +365,7 @@ class MarketDataJobScheduler:
                     # Convert back to original database case for processing
                     tokens_to_process = {database_tokens_normalized[token_norm] for token_norm in matching_tokens_normalized}
 
-                    logger.info(f"🎯 Processing {len(tokens_to_process)} tokens (intersection of database and OpenStamp)")
-                    logger.info(f"📊 Database tokens: {len(database_tokens)}")
-                    logger.info(f"🌐 OpenStamp tokens: {len(openstamp_token_set)}")
-                    logger.info(f"❌ Database-only tokens: {len(database_tokens - openstamp_token_set)}")
-                    logger.info(f"❌ OpenStamp-only tokens: {len(openstamp_token_set - database_tokens)}")
+                    logger.debug(f"Processing {len(tokens_to_process)} tokens (intersection of {len(database_tokens)} database and {len(openstamp_token_set)} OpenStamp tokens)")
 
                     # Process each token from the intersection
                     processed_count = 0
@@ -411,7 +403,7 @@ class MarketDataJobScheduler:
                     if error_count > 0:
                         logger.warning(f"OpenStamp: Processed {processed_count} tokens ({error_count} errors)")
                     else:
-                        logger.info(f"OpenStamp: Processed {processed_count} tokens successfully")
+                        logger.debug(f"OpenStamp: Processed {processed_count} tokens successfully")
                 else:
                     logger.warning("OpenStamp: No data retrieved")
 
@@ -420,18 +412,14 @@ class MarketDataJobScheduler:
                     stamp_data = src20_worker.process_src20_market_data("STAMP")
                     if stamp_data:
                         market_data_service.update_src20_market_data("STAMP", stamp_data)
-                        logger.info("KuCoin: Updated STAMP token")
+                        logger.debug("KuCoin: Updated STAMP token")
                     else:
                         logger.warning("KuCoin: No market data returned for STAMP")
                 except Exception as e:
                     logger.error(f"Error updating STAMP from KuCoin: {e}")
 
                 elapsed_time = time.time() - start_time
-                logger.info("🪙 SRC-20 Update Cycle Complete:")
-                logger.info(f"   🪙 Total tokens processed: {processed_count}")
-                logger.info("   📦 Sources: OpenStamp (bulk), KuCoin (STAMP)")
-                logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
-                logger.info(f"   🔄 Next cycle in {SRC20_UPDATE_INTERVAL // 60} minutes")
+                logger.debug(f"SRC-20 update complete: {processed_count} tokens in {elapsed_time:.1f}s")
 
             finally:
                 task_db.close()
@@ -450,7 +438,7 @@ class MarketDataJobScheduler:
 
         Aggregates individual asset data into collection-level metrics.
         """
-        logger.info("🔄 Starting collection market data update cycle")
+        logger.debug("Starting collection market data update cycle")
         start_time = time.time()
 
         try:
@@ -465,7 +453,7 @@ class MarketDataJobScheduler:
                     logger.info("No collections need market data updates")
                     return
 
-                logger.info(f"Updating market data for {len(collections_to_update)} collections")
+                logger.debug(f"Updating market data for {len(collections_to_update)} collections")
 
                 # Process collections
                 for collection_id in collections_to_update:
@@ -476,10 +464,7 @@ class MarketDataJobScheduler:
                     self._process_collection_update(task_db, collection_id)
 
                 elapsed_time = time.time() - start_time
-                logger.info("📊 Collection Update Cycle Complete:")
-                logger.info(f"   📊 Total collections processed: {len(collections_to_update)}")
-                logger.info(f"   ⏱️  Duration: {elapsed_time:.1f}s")
-                logger.info(f"   🔄 Next cycle in {COLLECTION_UPDATE_INTERVAL // 60} minutes")
+                logger.debug(f"Collection update complete: {len(collections_to_update)} collections in {elapsed_time:.1f}s")
 
             finally:
                 task_db.close()

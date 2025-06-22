@@ -67,7 +67,7 @@ class OpenStampClient:
             {"Authorization": self.api_key, "Content-Type": "application/json", "User-Agent": "BitcoinStamps-Indexer/1.0"}
         )
 
-        logger.info("OpenStamp API client initialized")
+        logger.debug("OpenStamp API client initialized")
 
     def fetch_all_market_data(self) -> OpenStampApiResponse:
         """
@@ -99,7 +99,7 @@ class OpenStampClient:
 
             api_response = OpenStampApiResponse(response_data)
 
-            logger.info(f"Successfully fetched market data for {len(api_response.tokens)} tokens from OpenStamp")
+            logger.debug(f"Successfully fetched market data for {len(api_response.tokens)} tokens from OpenStamp")
 
             # Update cached token list for discovery
             global CACHED_TOKEN_LIST, LAST_TOKEN_DISCOVERY
@@ -173,7 +173,7 @@ class OpenStampClient:
             new_tokens = current_tokens - known_tokens
 
             if new_tokens:
-                logger.info(f"Discovered {len(new_tokens)} new tokens: {', '.join(sorted(new_tokens))}")
+                logger.debug(f"Discovered {len(new_tokens)} new tokens: {', '.join(sorted(new_tokens))}")
             else:
                 logger.debug("No new tokens discovered")
 
