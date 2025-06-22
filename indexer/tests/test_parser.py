@@ -175,7 +175,7 @@ class TestParser(unittest.TestCase):
         # Mock the Rust parser
         mock_parser_instance = MagicMock()
         mock_fast_parser.return_value = mock_parser_instance
-        
+
         # Mock the psutil Process
         mock_process = MagicMock()
         mock_process_class.return_value = mock_process

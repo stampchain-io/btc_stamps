@@ -126,7 +126,7 @@ class TestConsensusHash(unittest.TestCase):
         """Test consensus hash for first block."""
         # Mock empty database for new hash
         self.cursor.fetchall.return_value = []
-        
+
         # Use the expected hash from checkpoint
         expected_hash = "f5277855a60219dfff0ea837e6835478cbbc32c3520cb1dc1f13c296594b3a05"
 
@@ -139,7 +139,7 @@ class TestConsensusHash(unittest.TestCase):
             mock_dhash.assert_any_call(
                 "Through our eyes, the universe is perceiving itself. Through our ears, the universe is listening to its harmonies."
             )
-            
+
             # Should get the expected hash
             self.assertEqual(calculated, expected_hash)
 
