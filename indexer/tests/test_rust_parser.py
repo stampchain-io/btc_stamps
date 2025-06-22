@@ -6,28 +6,28 @@ from tests.bitcoin_fixtures_loader import BitcoinFixturesLoader
 
 class TestRustParser(unittest.TestCase):
     """Test the Rust parser using fixture data instead of live Bitcoin node"""
-    
+
     @classmethod
     def setUpClass(cls):
         """Load test fixtures once for all tests"""
         cls.fixtures_loader = BitcoinFixturesLoader()
-        
+
         # Get special transactions from fixtures
         special_txs = cls.fixtures_loader.get_special_transactions()
         cls.tx_fixtures = {}
         for tx in special_txs:
             cls.tx_fixtures[tx["txid"]] = tx["hex"]
-        
+
         # Get block data from fixtures if available
         try:
             block_data = cls.fixtures_loader.get_block_data()
             cls.block_fixtures = block_data if block_data else {}
         except:
             cls.block_fixtures = {}
-        
+
     def setUp(self):
         self.parser = FastTransactionParser()
-        
+
         # Use the first transaction from fixtures as test data
         if self.tx_fixtures:
             self.test_tx_hash = list(self.tx_fixtures.keys())[0]
@@ -69,10 +69,10 @@ class TestRustParser(unittest.TestCase):
         # The parser only returns transactions that should be included
         # Verify all returned transactions
         returned_txids = [tx_info.txid for tx_info in tx_infos]
-        
+
         # At least some transactions should be returned
         self.assertGreater(len(tx_infos), 0, "No transactions were included by the parser")
-        
+
         # Verify that all returned transactions have should_include=True
         for tx_info in tx_infos:
             self.assertTrue(tx_info.should_include, f"Transaction {tx_info.txid} was returned but has should_include=False")
@@ -83,7 +83,7 @@ class TestRustParser(unittest.TestCase):
         """Test parsing an invalid transaction"""
         # Test with invalid hex data
         invalid_hex = "invalid_hex_data"
-        
+
         # This should raise an exception or return None
         with self.assertRaises(Exception):
             self.parser.deserialize_transaction(invalid_hex)
@@ -92,7 +92,7 @@ class TestRustParser(unittest.TestCase):
         """Test parsing an empty transaction"""
         # Test with empty hex
         empty_hex = ""
-        
+
         # This should raise an exception or return None
         with self.assertRaises(Exception):
             self.parser.deserialize_transaction(empty_hex)
