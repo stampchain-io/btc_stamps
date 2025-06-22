@@ -1199,16 +1199,16 @@ def follow(
                             time.sleep(5)
 
                 else:
-                    logger.info(f"ELSE BRANCH: block_index ({block_index}) > block_tip ({block_tip})")
+                    logger.debug(f"ELSE BRANCH: block_index ({block_index}) > block_tip ({block_tip})")
                     # CRITICAL: Before declaring we're caught up, invalidate cache and get fresh block count
                     # This prevents false "caught up" state during initial sync where block_tip may be
                     # cached from the start of processing. Without this check, the indexer can incorrectly
                     # think it's caught up after processing the initial batch and start market data jobs
                     # prematurely instead of continuing to sync to the actual blockchain tip.
-                    logger.info(f"Checking if caught up: block_index={block_index}, cached block_tip={block_tip}")
+                    logger.debug(f"Checking if caught up: block_index={block_index}, cached block_tip={block_tip})")
                     backend_instance.invalidate_blockcount_cache()
                     fresh_block_tip = backend_instance.getblockcount()
-                    logger.info(f"Fresh block tip after cache invalidation: {fresh_block_tip}")
+                    logger.debug(f"Fresh block tip after cache invalidation: {fresh_block_tip})")
 
                     # Double-check if we're actually caught up with fresh data
                     if block_index > fresh_block_tip:
@@ -1219,6 +1219,9 @@ def follow(
                         db.rollback()  # Rollback any uncommitted transaction before waiting
                     else:
                         # We're not actually caught up - the cached block_tip was stale
+                        # Note: The +1 is correct here because block_index represents the NEXT block to process,
+                        # not the last processed block. If block_index=900000 and tip=902313, we need to process
+                        # blocks 900000 through 902313 inclusive, which is 902313-900000+1 = 2314 blocks.
                         blocks_behind = fresh_block_tip - block_index + 1
                         logger.info(
                             f"Stale block tip detected. Continuing sync: block {block_index}, actual tip: {fresh_block_tip} ({blocks_behind} blocks behind)"
@@ -1268,7 +1271,7 @@ def follow(
                     # Use ZMQ if enabled
                     if zmq_enabled:
                         try:
-                            logger.info(f"Waiting for new blocks via ZMQ after block {block_index}")
+                            logger.debug(f"Waiting for new blocks via ZMQ after block {block_index}")
                             zmq_wait_time = 5  # seconds, shorter timeout for more frequent shutdown checks
 
                             while not server.shutdown_flag.is_set():
@@ -1302,7 +1305,7 @@ def follow(
 
                                         # Add delay to allow Counterparty to catch up with Bitcoin
                                         delay_seconds = config.ZMQ_NOTIFICATION_DELAY
-                                        logger.info(
+                                        logger.debug(
                                             f"Delaying for {delay_seconds} seconds to allow Counterparty to process the new block"
                                         )
                                         time.sleep(delay_seconds)

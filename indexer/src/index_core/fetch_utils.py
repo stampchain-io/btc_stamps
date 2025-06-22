@@ -1289,7 +1289,7 @@ async def _fetch_blocks_range_async(
     for block_idx, block_data_item in blocks_data_results:
         results[block_idx] = block_data_item
 
-    logger.info(f"Completed fetching {len(results)} blocks from {start_block} to {end_block}")
+    logger.debug(f"Completed fetching {len(results)} blocks from {start_block} to {end_block}")
     return results
 
 
