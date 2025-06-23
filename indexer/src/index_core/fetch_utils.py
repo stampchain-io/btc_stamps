@@ -1405,47 +1405,47 @@ def is_valid_counterparty_asset(cpid: str) -> bool:
 def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_interval: float = 1.0) -> bool:
     """
     Wait for Counterparty to process a specific block by checking the V2 API status.
-    
+
     Args:
         block_index: The block index to wait for
         max_wait: Maximum time to wait in seconds
         check_interval: How often to check in seconds
-        
+
     Returns:
         True if CP has processed the block, False if timeout
     """
     start_time = time.time()
-    
+
     while time.time() - start_time < max_wait:
         healthy_nodes = get_healthy_nodes()
         if not healthy_nodes:
             logger.warning("No healthy nodes available to check CP status")
             time.sleep(check_interval)
             continue
-            
+
         # Use first healthy node
         node = healthy_nodes[0]
-        
+
         try:
             # Use existing function to get V2 status
-            _, version_info = fetch_node_version_v2(node['url'])
-            
+            _, version_info = fetch_node_version_v2(node["url"])
+
             if version_info:
-                cp_height = version_info.get('last_block')  # counterparty_height
-                server_ready = version_info.get('db_caught_up')  # server_ready
-                
+                cp_height = version_info.get("last_block")  # counterparty_height
+                server_ready = version_info.get("db_caught_up")  # server_ready
+
                 # Check if CP has processed our target block
                 if cp_height and cp_height >= block_index and server_ready:
                     logger.info(f"✅ CP ready for block {block_index} (cp_height={cp_height})")
                     return True
-                    
+
                 if cp_height and block_index - cp_height > 0:
                     logger.debug(f"CP is {block_index - cp_height} blocks behind (at {cp_height}, need {block_index})")
-                        
+
         except Exception as e:
             logger.debug(f"Error checking CP status: {e}")
-            
+
         time.sleep(check_interval)
-    
+
     logger.warning(f"Timeout: CP not ready for block {block_index} after {max_wait}s")
     return False

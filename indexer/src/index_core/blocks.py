@@ -796,9 +796,10 @@ def follow(
                             xcp_sync_delay = 2  # Reduced from 5 to 2 seconds
                             logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
                             time.sleep(xcp_sync_delay)
-                            
+
                             # Additional verification for blocks at tip
                             from index_core.fetch_utils import wait_for_cp_block_processed
+
                             if not wait_for_cp_block_processed(block_index, max_wait=15.0):
                                 logger.warning(f"CP not ready for block {block_index}, skipping")
                                 db.rollback()
@@ -1319,6 +1320,7 @@ def follow(
 
                                         # Verify CP has actually processed the block
                                         from index_core.fetch_utils import wait_for_cp_block_processed
+
                                         if not wait_for_cp_block_processed(block_tip, max_wait=25.0):
                                             logger.warning(f"CP not ready for block {block_tip}, will retry")
                                             continue
