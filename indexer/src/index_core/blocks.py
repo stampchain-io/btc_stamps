@@ -796,6 +796,13 @@ def follow(
                             xcp_sync_delay = 2  # Reduced from 5 to 2 seconds
                             logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
                             time.sleep(xcp_sync_delay)
+                            
+                            # Additional verification for blocks at tip
+                            from index_core.fetch_utils import wait_for_cp_block_processed
+                            if not wait_for_cp_block_processed(block_index, max_wait=15.0):
+                                logger.warning(f"CP not ready for block {block_index}, skipping")
+                                db.rollback()
+                                continue
                         else:
                             logger.info(
                                 f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch"
@@ -1309,6 +1316,12 @@ def follow(
                                             f"Delaying for {delay_seconds} seconds to allow Counterparty to process the new block"
                                         )
                                         time.sleep(delay_seconds)
+
+                                        # Verify CP has actually processed the block
+                                        from index_core.fetch_utils import wait_for_cp_block_processed
+                                        if not wait_for_cp_block_processed(block_tip, max_wait=25.0):
+                                            logger.warning(f"CP not ready for block {block_tip}, will retry")
+                                            continue
 
                                         # Reset start_time to measure only the actual block processing time
                                         # This ensures ZMQ-triggered blocks don't include wait time in their timing
