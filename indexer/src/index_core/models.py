@@ -461,6 +461,19 @@ class StampData:
         """
         # FIXME: this needs some love upstream to simplify. SVG stamps (and CP SRC?) come in as strings, SRC-20 as bytes.
         try:
+            # Check for recursive SRC-721 mint pattern in HTML/SVG before processing
+            if self.decoded_base64 and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
+                from index_core.src721 import is_recursive_src721_mint
+
+                is_recursive, referenced_cpid = is_recursive_src721_mint(self.decoded_base64, self.stamp_mimetype)
+
+                if is_recursive and referenced_cpid:
+                    logger.debug(f"Detected recursive SRC-721 mint referencing CPID: {referenced_cpid}")
+                    self.ident = "SRC-721"
+                    self.recursive_mint_cpid = referenced_cpid
+                    # Keep the original HTML/SVG content - don't process further
+                    return
+
             if type(self.decoded_base64) is bytes:
                 self.handle_bytes()
             if type(self.decoded_base64) is dict:
@@ -630,8 +643,73 @@ class StampData:
             raise ValueError("Invalid SRC-101 Pre-check")
 
     def process_src721(self, valid_stamps_in_block, db):
+        # Check if this is a recursive mint (HTML/SVG with /s/ reference)
+        if hasattr(self, "recursive_mint_cpid") and self.recursive_mint_cpid:
+            from index_core.src721 import fetch_collection_details
+
+            logger.debug(f"Processing recursive SRC-721 mint referencing CPID: {self.recursive_mint_cpid}")
+
+            # Find the deploy transaction data
+            deploy_data = None
+
+            # First check in current block's stamps
+            for stamp in valid_stamps_in_block:
+                if stamp.get("cpid") == self.recursive_mint_cpid:
+                    deploy_data = stamp.get("src_data")
+                    break
+
+            # If not found, fetch from database
+            if not deploy_data:
+                deploy_data = fetch_collection_details(self.recursive_mint_cpid, db)
+
+            if deploy_data:
+                # Parse deploy data to get collection info
+                try:
+                    deploy_json = json.loads(deploy_data) if isinstance(deploy_data, str) else deploy_data
+
+                    # Set collection information from the deploy
+                    self.collection_name = deploy_json.get("name")
+                    self.collection_description = deploy_json.get("description")
+                    self.collection_website = deploy_json.get("website")
+                    self.collection_onchain = 1
+
+                    # Mark as valid SRC-721
+                    self.is_btc_stamp = True
+
+                    # Store minimal JSON indicating it's a recursive mint
+                    self.src_data = json.dumps({"p": "src-721", "v": "r0", "op": "mint", "ref": self.recursive_mint_cpid})
+
+                    # Keep original HTML/SVG content - don't convert to SVG
+                    # The decoded_base64 already contains the HTML/SVG content
+                    # file_suffix and stamp_mimetype are already set correctly
+                    logger.debug(f"Successfully processed recursive mint for collection: {self.collection_name}")
+                    return
+                except Exception as e:
+                    logger.error(f"Error processing recursive mint deploy data: {e}")
+            else:
+                logger.warning(f"Could not find deploy data for CPID: {self.recursive_mint_cpid}")
+                # Even without deploy data, this is still a valid SRC-721 mint
+                # Just won't have collection metadata
+                self.is_btc_stamp = True
+                self.src_data = json.dumps({"p": "src-721", "v": "r0", "op": "mint", "ref": self.recursive_mint_cpid})
+                # Keep the original HTML/SVG content
+                # The ident is already set to "SRC-721" so it won't be cursed
+                logger.debug("Processed recursive mint without collection metadata")
+                return
+
+        # Fall back to standard SRC-721 processing
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
+
+        # If we're falling back from a failed recursive mint, src_data might be bytes (HTML/SVG)
+        # In this case, we can't process it as standard SRC-721, so just return
+        if isinstance(self.src_data, bytes):
+            logger.warning("Cannot process bytes content as standard SRC-721")
+            # Keep the original content and mark as cursed
+            self.is_btc_stamp = False
+            self.is_cursed = True
+            return
+
         with self._lock:
             svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
                 validate_src721_and_process(self.src_data, valid_stamps_in_block, db, self._lock)
