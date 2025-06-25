@@ -394,3 +394,28 @@ def test_validate_src721_and_process_unknown_op():
             assert file_suffix == "svg"
             assert coll_name is None
             assert coll_onchain is None
+
+
+def test_build_src721_stacked_svg_default_pixelated():
+    """Test that default image-rendering is pixelated when not specified."""
+    from index_core.src721 import build_src721_stacked_svg
+
+    # Test with collection that doesn't specify image-rendering
+    nft_object = {"ts": [0]}
+    collection_object = {
+        "name": "Test Collection",
+        "description": "Test Description",
+        # Note: no "image-rendering" specified
+        "t0-img": ["base64data0"],
+    }
+
+    with patch("index_core.src721.validate_base64_image") as mock_validate:
+        mock_validate.return_value = (True, "data:image/png;base64,validdata")
+
+        svg, collection_name = build_src721_stacked_svg(nft_object, collection_object)
+
+        assert collection_name == "Test Collection"
+        assert "image-rendering:pixelated" in svg
+        assert "-webkit-image-rendering:pixelated" in svg
+        # Ensure auto is not present
+        assert "image-rendering:auto" not in svg
