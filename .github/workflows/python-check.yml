@@ -35,11 +35,6 @@ jobs:
           poetry config virtualenvs.in-project true
           poetry install
         working-directory: ./indexer
-      - name: Build Rust parser
-        working-directory: ./indexer
-        run: |
-          poetry run pip install maturin --quiet
-          poetry run maturin develop --release --manifest-path src/rust_parser/Cargo.toml
       - name: Run Rust Checks
         working-directory: ./indexer
         run: poetry run check-rust
