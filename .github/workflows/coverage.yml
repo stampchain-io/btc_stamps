@@ -31,10 +31,8 @@ jobs:
           python-version: '3.11'  # Use single version for coverage (same as integration tests)
           
       - name: Set up Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
           components: rustfmt, clippy
           
       - name: Cache Rust dependencies (Restore Only)
