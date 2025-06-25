@@ -1277,7 +1277,10 @@ async def _fetch_blocks_range_async(
                 logger.error(f"Unhandled exception fetching block {block_idx} (attempt {attempt + 1}): {e}", exc_info=True)
                 await asyncio.sleep(1 * (attempt + 1))
 
-        logger.error(f"Failed to fetch block {block_idx} after {max_retries_per_block} attempts.")
+        logger.error(
+            f"❌ PERMANENTLY FAILED to fetch block {block_idx} after {max_retries_per_block} attempts - block will be stuck in queue"
+        )
+        logger.error(f"Block {block_idx} will need manual intervention or cleanup mechanism to retry")
         return block_idx, None  # Final failure
 
     tasks = [fetch_block_with_retry(i) for i in range(start_block, end_block + 1)]
