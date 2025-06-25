@@ -76,7 +76,7 @@ def print_header(header_type):
 
 def run_command(command, ignore_errors=False, suppress_stderr=False):
     """Run a command and handle its output with improved formatting
-    
+
     Args:
         command: The command to run
         ignore_errors: If True, don't exit on command failure
