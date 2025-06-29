@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: '3.11'
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
       - name: Cache Rust dependencies (Save + Restore)
         uses: Swatinem/rust-cache@v2
         with:
-          key: rust-${{ runner.os }}-${{ hashFiles('indexer/src/rust_parser/rust-toolchain') }}-${{ hashFiles('indexer/src/rust_parser/Cargo.lock') }}
+          key: rust-${{ runner.os }}-${{ hashFiles('indexer/src/rust_parser/rust-toolchain.toml') }}-${{ hashFiles('indexer/src/rust_parser/Cargo.lock') }}
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
