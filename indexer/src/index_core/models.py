@@ -461,19 +461,7 @@ class StampData:
         """
         # FIXME: this needs some love upstream to simplify. SVG stamps (and CP SRC?) come in as strings, SRC-20 as bytes.
         try:
-            # Check for recursive SRC-721 mint pattern in HTML/SVG before processing
-            if self.decoded_base64 and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
-                from index_core.src721 import is_recursive_src721_mint
-
-                is_recursive, referenced_cpid = is_recursive_src721_mint(self.decoded_base64, self.stamp_mimetype)
-
-                if is_recursive and referenced_cpid:
-                    logger.debug(f"Detected recursive SRC-721 mint referencing CPID: {referenced_cpid}")
-                    self.ident = "SRC-721"
-                    self.recursive_mint_cpid = referenced_cpid
-                    # Keep the original HTML/SVG content - don't process further
-                    return
-
+            # STEP 1: Process data normally to determine type
             if type(self.decoded_base64) is bytes:
                 self.handle_bytes()
             if type(self.decoded_base64) is dict:
@@ -487,6 +475,27 @@ class StampData:
                 }
                 handler = type_func_map.get(type(self.decoded_base64), self.handle_unknown_type)
                 handler()
+
+            # STEP 2: After type is determined, check for recursive SRC-721 pattern
+            # ONLY for stamps that are:
+            # - Currently identified as "STAMP" (not a protocol type)
+            # - Have HTML/SVG content
+            # - Contain the /s/A pattern
+            if (self.ident == "STAMP" and 
+                self.decoded_base64 and 
+                self.stamp_mimetype in ["text/html", "image/svg+xml"]):
+                
+                from index_core.src721 import is_recursive_src721_mint
+                
+                # Check if content has recursive pattern
+                is_recursive, referenced_cpid = is_recursive_src721_mint(self.decoded_base64, self.stamp_mimetype)
+                
+                if is_recursive and referenced_cpid:
+                    logger.debug(f"Detected recursive SRC-721 mint in STAMP, referencing CPID: {referenced_cpid}")
+                    # Change STAMP to SRC-721
+                    self.ident = "SRC-721"
+                    self.recursive_mint_cpid = referenced_cpid
+                    # Keep the original HTML/SVG content
 
         except Exception as e:
             logger.error(f"Error: {e}")
