@@ -1183,6 +1183,7 @@ def follow(
                             profiler.end_block_profiling()  # End profiling for this block
 
                     except ConsensusError as e:
+                        logger.debug(f"ConsensusError caught in blocks.py, config.FORCE={config.FORCE}")
                         # Track consensus errors per block
                         consensus_error_key = f"consensus_error_{block_index}"
                         consensus_error_count = getattr(server, consensus_error_key, 0) + 1
