@@ -9,6 +9,11 @@ def parse_base64_from_description(description):
         tuple: (base64_string, mimetype) or (None, None) if no stamp data found.
     """
     if description is not None and description.lower().find("stamp:") != -1:
+        # Check if this is a stamp:721 pattern (NOT base64 data)
+        if description.lower().startswith("stamp:721"):
+            # This is a protocol identifier, not base64 data
+            return None, None
+            
         stamp_search = description[description.lower().find("stamp:") + 6 :]
         stamp_search = stamp_search.strip()
         if ";" in stamp_search:
