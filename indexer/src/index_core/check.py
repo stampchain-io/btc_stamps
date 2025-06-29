@@ -286,7 +286,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
             logger.warning(f"FORCE mode enabled - {error_msg}")
             # Don't raise the error, just return the calculated hash
         else:
-            logger.debug(f"FORCE not enabled, raising ConsensusError")
+            logger.debug("FORCE not enabled, raising ConsensusError")
             raise ConsensusError(error_msg)
 
     return calculated_hash, found_hash
