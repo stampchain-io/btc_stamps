@@ -609,8 +609,21 @@ class Src101Processor:
                     logger.error("Error decoding txt_data")
                     txt_data = txt_data_raw
                 if expire_timestamp and expire_timestamp > self.src101_dict.get("block_timestamp"):
-                    del self.src101_dict.get("tokenid")[index]
-                    del self.src101_dict.get("tokenid_utf8")[index]
+                    # Safely delete from tokenid lists to prevent NoneType errors
+                    tokenid_list = self.src101_dict.get("tokenid")
+                    tokenid_utf8_list = self.src101_dict.get("tokenid_utf8")
+
+                    if tokenid_list is not None and tokenid_utf8_list is not None:
+                        del tokenid_list[index]
+                        del tokenid_utf8_list[index]
+                    else:
+                        logger.error(
+                            f"Missing tokenid lists during mint for tx {self.src101_dict.get('tx_hash')}: "
+                            f"tokenid={'None' if tokenid_list is None else 'exists'}, "
+                            f"tokenid_utf8={'None' if tokenid_utf8_list is None else 'exists'}"
+                        )
+                        self.set_status_and_log("ITT", deploy_hash=self.src101_dict.get("deploy_hash"))
+                        return
                 else:
                     preowners.append(src101_owner)
             preowners.reverse()
