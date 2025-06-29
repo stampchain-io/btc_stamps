@@ -481,15 +481,13 @@ class StampData:
             # - Currently identified as "STAMP" (not a protocol type)
             # - Have HTML/SVG content
             # - Contain the /s/A pattern
-            if (self.ident == "STAMP" and 
-                self.decoded_base64 and 
-                self.stamp_mimetype in ["text/html", "image/svg+xml"]):
-                
+            if self.ident == "STAMP" and self.decoded_base64 and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
+
                 from index_core.src721 import is_recursive_src721_mint
-                
+
                 # Check if content has recursive pattern
                 is_recursive, referenced_cpid = is_recursive_src721_mint(self.decoded_base64, self.stamp_mimetype)
-                
+
                 if is_recursive and referenced_cpid:
                     logger.debug(f"Detected recursive SRC-721 mint in STAMP, referencing CPID: {referenced_cpid}")
                     # Change STAMP to SRC-721
@@ -513,18 +511,18 @@ class StampData:
         """
         if not description or not description.lower().startswith("stamp:721"):
             return None
-        
+
         try:
             # Remove "stamp:721|" prefix
             parts_str = description[10:]  # len("stamp:721|") = 10
-            
+
             # Parse pipe-separated key:value pairs
             result = {"protocol": "stamp:721"}
             for part in parts_str.split("|"):
                 if ":" in part:
                     key, value = part.split(":", 1)
-                    result[key] = value
-            
+                    result[key.strip()] = value.strip()
+
             return result
         except Exception as e:
             logger.debug(f"Failed to parse stamp:721 description: {e}")
@@ -537,7 +535,7 @@ class StampData:
         self.locked = stamp.get("locked")
         self.divisible = stamp.get("divisible")
         self.message_index = stamp.get("message_index")
-        
+
         # Check for stamp:721 pattern in description
         description = stamp.get("description", "")
         stamp_721_data = self.parse_stamp_721_description(description)
@@ -744,39 +742,36 @@ class StampData:
         # Check if this is a stamp:721 description-based SRC-721
         if hasattr(self, "stamp_721_description_data") and self.stamp_721_description_data:
             logger.debug(f"Processing stamp:721 description-based SRC-721: {self.stamp_721_description_data}")
-            
+
             # Mark as valid SRC-721
             self.is_btc_stamp = True
-            
+
             # Create appropriate src_data based on the operation
             op = self.stamp_721_description_data.get("op", "mint")
             collection_cpid = self.stamp_721_description_data.get("c")
             token_id = self.stamp_721_description_data.get("id")
-            
-            src_data_dict = {
-                "p": "src-721",
-                "v": "r0",  # Assuming r0 version for stamp:721 format
-                "op": op
-            }
-            
+
+            src_data_dict = {"p": "src-721", "v": "r0", "op": op}  # Assuming r0 version for stamp:721 format
+
             # Add collection reference if present
             if collection_cpid:
                 src_data_dict["c"] = collection_cpid
-            
+
             # Add token ID if present
             if token_id:
                 src_data_dict["id"] = token_id
-            
+
             self.src_data = json.dumps(src_data_dict)
-            
+
             # If there's P2WSH data with HTML content, keep it as is
             # Otherwise, the content should be in decoded_base64
             # file_suffix and stamp_mimetype should already be set
-            
+
             # Try to fetch collection details if we have a collection CPID
             if collection_cpid:
                 try:
                     from index_core.src721 import fetch_collection_details
+
                     deploy_data = fetch_collection_details(collection_cpid, db)
                     if deploy_data:
                         deploy_json = json.loads(deploy_data) if isinstance(deploy_data, str) else deploy_data
@@ -786,7 +781,7 @@ class StampData:
                         self.collection_onchain = 1
                 except Exception as e:
                     logger.warning(f"Could not fetch collection details for {collection_cpid}: {e}")
-            
+
             logger.debug("Successfully processed stamp:721 description-based SRC-721")
             return
 

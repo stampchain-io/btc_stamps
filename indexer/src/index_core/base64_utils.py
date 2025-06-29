@@ -13,7 +13,7 @@ def parse_base64_from_description(description):
         if description.lower().startswith("stamp:721"):
             # This is a protocol identifier, not base64 data
             return None, None
-            
+
         stamp_search = description[description.lower().find("stamp:") + 6 :]
         stamp_search = stamp_search.strip()
         if ";" in stamp_search:
