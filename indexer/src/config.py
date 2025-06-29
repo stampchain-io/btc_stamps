@@ -75,6 +75,9 @@ DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
+# Consensus error handling
+MAX_CONSENSUS_RETRIES = int(os.environ.get("MAX_CONSENSUS_RETRIES", "3"))  # Maximum retries for consensus hash mismatches
+
 # Market Data Configuration
 ENABLE_MARKET_DATA_SCHEDULER = os.getenv("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 

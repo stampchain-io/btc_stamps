@@ -29,6 +29,7 @@ from index_core.block_validation import (
     validate_block_against_production,
 )
 from index_core.caching import cache_manager, clear_all_caches
+from index_core.check import ConsensusError
 from index_core.database import (
     check_db_connection,
     get_unlocked_cpids,
@@ -1180,6 +1181,48 @@ def follow(
                             if cp_pipeline_instance:
                                 cp_pipeline_instance.confirm_block_processed(block_index - 1)
                             profiler.end_block_profiling()  # End profiling for this block
+
+                    except ConsensusError as e:
+                        logger.error(f"Consensus hash mismatch at block {block_index}: {e}")
+
+                        # Check if FORCE mode is enabled
+                        if config.FORCE:
+                            logger.warning(f"FORCE mode enabled - continuing despite consensus error at block {block_index}")
+                            db.rollback()
+                            # Skip to next block
+                            block_index += 1
+                            continue
+
+                        # Track consensus errors per block
+                        consensus_error_key = f"consensus_error_{block_index}"
+                        consensus_error_count = getattr(server, consensus_error_key, 0) + 1
+                        setattr(server, consensus_error_key, consensus_error_count)
+
+                        # Get max retries from config
+                        max_consensus_retries = config.MAX_CONSENSUS_RETRIES
+
+                        if consensus_error_count >= max_consensus_retries:
+                            logger.critical(
+                                f"Consensus error at block {block_index} after {consensus_error_count} attempts. "
+                                f"Set FORCE=true to skip consensus checks or fix the underlying issue."
+                            )
+                            # Send critical error notification
+                            if zmq_notifier:
+                                try:
+                                    zmq_notifier.send_critical_error(f"Consensus error at block {block_index}")
+                                except Exception as zmq_err:
+                                    logger.warning(f"Failed to send ZMQ consensus error notification: {zmq_err}")
+                            sys.exit(
+                                f"Consensus hash mismatch at block {block_index} - exiting after {max_consensus_retries} retries"
+                            )
+
+                        logger.warning(
+                            f"Consensus error at block {block_index}, attempt {consensus_error_count}/{max_consensus_retries}"
+                        )
+                        db.rollback()
+                        # Exponential backoff for retries
+                        if not server.shutdown_flag.is_set():
+                            time.sleep(min(5 * consensus_error_count, 30))
 
                     except Exception as e:
                         logger.error(f"Error processing block {block_index}: {e}")
