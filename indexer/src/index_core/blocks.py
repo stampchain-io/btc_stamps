@@ -1183,16 +1183,6 @@ def follow(
                             profiler.end_block_profiling()  # End profiling for this block
 
                     except ConsensusError as e:
-                        logger.error(f"Consensus hash mismatch at block {block_index}: {e}")
-
-                        # Check if FORCE mode is enabled
-                        if config.FORCE:
-                            logger.warning(f"FORCE mode enabled - continuing despite consensus error at block {block_index}")
-                            db.rollback()
-                            # Skip to next block
-                            block_index += 1
-                            continue
-
                         # Track consensus errors per block
                         consensus_error_key = f"consensus_error_{block_index}"
                         consensus_error_count = getattr(server, consensus_error_key, 0) + 1
@@ -1201,17 +1191,14 @@ def follow(
                         # Get max retries from config
                         max_consensus_retries = config.MAX_CONSENSUS_RETRIES
 
+                        logger.error(f"Consensus hash mismatch at block {block_index}: {e}")
+
                         if consensus_error_count >= max_consensus_retries:
                             logger.critical(
                                 f"Consensus error at block {block_index} after {consensus_error_count} attempts. "
                                 f"Set FORCE=true to skip consensus checks or fix the underlying issue."
                             )
-                            # Send critical error notification
-                            if zmq_notifier:
-                                try:
-                                    zmq_notifier.send_critical_error(f"Consensus error at block {block_index}")
-                                except Exception as zmq_err:
-                                    logger.warning(f"Failed to send ZMQ consensus error notification: {zmq_err}")
+                            # ZMQ notifier doesn't support error notifications - just log the critical error
                             sys.exit(
                                 f"Consensus hash mismatch at block {block_index} - exiting after {max_consensus_retries} retries"
                             )
