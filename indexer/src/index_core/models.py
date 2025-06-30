@@ -464,7 +464,7 @@ class StampData:
             # STEP 1: Process data normally to determine type
             if type(self.decoded_base64) is bytes:
                 self.handle_bytes()
-            if type(self.decoded_base64) is dict:
+            elif type(self.decoded_base64) is dict:
                 self.handle_dict()  # SRC-20 coming in as bytes are converted to dict here
             elif type(self.decoded_base64) is str:
                 self.handle_json_string()  # outputs dict for CP src-20, or a bytestring for svg stamps
@@ -481,8 +481,11 @@ class StampData:
             # - Currently identified as "STAMP" (not a protocol type)
             # - Have HTML/SVG content
             # - Contain the /s/A pattern
-            if self.ident == "STAMP" and self.decoded_base64 and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
+            # - NOT already identified as another protocol (SRC-20, SRC-101, etc.)
 
+            # IMPORTANT: Only apply recursive SRC-721 detection to generic STAMPs
+            # Never override protocol-specific identifications (SRC-20, SRC-101, etc.)
+            if self.ident == "STAMP" and self.decoded_base64 and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
                 from index_core.src721 import is_recursive_src721_mint
 
                 # Check if content has recursive pattern
@@ -494,6 +497,9 @@ class StampData:
                     self.ident = "SRC-721"
                     self.recursive_mint_cpid = referenced_cpid
                     # Keep the original HTML/SVG content
+            elif self.ident in ["SRC-20", "SRC-101", "SRC-721"]:
+                # Already identified as a specific protocol, don't change it
+                logger.debug(f"Keeping existing protocol identification: {self.ident}")
 
         except Exception as e:
             logger.error(f"Error: {e}")
@@ -594,7 +600,8 @@ class StampData:
     def valid_src101(self):
         self.pval_src101 = False
         if self.block_index >= BTC_SRC101_GENESIS_BLOCK:
-            self.pval_src101 = self.valid_cp_src101() or (self.is_src101() and not self.cpid)
+            if self.is_src101():
+                self.pval_src101 = self.valid_cp_src101() or (not self.cpid)
         return self.pval_src101
 
     def normalize_mime_and_suffix(self):
