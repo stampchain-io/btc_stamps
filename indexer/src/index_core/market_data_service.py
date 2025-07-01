@@ -314,6 +314,7 @@ class MarketDataService:
                     # Prepare values for INSERT only
                     # Convert JSON fields to strings
                     import json
+
                     values = [cpid]
                     for field, value in valid_fields.items():
                         if field == "volume_sources" and isinstance(value, dict):

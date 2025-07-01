@@ -153,7 +153,7 @@ class StampMarketDataProcessor:
                     validated_data["price_source"] = "counterparty"
             else:
                 validated_data["price_source"] = "counterparty"
-            
+
             # Validate volume_sources (JSON field)
             if "volume_sources" in data and data["volume_sources"] is not None:
                 if isinstance(data["volume_sources"], dict):
