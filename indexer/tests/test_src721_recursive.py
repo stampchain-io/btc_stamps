@@ -161,12 +161,8 @@ def test_process_recursive_mint_with_deploy_in_block():
     assert stamp_data.collection_website == "https://test.com"
     assert stamp_data.collection_onchain == 1
 
-    # Verify src_data contains minimal JSON
-    src_data_json = json.loads(stamp_data.src_data)
-    assert src_data_json["p"] == "src-721"
-    assert src_data_json["v"] == "r0"
-    assert src_data_json["op"] == "mint"
-    assert src_data_json["ref"] == "A17785882525351975000"
+    # Verify src_data is empty for P2WSH SRC-721 detected via description
+    assert stamp_data.src_data == ""
 
     # Verify HTML content is preserved (not converted to SVG)
     assert stamp_data.file_suffix == "html"
@@ -282,11 +278,8 @@ def test_process_recursive_mint_missing_deploy():
         # When deploy is not found, it should still be a valid SRC-721
         # The ident is already set to "SRC-721" so it won't be cursed
         assert stamp_data.is_btc_stamp is True
-        # Should have minimal src_data
-        src_data_json = json.loads(stamp_data.src_data)
-        assert src_data_json["ref"] == "A99999999999999999999"
-        assert src_data_json["p"] == "src-721"
-        assert src_data_json["op"] == "mint"
+        # Should have empty src_data for P2WSH SRC-721 detected via description
+        assert stamp_data.src_data == ""
         # HTML content should be preserved
         assert stamp_data.decoded_base64 == b'<html><script src="/s/A99999999999999999999"></script></html>'
         assert stamp_data.file_suffix == "html"
