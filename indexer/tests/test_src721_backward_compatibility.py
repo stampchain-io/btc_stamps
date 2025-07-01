@@ -190,7 +190,7 @@ def test_mixed_collection_backward_compatibility():
         stamp_data.process_src721(valid_stamps_in_block, mock_db)
 
         # Should use standard processing (not recursive)
-        assert not hasattr(stamp_data, "recursive_mint_cpid")
+        assert stamp_data.recursive_mint_cpid is None
         # Verify validate_src721_and_process was called
         assert mock_validate.call_count == 1
         # Verify it was processed as standard SRC-721
