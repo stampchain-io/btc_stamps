@@ -144,13 +144,25 @@ class StampMarketDataProcessor:
                     if volume is not None:
                         validated_data[field] = volume
 
-            # Validate source fields (optional)
-            for field in ["price_source", "volume_sources"]:
-                if field in data and data[field] is not None:
-                    if isinstance(data[field], str) and len(data[field]) <= 255:
-                        validated_data[field] = data[field]
-                    else:
-                        logger.warning(f"Invalid {field} format, skipping: {data[field]}")
+            # Validate price_source (string field)
+            if "price_source" in data and data["price_source"] is not None:
+                if isinstance(data["price_source"], str) and len(data["price_source"]) <= 255:
+                    validated_data["price_source"] = data["price_source"]
+                else:
+                    logger.warning(f"Invalid price_source format, using default: {data.get('price_source')}")
+                    validated_data["price_source"] = "counterparty"
+            else:
+                validated_data["price_source"] = "counterparty"
+            
+            # Validate volume_sources (JSON field)
+            if "volume_sources" in data and data["volume_sources"] is not None:
+                if isinstance(data["volume_sources"], dict):
+                    validated_data["volume_sources"] = data["volume_sources"]
+                else:
+                    logger.warning(f"Invalid volume_sources format, using default: {data.get('volume_sources')}")
+                    validated_data["volume_sources"] = {"counterparty": 1.0}
+            else:
+                validated_data["volume_sources"] = {"counterparty": 1.0}
 
             # Validate quality metrics (optional, with defaults)
             quality_score = data.get("data_quality_score", DEFAULT_QUALITY_SCORE)
