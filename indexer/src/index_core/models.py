@@ -123,6 +123,8 @@ class StampData:
     collection_onchain: Optional[bool] = None
     db: Optional[object] = None
     _lock: Optional[threading.Lock] = None
+    recursive_mint_cpid: Optional[str] = None
+    recursive_src721_data: Optional[dict] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -500,12 +502,100 @@ class StampData:
             if self.ident == "STAMP":
                 self.ident = "SRC-721"
                 logger.debug("Changed STAMP to SRC-721 based on description field")
+                
+                # Parse the description field for recursive SRC-721 data
+                self.parse_recursive_src721_description(description)
 
     def update_stamp_hash_and_block_time(self):
         self.creator = self.source
         self.stamp_hash = create_base62_hash(self.tx_hash, str(self.block_index), 20)
         if isinstance(self.block_time, int):
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
+
+    def parse_recursive_src721_description(self, description):
+        """
+        Parse the pipe-delimited description field for recursive SRC-721 data.
+        Format: stamp:721|key:value|key:value|...
+        
+        For mints: stamp:721|c:CPID|op:mint|id:ID
+        For deploys: stamp:721|op:deploy|name:CollectionName|...
+        """
+        try:
+            # Parse the pipe-delimited string
+            parts = description.split("|")
+            parsed_data = {}
+            
+            for part in parts[1:]:  # Skip the first part which is "stamp:721"
+                if ":" in part:
+                    key, value = part.split(":", 1)
+                    parsed_data[key.strip().lower()] = value.strip()
+            
+            self.recursive_src721_data = parsed_data
+            
+            # Extract common fields
+            op = parsed_data.get("op", "").lower()
+            
+            if op == "mint":
+                # For mints, extract the collection CPID
+                collection_cpid = parsed_data.get("c")
+                if collection_cpid:
+                    self.recursive_mint_cpid = collection_cpid
+                    logger.debug(f"Extracted collection CPID for mint: {collection_cpid}")
+            
+            elif op == "deploy":
+                # For deploys, extract collection information (only if non-empty)
+                if parsed_data.get("name"):
+                    self.collection_name = parsed_data["name"]
+                if parsed_data.get("description"):
+                    self.collection_description = parsed_data["description"]
+                if parsed_data.get("website"):
+                    self.collection_website = parsed_data["website"]
+                # Only mark as onchain if we have at least a name
+                if self.collection_name:
+                    self.collection_onchain = 1  # Mark as onchain collection
+                    logger.debug(f"Extracted collection info for deploy: name={self.collection_name}")
+                
+        except Exception as e:
+            logger.warning(f"Error parsing recursive SRC-721 description: {e}")
+            self.recursive_src721_data = None
+
+    def _fetch_recursive_collection_info(self, valid_stamps_in_block, db):
+        """
+        Fetch collection information for a recursive SRC-721 mint.
+        Looks up the collection deploy transaction to get collection metadata.
+        """
+        if not self.recursive_mint_cpid:
+            return
+            
+        # First check in valid_stamps_in_block
+        for stamp in valid_stamps_in_block:
+            if stamp.get("cpid") == self.recursive_mint_cpid and stamp.get("src_data"):
+                try:
+                    src_data = json.loads(stamp["src_data"]) if isinstance(stamp["src_data"], str) else stamp["src_data"]
+                    if isinstance(src_data, dict) and src_data.get("op", "").lower() == "deploy":
+                        self.collection_name = src_data.get("name")
+                        self.collection_description = src_data.get("description")
+                        self.collection_website = src_data.get("website")
+                        self.collection_onchain = 1
+                        logger.debug(f"Found collection info in block for {self.recursive_mint_cpid}")
+                        return
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.debug(f"Error parsing src_data: {e}")
+        
+        # If not found in block, fetch from database
+        try:
+            from index_core.src721 import fetch_collection_details
+            collection_data = fetch_collection_details(self.recursive_mint_cpid, db)
+            if collection_data:
+                src_data = json.loads(collection_data) if isinstance(collection_data, str) else collection_data
+                if isinstance(src_data, dict) and src_data.get("op", "").lower() == "deploy":
+                    self.collection_name = src_data.get("name")
+                    self.collection_description = src_data.get("description") 
+                    self.collection_website = src_data.get("website")
+                    self.collection_onchain = 1
+                    logger.debug(f"Found collection info in database for {self.recursive_mint_cpid}")
+        except Exception as e:
+            logger.warning(f"Error fetching collection details for {self.recursive_mint_cpid}: {e}")
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
         if self.cpid:
@@ -651,6 +741,21 @@ class StampData:
             # Keep src_data empty for P2WSH SRC-721 stamps detected via description field
             self.src_data = ""
             # decoded_base64 already contains the HTML/SVG content from P2WSH
+            # file_suffix and stamp_mimetype are already set correctly
+            
+            # If this is a recursive mint, look up collection information
+            if self.recursive_mint_cpid:
+                self._fetch_recursive_collection_info(valid_stamps_in_block, db)
+            
+            return
+        
+        # Check if this is a recursive SRC-721 mint (HTML/SVG content with recursive reference)
+        if self.stamp_mimetype in ["text/html", "image/svg+xml"] and self.recursive_mint_cpid:
+            logger.debug(f"Processing recursive SRC-721 mint for {self.tx_hash}")
+            # Keep the HTML/SVG content as-is
+            self.src_data = ""
+            # Look up collection information
+            self._fetch_recursive_collection_info(valid_stamps_in_block, db)
             # file_suffix and stamp_mimetype are already set correctly
             return
 
