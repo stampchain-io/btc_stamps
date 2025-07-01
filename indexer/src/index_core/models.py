@@ -648,8 +648,10 @@ class StampData:
         if self.p2wsh_data is not None and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
             # Keep the original P2WSH content as-is, don't process through SRC-721 converter
             logger.debug(f"Preserving P2WSH HTML/SVG content for SRC-721 stamp {self.tx_hash}")
-            # Still need to fetch collection details if available
-            # The description field parsing already happened in update_stamp_data_rows_from_cp_asset
+            # Keep src_data empty for P2WSH SRC-721 stamps detected via description field
+            self.src_data = ""
+            # decoded_base64 already contains the HTML/SVG content from P2WSH
+            # file_suffix and stamp_mimetype are already set correctly
             return
 
         # Normal SRC-721 processing for non-P2WSH stamps
@@ -657,7 +659,19 @@ class StampData:
             svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
                 validate_src721_and_process(self.src_data, valid_stamps_in_block, db, self._lock)
             )
-        self.src_data = json.dumps(self.src_data)
+        # Only JSON dump if src_data is not already a string
+        if isinstance(self.src_data, (dict, list)):
+            self.src_data = json.dumps(self.src_data)
+        elif isinstance(self.src_data, bytes):
+            # If src_data is bytes, decode it first
+            try:
+                decoded = self.src_data.decode("utf-8")
+                # Try to parse it as JSON to check if it's valid
+                json.loads(decoded)
+                self.src_data = decoded
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                # If it's not valid JSON, set to empty string
+                self.src_data = ""
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"
         self.stamp_mimetype = "image/svg+xml"
