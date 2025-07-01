@@ -198,6 +198,7 @@ class TestSRC721DescriptionDetection:
         # Verify the content was preserved
         assert stamp.decoded_base64 == "<html><body>Test HTML content</body></html>"
         assert stamp.stamp_mimetype == "text/html"
+        assert stamp.src_data == ""  # Should be empty for P2WSH SRC-721
         # Check that we logged preservation
         mock_logger.debug.assert_called_with(f"Preserving P2WSH HTML/SVG content for SRC-721 stamp {stamp.tx_hash}")
 
