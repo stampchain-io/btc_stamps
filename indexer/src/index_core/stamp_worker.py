@@ -72,7 +72,6 @@ class StampWorker:
                 # Add processing metadata
                 market_data["processing_time_ms"] = int((time.time() - start_time) * 1000)
                 market_data["last_updated"] = datetime.now()
-                market_data["data_source"] = "counterparty"
 
                 # Validate the processed data
                 validated_data = self.processor.validate_stamp_market_data(market_data)
@@ -215,6 +214,8 @@ class StampWorker:
                 "market_activity_score": None,
                 "quality_score": 0.0,
                 "confidence_level": 3.0,
+                "price_source": "counterparty",  # Always set default
+                "volume_sources": {"counterparty": 1.0},  # Always set default as JSON
             }
 
             # Calculate floor price from active dispensers
@@ -222,11 +223,17 @@ class StampWorker:
                 floor_price, dispenser_metrics = self._calculate_floor_price(dispensers)
                 market_data.update(dispenser_metrics)
                 market_data["floor_price_btc"] = floor_price
+                # Set price source if we found a floor price from dispensers
+                if floor_price is not None:
+                    market_data["price_source"] = "dispenser"
 
             # Calculate volume metrics from dispenses
             if dispenses:
                 volume_metrics = self._calculate_volume_metrics(dispenses)
                 market_data.update(volume_metrics)
+                # Set volume sources if we found any volume data
+                if any(volume_metrics.get(f"volume_{period}_btc", 0) > 0 for period in ["24h", "7d", "30d"]):
+                    market_data["volume_sources"] = {"dispenser": 1.0}
 
             # Calculate holder metrics from balances
             if balances:
