@@ -461,10 +461,9 @@ class StampData:
         """
         # FIXME: this needs some love upstream to simplify. SVG stamps (and CP SRC?) come in as strings, SRC-20 as bytes.
         try:
-            # STEP 1: Process data normally to determine type
             if type(self.decoded_base64) is bytes:
                 self.handle_bytes()
-            elif type(self.decoded_base64) is dict:
+            if type(self.decoded_base64) is dict:
                 self.handle_dict()  # SRC-20 coming in as bytes are converted to dict here
             elif type(self.decoded_base64) is str:
                 self.handle_json_string()  # outputs dict for CP src-20, or a bytestring for svg stamps
@@ -476,31 +475,6 @@ class StampData:
                 handler = type_func_map.get(type(self.decoded_base64), self.handle_unknown_type)
                 handler()
 
-            # STEP 2: After type is determined, check for recursive SRC-721 pattern
-            # ONLY for stamps that are:
-            # - Currently identified as "STAMP" (not a protocol type)
-            # - Have HTML/SVG content
-            # - Contain the /s/A pattern
-            # - NOT already identified as another protocol (SRC-20, SRC-101, etc.)
-
-            # IMPORTANT: Only apply recursive SRC-721 detection to generic STAMPs
-            # Never override protocol-specific identifications (SRC-20, SRC-101, etc.)
-            if self.ident == "STAMP" and self.decoded_base64 and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
-                from index_core.src721 import is_recursive_src721_mint
-
-                # Check if content has recursive pattern
-                is_recursive, referenced_cpid = is_recursive_src721_mint(self.decoded_base64, self.stamp_mimetype)
-
-                if is_recursive and referenced_cpid:
-                    logger.debug(f"Detected recursive SRC-721 mint in STAMP, referencing CPID: {referenced_cpid}")
-                    # Change STAMP to SRC-721
-                    self.ident = "SRC-721"
-                    self.recursive_mint_cpid = referenced_cpid
-                    # Keep the original HTML/SVG content
-            elif self.ident in ["SRC-20", "SRC-101", "SRC-721"]:
-                # Already identified as a specific protocol, don't change it
-                logger.debug(f"Keeping existing protocol identification: {self.ident}")
-
         except Exception as e:
             logger.error(f"Error: {e}")
             raise
@@ -508,31 +482,6 @@ class StampData:
     def validate_data_exists(self):
         if not self.data:
             raise ValueError("Input data is empty or None")
-
-    def parse_stamp_721_description(self, description: str) -> Optional[dict]:
-        """
-        Parse stamp:721 pattern from description field.
-        Format: stamp:721|c:CPID|op:OPERATION|id:ID
-        Returns dict with parsed values or None if not a stamp:721 pattern.
-        """
-        if not description or not description.lower().startswith("stamp:721"):
-            return None
-
-        try:
-            # Remove "stamp:721|" prefix
-            parts_str = description[10:]  # len("stamp:721|") = 10
-
-            # Parse pipe-separated key:value pairs
-            result = {"protocol": "stamp:721"}
-            for part in parts_str.split("|"):
-                if ":" in part:
-                    key, value = part.split(":", 1)
-                    result[key.strip()] = value.strip()
-
-            return result
-        except Exception as e:
-            logger.debug(f"Failed to parse stamp:721 description: {e}")
-            return None
 
     def update_stamp_data_rows_from_cp_asset(self, stamp: dict):
         self.cpid = stamp.get("cpid", None)
@@ -542,15 +491,15 @@ class StampData:
         self.divisible = stamp.get("divisible")
         self.message_index = stamp.get("message_index")
 
-        # Check for stamp:721 pattern in description
+        # Check for stamp:721 pattern in description field ONLY
+        # This is the ONLY change from dev branch - detect SRC-721 from description
         description = stamp.get("description", "")
-        stamp_721_data = self.parse_stamp_721_description(description)
-        if stamp_721_data:
-            logger.debug(f"Found stamp:721 pattern in description: {stamp_721_data}")
-            # Mark as SRC-721
-            self.ident = "SRC-721"
-            # Store the parsed data for later processing
-            self.stamp_721_description_data = stamp_721_data
+        if description and description.lower().startswith("stamp:721"):
+            logger.debug(f"Found stamp:721 pattern in Counterparty description: {description}")
+            # Only change ident to SRC-721 if currently STAMP
+            if self.ident == "STAMP":
+                self.ident = "SRC-721"
+                logger.debug("Changed STAMP to SRC-721 based on description field")
 
     def update_stamp_hash_and_block_time(self):
         self.creator = self.source
@@ -692,119 +641,18 @@ class StampData:
             raise ValueError("Invalid SRC-101 Pre-check")
 
     def process_src721(self, valid_stamps_in_block, db):
-        # Check if this is a recursive mint (HTML/SVG with /s/ reference)
-        if hasattr(self, "recursive_mint_cpid") and self.recursive_mint_cpid:
-            from index_core.src721 import fetch_collection_details
-
-            logger.debug(f"Processing recursive SRC-721 mint referencing CPID: {self.recursive_mint_cpid}")
-
-            # Find the deploy transaction data
-            deploy_data = None
-
-            # First check in current block's stamps
-            for stamp in valid_stamps_in_block:
-                if stamp.get("cpid") == self.recursive_mint_cpid:
-                    deploy_data = stamp.get("src_data")
-                    break
-
-            # If not found, fetch from database
-            if not deploy_data:
-                deploy_data = fetch_collection_details(self.recursive_mint_cpid, db)
-
-            if deploy_data:
-                # Parse deploy data to get collection info
-                try:
-                    deploy_json = json.loads(deploy_data) if isinstance(deploy_data, str) else deploy_data
-
-                    # Set collection information from the deploy
-                    self.collection_name = deploy_json.get("name")
-                    self.collection_description = deploy_json.get("description")
-                    self.collection_website = deploy_json.get("website")
-                    self.collection_onchain = 1
-
-                    # Mark as valid SRC-721
-                    self.is_btc_stamp = True
-
-                    # Store minimal JSON indicating it's a recursive mint
-                    self.src_data = json.dumps({"p": "src-721", "v": "r0", "op": "mint", "ref": self.recursive_mint_cpid})
-
-                    # Keep original HTML/SVG content - don't convert to SVG
-                    # The decoded_base64 already contains the HTML/SVG content
-                    # file_suffix and stamp_mimetype are already set correctly
-                    logger.debug(f"Successfully processed recursive mint for collection: {self.collection_name}")
-                    return
-                except Exception as e:
-                    logger.error(f"Error processing recursive mint deploy data: {e}")
-            else:
-                logger.warning(f"Could not find deploy data for CPID: {self.recursive_mint_cpid}")
-                # Even without deploy data, this is still a valid SRC-721 mint
-                # Just won't have collection metadata
-                self.is_btc_stamp = True
-                self.src_data = json.dumps({"p": "src-721", "v": "r0", "op": "mint", "ref": self.recursive_mint_cpid})
-                # Keep the original HTML/SVG content
-                # The ident is already set to "SRC-721" so it won't be cursed
-                logger.debug("Processed recursive mint without collection metadata")
-                return
-
-        # Check if this is a stamp:721 description-based SRC-721
-        if hasattr(self, "stamp_721_description_data") and self.stamp_721_description_data:
-            logger.debug(f"Processing stamp:721 description-based SRC-721: {self.stamp_721_description_data}")
-
-            # Mark as valid SRC-721
-            self.is_btc_stamp = True
-
-            # Create appropriate src_data based on the operation
-            op = self.stamp_721_description_data.get("op", "mint")
-            collection_cpid = self.stamp_721_description_data.get("c")
-            token_id = self.stamp_721_description_data.get("id")
-
-            src_data_dict = {"p": "src-721", "v": "r0", "op": op}  # Assuming r0 version for stamp:721 format
-
-            # Add collection reference if present
-            if collection_cpid:
-                src_data_dict["c"] = collection_cpid
-
-            # Add token ID if present
-            if token_id:
-                src_data_dict["id"] = token_id
-
-            self.src_data = json.dumps(src_data_dict)
-
-            # If there's P2WSH data with HTML content, keep it as is
-            # Otherwise, the content should be in decoded_base64
-            # file_suffix and stamp_mimetype should already be set
-
-            # Try to fetch collection details if we have a collection CPID
-            if collection_cpid:
-                try:
-                    from index_core.src721 import fetch_collection_details
-
-                    deploy_data = fetch_collection_details(collection_cpid, db)
-                    if deploy_data:
-                        deploy_json = json.loads(deploy_data) if isinstance(deploy_data, str) else deploy_data
-                        self.collection_name = deploy_json.get("name")
-                        self.collection_description = deploy_json.get("description")
-                        self.collection_website = deploy_json.get("website")
-                        self.collection_onchain = 1
-                except Exception as e:
-                    logger.warning(f"Could not fetch collection details for {collection_cpid}: {e}")
-
-            logger.debug("Successfully processed stamp:721 description-based SRC-721")
-            return
-
-        # Fall back to standard SRC-721 processing
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
 
-        # If we're falling back from a failed recursive mint, src_data might be bytes (HTML/SVG)
-        # In this case, we can't process it as standard SRC-721, so just return
-        if isinstance(self.src_data, bytes):
-            logger.warning("Cannot process bytes content as standard SRC-721")
-            # Keep the original content and mark as cursed
-            self.is_btc_stamp = False
-            self.is_cursed = True
+        # For P2WSH stamps detected as SRC-721 via description, preserve the original HTML/SVG content
+        if self.p2wsh_data is not None and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
+            # Keep the original P2WSH content as-is, don't process through SRC-721 converter
+            logger.debug(f"Preserving P2WSH HTML/SVG content for SRC-721 stamp {self.tx_hash}")
+            # Still need to fetch collection details if available
+            # The description field parsing already happened in update_stamp_data_rows_from_cp_asset
             return
 
+        # Normal SRC-721 processing for non-P2WSH stamps
         with self._lock:
             svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
                 validate_src721_and_process(self.src_data, valid_stamps_in_block, db, self._lock)
