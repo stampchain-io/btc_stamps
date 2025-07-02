@@ -1,6 +1,6 @@
 """
-Test SRC-721 detection from Counterparty description field.
-Tests both regular stamps and P2WSH stamps with stamp:721 pattern.
+Test that STAMP stamps remain STAMP stamps regardless of description content.
+Our implementation does NOT detect SRC-721 from description fields.
 """
 
 import json
@@ -18,7 +18,7 @@ from index_core.models import StampData
 
 
 class TestSRC721DescriptionDetection:
-    """Test SRC-721 detection from description field patterns."""
+    """Test that description field patterns do NOT affect stamp identification."""
 
     @pytest.fixture
     def mock_db(self):
@@ -50,7 +50,7 @@ class TestSRC721DescriptionDetection:
         }
 
     def test_stamp_721_description_basic(self, base_stamp_data):
-        """Test basic stamp:721 pattern detection."""
+        """Test that stamp:721 pattern in description does NOT change identification."""
         stamp = StampData(**base_stamp_data)
         stamp.ident = "STAMP"
 
@@ -67,11 +67,11 @@ class TestSRC721DescriptionDetection:
         # Process the stamp
         stamp.update_stamp_data_rows_from_cp_asset(cp_asset)
 
-        # Verify it changed from STAMP to SRC-721
-        assert stamp.ident == "SRC-721"
+        # Verify it remains STAMP (our implementation does NOT detect from description)
+        assert stamp.ident == "STAMP"
 
     def test_stamp_721_case_insensitive(self, base_stamp_data):
-        """Test case insensitive detection of STAMP:721."""
+        """Test that STAMP:721 pattern in description does NOT change identification."""
         stamp = StampData(**base_stamp_data)
         stamp.ident = "STAMP"
 
@@ -85,10 +85,10 @@ class TestSRC721DescriptionDetection:
         }
 
         stamp.update_stamp_data_rows_from_cp_asset(cp_asset)
-        assert stamp.ident == "SRC-721"
+        assert stamp.ident == "STAMP"
 
     def test_stamp_721_not_at_beginning(self, base_stamp_data):
-        """Test that stamp:721 not at beginning doesn't trigger."""
+        """Test that stamp:721 anywhere in description doesn't trigger."""
         stamp = StampData(**base_stamp_data)
         stamp.ident = "STAMP"
 
@@ -178,9 +178,9 @@ class TestSRC721DescriptionDetection:
         # Should remain STAMP
         assert stamp.ident == "STAMP"
 
-    @patch("index_core.models.logger")
-    def test_p2wsh_src721_preserves_content(self, mock_logger, base_stamp_data, mock_db):
-        """Test that P2WSH SRC-721 stamps preserve their HTML/SVG content."""
+    @patch("index_core.models.validate_src721_and_process")
+    def test_p2wsh_src721_processes_normally(self, mock_validate, base_stamp_data, mock_db):
+        """Test that P2WSH SRC-721 stamps go through normal processing."""
         # Create stamp with P2WSH data
         base_stamp_data["p2wsh_data"] = b"<html><body>Test HTML content</body></html>"
         stamp = StampData(**base_stamp_data)
@@ -192,15 +192,24 @@ class TestSRC721DescriptionDetection:
         # Mock the _lock attribute
         stamp._lock = MagicMock()
 
+        # Mock the validation function to return SVG
+        mock_validate.return_value = (
+            "<svg>...</svg>",  # svg_output
+            "svg",  # file_suffix
+            "Test Collection",  # collection_name
+            "Test Description",  # collection_description
+            "https://test.com",  # collection_website
+            1,  # collection_onchain
+        )
+
         # Process as SRC-721
         stamp.process_src721([], mock_db)
 
-        # Verify the content was preserved
-        assert stamp.decoded_base64 == "<html><body>Test HTML content</body></html>"
-        assert stamp.stamp_mimetype == "text/html"
-        assert stamp.src_data == ""  # Should be empty for P2WSH SRC-721
-        # Check that we logged preservation
-        mock_logger.debug.assert_called_with(f"Preserving P2WSH HTML/SVG content for SRC-721 stamp {stamp.tx_hash}")
+        # Verify normal processing occurred - content gets converted to SVG
+        assert stamp.decoded_base64 == "<svg>...</svg>"
+        assert stamp.file_suffix == "svg"
+        assert stamp.stamp_mimetype == "image/svg+xml"
+        mock_validate.assert_called_once()
 
     @patch("index_core.models.validate_src721_and_process")
     def test_non_p2wsh_src721_processes_normally(self, mock_validate, base_stamp_data, mock_db):
@@ -230,8 +239,8 @@ class TestSRC721DescriptionDetection:
         assert stamp.stamp_mimetype == "image/svg+xml"
         mock_validate.assert_called_once()
 
-    def test_valid_src721_with_p2wsh(self, base_stamp_data):
-        """Test valid_src721 returns True for P2WSH stamps with SRC-721 ident."""
+    def test_valid_src721_with_p2wsh_html_returns_false(self, base_stamp_data):
+        """Test valid_src721 returns False for P2WSH stamps with HTML/SVG content (OLGA mints)."""
         from config import CP_P2WSH_FEAT_BLOCK_START, CP_SRC721_GENESIS_BLOCK
 
         base_stamp_data["block_index"] = max(CP_P2WSH_FEAT_BLOCK_START, CP_SRC721_GENESIS_BLOCK) + 1000
@@ -241,11 +250,13 @@ class TestSRC721DescriptionDetection:
         stamp.ident = "SRC-721"
         stamp.supply = 1
         stamp.keyburn = 0  # P2WSH doesn't require keyburn
+        stamp.stamp_mimetype = "text/html"  # OLGA mint
 
-        assert stamp.valid_src721() is True
+        # OLGA mints should return False from valid_src721 since they're not JSON SRC-721
+        assert stamp.valid_src721() is False
 
     def test_valid_src721_with_keyburn(self, base_stamp_data):
-        """Test valid_src721 returns True for keyburn stamps with SRC-721 ident."""
+        """Test valid_src721 returns True for keyburn stamps with SRC-721 ident and JSON content."""
         from config import CP_SRC721_GENESIS_BLOCK
 
         base_stamp_data["block_index"] = CP_SRC721_GENESIS_BLOCK + 1000
@@ -254,6 +265,22 @@ class TestSRC721DescriptionDetection:
         stamp.ident = "SRC-721"
         stamp.supply = 1
         stamp.keyburn = 1
+        stamp.stamp_mimetype = "application/json"  # JSON SRC-721
+
+        assert stamp.valid_src721() is True
+
+    def test_valid_src721_with_p2wsh_json(self, base_stamp_data):
+        """Test valid_src721 returns True for P2WSH stamps with JSON SRC-721 content."""
+        from config import CP_P2WSH_FEAT_BLOCK_START, CP_SRC721_GENESIS_BLOCK
+
+        base_stamp_data["block_index"] = max(CP_P2WSH_FEAT_BLOCK_START, CP_SRC721_GENESIS_BLOCK) + 1000
+        base_stamp_data["p2wsh_data"] = b'{"p":"src-721","op":"mint"}'
+
+        stamp = StampData(**base_stamp_data)
+        stamp.ident = "SRC-721"
+        stamp.supply = 1
+        stamp.keyburn = 0  # P2WSH doesn't require keyburn
+        stamp.stamp_mimetype = "application/json"  # JSON SRC-721
 
         assert stamp.valid_src721() is True
 
@@ -263,13 +290,13 @@ class TestSRC721DescriptionIntegration:
 
     @pytest.fixture
     def stamp_721_fixtures(self):
-        """Fixture data for known stamp:721 patterns from production."""
+        """Fixture data for description patterns - all should remain STAMP in our implementation."""
         return [
             {
                 "tx_hash": "example_tx_1",
                 "cpid": "A12345678901234567890",
                 "description": "stamp:721|c:A98765432109876543210|op:mint|id:42",
-                "expected_ident": "SRC-721",
+                "expected_ident": "STAMP",  # Description doesn't change ident in our implementation
                 "has_p2wsh": True,
                 "p2wsh_content": "<html><head><script src='/s/A98765432109876543210'></script></head></html>",
             },
@@ -277,7 +304,7 @@ class TestSRC721DescriptionIntegration:
                 "tx_hash": "example_tx_2",
                 "cpid": "A23456789012345678901",
                 "description": "stamp:721|c:A87654321098765432109|op:mint|id:100",
-                "expected_ident": "SRC-721",
+                "expected_ident": "STAMP",  # Description doesn't change ident in our implementation
                 "has_p2wsh": True,
                 "p2wsh_content": "<svg><use href='/s/A87654321098765432109#main'></use></svg>",
             },
@@ -328,9 +355,11 @@ class TestSRC721DescriptionIntegration:
             # Process the stamp
             stamp.update_stamp_data_rows_from_cp_asset(cp_asset)
 
-            # Verify the result
-            assert stamp.ident == fixture["expected_ident"], (
-                f"Failed for {fixture['tx_hash']}: " f"expected {fixture['expected_ident']}, got {stamp.ident}"
+            # In our implementation, descriptions don't affect ident, so all should remain STAMP
+            # unless they were already SRC-721 from other detection methods
+            expected_ident = "STAMP"  # Since we start as STAMP and descriptions don't change it
+            assert stamp.ident == expected_ident, (
+                f"Failed for {fixture['tx_hash']}: " f"expected {expected_ident}, got {stamp.ident}"
             )
 
 
