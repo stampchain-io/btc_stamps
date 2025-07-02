@@ -407,13 +407,21 @@ class StampData:
             pass
 
         # Use enhanced MIME detection for better accuracy
-        from .enhanced_mime_detection import enhanced_mime_detection
+        from .enhanced_mime_detection import get_processed_content_and_mime
 
         processed_data = bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data
-        mime_type = enhanced_mime_detection(processed_data)
+        processed_content, mime_type = get_processed_content_and_mime(processed_data)
+
+        # Update the decoded data if it was decompressed (e.g., svgz to svg)
+        if processed_content != processed_data:
+            self.decoded_base64 = processed_content
 
         self.file_suffix = mime_type.split("/")[-1]
         self.stamp_mimetype = mime_type
+
+        # Special handling for SVG files - use 'svg' suffix instead of 'svg+xml'
+        if mime_type == "image/svg+xml":
+            self.file_suffix = "svg"
 
         if (mime_type == "text/plain" or mime_type == "application/javascript") and self.is_javascript(bytestring_data):
             self.file_suffix = "js"
