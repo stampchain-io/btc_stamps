@@ -100,7 +100,6 @@ def detect_and_decompress_svg(content_bytes):
         or magic_mime in ("application/gzip", "application/x-gzip")
         or magic_mime == "application/octet-stream"  # gzop files might be detected as octet-stream
     )
-
     if is_gzip_file:
         try:
             # Attempt to decompress
