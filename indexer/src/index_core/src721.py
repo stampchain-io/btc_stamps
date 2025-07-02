@@ -403,6 +403,8 @@ def is_recursive_src721_deploy(src721_json):
     if version is None:
         return False
 
+    # Convert to string to handle both string and numeric versions
+    version_str = str(version).lower() if version else ""
     op = src721_json.get("op", "").upper()
 
-    return version.lower() == "r0" and op == "DEPLOY"
+    return version_str == "r0" and op == "DEPLOY"
