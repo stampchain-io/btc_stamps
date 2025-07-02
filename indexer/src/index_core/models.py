@@ -668,6 +668,45 @@ class StampData:
         self.stamp_base64 = base64.b64encode(self.p2wsh_data).decode()
         self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
         self.check_decoded_data_fetch_ident_mime()
+
+        # Add R0 deploy detection for P2WSH JSON data
+        # Check if already identified as SRC-721 through the "p" field
+        # Also check file_suffix as json since stamp_mimetype might not be set yet
+        if (
+            (self.stamp_mimetype == "application/json" or self.file_suffix == "json")
+            and self.ident == "SRC-721"
+            and self.block_index >= CP_SRC721_GENESIS_BLOCK
+        ):
+            try:
+                # Parse JSON data
+                if isinstance(self.decoded_base64, bytes):
+                    json_str = self.decoded_base64.decode("utf-8")
+                    json_data = json.loads(json_str)
+                elif isinstance(self.decoded_base64, str):
+                    json_data = json.loads(self.decoded_base64)
+                elif isinstance(self.decoded_base64, dict):
+                    json_data = self.decoded_base64
+                else:
+                    json_data = None
+
+                if json_data and isinstance(json_data, dict):
+                    op = json_data.get("op", "").upper()
+                    version = json_data.get("v", "")
+
+                    # Check for SRC-721R deploy with v: r0
+                    if op == "DEPLOY" and version is not None and str(version).lower() == "r0":
+                        # Extract collection metadata for r0 deploys
+                        self.collection_name = json_data.get("name")
+                        self.collection_description = json_data.get("description")
+                        self.collection_website = json_data.get("website")
+                        if self.collection_name:  # Only mark as onchain if we have a name
+                            self.collection_onchain = 1
+                        logger.debug(
+                            f"Detected SRC-721R deploy (v:r0) for collection: {self.collection_name} in tx {self.tx_hash}"
+                        )
+            except (json.JSONDecodeError, TypeError, AttributeError) as e:
+                logger.debug(f"P2WSH data not JSON or error parsing in tx {self.tx_hash}: {e}")
+
         self.is_op_return = None  # reset because p2wsh are typically op_return
 
     def process_decoded_base64(self):
