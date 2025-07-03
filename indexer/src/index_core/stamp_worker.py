@@ -204,6 +204,7 @@ class StampWorker:
             market_data = {
                 "cpid": cpid,
                 "floor_price_btc": None,
+                "recent_sale_price_btc": None,
                 "volume_24h_btc": None,
                 "volume_7d_btc": None,
                 "volume_30d_btc": None,
@@ -216,6 +217,8 @@ class StampWorker:
                 "confidence_level": 3.0,
                 "price_source": "counterparty",  # Always set default
                 "volume_sources": {"counterparty": 1.0},  # Always set default as JSON
+                "last_price_update": None,
+                "last_sale_block_index": None,
             }
 
             # Calculate floor price from active dispensers
@@ -234,6 +237,10 @@ class StampWorker:
                 # Set volume sources if we found any volume data
                 if any(volume_metrics.get(f"volume_{period}_btc", 0) > 0 for period in ["24h", "7d", "30d"]):
                     market_data["volume_sources"] = {"dispenser": 1.0}
+                # Update volume fields to 0 if they weren't set by dispenses
+                for vol_field in ["volume_24h_btc", "volume_7d_btc", "volume_30d_btc"]:
+                    if market_data.get(vol_field) is None:
+                        market_data[vol_field] = 0.0
 
             # Calculate holder metrics from balances
             if balances:
@@ -309,9 +316,9 @@ class StampWorker:
             logger.error(f"Error calculating floor price: {e}")
             return None, {}
 
-    def _calculate_volume_metrics(self, dispenses: List[Dict]) -> Dict:
+    def _calculate_volume_metrics(self, dispenses: List[Dict]) -> Dict[str, Any]:
         """
-        Calculate volume metrics for different time periods.
+        Calculate volume metrics for different time periods and track most recent sale.
 
         Args:
             dispenses: List of dispense data
@@ -321,7 +328,7 @@ class StampWorker:
         """
         try:
             now = datetime.now()
-            volume_metrics = {
+            volume_metrics: Dict[str, Any] = {
                 "volume_24h_btc": 0.0,
                 "volume_7d_btc": 0.0,
                 "volume_30d_btc": 0.0,
@@ -329,10 +336,15 @@ class StampWorker:
                 "recent_dispenses_count": 0,
             }
 
+            most_recent_sale_time = None
+            most_recent_block_index = None
+            most_recent_price = None
+
             for dispense in dispenses:
                 try:
-                    # Get dispense timestamp
+                    # Get dispense timestamp and block index
                     block_time = dispense.get("block_time")
+                    block_index = dispense.get("block_index")
                     if not block_time:
                         continue
 
@@ -346,6 +358,13 @@ class StampWorker:
                     if dispense_quantity > 0 and satoshirate > 0:
                         # Calculate volume in BTC
                         volume_btc = (dispense_quantity * satoshirate) / 100000000
+                        price_per_unit = satoshirate / 100000000
+
+                        # Track most recent sale
+                        if most_recent_sale_time is None or block_time > most_recent_sale_time:
+                            most_recent_sale_time = block_time
+                            most_recent_price = price_per_unit
+                            most_recent_block_index = block_index
 
                         # Add to appropriate time period buckets
                         if time_diff.days < 1:
@@ -359,6 +378,12 @@ class StampWorker:
                 except (ValueError, TypeError) as e:
                     logger.debug(f"Error processing dispense data: {e}")
                     continue
+
+            # Set the most recent sale data
+            if most_recent_sale_time:
+                volume_metrics["recent_sale_price_btc"] = most_recent_price
+                volume_metrics["last_price_update"] = datetime.fromtimestamp(most_recent_sale_time).isoformat()
+                volume_metrics["last_sale_block_index"] = most_recent_block_index
 
             return volume_metrics
 

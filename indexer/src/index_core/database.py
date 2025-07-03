@@ -2148,6 +2148,7 @@ def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
                 "last_dispenser_block": "last_dispenser_block",
                 "last_balance_block": "last_balance_block",
                 "last_price_update": "last_price_update",
+                "last_sale_block_index": "last_sale_block_index",
                 "update_frequency_minutes": "update_frequency_minutes",
             }
 
