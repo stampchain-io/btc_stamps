@@ -2149,6 +2149,11 @@ def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
                 "last_balance_block": "last_balance_block",
                 "last_price_update": "last_price_update",
                 "last_sale_block_index": "last_sale_block_index",
+                "last_sale_tx_hash": "last_sale_tx_hash",
+                "last_sale_buyer_address": "last_sale_buyer_address",
+                "last_sale_dispenser_address": "last_sale_dispenser_address",
+                "last_sale_btc_amount": "last_sale_btc_amount",
+                "last_sale_dispenser_tx_hash": "last_sale_dispenser_tx_hash",
                 "update_frequency_minutes": "update_frequency_minutes",
             }
 

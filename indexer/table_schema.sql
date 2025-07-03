@@ -472,6 +472,13 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   `data_quality_score` DECIMAL(3,1) DEFAULT 0 COMMENT 'Data quality score 0-10 based on source reliability',
   `confidence_level` DECIMAL(3,1) DEFAULT 0 COMMENT 'Confidence in data accuracy 0-10',
   
+  -- Recent Sale Details
+  `last_sale_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash of the most recent sale',
+  `last_sale_buyer_address` VARCHAR(100) NULL COMMENT 'Address of the buyer in the most recent sale',
+  `last_sale_dispenser_address` VARCHAR(100) NULL COMMENT 'Dispenser address used in the most recent sale', 
+  `last_sale_btc_amount` BIGINT NULL COMMENT 'Actual BTC amount paid in satoshis for the most recent sale',
+  `last_sale_dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash that created the dispenser (optional)',
+  
   -- Metadata and Tracking
   `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last cache update time',
   `last_dispenser_block` INTEGER NULL COMMENT 'Last block where dispenser data was updated',
@@ -505,6 +512,27 @@ ALTER TABLE `stamp_market_data`
 
 ALTER TABLE `stamp_market_data` 
   ADD INDEX IF NOT EXISTS `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting';
+
+-- Migration: Add additional recent sale detail columns
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN IF NOT EXISTS `last_sale_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash of the most recent sale' 
+  AFTER `confidence_level`;
+  
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN IF NOT EXISTS `last_sale_buyer_address` VARCHAR(100) NULL COMMENT 'Address of the buyer in the most recent sale' 
+  AFTER `last_sale_tx_hash`;
+  
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN IF NOT EXISTS `last_sale_dispenser_address` VARCHAR(100) NULL COMMENT 'Dispenser address used in the most recent sale' 
+  AFTER `last_sale_buyer_address`;
+  
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN IF NOT EXISTS `last_sale_btc_amount` BIGINT NULL COMMENT 'Actual BTC amount paid in satoshis for the most recent sale' 
+  AFTER `last_sale_dispenser_address`;
+  
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN IF NOT EXISTS `last_sale_dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash that created the dispenser (optional)' 
+  AFTER `last_sale_btc_amount`;
 
 -- Detailed holder cache for individual stamp holder pages
 CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (

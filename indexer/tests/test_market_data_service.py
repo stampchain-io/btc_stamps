@@ -80,10 +80,16 @@ class TestMarketDataService:
             "openstamp,stampscan",
             Decimal("9.5"),
             Decimal("8.8"),
+            "0x123abc...",  # last_sale_tx_hash
+            "bc1qxyz...",  # last_sale_buyer_address
+            "bc1qabc...",  # last_sale_dispenser_address
+            Decimal("0.0015"),  # last_sale_btc_amount
+            "0x456def...",  # last_sale_dispenser_tx_hash
             datetime.now(),
             865000,
             865000,
             datetime.now(),
+            865000,  # last_sale_block_index
             60,
             datetime.now(),
         )
@@ -260,10 +266,16 @@ class TestMarketDataDatabaseFunctions:
             "openstamp,stampscan",
             Decimal("9.5"),
             Decimal("8.8"),
+            "0x123abc...",  # last_sale_tx_hash
+            "bc1qxyz...",  # last_sale_buyer_address
+            "bc1qabc...",  # last_sale_dispenser_address
+            Decimal("0.0015"),  # last_sale_btc_amount
+            "0x456def...",  # last_sale_dispenser_tx_hash
             datetime.now(),
             865000,
             865000,
             datetime.now(),
+            865000,  # last_sale_block_index
             60,
             datetime.now(),
         )
@@ -525,10 +537,16 @@ class TestMarketDataIntegration:
             "openstamp,stampscan",
             Decimal("9.5"),
             Decimal("8.8"),
+            "0x123abc...",  # last_sale_tx_hash
+            "bc1qxyz...",  # last_sale_buyer_address
+            "bc1qabc...",  # last_sale_dispenser_address
+            Decimal("0.0015"),  # last_sale_btc_amount
+            "0x456def...",  # last_sale_dispenser_tx_hash
             datetime.now(),
             865000,
             865000,
             datetime.now(),
+            865000,  # last_sale_block_index
             60,
             datetime.now(),
         )
