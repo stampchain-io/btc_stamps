@@ -21,6 +21,9 @@ backend_instance = Backend()
 class CPBlocksPipeline:
     """Background worker that prefetches blocks and keeps them in a queue."""
 
+    # Cleanup interval for stuck fetches (in seconds)
+    CLEANUP_INTERVAL_SECONDS = 30
+
     def __init__(
         self,
         max_queue_size=600,
@@ -681,9 +684,9 @@ class CPBlocksPipeline:
                 # 1. Process any futures that have completed their work.
                 self._process_completed_futures()
 
-                # 2. Cleanup stuck fetches periodically (every 30 seconds)
+                # 2. Cleanup stuck fetches periodically (based on the configured interval)
                 current_time = time.time()
-                if current_time - last_cleanup_time > 30:
+                if current_time - last_cleanup_time > self.CLEANUP_INTERVAL_SECONDS:
                     self._cleanup_stuck_fetches()
                     last_cleanup_time = current_time
 
