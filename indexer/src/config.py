@@ -192,6 +192,9 @@ try:
 except Exception:
     AWS_S3_CLIENT = None
 
+# StampScan API configuration
+STAMPSCAN_BASE_URL = os.environ.get("STAMPSCAN_BASE_URL", "https://api.stampscan.xyz")
+
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID", None)
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)
