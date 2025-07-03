@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Set
 
 import requests
 
+import config
 from index_core.fetch_utils import RateLimiter
 from index_core.openstamp_client import OpenStampApiError, get_openstamp_client
 from index_core.source_reliability_service import create_reliability_tracker, record_call_metrics
