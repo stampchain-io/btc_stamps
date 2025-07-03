@@ -100,8 +100,10 @@ class MarketDataService:
                             holder_count, unique_holder_count, top_holder_percentage, holder_distribution_score,
                             volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
                             price_source, volume_sources, data_quality_score, confidence_level,
+                            last_sale_tx_hash, last_sale_buyer_address, last_sale_dispenser_address,
+                            last_sale_btc_amount, last_sale_dispenser_tx_hash,
                             last_updated, last_dispenser_block, last_balance_block, last_price_update,
-                            update_frequency_minutes, created_at
+                            last_sale_block_index, update_frequency_minutes, created_at
                         FROM {STAMP_MARKET_DATA_TABLE}
                         WHERE cpid = %s
                     """
@@ -306,6 +308,12 @@ class MarketDataService:
                         "last_dispenser_block": "last_dispenser_block",
                         "last_balance_block": "last_balance_block",
                         "last_price_update": "last_price_update",
+                        "last_sale_block_index": "last_sale_block_index",
+                        "last_sale_tx_hash": "last_sale_tx_hash",
+                        "last_sale_buyer_address": "last_sale_buyer_address",
+                        "last_sale_dispenser_address": "last_sale_dispenser_address",
+                        "last_sale_btc_amount": "last_sale_btc_amount",
+                        "last_sale_dispenser_tx_hash": "last_sale_dispenser_tx_hash",
                         "update_frequency_minutes": "update_frequency_minutes",
                     }
 
@@ -604,12 +612,18 @@ class MarketDataService:
             "volume_sources": row[15],
             "data_quality_score": row[16],
             "confidence_level": row[17],
-            "last_updated": row[18],
-            "last_dispenser_block": row[19],
-            "last_balance_block": row[20],
-            "last_price_update": row[21],
-            "update_frequency_minutes": row[22],
-            "created_at": row[23],
+            "last_sale_tx_hash": row[18],
+            "last_sale_buyer_address": row[19],
+            "last_sale_dispenser_address": row[20],
+            "last_sale_btc_amount": row[21],
+            "last_sale_dispenser_tx_hash": row[22],
+            "last_updated": row[23],
+            "last_dispenser_block": row[24],
+            "last_balance_block": row[25],
+            "last_price_update": row[26],
+            "last_sale_block_index": row[27],
+            "update_frequency_minutes": row[28],
+            "created_at": row[29],
         }
 
     def _row_to_src20_market_data(self, row: Tuple) -> SRC20MarketData:

@@ -339,6 +339,11 @@ class StampWorker:
             most_recent_sale_time = None
             most_recent_block_index = None
             most_recent_price = None
+            most_recent_tx_hash = None
+            most_recent_buyer = None
+            most_recent_dispenser = None
+            most_recent_btc_amount = None
+            most_recent_dispenser_tx_hash = None
 
             for dispense in dispenses:
                 try:
@@ -360,11 +365,16 @@ class StampWorker:
                         volume_btc = (dispense_quantity * satoshirate) / 100000000
                         price_per_unit = satoshirate / 100000000
 
-                        # Track most recent sale
+                        # Track most recent sale with all details
                         if most_recent_sale_time is None or block_time > most_recent_sale_time:
                             most_recent_sale_time = block_time
                             most_recent_price = price_per_unit
                             most_recent_block_index = block_index
+                            most_recent_tx_hash = dispense.get("tx_hash")
+                            most_recent_buyer = dispense.get("source")  # source is the buyer
+                            most_recent_dispenser = dispense.get("destination")  # destination is the dispenser
+                            most_recent_btc_amount = dispense.get("btc_amount")
+                            most_recent_dispenser_tx_hash = dispense.get("dispenser_tx_hash")
 
                         # Add to appropriate time period buckets
                         if time_diff.days < 1:
@@ -384,6 +394,11 @@ class StampWorker:
                 volume_metrics["recent_sale_price_btc"] = most_recent_price
                 volume_metrics["last_price_update"] = datetime.fromtimestamp(most_recent_sale_time).isoformat()
                 volume_metrics["last_sale_block_index"] = most_recent_block_index
+                volume_metrics["last_sale_tx_hash"] = most_recent_tx_hash
+                volume_metrics["last_sale_buyer_address"] = most_recent_buyer
+                volume_metrics["last_sale_dispenser_address"] = most_recent_dispenser
+                volume_metrics["last_sale_btc_amount"] = most_recent_btc_amount
+                volume_metrics["last_sale_dispenser_tx_hash"] = most_recent_dispenser_tx_hash
 
             return volume_metrics
 
