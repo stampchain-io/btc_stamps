@@ -4775,14 +4775,14 @@ files = [
 
 [[package]]
 name = "types-pymysql"
-version = "1.1.0.20241103"
+version = "1.1.0.20250516"
 description = "Typing stubs for PyMySQL"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "types-PyMySQL-1.1.0.20241103.tar.gz", hash = "sha256:a7628542919a0ba87625fb79eefb2a2de45fb4ad32afe6e561e8f2f27fb58b8c"},
-    {file = "types_PyMySQL-1.1.0.20241103-py3-none-any.whl", hash = "sha256:1a32efd8a74b5bf74c4de92a86c1cc6edaf3802dcfd5546635ab501eb5e3c096"},
+    {file = "types_pymysql-1.1.0.20250516-py3-none-any.whl", hash = "sha256:41c87a832e3ff503d5120cc6cebd64f6dcb3c407d9580a98b2cb3e3bcd109aa6"},
+    {file = "types_pymysql-1.1.0.20250516.tar.gz", hash = "sha256:fea4a9776101cf893dfc868f42ce10d2e46dcc498c792cc7c9c0fe00cb744234"},
 ]
 
 [[package]]
@@ -5009,4 +5009,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "ebb8a64cca4b08e712f4ca535550ef1e39bf55a4fd24847f2c1da2e6bc33498b"
+content-hash = "d3bf16e376bb67bf349e7925f79709bfa553a010751c7b6f703815e275eecab1"
