@@ -4,6 +4,7 @@ Provides improved detection for HTML, JavaScript, CSS and other content types
 """
 
 import gzip
+
 import magic
 
 
