@@ -93,7 +93,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
 
     def test_is_svg_content_not_svg(self):
         """Test non-SVG content is not detected as SVG."""
-        html_content = b'<html><body><div>Not SVG</div></body></html>'
+        html_content = b"<html><body><div>Not SVG</div></body></html>"
         self.assertFalse(is_svg_content(html_content))
 
     def test_is_svg_content_svg_tag_without_attributes(self):
