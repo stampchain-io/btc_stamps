@@ -386,7 +386,7 @@ class MarketDataJobScheduler:
                             # Transform and store the market data
                             market_data = src20_worker.transform_openstamp_data(token_data)
                             if market_data:
-                                market_data_service.update_src20_market_data(tick, market_data)
+                                market_data_service.update_src20_market_data(tick, market_data, task_db)
 
                                 # Store source tracking data for effectiveness analysis
                                 source_data = {"openstamp": market_data}
@@ -413,7 +413,7 @@ class MarketDataJobScheduler:
                 try:
                     stamp_data = src20_worker.process_src20_market_data("STAMP")
                     if stamp_data:
-                        market_data_service.update_src20_market_data("STAMP", stamp_data)
+                        market_data_service.update_src20_market_data("STAMP", stamp_data, task_db)
                         logger.debug("KuCoin: Updated STAMP token")
                     else:
                         logger.warning("KuCoin: No market data returned for STAMP")
@@ -546,8 +546,8 @@ class MarketDataJobScheduler:
                         else:
                             logger.debug(f"No holder cache data found for {cpid}")
 
-                        # Store the detailed market data using the service
-                        market_data_service.update_stamp_market_data(cpid, market_data)
+                        # Store the detailed market data using the service (reuse connection)
+                        market_data_service.update_stamp_market_data(cpid, market_data, db)
                         processed_count += 1
 
                         if processed_count % 5 == 0:  # Log every 5 successful updates
@@ -597,7 +597,7 @@ class MarketDataJobScheduler:
                     market_data = src20_worker.process_src20_market_data(tick)
 
                     if market_data:
-                        market_data_service.update_src20_market_data(tick, market_data)
+                        market_data_service.update_src20_market_data(tick, market_data, db)
                         processed_count += 1
 
                         if processed_count % 5 == 0:  # Log every 5 successful updates
@@ -706,7 +706,7 @@ class MarketDataJobScheduler:
                     f"floor: {collection_data['floor_price_btc']}, holders: {collection_data['unique_holders']}"
                 )
 
-            market_data_service.update_collection_market_data(collection_id, collection_data)
+            market_data_service.update_collection_market_data(collection_id, collection_data, db)
             logger.debug(f"Updated collection market data for {collection_id}")
 
         except Exception as e:

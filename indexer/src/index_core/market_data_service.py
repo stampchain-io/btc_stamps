@@ -251,19 +251,23 @@ class MarketDataService:
             logger.error(f"Error retrieving collection market data for {collection_id}: {e}")
             raise exceptions.DatabaseError(f"Failed to retrieve collection market data: {e}")
 
-    def update_stamp_market_data(self, cpid: str, data: Dict[str, Any]) -> None:
+    def update_stamp_market_data(self, cpid: str, data: Dict[str, Any], db=None) -> None:
         """
         Update market data for a specific stamp.
 
         Args:
             cpid: Counterparty asset ID for the stamp
             data: Dictionary containing market data fields to update
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Raises:
             DatabaseError: If database operation fails
         """
         try:
-            db = self.db_manager.connect()
+            # Use provided connection or create a new one
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     # Map of allowed fields to database columns
@@ -332,25 +336,31 @@ class MarketDataService:
                     logger.debug(f"Updated stamp market data for: {cpid}")
 
             finally:
-                db.close()
+                # Only close if we created the connection
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error updating stamp market data for {cpid}: {e}")
             raise exceptions.DatabaseError(f"Failed to update stamp market data: {e}")
 
-    def update_src20_market_data(self, tick: str, data: Dict[str, Any]) -> None:
+    def update_src20_market_data(self, tick: str, data: Dict[str, Any], db=None) -> None:
         """
         Update market data for a specific SRC-20 token.
 
         Args:
             tick: SRC-20 token ticker symbol
             data: Dictionary containing market data fields to update
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Raises:
             DatabaseError: If database operation fails
         """
         try:
-            db = self.db_manager.connect()
+            # Use provided connection or create a new one
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     # Map of allowed fields to database columns
@@ -411,25 +421,31 @@ class MarketDataService:
                     logger.debug(f"Updated SRC-20 market data for: {tick}")
 
             finally:
-                db.close()
+                # Only close if we created the connection
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error updating SRC-20 market data for {tick}: {e}")
             raise exceptions.DatabaseError(f"Failed to update SRC-20 market data: {e}")
 
-    def update_collection_market_data(self, collection_id: str, data: Dict[str, Any]) -> None:
+    def update_collection_market_data(self, collection_id: str, data: Dict[str, Any], db=None) -> None:
         """
         Update market data for a specific collection.
 
         Args:
             collection_id: Collection identifier (binary UUID as hex string)
             data: Dictionary containing market data fields to update
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Raises:
             DatabaseError: If database operation fails
         """
         try:
-            db = self.db_manager.connect()
+            # Use provided connection or create a new one
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     # Map of allowed fields to database columns
@@ -480,7 +496,9 @@ class MarketDataService:
                     logger.debug(f"Updated collection market data for: {collection_id}")
 
             finally:
-                db.close()
+                # Only close if we created the connection
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error updating collection market data for {collection_id}: {e}")
