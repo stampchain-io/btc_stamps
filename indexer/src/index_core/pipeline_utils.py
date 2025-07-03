@@ -411,15 +411,15 @@ class CPBlocksPipeline:
 
                 # Only log if pipeline is still running to avoid closed file errors
                 if self.running:
-                    logger.warning(f"❌ Block {block_index} not in queue. Queue size: {len(self.queue)}, range: {queue_range}")
-                    logger.warning(f"Pipeline current_block: {self.current_block}, requested: {block_index}")
+                    logger.debug(f"Block {block_index} not in queue. Queue size: {len(self.queue)}, range: {queue_range}")
+                    logger.debug(f"Pipeline current_block: {self.current_block}, requested: {block_index}")
 
                     # Show blocks currently being fetched
                     with self._blocks_fetch_lock:
                         if self.blocks_being_fetched:
                             fetching_list = sorted(list(self.blocks_being_fetched))
                             fetching_range = f"{min(fetching_list)}-{max(fetching_list)}" if fetching_list else "none"
-                            logger.warning(
+                            logger.debug(
                                 f"Blocks being fetched: {len(self.blocks_being_fetched)} blocks, range: {fetching_range}"
                             )
 

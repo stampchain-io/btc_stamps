@@ -141,7 +141,7 @@ class NodeHealth:
         # IMPROVED TIMEOUT HANDLING: Treat timeouts as severe after 2 consecutive timeout failures
         # This enables proper failover when a node is persistently timing out
         if "timeout" in error_info.lower() or "Timeout" in error_info:
-            # If we already have multiple minor failures (indicating persistent issues), treat as severe
+            # If we already have 2 or more minor failures (indicating persistent issues), treat as severe
             if self.minor_failures >= 2:
                 logger.warning(f"Node {self.name} has {self.minor_failures} timeout failures, treating as severe")
                 return True
@@ -630,8 +630,9 @@ def update_healthy_nodes():
                         with node_health._lock:
                             consecutive_failures = node_health.consecutive_failures
 
-                        # Exclude nodes with too many consecutive failures (2+) or persistent minor failures
-                        if consecutive_failures >= 2 or node_health.minor_failures >= 3:
+                        # Exclude nodes with multiple failures for reliability
+                        # Allow 1 minor failure for temporary issues, but exclude on consecutive failures
+                        if consecutive_failures > 0 or node_health.minor_failures >= 2:
                             logger.debug(
                                 f"Node {node_name} has {consecutive_failures} consecutive failures or {node_health.minor_failures} minor failures, excluding despite health check success"
                             )
@@ -718,14 +719,15 @@ def get_healthy_nodes():
                     node_health = node_health_tracker.get(node_name)
 
                     if node_health:
-                        # Skip nodes that are in backoff or have significant persistent issues
+                        # Skip nodes that are in backoff or have significant failures
                         if not node_health.can_retry():
                             logger.debug(f"Excluding {node_name}: in backoff period")
                             continue
-                        if node_health.consecutive_failures >= 2:
+                        if node_health.consecutive_failures > 0:
                             logger.debug(f"Excluding {node_name}: has {node_health.consecutive_failures} consecutive failures")
                             continue
-                        if node_health.minor_failures >= 3:
+                        # Allow 1 minor failure for temporary network issues
+                        if node_health.minor_failures >= 2:
                             logger.debug(f"Excluding {node_name}: has {node_health.minor_failures} minor failures")
                             continue
 
@@ -795,13 +797,38 @@ def get_next_healthy_node_round_robin():
 
     # Use lock to ensure thread-safe index update
     with _round_robin_lock:
-        # Get current node
-        current_index = _round_robin_index % len(nodes)
-        node = nodes[current_index]
+        # Try up to len(nodes) times to find a truly healthy node
+        attempts = 0
+        max_attempts = len(nodes)
 
-        # Advance to next node for next call
-        _round_robin_index = (_round_robin_index + 1) % len(nodes)
+        while attempts < max_attempts:
+            # Get current node
+            current_index = _round_robin_index % len(nodes)
+            node = nodes[current_index]
+            node_name = node.get("name", "unknown")
 
-        logger.debug(f"Round-robin selected node: {node.get('name', 'unknown')} (index: {current_index})")
+            # Advance to next node for next iteration
+            _round_robin_index = (_round_robin_index + 1) % len(nodes)
+            attempts += 1
 
-    return node
+            # Double-check node health before returning
+            node_health = node_health_tracker.get(node_name)
+            if node_health:
+                # Check if node is truly healthy (not in backoff, no severe failures)
+                # Allow nodes with 1 minor failure to still be used
+                if node_health.can_retry() and node_health.consecutive_failures == 0 and node_health.minor_failures < 2:
+                    logger.debug(f"Round-robin selected healthy node: {node_name} (index: {current_index})")
+                    return node
+                else:
+                    logger.debug(
+                        f"Round-robin skipping unhealthy node: {node_name} (consecutive_failures={node_health.consecutive_failures}, minor_failures={node_health.minor_failures}, can_retry={node_health.can_retry()})"
+                    )
+                    continue
+            else:
+                # No health tracker, assume healthy
+                logger.debug(f"Round-robin selected node without health tracker: {node_name} (index: {current_index})")
+                return node
+
+        # All nodes appear unhealthy
+        logger.error("Round-robin: All nodes appear unhealthy after checking")
+        return None
