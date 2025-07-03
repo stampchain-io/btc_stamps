@@ -63,13 +63,14 @@ class MarketDataService:
         self.db_manager = db_manager or DatabaseManager()
         logger.info("MarketDataService initialized")
 
-    def get_stamp_market_data(self, cpid: str, use_cache: bool = True) -> Optional[StampMarketData]:
+    def get_stamp_market_data(self, cpid: str, use_cache: bool = True, db=None) -> Optional[StampMarketData]:
         """
         Retrieve market data for a specific stamp.
 
         Args:
             cpid: Counterparty asset ID for the stamp
             use_cache: Whether to use cached data if available
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Returns:
             Dictionary containing stamp market data or None if not found
@@ -87,7 +88,9 @@ class MarketDataService:
                     return cached_data
 
             # Fetch from database
-            db = self.db_manager.connect()
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     query = f"""
@@ -121,19 +124,21 @@ class MarketDataService:
                     return market_data
 
             finally:
-                db.close()
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error retrieving stamp market data for {cpid}: {e}")
             raise exceptions.DatabaseError(f"Failed to retrieve stamp market data: {e}")
 
-    def get_src20_market_data(self, tick: str, use_cache: bool = True) -> Optional[SRC20MarketData]:
+    def get_src20_market_data(self, tick: str, use_cache: bool = True, db=None) -> Optional[SRC20MarketData]:
         """
         Retrieve market data for a specific SRC-20 token.
 
         Args:
             tick: SRC-20 token ticker symbol
             use_cache: Whether to use cached data if available
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Returns:
             Dictionary containing SRC-20 market data or None if not found
@@ -151,7 +156,9 @@ class MarketDataService:
                     return cached_data
 
             # Fetch from database
-            db = self.db_manager.connect()
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     query = f"""
@@ -184,19 +191,23 @@ class MarketDataService:
                     return market_data
 
             finally:
-                db.close()
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error retrieving SRC-20 market data for {tick}: {e}")
             raise exceptions.DatabaseError(f"Failed to retrieve SRC-20 market data: {e}")
 
-    def get_collection_market_data(self, collection_id: str, use_cache: bool = True) -> Optional[CollectionMarketData]:
+    def get_collection_market_data(
+        self, collection_id: str, use_cache: bool = True, db=None
+    ) -> Optional[CollectionMarketData]:
         """
         Retrieve market data for a specific collection.
 
         Args:
             collection_id: Collection identifier (binary UUID as hex string)
             use_cache: Whether to use cached data if available
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Returns:
             Dictionary containing collection market data or None if not found
@@ -214,7 +225,9 @@ class MarketDataService:
                     return cached_data
 
             # Fetch from database
-            db = self.db_manager.connect()
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     query = f"""
@@ -245,7 +258,8 @@ class MarketDataService:
                     return market_data
 
             finally:
-                db.close()
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error retrieving collection market data for {collection_id}: {e}")
@@ -504,7 +518,7 @@ class MarketDataService:
             logger.error(f"Error updating collection market data for {collection_id}: {e}")
             raise exceptions.DatabaseError(f"Failed to update collection market data: {e}")
 
-    def get_stamp_holders(self, cpid: str, limit: int = 100, use_cache: bool = True) -> List[HolderData]:
+    def get_stamp_holders(self, cpid: str, limit: int = 100, use_cache: bool = True, db=None) -> List[HolderData]:
         """
         Retrieve holder information for a specific stamp.
 
@@ -512,6 +526,7 @@ class MarketDataService:
             cpid: Counterparty asset ID for the stamp
             limit: Maximum number of holders to return
             use_cache: Whether to use cached data if available
+            db: Optional database connection to reuse (if None, creates new connection)
 
         Returns:
             List of dictionaries containing holder information
@@ -529,7 +544,9 @@ class MarketDataService:
                     return cached_data
 
             # Fetch from database
-            db = self.db_manager.connect()
+            own_connection = db is None
+            if own_connection:
+                db = self.db_manager.connect()
             try:
                 with db.cursor() as cursor:
                     query = f"""
@@ -559,7 +576,8 @@ class MarketDataService:
                     return holders
 
             finally:
-                db.close()
+                if own_connection:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Error retrieving stamp holders for {cpid}: {e}")
