@@ -113,8 +113,12 @@ def detect_and_decompress_svg(content_bytes):
                 # Return original content if decompressed content is not SVG
                 return content_bytes, False, magic_mime
                 
-        except (gzip.BadGzipFile, OSError, EOFError, Exception):
+        except (gzip.BadGzipFile, OSError, EOFError):
             # Not actually gzipped or corrupted, return original
+            return content_bytes, False, magic_mime
+        except Exception as e:
+            # Log unexpected exceptions for debugging purposes
+            print(f"Unexpected error during gzip decompression: {e}")
             return content_bytes, False, magic_mime
     
     # Not gzipped or not SVG after decompression
