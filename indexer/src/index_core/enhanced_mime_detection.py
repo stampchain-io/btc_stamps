@@ -100,6 +100,7 @@ def detect_and_decompress_svg(content_bytes):
         or magic_mime in ("application/gzip", "application/x-gzip")
         or magic_mime == "application/octet-stream"  # gzop files might be detected as octet-stream
     )
+
     if is_gzip_file:
         try:
             # Attempt to decompress
@@ -114,10 +115,6 @@ def detect_and_decompress_svg(content_bytes):
 
         except (gzip.BadGzipFile, OSError, EOFError):
             # Not actually gzipped or corrupted, return original
-            return content_bytes, False, magic_mime
-        except Exception as e:
-            # Log unexpected exceptions for debugging purposes
-            print(f"Unexpected error during gzip decompression: {e}")
             return content_bytes, False, magic_mime
 
     # Not gzipped or not SVG after decompression
