@@ -113,7 +113,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         """Test gzipped SVG content detection and decompression."""
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
-        
+
         content, is_svg, mime_type = detect_and_decompress_svg(gzipped_svg)
         self.assertEqual(content, svg_content)
         self.assertTrue(is_svg)
@@ -123,7 +123,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         """Test gzipped non-SVG content."""
         text_content = b"This is just plain text, not SVG"
         gzipped_text = gzip.compress(text_content)
-        
+
         content, is_svg, mime_type = detect_and_decompress_svg(gzipped_text)
         self.assertEqual(content, gzipped_text)  # Returns original gzipped content
         self.assertFalse(is_svg)
@@ -132,7 +132,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
     def test_detect_and_decompress_svg_non_gzipped_non_svg(self):
         """Test non-gzipped, non-SVG content."""
         text_content = b"This is just plain text"
-        
+
         content, is_svg, mime_type = detect_and_decompress_svg(text_content)
         self.assertEqual(content, text_content)
         self.assertFalse(is_svg)
@@ -141,7 +141,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
     def test_detect_and_decompress_svg_corrupted_gzip(self):
         """Test corrupted gzip data handling."""
         corrupted_gzip = b"\x1f\x8b\x08\x00corrupted_data"
-        
+
         content, is_svg, mime_type = detect_and_decompress_svg(corrupted_gzip)
         self.assertEqual(content, corrupted_gzip)
         self.assertFalse(is_svg)
@@ -151,7 +151,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         """Test get_processed_content_and_mime with SVG content."""
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
-        
+
         processed_content, mime_type = get_processed_content_and_mime(gzipped_svg)
         self.assertEqual(processed_content, svg_content)
         self.assertEqual(mime_type, "image/svg+xml")
@@ -159,7 +159,7 @@ class TestEnhancedMimeDetection(unittest.TestCase):
     def test_get_processed_content_and_mime_html(self):
         """Test get_processed_content_and_mime with HTML content."""
         html_content = b"<html><body><h1>Test Page</h1></body></html>"
-        
+
         processed_content, mime_type = get_processed_content_and_mime(html_content)
         self.assertEqual(processed_content, html_content)
         self.assertEqual(mime_type, "text/html")
