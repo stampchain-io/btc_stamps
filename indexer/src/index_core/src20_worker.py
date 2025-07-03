@@ -31,7 +31,7 @@ KUCOIN_BASE_URL = "https://api.kucoin.com"
 KUCOIN_API_VERSION = "v1"
 
 # StampScan API configuration
-STAMPSCAN_BASE_URL = "https://api.stampscan.xyz"
+STAMPSCAN_BASE_URL = config.STAMPSCAN_BASE_URL
 STAMPSCAN_LISTING_SUMMARY_ENDPOINT = "/market/listingSummary"
 STAMPSCAN_COMBINED_LISTINGS_ENDPOINT = "/utxo/combinedListings"
 
