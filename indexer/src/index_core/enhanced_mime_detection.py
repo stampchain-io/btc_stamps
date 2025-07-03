@@ -57,10 +57,10 @@ def is_legitimate_html(content_bytes):
 def is_svg_content(content_bytes):
     """
     Check if content is SVG by looking for SVG markers.
-    
+
     Args:
         content_bytes (bytes): The content to analyze
-        
+
     Returns:
         bool: True if content appears to be SVG
     """
@@ -74,10 +74,10 @@ def is_svg_content(content_bytes):
 def detect_and_decompress_svg(content_bytes):
     """
     Detect and decompress gzipped SVG files (svgz) or gzipped binary files containing SVG.
-    
+
     Args:
         content_bytes (bytes): The content to analyze and potentially decompress
-        
+
     Returns:
         tuple: (decompressed_content_bytes, is_svg, mime_type)
                - decompressed_content_bytes: Original or decompressed content
@@ -87,36 +87,36 @@ def detect_and_decompress_svg(content_bytes):
     # Check if content is already SVG
     if is_svg_content(content_bytes):
         return content_bytes, True, "image/svg+xml"
-    
+
     # Try to detect gzipped content by magic number and MIME type
     try:
         magic_mime = magic.from_buffer(content_bytes, mime=True)
     except Exception:
         magic_mime = "application/octet-stream"
-    
+
     # Check for gzip magic number (1f 8b) or gzip MIME types
     is_gzip_file = (
-        content_bytes.startswith(b"\x1f\x8b") or 
-        magic_mime in ("application/gzip", "application/x-gzip") or
-        magic_mime == "application/octet-stream"  # gzop files might be detected as octet-stream
+        content_bytes.startswith(b"\x1f\x8b")
+        or magic_mime in ("application/gzip", "application/x-gzip")
+        or magic_mime == "application/octet-stream"  # gzop files might be detected as octet-stream
     )
-    
+
     if is_gzip_file:
         try:
             # Attempt to decompress
             decompressed = gzip.decompress(content_bytes)
-            
+
             # Check if decompressed content is SVG
             if is_svg_content(decompressed):
                 return decompressed, True, "image/svg+xml"
             else:
                 # Return original content if decompressed content is not SVG
                 return content_bytes, False, magic_mime
-                
+
         except (gzip.BadGzipFile, OSError, EOFError, Exception):
             # Not actually gzipped or corrupted, return original
             return content_bytes, False, magic_mime
-    
+
     # Not gzipped or not SVG after decompression
     return content_bytes, False, magic_mime
 
@@ -124,23 +124,23 @@ def detect_and_decompress_svg(content_bytes):
 def get_processed_content_and_mime(content_bytes):
     """
     Get both processed content and MIME type for content that may need decompression.
-    
+
     Args:
         content_bytes (bytes): The content to analyze
-        
+
     Returns:
         tuple: (processed_content_bytes, mime_type)
-               - processed_content_bytes: Original or decompressed content  
+               - processed_content_bytes: Original or decompressed content
                - mime_type: The detected MIME type
     """
     # Check for gzipped SVG files first
     processed_content, is_svg, svg_mime = detect_and_decompress_svg(content_bytes)
     if is_svg:
         return processed_content, svg_mime
-    
+
     # Use processed content for further detection
     content_to_analyze = processed_content
-    
+
     # Try standard magic detection
     try:
         magic_mime = magic.from_buffer(content_to_analyze, mime=True)
