@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 MAX_LAYERS = 10  # Define a maximum number of layers
 
+# Compiled regex pattern for recursive SRC-721 references
+RECURSIVE_SRC721_PATTERN = re.compile(r"/s/(A\d{20})(?!\d)")
+
 
 def parse_valid_src721_in_block(valid_stamps_in_block, lock=None):
     valid_src721_in_block = []
@@ -371,8 +374,7 @@ def is_recursive_src721_mint(decoded_content, stamp_mimetype):
             content_str = str(decoded_content)
 
         # Look for /s/<CPID> pattern - CPID is A followed by exactly 20 digits
-        pattern = r"/s/(A\d{20})(?!\d)"
-        matches = re.findall(pattern, content_str)
+        matches = RECURSIVE_SRC721_PATTERN.findall(content_str)
 
         if matches:
             # Return the first CPID found

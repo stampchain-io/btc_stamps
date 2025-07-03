@@ -1,5 +1,4 @@
 import logging
-import os
 import warnings
 from typing import Dict
 
@@ -173,8 +172,7 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     if block_index <= config.BLOCK_FIRST and field != "ledger_hash":
         if previous_consensus_hash:
             error_msg = "Expected previous_consensus_hash to be unset for the first block."
-            force_enabled = config.FORCE or os.environ.get("FORCE", "false").lower() == "true"
-            if force_enabled:
+            if config.FORCE:
                 logger.warning(f"FORCE mode enabled - {error_msg}")
             else:
                 raise ConsensusError(error_msg)
@@ -277,12 +275,9 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
             calculated_hash,
             checkpoints[block_index][field],
         )
-        # Check both config.FORCE and environment variable as fallback
-        force_enabled = config.FORCE or os.environ.get("FORCE", "false").lower() == "true"
-        logger.debug(
-            f"Checking FORCE mode: config.FORCE={config.FORCE}, env FORCE={os.environ.get('FORCE')}, force_enabled={force_enabled}"
-        )
-        if force_enabled:
+        # Check FORCE mode from config (which already reads from environment)
+        logger.debug(f"Checking FORCE mode: config.FORCE={config.FORCE}")
+        if config.FORCE:
             logger.warning(f"FORCE mode enabled - {error_msg}")
             # Don't raise the error, just return the calculated hash
         else:
