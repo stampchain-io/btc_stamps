@@ -203,12 +203,15 @@ class Backend:
                 response = self._session.post(
                     url, data=json.dumps(payload), headers=headers, timeout=(5, 30)  # Separate connect and read timeouts
                 )
-                if response.status_code != 200:
+                if response.status_code == 200:
+                    if i > 0:
+                        logger.debug("Successfully connected.")
+                    break
+                else:
                     logger.debug(f"Response status code: {response.status_code}")
                     # logger.debug(f"Response text: {response.text}")
-                if i > 0:
-                    logger.debug("Successfully connected.")
-                break
+                    if i < TRIES - 1:  # Don't sleep on the last attempt
+                        time.sleep(5)
             except (Timeout, ConnectionError) as e:
                 logger.debug(
                     f"Could not connect to backend at `{util.clean_url_for_log(url)}`. Error: {str(e)} (Try {i + 1}/{TRIES})"

@@ -53,7 +53,7 @@ def create_check_hashes(
         previous_messages_hash (str, optional): The hash of the previous messages. Defaults to None.
 
     Returns:
-        tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
+        tuple: A tuple containing the new ledger hash, transaction list hash, and messages hash.
     """
     # Filter out None values before sorting
     filtered_stamps = [stamp for stamp in valid_stamps_in_block if stamp is not None]
