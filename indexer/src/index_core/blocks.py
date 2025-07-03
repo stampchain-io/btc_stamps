@@ -567,7 +567,7 @@ def follow(
                 max_queue_size=200,
                 target_queue_size=100,  # Maintain 100 blocks ahead
                 initial_fetch_size=30,  # Fetch 30 blocks on startup for quick start
-                max_batch_size=150,  # API limit per call
+                max_batch_size=25,  # Reduced from 150 to improve responsiveness with slow nodes
                 fallback_mode=config.CP_FALLBACK_MODE,
             )
             cp_pipeline_instance.start(block_index)
