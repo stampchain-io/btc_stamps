@@ -477,6 +477,7 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   `last_dispenser_block` INTEGER NULL COMMENT 'Last block where dispenser data was updated',
   `last_balance_block` INTEGER NULL COMMENT 'Last block where balance data was updated',
   `last_price_update` TIMESTAMP NULL COMMENT 'Last time price data was refreshed',
+  `last_sale_block_index` INTEGER NULL COMMENT 'Block index of the most recent sale',
   `update_frequency_minutes` INTEGER DEFAULT 30 COMMENT 'How often this stamp should be updated (adaptive)',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'When this record was first created',
   
@@ -493,8 +494,17 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   INDEX `idx_data_quality` (`data_quality_score` DESC) COMMENT 'For quality-based filtering',
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
   INDEX `idx_volume_composite` (`volume_24h_btc` DESC, `volume_7d_btc` DESC, `holder_count` DESC) COMMENT 'For trending/popular stamps',
-  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
+  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages',
+  INDEX `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
+
+-- Migration: Add last_sale_block_index column and idx_recent_sales index to existing stamp_market_data tables
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN IF NOT EXISTS `last_sale_block_index` INTEGER NULL COMMENT 'Block index of the most recent sale' 
+  AFTER `last_price_update`;
+
+ALTER TABLE `stamp_market_data` 
+  ADD INDEX IF NOT EXISTS `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting';
 
 -- Detailed holder cache for individual stamp holder pages
 CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
