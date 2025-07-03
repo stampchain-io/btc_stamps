@@ -21,6 +21,9 @@ backend_instance = Backend()
 class CPBlocksPipeline:
     """Background worker that prefetches blocks and keeps them in a queue."""
 
+    # Cleanup interval for stuck fetches (in seconds)
+    CLEANUP_INTERVAL_SECONDS = 30
+
     def __init__(
         self,
         max_queue_size=600,
@@ -674,13 +677,20 @@ class CPBlocksPipeline:
 
         # Immediately start fetching the initial blocks
         initial_fetch_complete = False
+        last_cleanup_time = time.time()
 
         while not self.shutdown_flag.is_set() and self.running:
             try:
                 # 1. Process any futures that have completed their work.
                 self._process_completed_futures()
 
-                # 2. Check for node health and handle fallback mode.
+                # 2. Cleanup stuck fetches periodically (based on the configured interval)
+                current_time = time.time()
+                if current_time - last_cleanup_time > self.CLEANUP_INTERVAL_SECONDS:
+                    self._cleanup_stuck_fetches()
+                    last_cleanup_time = current_time
+
+                # 3. Check for node health and handle fallback mode.
                 if self.fallback_mode:
                     if self.check_cp_node_recovery():
                         continue
@@ -688,7 +698,7 @@ class CPBlocksPipeline:
                     if self.check_for_fallback_entry():
                         continue
 
-                # 3. Decide if we need to fetch more blocks.
+                # 4. Decide if we need to fetch more blocks.
                 with self._lock:
                     processor_position = self.current_block
                     queue_size = len(self.queue)
@@ -863,7 +873,8 @@ class CPBlocksPipeline:
                                     logger.debug(f"Block {res_block_index} already in queue, skipping")
                             else:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
-                                logger.warning(f"Block {res_block_index} fetch failed within batch: {error_msg}")
+                                logger.error(f"❌ Block {res_block_index} fetch FAILED: {error_msg}")
+                                logger.warning(f"Block {res_block_index} will remain in blocks_being_fetched until cleanup")
 
                         if added_blocks:
                             added_range = (

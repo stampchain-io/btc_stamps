@@ -312,7 +312,15 @@ class MarketDataService:
                     """
 
                     # Prepare values for INSERT only
-                    values = [cpid] + list(valid_fields.values())
+                    # Convert JSON fields to strings
+                    import json
+
+                    values = [cpid]
+                    for field, value in valid_fields.items():
+                        if field == "volume_sources" and isinstance(value, dict):
+                            values.append(json.dumps(value))
+                        else:
+                            values.append(value)
 
                     cursor.execute(query, values)
                     db.commit()

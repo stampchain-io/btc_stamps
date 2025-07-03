@@ -164,6 +164,21 @@ class ConsensusError(Exception):
     pass
 
 
+def handle_consensus_error(error_msg: str) -> None:
+    """Handle consensus errors based on FORCE mode setting.
+
+    Args:
+        error_msg: The error message to log or raise
+
+    Raises:
+        ConsensusError: If FORCE mode is not enabled
+    """
+    if config.FORCE:
+        logger.warning(f"FORCE mode enabled - {error_msg}")
+    else:
+        raise ConsensusError(error_msg)
+
+
 def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
@@ -171,11 +186,13 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     # initialize previous hash on first block.
     if block_index <= config.BLOCK_FIRST and field != "ledger_hash":
         if previous_consensus_hash:
-            raise ConsensusError("Expected previous_consensus_hash to be unset for the first block.")
+            error_msg = "Expected previous_consensus_hash to be unset for the first block."
+            handle_consensus_error(error_msg)
         previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)
     elif block_index == config.CP_SRC20_GENESIS_BLOCK + 1 and field == "ledger_hash":
         if previous_consensus_hash:
-            raise ConsensusError("Expected previous_consensus_hash to be unset for the SRC20 genesis block.")
+            error_msg = "Expected previous_consensus_hash to be unset for the SRC20 genesis block."
+            handle_consensus_error(error_msg)
         previous_consensus_hash = util.shash_string("")
 
     # Get previous hash.
@@ -190,7 +207,12 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
-            raise ConsensusError("Empty previous {} for block {}. Please launch a `reparse`.".format(field, block_index))
+            error_msg = "Empty previous {} for block {}. Please launch a `reparse`.".format(field, block_index)
+            if config.FORCE:
+                handle_consensus_error(error_msg)
+                previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)  # Use default seed
+            else:
+                handle_consensus_error(error_msg)
     elif not previous_consensus_hash and field == "ledger_hash" and content != "":
         cursor.execute(
             """SELECT ledger_hash FROM blocks WHERE ledger_hash IS NOT NULL AND ledger_hash <> '' ORDER BY block_index DESC LIMIT 1"""
@@ -198,7 +220,12 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         result = cursor.fetchone()
         previous_consensus_hash = result[0] if result else None
         if not previous_consensus_hash:
-            raise ConsensusError(f"Empty previous {field} for block {block_index}. Please launch a `reparse`.")
+            error_msg = f"Empty previous {field} for block {block_index}. Please launch a `reparse`."
+            if config.FORCE:
+                handle_consensus_error(error_msg)
+                previous_consensus_hash = util.shash_string("")  # Use empty hash for ledger_hash
+            else:
+                handle_consensus_error(error_msg)
 
     # Calculate current hash.
     if config.TESTNET:
@@ -229,11 +256,10 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     if found_hash and field != "messages_hash":
         # Check against existing value.
         if calculated_hash != found_hash:
-            raise ConsensusError(
-                "Inconsistent {} for block {} (calculated {}, vs {} in database).".format(
-                    field, block_index, calculated_hash, found_hash
-                )
+            error_msg = "Inconsistent {} for block {} (calculated {}, vs {} in database).".format(
+                field, block_index, calculated_hash, found_hash
             )
+            handle_consensus_error(error_msg)
     else:
         # Save new hash.
         cursor.execute(
@@ -249,14 +275,16 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     else:
         checkpoints = CHECKPOINTS_MAINNET
     if field != "messages_hash" and block_index in checkpoints and checkpoints[block_index][field] != calculated_hash:
-        raise ConsensusError(
-            "Incorrect {} consensus hash for block {}.  Calculated {} but expected {}".format(
-                field,
-                block_index,
-                calculated_hash,
-                checkpoints[block_index][field],
-            )
+        error_msg = "Incorrect {} consensus hash for block {}.  Calculated {} but expected {}".format(
+            field,
+            block_index,
+            calculated_hash,
+            checkpoints[block_index][field],
         )
+        # Check FORCE mode from config (which already reads from environment)
+        logger.debug(f"Checking FORCE mode: config.FORCE={config.FORCE}")
+        handle_consensus_error(error_msg)
+        # Don't raise the error, just return the calculated hash
 
     return calculated_hash, found_hash
 

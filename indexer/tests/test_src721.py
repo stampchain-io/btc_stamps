@@ -8,6 +8,8 @@ import pytest
 # Import the actual functions we're testing
 from index_core.src721 import (
     convert_to_dict,
+    is_recursive_src721_deploy,
+    is_recursive_src721_mint,
     parse_valid_src721_in_block,
     validate_base64_image,
 )
@@ -394,3 +396,56 @@ def test_validate_src721_and_process_unknown_op():
             assert file_suffix == "svg"
             assert coll_name is None
             assert coll_onchain is None
+
+
+def test_build_src721_stacked_svg_default_pixelated():
+    """Test that default image-rendering is pixelated when not specified."""
+    from index_core.src721 import build_src721_stacked_svg
+
+    # Test with collection that doesn't specify image-rendering
+    nft_object = {"ts": [0]}
+    collection_object = {
+        "name": "Test Collection",
+        "description": "Test Description",
+        # Note: no "image-rendering" specified
+        "t0-img": ["base64data0"],
+    }
+
+    with patch("index_core.src721.validate_base64_image") as mock_validate:
+        mock_validate.return_value = (True, "data:image/png;base64,validdata")
+
+        svg, collection_name = build_src721_stacked_svg(nft_object, collection_object)
+
+        assert collection_name == "Test Collection"
+        assert "image-rendering:pixelated" in svg
+        assert "-webkit-image-rendering:pixelated" in svg
+        # Ensure auto is not present
+        assert "image-rendering:auto" not in svg
+
+
+def test_is_recursive_src721_mint_basic():
+    """Test basic recursive SRC-721 mint detection."""
+    # Test with HTML containing /s/ reference
+    html_content = '<html><script src="/s/A17785882525351975000"></script></html>'
+    is_recursive, cpid = is_recursive_src721_mint(html_content, "text/html")
+
+    assert is_recursive is True
+    assert cpid == "A17785882525351975000"
+
+    # Test with non-matching content
+    html_no_ref = "<html><body>No reference</body></html>"
+    is_recursive, cpid = is_recursive_src721_mint(html_no_ref, "text/html")
+
+    assert is_recursive is False
+    assert cpid is None
+
+
+def test_is_recursive_src721_deploy_basic():
+    """Test basic recursive SRC-721 deploy detection."""
+    # Valid recursive deploy
+    deploy_json = {"p": "src-721", "v": "r0", "op": "deploy", "name": "Test Collection"}
+    assert is_recursive_src721_deploy(deploy_json) is True
+
+    # Standard deploy (no version)
+    standard_deploy = {"p": "src-721", "op": "deploy", "name": "Test Collection"}
+    assert is_recursive_src721_deploy(standard_deploy) is False

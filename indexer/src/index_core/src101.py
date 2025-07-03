@@ -477,7 +477,9 @@ class Src101Processor:
                     return
             else:
                 if self.src101_dict.get("img") is None:
-                    self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
+                    tokenid_list = self.src101_dict.get("tokenid")
+                    if tokenid_list is not None:
+                        self.src101_dict["img"] = [None] * len(tokenid_list)
                 elif not isinstance(self.src101_dict.get("img"), list):
                     self.set_status_and_log(
                         "ITI", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
@@ -565,17 +567,26 @@ class Src101Processor:
             if self.imglp and self.imgf:
                 if self.block_index < BTC_SRC101_IMG_OPTIONAL_BLOCK:
                     # check img
-                    for index in range(len(self.src101_dict.get("tokenid_utf8"))):
+                    tokenid_utf8_list = self.src101_dict.get("tokenid_utf8")
+                    if tokenid_utf8_list is None:
+                        return
+                    for index in range(len(tokenid_utf8_list)):
                         _img = self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
-                        if index >= len(self.src101_dict.get("img")) or _img != self.src101_dict.get("img")[index]:
+                        img_list = self.src101_dict.get("img")
+                        if img_list is None or index >= len(img_list) or _img != img_list[index]:
                             self.set_status_and_log(
                                 "IRM", deploy_hash=self.src101_dict.get("deploy_hash"), img=self.src101_dict.get("img")
                             )
                             return
                 else:
                     # set img
-                    self.src101_dict["img"] = [None] * len(self.src101_dict.get("tokenid"))
-                    for index in range(len(self.src101_dict.get("tokenid_utf8"))):
+                    tokenid_list = self.src101_dict.get("tokenid")
+                    if tokenid_list is not None:
+                        self.src101_dict["img"] = [None] * len(tokenid_list)
+                    tokenid_utf8_list = self.src101_dict.get("tokenid_utf8")
+                    if tokenid_utf8_list is None:
+                        return
+                    for index in range(len(tokenid_utf8_list)):
                         self.src101_dict["img"][index] = (
                             self.imglp + self.src101_dict.get("tokenid_utf8")[index] + "." + self.imgf
                         )
@@ -590,7 +601,11 @@ class Src101Processor:
 
             # check tokenid
             preowners = []
-            for index in reversed(range(len(self.src101_dict.get("tokenid_utf8")))):
+            tokenid_utf8_list = self.src101_dict.get("tokenid_utf8")
+            if tokenid_utf8_list is None:
+                self.set_status_and_log("ITT", deploy_hash=self.src101_dict.get("deploy_hash"))
+                return
+            for index in reversed(range(len(tokenid_utf8_list))):
                 result = get_owner_expire_data_from_running(
                     self.db,
                     self.processed_src101_in_block,
@@ -609,12 +624,26 @@ class Src101Processor:
                     logger.error("Error decoding txt_data")
                     txt_data = txt_data_raw
                 if expire_timestamp and expire_timestamp > self.src101_dict.get("block_timestamp"):
-                    del self.src101_dict.get("tokenid")[index]
-                    del self.src101_dict.get("tokenid_utf8")[index]
+                    # Safely delete from tokenid lists to prevent NoneType errors
+                    tokenid_list = self.src101_dict.get("tokenid")
+                    tokenid_utf8_list = self.src101_dict.get("tokenid_utf8")
+
+                    if tokenid_list is not None and tokenid_utf8_list is not None:
+                        del tokenid_list[index]
+                        del tokenid_utf8_list[index]
+                    else:
+                        logger.error(
+                            f"Missing tokenid lists during mint for tx {self.src101_dict.get('tx_hash')}: "
+                            f"tokenid={'None' if tokenid_list is None else 'exists'}, "
+                            f"tokenid_utf8={'None' if tokenid_utf8_list is None else 'exists'}"
+                        )
+                        self.set_status_and_log("ITT", deploy_hash=self.src101_dict.get("deploy_hash"))
+                        return
                 else:
                     preowners.append(src101_owner)
             preowners.reverse()
-            if len(self.src101_dict.get("tokenid")) == 0:
+            tokenid_list = self.src101_dict.get("tokenid")
+            if tokenid_list is None or len(tokenid_list) == 0:
                 self.set_status_and_log(
                     "DM", deploy_hash=self.src101_dict.get("deploy_hash"), tokenid=self.src101_dict.get("tokenid")
                 )
@@ -770,8 +799,9 @@ class Src101Processor:
             self.src101_dict["round"] = self.src101_dict.get("dua") / self.idua
 
             price = get_src101_price(self.db, self.src101_dict.get("deploy_hash"), self.processed_src101_in_block)
-            if len(self.src101_dict.get("tokenid_utf8")) in price.keys():
-                needValue = price[len(self.src101_dict.get("tokenid_utf8"))]
+            tokenid_utf8_list = self.src101_dict.get("tokenid_utf8")
+            if tokenid_utf8_list is not None and len(tokenid_utf8_list) in price.keys():
+                needValue = price[len(tokenid_utf8_list)]
             elif 0 in price.keys():
                 needValue = price[0]
             else:

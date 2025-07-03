@@ -85,7 +85,7 @@ def initialize_config(
     backend_ssl=False,
     backend_ssl_no_verify=False,
     backend_poll_interval=None,
-    force=False,
+    force=None,
     verbose=False,
     console_logfilter=None,
     requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
@@ -115,7 +115,9 @@ def initialize_config(
     config.BACKEND_SSL = backend_ssl
     config.BACKEND_SSL_NO_VERIFY = backend_ssl_no_verify
     config.BACKEND_POLL_INTERVAL = float(backend_poll_interval or 1)
-    config.FORCE = force
+    # Only override FORCE if explicitly provided as a parameter
+    if force is not None:
+        config.FORCE = force
     config.PREFIX = b"stamp:"
     config.CP_PREFIX = b"CNTRPRTY"
     config.REQUESTS_TIMEOUT = requests_timeout
@@ -252,11 +254,10 @@ def initialize_config(
     ##############
     # OTHER SETTINGS
 
-    # skip checks
-    if force:
+    # skip checks - only override if force parameter is explicitly provided
+    if force is not None:
         config.FORCE = force
-    else:
-        config.FORCE = False
+    # Otherwise, keep the value from environment/config module
 
     # Encoding
     config.PREFIX = b"stamp:"

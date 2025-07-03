@@ -74,8 +74,14 @@ def print_header(header_type):
     print(colored(HEADER_ART[header_type], "cyan"))
 
 
-def run_command(command, ignore_errors=False):
-    """Run a command and handle its output with improved formatting"""
+def run_command(command, ignore_errors=False, suppress_stderr=False):
+    """Run a command and handle its output with improved formatting
+
+    Args:
+        command: The command to run
+        ignore_errors: If True, don't exit on command failure
+        suppress_stderr: If True, don't print stderr output (useful for expected failures)
+    """
     # Create a fancy command display
     cmd_display = f">> {colored('Running:', 'blue', attrs=['bold'])} {colored(command, 'yellow')}"
     print(f"\n{cmd_display}")
@@ -93,9 +99,10 @@ def run_command(command, ignore_errors=False):
     # Handle command result
     if result.returncode != 0:
         error_msg = colored("Command failed with error:", "red", attrs=["bold"])
-        print(f"{error_msg}", file=sys.stderr)
-        if result.stderr:
-            print(colored(result.stderr, "red"), file=sys.stderr)
+        if not suppress_stderr:
+            print(f"{error_msg}", file=sys.stderr)
+            if result.stderr:
+                print(colored(result.stderr, "red"), file=sys.stderr)
         print(colored(f"Duration: {duration:.2f}s", "yellow"))
         logger.error(f"Command failed with return code: {result.returncode}")
         if not ignore_errors:
@@ -341,10 +348,15 @@ def run_rust_checks():
     print_header("rust")
 
     # First check if the parser is already working
+    # We suppress stderr here because in CI environments, the parser won't exist on first run,
+    # which creates expected but noisy error output. We handle the missing parser case below
+    # by building it if needed. The error is not useful for debugging since it's an expected
+    # condition in fresh environments.
     logger.info("Checking if Rust parser is already available...")
     parser_available = run_command(
         'poetry run python -c "from btc_stamps_parser import FastTransactionParser; parser = FastTransactionParser()"',
         ignore_errors=True,
+        suppress_stderr=True,
     )
 
     commands = [

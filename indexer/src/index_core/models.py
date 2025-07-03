@@ -27,7 +27,7 @@ from config import (
 from index_core.caching import cache_manager
 from index_core.src20 import build_src20_svg_string, check_format
 from index_core.src101 import check_src101_inputs
-from index_core.src721 import validate_src721_and_process
+from index_core.src721 import is_recursive_src721_deploy, is_recursive_src721_mint, validate_src721_and_process
 from index_core.util import create_base62_hash
 
 logger = logging.getLogger(__name__)
@@ -537,6 +537,9 @@ class StampData:
     def valid_src721(self):
         if self.block_index < CP_SRC721_GENESIS_BLOCK:
             return False
+        # OLGA mints are marked as SRC-721 but should not be processed as JSON SRC-721
+        if self.ident == "SRC-721" and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
+            return False
         base_condition = (
             self.ident == "SRC-721"
             and (self.keyburn == 1 or (self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START))
@@ -575,6 +578,26 @@ class StampData:
         self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
         self.check_decoded_data_fetch_ident_mime()
         self.is_op_return = None  # reset because p2wsh are typically op_return
+
+        # Check for recursive SRC-721 deploy (r0) after initial processing
+        if self.block_index >= CP_SRC721_GENESIS_BLOCK and self.ident == "SRC-721" and isinstance(self.decoded_base64, dict):
+            if is_recursive_src721_deploy(self.decoded_base64):
+                # Set collection info for r0 deploys
+                self.collection_name = self.decoded_base64.get("name")
+                self.collection_description = self.decoded_base64.get("description")
+                self.collection_website = self.decoded_base64.get("website")
+                self.collection_onchain = 1 if self.collection_name else None
+
+        # Check for OLGA mints (HTML/SVG with /s/<CPID> references)
+        # These should be flagged as SRC-721 (ident only, no other changes)
+        if (
+            self.block_index >= CP_SRC721_GENESIS_BLOCK
+            and self.stamp_mimetype in ["text/html", "image/svg+xml"]
+            and self.p2wsh_data
+        ):
+            is_olga, _ = is_recursive_src721_mint(self.p2wsh_data, self.stamp_mimetype)
+            if is_olga:
+                self.ident = "SRC-721"
 
     def process_decoded_base64(self):
         self.check_decoded_data_fetch_ident_mime()

@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 MAX_LAYERS = 10  # Define a maximum number of layers
 
+# Compiled regex pattern for recursive SRC-721 references
+RECURSIVE_SRC721_PATTERN = re.compile(r"/s/(A\d{20})(?!\d)")
+
 
 def parse_valid_src721_in_block(valid_stamps_in_block, lock=None):
     valid_src721_in_block = []
@@ -196,7 +199,7 @@ def build_src721_stacked_svg(tmp_nft_object, tmp_collection_object):
     """
     tmp_coll_description = tmp_collection_object.get("description", "")
     tmp_coll_name = tmp_collection_object.get("name", "SRC-721")
-    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "auto")
+    tmp_coll_img_render = tmp_collection_object.get("image-rendering", "pixelated")
 
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
         viewBox="0 0 420 420"
@@ -347,3 +350,63 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
     except Exception as e:
         logger.debug(f"Base64 validation failed: {str(e)}")
         return False, ""
+
+
+def is_recursive_src721_mint(decoded_content, stamp_mimetype):
+    """
+    Check if content is a recursive SRC-721 mint by looking for /s/<CPID> pattern.
+
+    Args:
+        decoded_content: The decoded content (HTML/SVG bytes or string)
+        stamp_mimetype: The MIME type of the content
+
+    Returns:
+        tuple: (is_recursive_mint: bool, referenced_cpid: str|None)
+    """
+    if not decoded_content or stamp_mimetype not in ["text/html", "image/svg+xml"]:
+        return False, None
+
+    try:
+        # Convert bytes to string if needed
+        if isinstance(decoded_content, bytes):
+            content_str = decoded_content.decode("utf-8", errors="ignore")
+        else:
+            content_str = str(decoded_content)
+
+        # Look for /s/<CPID> pattern - CPID is A followed by exactly 20 digits
+        matches = RECURSIVE_SRC721_PATTERN.findall(content_str)
+
+        if matches:
+            # Return the first CPID found
+            logger.debug(f"Found recursive SRC-721 reference to CPID: {matches[0]}")
+            return True, matches[0]
+
+    except Exception as e:
+        logger.debug(f"Error checking for recursive mint: {e}")
+
+    return False, None
+
+
+def is_recursive_src721_deploy(src721_json):
+    """
+    Check if a deploy transaction is for recursive SRC-721 (version r0).
+
+    Args:
+        src721_json: The SRC-721 JSON data
+
+    Returns:
+        bool: True if this is a recursive deploy
+    """
+    if not isinstance(src721_json, dict):
+        return False
+
+    # Check for version "r0" which indicates recursive format
+    version = src721_json.get("v", "")
+    if version is None:
+        return False
+
+    # Convert to string to handle both string and numeric versions
+    version_str = str(version).lower() if version else ""
+    op = src721_json.get("op", "").upper()
+
+    return version_str == "r0" and op == "DEPLOY"
