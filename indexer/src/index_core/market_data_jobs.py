@@ -178,18 +178,21 @@ class MarketDataJobScheduler:
 
                 # Submit the job
                 if self.executor and self.running:
-                    logger.debug(f"Submitting job: {job_name}")
+                    logger.info(f"📋 Submitting market data job: {job_name}")
 
                     try:
                         # Add debug wrapper to ensure job starts
                         def job_wrapper():
-                            logger.debug(f"Starting job: {job_name}")
+                            logger.info(f"🚀 Starting market data job: {job_name}")
+                            start_time = time.time()
                             try:
                                 result = job_function()
-                                logger.debug(f"Completed job: {job_name}")
+                                elapsed = time.time() - start_time
+                                logger.info(f"✅ Completed market data job: {job_name} in {elapsed:.1f}s")
                                 return result
                             except Exception as job_error:
-                                logger.error(f"Error in job {job_name}: {job_error}")
+                                elapsed = time.time() - start_time
+                                logger.error(f"❌ Error in market data job {job_name} after {elapsed:.1f}s: {job_error}")
                                 import traceback
 
                                 logger.error(f"Job traceback: {traceback.format_exc()}")
@@ -198,7 +201,7 @@ class MarketDataJobScheduler:
                         future = self.executor.submit(job_wrapper)
                         self.job_futures[job_name] = future
                         self.last_run_times[job_name] = datetime.now()
-                        logger.debug(f"Job {job_name} submitted successfully")
+                        logger.info(f"📤 Job {job_name} submitted successfully")
                     except Exception as submit_error:
                         logger.error(f"Failed to submit job {job_name}: {submit_error}")
                         import traceback
@@ -252,23 +255,23 @@ class MarketDataJobScheduler:
                 stamps_to_update = self._get_stamps_needing_update(task_db)
 
                 if not stamps_to_update:
-                    logger.info("No stamps need market data updates")
+                    logger.info("📭 No stamps need market data updates at this time")
                     return
 
-                logger.debug(f"Updating market data for {len(stamps_to_update)} stamps")
+                logger.info(f"📊 Starting market data update for {len(stamps_to_update)} stamps")
 
                 # Process stamps in batches to avoid overwhelming external APIs
                 batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
                 total_batches = len(batches)
-                logger.debug(f"Processing {len(stamps_to_update)} stamps in {total_batches} batches")
+                logger.info(f"🔄 Processing {len(stamps_to_update)} stamps in {total_batches} batches")
 
                 for batch_num, batch in enumerate(batches, 1):
                     if self.shutdown_event.is_set():
-                        logger.info("Shutdown requested, stopping stamp updates")
+                        logger.info("🛑 Shutdown requested, stopping stamp updates")
                         break
 
                     if batch_num % 10 == 0 or batch_num == 1 or batch_num == total_batches:
-                        logger.debug(f"Stamp update progress: {batch_num}/{total_batches} batches")
+                        logger.info(f"📈 Stamp update progress: {batch_num}/{total_batches} batches")
                     self._process_stamp_batch(task_db, batch)
 
                     # Rate limiting between batches
@@ -276,7 +279,7 @@ class MarketDataJobScheduler:
                         time.sleep(2)  # 2 second delay between batches
 
                 elapsed_time = time.time() - start_time
-                logger.debug(f"Stamp update complete: {len(stamps_to_update)} stamps in {elapsed_time:.1f}s")
+                logger.info(f"✅ Stamp market data update complete: {len(stamps_to_update)} stamps processed in {elapsed_time:.1f}s")
 
             finally:
                 task_db.close()
