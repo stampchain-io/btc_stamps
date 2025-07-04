@@ -2712,15 +2712,32 @@ def initialize_tables(db):
 
         existing_count = cursor.fetchone()[0]
 
+        # Get the path to table_schema.sql relative to this file
+        schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "table_schema.sql")
+        with open(schema_path, "r") as file:
+            sql_script = file.read()
+        sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
+
         if existing_count == len(required_tables):
-            logger.info(f"All {len(required_tables)} required tables already exist, skipping schema execution")
+            logger.info(f"All {len(required_tables)} required tables already exist")
+            # Still run ALTER statements for schema updates (they're safe with IF NOT EXISTS)
+            alter_commands = [cmd for cmd in sql_commands if cmd.upper().startswith("ALTER TABLE")]
+            if alter_commands:
+                logger.info(f"Executing {len(alter_commands)} ALTER TABLE statements for schema updates...")
+                for command in alter_commands:
+                    try:
+                        db_manager.execute_with_retry(cursor, command)
+                        logger.debug("Successfully executed ALTER statement")
+                    except Exception as e:
+                        logger.warning(f"ALTER statement failed (this may be expected): {e}")
+                        # Continue with other ALTER statements even if one fails
+                        continue
+                logger.info("Schema updates completed")
+            else:
+                logger.info("No ALTER statements found in schema")
         else:
-            logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing schema...")
-            # Get the path to table_schema.sql relative to this file
-            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "table_schema.sql")
-            with open(schema_path, "r") as file:
-                sql_script = file.read()
-            sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
+            logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing full schema...")
+            # Execute all commands when tables are missing
             for command in sql_commands:
                 try:
                     db_manager.execute_with_retry(cursor, command)

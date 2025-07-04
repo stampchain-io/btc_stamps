@@ -505,34 +505,35 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   INDEX `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
 
--- Migration: Add last_sale_block_index column and idx_recent_sales index to existing stamp_market_data tables
+-- Migration: Add market data columns for recent sales tracking
+-- Note: These may fail if columns already exist, which is expected behavior
 ALTER TABLE `stamp_market_data` 
-  ADD COLUMN IF NOT EXISTS `last_sale_block_index` INTEGER NULL COMMENT 'Block index of the most recent sale' 
+  ADD COLUMN `last_sale_block_index` INTEGER NULL COMMENT 'Block index of the most recent sale' 
   AFTER `last_price_update`;
 
 ALTER TABLE `stamp_market_data` 
-  ADD INDEX IF NOT EXISTS `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting';
-
--- Migration: Add additional recent sale detail columns
-ALTER TABLE `stamp_market_data` 
-  ADD COLUMN IF NOT EXISTS `last_sale_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash of the most recent sale' 
+  ADD COLUMN `last_sale_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash of the most recent sale' 
   AFTER `confidence_level`;
   
 ALTER TABLE `stamp_market_data` 
-  ADD COLUMN IF NOT EXISTS `last_sale_buyer_address` VARCHAR(100) NULL COMMENT 'Address of the buyer in the most recent sale' 
+  ADD COLUMN `last_sale_buyer_address` VARCHAR(100) NULL COMMENT 'Address of the buyer in the most recent sale' 
   AFTER `last_sale_tx_hash`;
   
 ALTER TABLE `stamp_market_data` 
-  ADD COLUMN IF NOT EXISTS `last_sale_dispenser_address` VARCHAR(100) NULL COMMENT 'Dispenser address used in the most recent sale' 
+  ADD COLUMN `last_sale_dispenser_address` VARCHAR(100) NULL COMMENT 'Dispenser address used in the most recent sale' 
   AFTER `last_sale_buyer_address`;
   
 ALTER TABLE `stamp_market_data` 
-  ADD COLUMN IF NOT EXISTS `last_sale_btc_amount` BIGINT NULL COMMENT 'Actual BTC amount paid in satoshis for the most recent sale' 
+  ADD COLUMN `last_sale_btc_amount` BIGINT NULL COMMENT 'Actual BTC amount paid in satoshis for the most recent sale' 
   AFTER `last_sale_dispenser_address`;
   
 ALTER TABLE `stamp_market_data` 
-  ADD COLUMN IF NOT EXISTS `last_sale_dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash that created the dispenser (optional)' 
+  ADD COLUMN `last_sale_dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash that created the dispenser (optional)' 
   AFTER `last_sale_btc_amount`;
+
+-- Add index for recent sales queries  
+ALTER TABLE `stamp_market_data` 
+  ADD INDEX `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC);
 
 -- Detailed holder cache for individual stamp holder pages
 CREATE TABLE IF NOT EXISTS `stamp_holder_cache` (
