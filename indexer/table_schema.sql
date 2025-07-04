@@ -507,9 +507,7 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
 
 -- Migration: Add market data columns for recent sales tracking
 -- Note: These may fail if columns already exist, which is expected behavior
-ALTER TABLE `stamp_market_data` 
-  ADD COLUMN `last_sale_block_index` INTEGER NULL COMMENT 'Block index of the most recent sale' 
-  AFTER `last_price_update`;
+-- Add columns in order they appear in the main CREATE statement
 
 ALTER TABLE `stamp_market_data` 
   ADD COLUMN `last_sale_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash of the most recent sale' 
@@ -531,7 +529,11 @@ ALTER TABLE `stamp_market_data`
   ADD COLUMN `last_sale_dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash that created the dispenser (optional)' 
   AFTER `last_sale_btc_amount`;
 
--- Add index for recent sales queries  
+ALTER TABLE `stamp_market_data` 
+  ADD COLUMN `last_sale_block_index` INTEGER NULL COMMENT 'Block index of the most recent sale' 
+  AFTER `last_price_update`;
+
+-- Add index for recent sales queries (only if it doesn't exist from CREATE statement)
 ALTER TABLE `stamp_market_data` 
   ADD INDEX `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC);
 
