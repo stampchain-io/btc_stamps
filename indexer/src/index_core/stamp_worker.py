@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from index_core.fetch_utils import RateLimiter, fetch_xcp
 from index_core.stamp_market_processor import StampMarketDataProcessor
+from index_core.sales_history_processor import sales_history_processor
+from index_core.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,9 @@ VOLUME_CALCULATION_DAYS = [1, 7, 30]  # Calculate volume for 1d, 7d, 30d
 MAX_DISPENSERS_PER_REQUEST = 1000
 MAX_DISPENSES_PER_REQUEST = 1000
 MAX_BALANCES_PER_REQUEST = 1000
+
+# Bitcoin Stamps genesis block - no need for dispense data before this
+STAMPS_GENESIS_BLOCK = 779652
 
 
 class StampWorker:
@@ -60,13 +65,14 @@ class StampWorker:
             start_time = time.time()
 
             # Fetch all required data from Counterparty API
+            # NOTE: We no longer fetch dispenses from the API - we use the sales history table instead
             dispensers_data = self._fetch_dispensers(cpid)
-            dispenses_data = self._fetch_dispenses(cpid)
             balances_data = self._fetch_balances(cpid)
             logger.debug(f"Fetched {len(balances_data) if balances_data else 0} balance records for {cpid}")
 
             # Process the raw data into market metrics
-            market_data = self._calculate_market_metrics(cpid, dispensers_data, dispenses_data, balances_data)
+            # Pass None for dispenses_data since we now use the sales history table
+            market_data = self._calculate_market_metrics(cpid, dispensers_data, None, balances_data)
 
             if market_data:
                 # Add processing metadata
@@ -123,7 +129,18 @@ class StampWorker:
 
     def _fetch_dispenses(self, cpid: str) -> Optional[List[Dict]]:
         """
+        DEPRECATED: This method is no longer used. We now query the stamp_sales_history table instead.
+        
         Fetch dispense history for a stamp from Counterparty API.
+        
+        TODO: Architectural improvement opportunities:
+        1. During initial indexing: Fetch dispenses by block as we process each block
+           /blocks/{block_index}/dispenses - Build sales history incrementally
+        2. When caught up to tip: Continue using block-based fetching for new blocks
+        3. Market data refresh: Only fetch recent dispenses since last update
+        
+        This would distribute API load and eliminate the need to fetch full history
+        when market data jobs start running near tip.
 
         Args:
             cpid: Counterparty asset ID
@@ -136,7 +153,7 @@ class StampWorker:
             self.rate_limiter.acquire()
 
             endpoint = f"/assets/{cpid}/dispenses"
-            params = {"limit": MAX_DISPENSES_PER_REQUEST, "show_unconfirmed": "false"}
+            params = {"limit": MAX_DISPENSES_PER_REQUEST, "show_unconfirmed": "false", "verbose": "true"}
 
             logger.debug(f"Fetching dispenses for {cpid}")
             response = fetch_xcp(endpoint, params)
@@ -233,17 +250,17 @@ class StampWorker:
                 if floor_price is not None:
                     market_data["price_source"] = "dispenser"
 
-            # Calculate volume metrics from dispenses
-            if dispenses:
-                volume_metrics = self._calculate_volume_metrics(dispenses)
-                market_data.update(volume_metrics)
-                # Set volume sources if we found any volume data
-                if any(volume_metrics.get(f"volume_{period}_btc", 0) > 0 for period in ["24h", "7d", "30d"]):
-                    market_data["volume_sources"] = {"dispenser": 1.0}
-                # Update volume fields to 0 if they weren't set by dispenses
-                for vol_field in ["volume_24h_btc", "volume_7d_btc", "volume_30d_btc"]:
-                    if market_data.get(vol_field) is None:
-                        market_data[vol_field] = 0.0
+            # Calculate volume metrics from sales history table instead of API dispenses
+            # This ensures we get accurate volume data that matches what's stored in the database
+            volume_metrics = self._calculate_volume_metrics_from_history(cpid)
+            market_data.update(volume_metrics)
+            # Set volume sources if we found any volume data
+            if any(volume_metrics.get(f"volume_{period}_btc", 0) > 0 for period in ["24h", "7d", "30d"]):
+                market_data["volume_sources"] = {"dispenser": 1.0}
+            # Update volume fields to 0 if they weren't set by history
+            for vol_field in ["volume_24h_btc", "volume_7d_btc", "volume_30d_btc"]:
+                if market_data.get(vol_field) is None:
+                    market_data[vol_field] = 0.0
 
             # Calculate holder metrics from balances
             if balances:
@@ -355,17 +372,28 @@ class StampWorker:
                     block_index = dispense.get("block_index")
                     if not block_time:
                         continue
+                        
+                    # Skip dispenses before Bitcoin Stamps genesis
+                    if block_index and block_index < STAMPS_GENESIS_BLOCK:
+                        continue
 
                     dispense_time = datetime.fromtimestamp(block_time)
                     time_diff = now - dispense_time
 
-                    # Get dispense value in BTC
+                    # Get dispense data using correct field names from Counterparty API response
                     dispense_quantity = float(dispense.get("dispense_quantity", 0))
-                    satoshirate = float(dispense.get("satoshirate", 0))
+                    btc_amount = float(dispense.get("btc_amount", 0))  # Already provided in satoshis
+                    
+                    # With verbose=true, we get the dispenser data nested in the response
+                    dispenser_data = dispense.get("dispenser", {})
+                    satoshirate = float(dispenser_data.get("satoshirate", 0))
+                    
+                    # Get the dispenser tx hash
+                    dispenser_tx_hash = dispense.get("dispenser_tx_hash")
 
                     if dispense_quantity > 0 and satoshirate > 0:
                         # Calculate volume in BTC
-                        volume_btc = (dispense_quantity * satoshirate) / 100000000
+                        volume_btc = btc_amount / 100000000  # Convert satoshis to BTC
                         price_per_unit = satoshirate / 100000000
 
                         # Track most recent sale with all details
@@ -374,12 +402,10 @@ class StampWorker:
                             most_recent_price = price_per_unit
                             most_recent_block_index = block_index
                             most_recent_tx_hash = dispense.get("tx_hash")
-                            most_recent_buyer = dispense.get("source")  # source is the buyer
-                            most_recent_dispenser = dispense.get("destination")  # destination is the dispenser
-                            # Calculate BTC amount in satoshis (dispense_quantity * satoshirate)
-                            most_recent_btc_amount = int(dispense_quantity * satoshirate)
-                            # Get the dispenser creation tx from the dispenser address field
-                            most_recent_dispenser_tx_hash = dispense.get("dispenser_tx_hash")
+                            most_recent_buyer = dispense.get("source")  # source is the buyer who received assets
+                            most_recent_dispenser = dispense.get("destination")  # destination is the dispenser address
+                            most_recent_btc_amount = int(btc_amount)  # btc_amount is already in satoshis
+                            most_recent_dispenser_tx_hash = dispenser_tx_hash
 
                         # Add to appropriate time period buckets
                         if time_diff.days < 1:
@@ -406,12 +432,67 @@ class StampWorker:
                 volume_metrics["last_sale_dispenser_tx_hash"] = most_recent_dispenser_tx_hash
                 
                 # Log when we successfully capture recent sale data
-                logger.info(f"Captured recent sale: tx={most_recent_tx_hash}, buyer={most_recent_buyer}, amount={most_recent_btc_amount} sats")
+                logger.info(f"Captured recent sale: tx={most_recent_tx_hash}, buyer={most_recent_buyer}, "
+                           f"amount={most_recent_btc_amount} sats, dispenser_tx={most_recent_dispenser_tx_hash}")
 
             return volume_metrics
 
         except Exception as e:
             logger.error(f"Error calculating volume metrics: {e}")
+            return {}
+    
+    def _calculate_volume_metrics_from_history(self, cpid: str, db=None) -> Dict[str, Any]:
+        """
+        Calculate volume metrics from the sales history table.
+        
+        Args:
+            cpid: Counterparty asset ID
+            db: Optional database connection
+            
+        Returns:
+            Dictionary with volume metrics
+        """
+        try:
+            # Get volume data from sales history
+            volume_24h = sales_history_processor.calculate_volume_from_history(cpid, hours=24)
+            volume_7d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 7)
+            volume_30d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 30)
+            
+            # Get recent sales for the most recent sale info
+            recent_sales = sales_history_processor.get_recent_sales(limit=1, cpid=cpid)
+            
+            volume_metrics: Dict[str, Any] = {
+                "volume_24h_btc": volume_24h.get('volume_btc', 0.0),
+                "volume_7d_btc": volume_7d.get('volume_btc', 0.0),
+                "volume_30d_btc": volume_30d.get('volume_btc', 0.0),
+                "total_dispenses_count": volume_30d.get('trade_count', 0),
+                "recent_dispenses_count": volume_24h.get('trade_count', 0),
+            }
+            
+            # Add most recent sale details if available
+            if recent_sales:
+                most_recent = recent_sales[0]
+                volume_metrics.update({
+                    "recent_sale_price_btc": float(most_recent.get('unit_price_sats', 0)) / 100000000,
+                    "last_price_update": datetime.fromtimestamp(most_recent.get('block_time', 0)).isoformat() if most_recent.get('block_time') else None,
+                    "last_sale_block_index": most_recent.get('block_index'),
+                    "last_sale_tx_hash": most_recent.get('tx_hash'),
+                    "last_sale_buyer_address": most_recent.get('buyer_address'),
+                    "last_sale_dispenser_address": most_recent.get('seller_address'),
+                    "last_sale_btc_amount": most_recent.get('btc_amount'),
+                    "last_sale_dispenser_tx_hash": most_recent.get('dispenser_tx_hash'),
+                })
+                
+                # Log when we successfully capture recent sale data
+                if most_recent.get('tx_hash'):
+                    logger.info(f"Captured recent sale from history: tx={most_recent.get('tx_hash')}, "
+                               f"buyer={most_recent.get('buyer_address')}, "
+                               f"amount={most_recent.get('btc_amount')} sats")
+            
+            return volume_metrics
+            
+        except Exception as e:
+            logger.error(f"Error calculating volume metrics from history: {e}")
             return {}
 
     def _calculate_holder_metrics(self, balances: List[Dict]) -> Dict:

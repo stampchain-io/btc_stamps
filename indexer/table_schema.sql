@@ -742,6 +742,52 @@ WHERE smd.volume_24h_btc > 0
 ORDER BY trending_score DESC
 LIMIT 100;
 
+-- Unified sales history table for all stamp transactions
+CREATE TABLE IF NOT EXISTS `stamp_sales_history` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  
+  -- Core Transaction Data (common to all sale types)
+  `tx_hash` VARCHAR(64) NOT NULL COMMENT 'Sale transaction hash',
+  `block_index` INT NOT NULL COMMENT 'Block number of the sale',
+  `block_time` INT NULL COMMENT 'Unix timestamp of the block',
+  `cpid` VARCHAR(255) NOT NULL COMMENT 'Counterparty asset ID',
+  `sale_type` ENUM('dispenser', 'atomic_swap', 'otc', 'auction', 'dex') NOT NULL COMMENT 'Type of sale',
+  
+  -- Parties Involved
+  `buyer_address` VARCHAR(64) NOT NULL COMMENT 'Address that bought the stamp',
+  `seller_address` VARCHAR(64) NOT NULL COMMENT 'Address that sold the stamp',
+  
+  -- Sale Details
+  `quantity` BIGINT NOT NULL COMMENT 'Number of stamps sold',
+  `btc_amount` BIGINT NOT NULL COMMENT 'Total BTC amount in satoshis',
+  `unit_price_sats` BIGINT NOT NULL COMMENT 'Price per stamp in satoshis',
+  
+  -- Type-Specific Fields (NULL when not applicable)
+  `dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'For dispensers: tx that created the dispenser',
+  `swap_contract_id` VARCHAR(64) NULL COMMENT 'For atomic swaps: contract identifier',
+  `platform` VARCHAR(50) NULL COMMENT 'For external sales: platform name',
+  `external_id` VARCHAR(100) NULL COMMENT 'External reference ID',
+  
+  -- Metadata
+  `data_source` VARCHAR(50) DEFAULT 'counterparty' COMMENT 'Source of this data',
+  `notes` TEXT NULL COMMENT 'Additional notes or metadata',
+  `processed_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  
+  -- Ensure uniqueness (some external sales might share tx_hash)
+  UNIQUE KEY `unique_sale` (`tx_hash`, `sale_type`, `cpid`),
+  
+  -- Performance indexes
+  INDEX `idx_cpid` (`cpid`) COMMENT 'For CPID-based queries',
+  INDEX `idx_block` (`block_index`) COMMENT 'For rollback operations',
+  INDEX `idx_block_time` (`block_time` DESC) COMMENT 'For recent sales queries',
+  INDEX `idx_cpid_time` (`cpid`, `block_time` DESC) COMMENT 'For CPID price history',
+  INDEX `idx_sale_type` (`sale_type`) COMMENT 'For type-specific queries',
+  INDEX `idx_recent_sales` (`block_time` DESC, `btc_amount` DESC) COMMENT 'For global recent sales',
+  INDEX `idx_buyer` (`buyer_address`) COMMENT 'For buyer history',
+  INDEX `idx_seller` (`seller_address`) COMMENT 'For seller history'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci 
+COMMENT='Unified sales history for all stamp transactions - enables charts, recent sales, and analytics';
+
 -- =====================================================================
 -- END ENHANCED MARKET DATA CACHE TABLES
 -- =====================================================================

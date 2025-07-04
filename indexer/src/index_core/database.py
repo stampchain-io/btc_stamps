@@ -1179,6 +1179,7 @@ def purge_block_db(db: Connection, block_index: int) -> None:
         STAMP_TABLE,
         TRANSACTIONS_TABLE,
         BLOCKS_TABLE,
+        "stamp_sales_history",  # Purge sales history for proper rollback
     ]
 
     for table in tables:
