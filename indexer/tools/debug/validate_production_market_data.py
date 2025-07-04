@@ -20,7 +20,7 @@ import os
 import sys
 import pymysql
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -364,35 +364,39 @@ class MarketDataValidator:
         try:
             with self.connection.cursor() as cursor:
                 # Check if we have any stamps that should need updates
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT COUNT(*) as total_stamps,
                            COUNT(CASE WHEN ident IN ('STAMP', 'SRC-721') THEN 1 END) as eligible_stamps,
                            COUNT(CASE WHEN ident IN ('STAMP', 'SRC-721') AND smd.cpid IS NULL THEN 1 END) as never_processed
                     FROM StampTableV4 s
                     LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
-                """)
+                """
+                )
                 stamp_analysis = cursor.fetchone()
-                
+
                 if stamp_analysis:
                     total, eligible, never_processed = stamp_analysis
                     print(f"  📊 Stamp Analysis:")
                     print(f"    Total stamps: {total:,}")
                     print(f"    Eligible for market data: {eligible:,}")
                     print(f"    Never processed: {never_processed:,}")
-                    
+
                     diagnosis["stamp_analysis"] = {
                         "total_stamps": total,
-                        "eligible_stamps": eligible, 
-                        "never_processed": never_processed
+                        "eligible_stamps": eligible,
+                        "never_processed": never_processed,
                     }
 
                 # Check recent activity in stamp table
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT COUNT(*) as recent_stamps
                     FROM StampTableV4 s
                     WHERE s.block_time > DATE_SUB(NOW(), INTERVAL 7 DAY)
                     AND s.ident IN ('STAMP', 'SRC-721')
-                """)
+                """
+                )
                 recent_stamps = cursor.fetchone()[0]
                 print(f"    New stamps (last 7 days): {recent_stamps:,}")
                 diagnosis["recent_activity"] = recent_stamps
@@ -408,7 +412,8 @@ class MarketDataValidator:
                     print(f"    {table_name}: {count:,} records")
 
                 # Check if there are any recent job runs (look for patterns in last_updated)
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT 
                         DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i') as update_time,
                         COUNT(*) as batch_size
@@ -417,9 +422,10 @@ class MarketDataValidator:
                     GROUP BY DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i')
                     ORDER BY update_time DESC
                     LIMIT 10
-                """)
+                """
+                )
                 recent_batches = cursor.fetchall()
-                
+
                 if recent_batches:
                     print(f"\n  🕒 Recent Batch Processing:")
                     for batch_time, batch_size in recent_batches:
