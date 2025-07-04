@@ -13,7 +13,7 @@ Usage:
     python validate_production_market_data.py [--verbose] [--limit N]
 
 Environment Variables Required:
-    ST3_HOSTNAME, ST3_USER, ST3_PASSWORD, PROD_DATABASE
+    RDS_HOSTNAME, RDS_USER, RDS_PASSWORD, RDS_DATABASE
 """
 
 import os
@@ -37,16 +37,16 @@ class MarketDataValidator:
         self.connection = None
 
     def connect_production(self) -> bool:
-        """Connect to production database using ST3_* environment variables."""
+        """Connect to production database using RDS_* environment variables."""
         try:
-            host = os.environ.get("ST3_HOSTNAME")
-            user = os.environ.get("ST3_USER")
-            password = os.environ.get("ST3_PASSWORD")
-            database = os.environ.get("PROD_DATABASE")
+            host = os.environ.get("RDS_HOSTNAME")
+            user = os.environ.get("RDS_USER")
+            password = os.environ.get("RDS_PASSWORD")
+            database = os.environ.get("RDS_DATABASE")
 
             if not all([host, user, password, database]):
-                print("❌ Missing required ST3_* environment variables")
-                print("Required: ST3_HOSTNAME, ST3_USER, ST3_PASSWORD, PROD_DATABASE")
+                print("❌ Missing required RDS_* environment variables")
+                print("Required: RDS_HOSTNAME, RDS_USER, RDS_PASSWORD, RDS_DATABASE")
                 return False
 
             print(f"🔌 Connecting to production database: {host}/{database}")
@@ -356,6 +356,85 @@ class MarketDataValidator:
         except Exception as e:
             print(f"❌ Error validating consistency: {e}")
 
+    def diagnose_market_data_jobs(self) -> Dict[str, Any]:
+        """Diagnose why market data jobs might not be working."""
+        print(f"\n🔧 Diagnosing market data job execution...")
+        diagnosis = {}
+
+        try:
+            with self.connection.cursor() as cursor:
+                # Check if we have any stamps that should need updates
+                cursor.execute("""
+                    SELECT COUNT(*) as total_stamps,
+                           COUNT(CASE WHEN ident IN ('STAMP', 'SRC-721') THEN 1 END) as eligible_stamps,
+                           COUNT(CASE WHEN ident IN ('STAMP', 'SRC-721') AND smd.cpid IS NULL THEN 1 END) as never_processed
+                    FROM StampTableV4 s
+                    LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
+                """)
+                stamp_analysis = cursor.fetchone()
+                
+                if stamp_analysis:
+                    total, eligible, never_processed = stamp_analysis
+                    print(f"  📊 Stamp Analysis:")
+                    print(f"    Total stamps: {total:,}")
+                    print(f"    Eligible for market data: {eligible:,}")
+                    print(f"    Never processed: {never_processed:,}")
+                    
+                    diagnosis["stamp_analysis"] = {
+                        "total_stamps": total,
+                        "eligible_stamps": eligible, 
+                        "never_processed": never_processed
+                    }
+
+                # Check recent activity in stamp table
+                cursor.execute("""
+                    SELECT COUNT(*) as recent_stamps
+                    FROM StampTableV4 s
+                    WHERE s.block_time > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    AND s.ident IN ('STAMP', 'SRC-721')
+                """)
+                recent_stamps = cursor.fetchone()[0]
+                print(f"    New stamps (last 7 days): {recent_stamps:,}")
+                diagnosis["recent_activity"] = recent_stamps
+
+                # Check for existing market data tables
+                cursor.execute("SHOW TABLES LIKE '%market_data%'")
+                market_tables = cursor.fetchall()
+                print(f"\n  📋 Market Data Tables:")
+                for table in market_tables:
+                    table_name = table[0]
+                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    count = cursor.fetchone()[0]
+                    print(f"    {table_name}: {count:,} records")
+
+                # Check if there are any recent job runs (look for patterns in last_updated)
+                cursor.execute("""
+                    SELECT 
+                        DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i') as update_time,
+                        COUNT(*) as batch_size
+                    FROM stamp_market_data 
+                    WHERE last_updated IS NOT NULL
+                    GROUP BY DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i')
+                    ORDER BY update_time DESC
+                    LIMIT 10
+                """)
+                recent_batches = cursor.fetchall()
+                
+                if recent_batches:
+                    print(f"\n  🕒 Recent Batch Processing:")
+                    for batch_time, batch_size in recent_batches:
+                        print(f"    {batch_time}: {batch_size} records updated")
+                    diagnosis["recent_batches"] = recent_batches
+                else:
+                    print(f"\n  ⚠️  No batch processing detected")
+                    diagnosis["recent_batches"] = []
+
+        except Exception as e:
+            print(f"❌ Error during diagnosis: {e}")
+            diagnosis["error"] = str(e)
+
+        return diagnosis
+
     def close(self):
         """Close database connection."""
         if self.connection:
@@ -399,6 +478,9 @@ def main():
 
         # Validate consistency
         validator.validate_data_consistency()
+
+        # Diagnose job execution issues
+        validator.diagnose_market_data_jobs()
 
         print("\n" + "=" * 50)
         print("📋 VALIDATION SUMMARY")
