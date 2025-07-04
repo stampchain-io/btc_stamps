@@ -158,6 +158,27 @@ class MarketDataEffectivenessAnalyzer:
         )
         stats["collection_market_data"] = collection_stats
 
+        # Stamp sales history statistics
+        sales_stats = self.fetch_one(
+            """
+            SELECT 
+                COUNT(*) as total_sales,
+                COUNT(DISTINCT cpid) as unique_stamps_sold,
+                COUNT(DISTINCT buyer_address) as unique_buyers,
+                COUNT(DISTINCT seller_address) as unique_sellers,
+                SUM(btc_amount) / 100000000.0 as total_volume_btc,
+                AVG(btc_amount) / 100000000.0 as avg_sale_btc,
+                MIN(block_time) as first_sale_time,
+                MAX(block_time) as last_sale_time,
+                COUNT(CASE WHEN sale_type = 'dispenser' THEN 1 END) as dispenser_sales,
+                COUNT(CASE WHEN sale_type = 'atomic_swap' THEN 1 END) as atomic_swap_sales,
+                COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 86400 THEN 1 END) as sales_24h,
+                COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 604800 THEN 1 END) as sales_7d
+            FROM stamp_sales_history
+        """
+        )
+        stats["stamp_sales_history"] = sales_stats
+
         # Market data sources reliability
         source_stats = self.fetch_all(
             """
@@ -543,6 +564,7 @@ class MarketDataEffectivenessAnalyzer:
             "multi_source_performance": self.analyze_multi_source_performance(),
             "cache_freshness_issues": self.analyze_cache_freshness_issues(),
             "stampscan_analysis": self.analyze_stampscan_performance(),
+            "sales_history_analysis": self.analyze_sales_history(),
         }
 
         if detailed:
@@ -644,9 +666,31 @@ class MarketDataEffectivenessAnalyzer:
         for table_name, stats in table_stats.items():
             if isinstance(stats, dict):
                 print(f"\n### {table_name.replace('_', ' ').title()}")
-                for metric, value in stats.items():
-                    if value is not None:
-                        print(f"- **{metric.replace('_', ' ').title()}:** {value}")
+
+                # Special formatting for stamp_sales_history table
+                if table_name == "stamp_sales_history":
+                    for metric, value in stats.items():
+                        if value is not None:
+                            if metric in ["total_volume_btc", "avg_sale_btc"]:
+                                print(f"- **{metric.replace('_', ' ').title()}:** {value:.6f} BTC")
+                            elif metric in ["first_sale_time", "last_sale_time"]:
+                                from datetime import datetime
+
+                                if value:
+                                    dt = datetime.fromtimestamp(value)
+                                    print(f"- **{metric.replace('_', ' ').title()}:** {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                                else:
+                                    print(f"- **{metric.replace('_', ' ').title()}:** N/A")
+                            else:
+                                print(
+                                    f"- **{metric.replace('_', ' ').title()}:** {value:,}"
+                                    if isinstance(value, (int, float))
+                                    else f"- **{metric.replace('_', ' ').title()}:** {value}"
+                                )
+                else:
+                    for metric, value in stats.items():
+                        if value is not None:
+                            print(f"- **{metric.replace('_', ' ').title()}:** {value}")
 
         # Data Quality
         print("\n## 🎯 Data Quality Analysis")
@@ -960,6 +1004,159 @@ class MarketDataEffectivenessAnalyzer:
         if src20_interval:
             avg_age = src20_interval.get("avg_age_minutes", 0)
             print(f"- **Current SRC-20 average age:** {avg_age:.0f} minutes (target: <60 minutes)")
+
+        # Sales History Analysis Section
+        print("\n## 💰 Sales History Analysis")
+        sales_data = data.get("sales_history_analysis", {})
+
+        if "sales_activity" in sales_data:
+            activity = sales_data["sales_activity"]
+            if activity:
+                print("\n### Sales Activity Overview")
+                total_sales = activity.get("total_sales", 0)
+                unique_stamps = activity.get("unique_stamps_sold", 0)
+                sales_24h = activity.get("sales_24h", 0)
+                sales_7d = activity.get("sales_7d", 0)
+                volume_24h = activity.get("volume_24h_btc", 0)
+                volume_7d = activity.get("volume_7d_btc", 0)
+
+                print(f"- **Total Sales Recorded:** {total_sales:,}")
+                print(f"- **Unique Stamps Sold:** {unique_stamps:,}")
+                print(f"- **Sales (24h):** {sales_24h:,}")
+                print(f"- **Sales (7d):** {sales_7d:,}")
+                print(f"- **Volume (24h):** {volume_24h:.4f} BTC")
+                print(f"- **Volume (7d):** {volume_7d:.4f} BTC")
+
+        if "sales_by_type" in sales_data:
+            types = sales_data["sales_by_type"]
+            if types:
+                print("\n### Sales by Type")
+                for sale_type in types:
+                    type_name = sale_type.get("sale_type", "Unknown")
+                    count = sale_type.get("sale_count", 0)
+                    volume = sale_type.get("total_volume_btc", 0)
+                    unique = sale_type.get("unique_stamps", 0)
+                    print(
+                        f"- **{type_name.replace('_', ' ').title()}:** {count:,} sales | {volume:.4f} BTC | {unique} unique stamps"
+                    )
+
+        if "top_stamps_by_volume" in sales_data:
+            top_stamps = sales_data["top_stamps_by_volume"]
+            if top_stamps:
+                print("\n### Top Selling Stamps (7d Volume)")
+                for i, stamp in enumerate(top_stamps[:10], 1):
+                    stamp_name = stamp.get("stamp", "Unknown")
+                    cpid = stamp.get("cpid", "")
+                    volume = stamp.get("total_volume_btc", 0)
+                    sales = stamp.get("sale_count", 0)
+                    avg_sale = stamp.get("avg_sale_btc", 0)
+                    print(f"{i}. **{stamp_name}** ({cpid}): {volume:.4f} BTC | {sales} sales | Avg: {avg_sale:.6f} BTC")
+
+        if "trader_activity" in sales_data:
+            traders = sales_data["trader_activity"]
+            if traders:
+                print("\n### Trader Activity")
+                buyers = traders.get("unique_buyers", 0)
+                sellers = traders.get("unique_sellers", 0)
+                active_buyers = traders.get("active_buyers_24h", 0)
+                active_sellers = traders.get("active_sellers_24h", 0)
+                print(f"- **Total Unique Buyers:** {buyers:,}")
+                print(f"- **Total Unique Sellers:** {sellers:,}")
+                print(f"- **Active Buyers (24h):** {active_buyers}")
+                print(f"- **Active Sellers (24h):** {active_sellers}")
+
+    def analyze_sales_history(self) -> Dict[str, Any]:
+        """Analyze stamp sales history data."""
+        sales_analysis = {}
+
+        # Sales activity by time period
+        sales_activity = self.fetch_one(
+            """
+            SELECT 
+                COUNT(*) as total_sales,
+                COUNT(DISTINCT cpid) as unique_stamps_sold,
+                COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 3600 THEN 1 END) as sales_1h,
+                COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 86400 THEN 1 END) as sales_24h,
+                COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 604800 THEN 1 END) as sales_7d,
+                COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 2592000 THEN 1 END) as sales_30d,
+                SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 86400 THEN btc_amount END) / 100000000.0 as volume_24h_btc,
+                SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 604800 THEN btc_amount END) / 100000000.0 as volume_7d_btc
+            FROM stamp_sales_history
+        """
+        )
+        sales_analysis["sales_activity"] = sales_activity
+
+        # Top selling stamps by volume
+        top_stamps_volume = self.fetch_all(
+            """
+            SELECT 
+                ssh.cpid,
+                s.stamp,
+                COUNT(*) as sale_count,
+                SUM(ssh.btc_amount) / 100000000.0 as total_volume_btc,
+                AVG(ssh.btc_amount) / 100000000.0 as avg_sale_btc,
+                MAX(ssh.block_time) as last_sale_time,
+                MIN(ssh.unit_price_sats) as min_price_sats,
+                MAX(ssh.unit_price_sats) as max_price_sats
+            FROM stamp_sales_history ssh
+            JOIN StampTableV4 s ON ssh.cpid = s.cpid
+            WHERE ssh.block_time > UNIX_TIMESTAMP() - 604800  -- Last 7 days
+            GROUP BY ssh.cpid, s.stamp
+            ORDER BY total_volume_btc DESC
+            LIMIT 20
+        """
+        )
+        sales_analysis["top_stamps_by_volume"] = top_stamps_volume
+
+        # Sales distribution by type
+        sales_by_type = self.fetch_all(
+            """
+            SELECT 
+                sale_type,
+                COUNT(*) as sale_count,
+                SUM(btc_amount) / 100000000.0 as total_volume_btc,
+                AVG(btc_amount) / 100000000.0 as avg_sale_btc,
+                COUNT(DISTINCT cpid) as unique_stamps
+            FROM stamp_sales_history
+            GROUP BY sale_type
+            ORDER BY sale_count DESC
+        """
+        )
+        sales_analysis["sales_by_type"] = sales_by_type
+
+        # Recent sales trend
+        recent_trend = self.fetch_all(
+            """
+            SELECT 
+                DATE(FROM_UNIXTIME(block_time)) as sale_date,
+                COUNT(*) as daily_sales,
+                COUNT(DISTINCT cpid) as unique_stamps,
+                SUM(btc_amount) / 100000000.0 as daily_volume_btc,
+                AVG(btc_amount) / 100000000.0 as avg_sale_btc
+            FROM stamp_sales_history
+            WHERE block_time > UNIX_TIMESTAMP() - 1209600  -- Last 14 days
+            GROUP BY DATE(FROM_UNIXTIME(block_time))
+            ORDER BY sale_date DESC
+        """
+        )
+        sales_analysis["daily_sales_trend"] = recent_trend
+
+        # Active traders analysis
+        active_traders = self.fetch_one(
+            """
+            SELECT 
+                COUNT(DISTINCT buyer_address) as unique_buyers,
+                COUNT(DISTINCT seller_address) as unique_sellers,
+                (SELECT COUNT(DISTINCT buyer_address) FROM stamp_sales_history 
+                 WHERE block_time > UNIX_TIMESTAMP() - 86400) as active_buyers_24h,
+                (SELECT COUNT(DISTINCT seller_address) FROM stamp_sales_history 
+                 WHERE block_time > UNIX_TIMESTAMP() - 86400) as active_sellers_24h
+            FROM stamp_sales_history
+        """
+        )
+        sales_analysis["trader_activity"] = active_traders
+
+        return sales_analysis
 
     def analyze_stampscan_performance(self) -> Dict[str, Any]:
         """Analyze StampScan source performance specifically."""

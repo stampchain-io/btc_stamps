@@ -68,6 +68,11 @@ from index_core.node_health import is_shutdown_requested, register_shutdown_call
 from index_core.pipeline_utils import CPBlocksPipeline
 from index_core.profiling import Profiler
 from index_core.resource_manager import cleanup_resources
+
+# Conditional import for sales history processor
+if config.ENABLE_MARKET_DATA_SCHEDULER:
+    from index_core.sales_history_processor import sales_history_processor
+
 from index_core.signal_handlers import setup_signal_handler
 from index_core.src20 import (
     Src20Dict,
@@ -211,6 +216,27 @@ class BlockProcessor:
 
         if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
             clear_zero_balances(self.db)
+
+        # Process dispense sales for this block after stamps are processed
+        # This ensures we capture sales data in real-time as blocks are processed
+        if config.ENABLE_MARKET_DATA_SCHEDULER:
+            # Start sales history catchup on first run if needed
+            if not hasattr(self, "_sales_catchup_started"):
+                self._sales_catchup_started = True
+                try:
+                    from index_core.market_data_jobs import start_sales_history_catchup
+
+                    start_sales_history_catchup()
+                except Exception as e:
+                    logger.warning(f"Failed to start sales history catchup: {e}")
+
+            try:
+                dispense_count = sales_history_processor.process_block_dispenses(block_index, self.db)
+                if dispense_count > 0:
+                    logger.info(f"Processed {dispense_count} stamp dispenses in block {block_index}")
+            except Exception as e:
+                logger.error(f"Error processing dispenses for block {block_index}: {e}")
+                # Don't fail the block for dispense processing errors
 
         new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
             self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list

@@ -2568,6 +2568,121 @@ def get_stamp_market_overview(db: Connection, limit: int = 100) -> List[Tuple]:
         return []
 
 
+def apply_schema_updates(db, cursor):
+    """
+    Apply schema updates by comparing expected schema with actual database schema.
+    This function intelligently adds missing columns and indexes without relying on ALTER statements.
+
+    Future TODO: Implement proper migration system with:
+    - Migration version tracking table
+    - Support for column/index removals and modifications
+    - Rollback capabilities
+    - Migration file system (e.g., migrations/001_add_sales_columns.py)
+
+    For now, this handles the common case of adding new columns/indexes safely.
+    """
+    logger.info("Checking for schema updates...")
+
+    # Define expected schema updates
+    # Format: {table_name: {columns: [(name, type, comment)], indexes: [(name, columns)]}}
+    # NOTE: This only handles additions. For removals/modifications, manual intervention is required.
+    schema_updates = {
+        "stamp_market_data": {
+            "columns": [
+                ("last_sale_block_index", "INTEGER", "Block index of the most recent sale"),
+                ("last_sale_tx_hash", "VARCHAR(64)", "Transaction hash of the most recent sale"),
+                ("last_sale_buyer_address", "VARCHAR(100)", "Address of the buyer in the most recent sale"),
+                ("last_sale_dispenser_address", "VARCHAR(100)", "Dispenser address used in the most recent sale"),
+                ("last_sale_btc_amount", "BIGINT", "Actual BTC amount paid in satoshis for the most recent sale"),
+                ("last_sale_dispenser_tx_hash", "VARCHAR(64)", "Transaction hash that created the dispenser (optional)"),
+            ],
+            "indexes": [],  # No new indexes needed, idx_recent_sales already exists in CREATE TABLE
+        }
+    }
+
+    updates_applied = 0
+
+    for table_name, updates in schema_updates.items():
+        # Check if table exists
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            AND table_name = %s
+        """,
+            (table_name,),
+        )
+
+        if cursor.fetchone()[0] == 0:
+            logger.debug(f"Table {table_name} does not exist, skipping updates")
+            continue
+
+        # Check and add missing columns
+        for column_name, column_type, comment in updates.get("columns", []):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+                AND column_name = %s
+            """,
+                (table_name, column_name),
+            )
+
+            if cursor.fetchone()[0] == 0:
+                # Column doesn't exist, add it
+                alter_sql = f"ALTER TABLE `{table_name}` ADD COLUMN `{column_name}` {column_type} NULL"
+                if comment:
+                    alter_sql += f" COMMENT '{comment}'"
+
+                try:
+                    cursor.execute(alter_sql)
+                    db.commit()
+                    logger.info(f"Added column {column_name} to {table_name}")
+                    updates_applied += 1
+                except Exception as e:
+                    logger.error(f"Failed to add column {column_name} to {table_name}: {e}")
+                    db.rollback()
+            else:
+                logger.debug(f"Column {column_name} already exists in {table_name}")
+
+        # Check and add missing indexes
+        for index_name, index_columns in updates.get("indexes", []):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+                AND index_name = %s
+            """,
+                (table_name, index_name),
+            )
+
+            if cursor.fetchone()[0] == 0:
+                # Index doesn't exist, add it
+                columns_str = ", ".join([f"`{col}`" for col in index_columns])
+                alter_sql = f"ALTER TABLE `{table_name}` ADD INDEX `{index_name}` ({columns_str})"
+
+                try:
+                    cursor.execute(alter_sql)
+                    db.commit()
+                    logger.info(f"Added index {index_name} to {table_name}")
+                    updates_applied += 1
+                except Exception as e:
+                    logger.error(f"Failed to add index {index_name} to {table_name}: {e}")
+                    db.rollback()
+            else:
+                logger.debug(f"Index {index_name} already exists in {table_name}")
+
+    if updates_applied > 0:
+        logger.info(f"Schema updates completed: {updates_applied} changes applied")
+    else:
+        logger.info("Schema is up to date, no updates needed")
+
+
 def import_csv_data(cursor, csv_url, insert_query, is_url=False):
     """Import CSV data from URL or local file with ETag caching."""
     max_int = sys.maxsize
@@ -2690,13 +2805,22 @@ def initialize_tables(db):
             "src101price",
             "src20_token_stats",
             "stamp_views",
-            # Enhanced Market Data Cache Tables
-            "stamp_market_data",
-            "stamp_holder_cache",
-            "market_data_sources",
-            "src20_market_data",
-            "collection_market_data",
         ]
+
+        # Only include market data tables if the scheduler is enabled
+        if config.ENABLE_MARKET_DATA_SCHEDULER:
+            required_tables.extend(
+                [
+                    # Enhanced Market Data Cache Tables
+                    "stamp_market_data",
+                    "stamp_holder_cache",
+                    "market_data_sources",
+                    "src20_market_data",
+                    "collection_market_data",
+                    # Sales History Table
+                    "stamp_sales_history",
+                ]
+            )
 
         # Quick check if all tables exist
         cursor.execute(
@@ -2721,37 +2845,26 @@ def initialize_tables(db):
 
         if existing_count == len(required_tables):
             logger.info(f"All {len(required_tables)} required tables already exist")
-            # Still run ALTER statements for schema updates (they're safe with IF NOT EXISTS)
-            alter_commands = [cmd for cmd in sql_commands if cmd.upper().startswith("ALTER TABLE")]
-            if alter_commands:
-                logger.info(f"Executing {len(alter_commands)} ALTER TABLE statements for schema updates...")
-                success_count = 0
-                for command in alter_commands:
-                    try:
-                        # Use direct cursor execution for ALTER statements to avoid retries on expected failures
-                        cursor.execute(command)
-                        success_count += 1
-                        logger.debug("Successfully executed ALTER statement")
-                    except Exception as e:
-                        # Check if it's a duplicate column error (expected)
-                        if "Duplicate column name" in str(e) or "Duplicate key name" in str(e):
-                            logger.debug(f"Column/index already exists (expected): {e}")
-                        else:
-                            logger.warning(f"ALTER statement failed: {e}")
-                        # Continue with other ALTER statements even if one fails
-                        continue
-                logger.info(f"Schema updates completed ({success_count}/{len(alter_commands)} statements executed)")
-            else:
-                logger.info("No ALTER statements found in schema")
+            # Apply any schema updates by comparing expected vs actual schema
+            apply_schema_updates(db, cursor)
         else:
             logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing full schema...")
-            # Execute all commands when tables are missing
-            for command in sql_commands:
+            # Separate CREATE and ALTER commands
+            create_commands = [cmd for cmd in sql_commands if not cmd.upper().startswith("ALTER TABLE")]
+            alter_commands = [cmd for cmd in sql_commands if cmd.upper().startswith("ALTER TABLE")]
+
+            logger.info(f"Schema contains {len(create_commands)} CREATE commands and {len(alter_commands)} ALTER commands")
+
+            # Execute CREATE commands with retry (important for table creation)
+            for command in create_commands:
                 try:
                     db_manager.execute_with_retry(cursor, command)
                 except Exception as e:
                     logger.error(f"Error executing command:{command};\nerror:{e}")
                     raise e
+
+            # Apply schema updates after creating tables
+            apply_schema_updates(db, cursor)
 
         import_csv_data(
             cursor,
