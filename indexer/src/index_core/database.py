@@ -2724,15 +2724,22 @@ def initialize_tables(db):
             alter_commands = [cmd for cmd in sql_commands if cmd.upper().startswith("ALTER TABLE")]
             if alter_commands:
                 logger.info(f"Executing {len(alter_commands)} ALTER TABLE statements for schema updates...")
+                success_count = 0
                 for command in alter_commands:
                     try:
-                        db_manager.execute_with_retry(cursor, command)
+                        # Use direct cursor execution for ALTER statements to avoid retries on expected failures
+                        cursor.execute(command)
+                        success_count += 1
                         logger.debug("Successfully executed ALTER statement")
                     except Exception as e:
-                        logger.warning(f"ALTER statement failed (this may be expected): {e}")
+                        # Check if it's a duplicate column error (expected)
+                        if "Duplicate column name" in str(e) or "Duplicate key name" in str(e):
+                            logger.debug(f"Column/index already exists (expected): {e}")
+                        else:
+                            logger.warning(f"ALTER statement failed: {e}")
                         # Continue with other ALTER statements even if one fails
                         continue
-                logger.info("Schema updates completed")
+                logger.info(f"Schema updates completed ({success_count}/{len(alter_commands)} statements executed)")
             else:
                 logger.info("No ALTER statements found in schema")
         else:
