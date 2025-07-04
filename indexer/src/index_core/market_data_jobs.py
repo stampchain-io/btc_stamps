@@ -18,6 +18,7 @@ import config
 from index_core.database_manager import DatabaseManager
 from index_core.fetch_utils import RateLimiter
 from index_core.market_data_service import market_data_service
+from index_core.sales_history_processor import sales_history_processor
 from index_core.src20_worker import SRC20Worker
 from index_core.stamp_worker import StampWorker
 
@@ -73,6 +74,9 @@ class MarketDataJobScheduler:
         self.running = True
         self.shutdown_event.clear()
 
+        # Check if sales history catchup is needed and start it
+        self._check_and_start_sales_catchup()
+
         # Start the main scheduling loop
         self.schedule_loop_future = self.executor.submit(self._schedule_loop)
 
@@ -111,6 +115,34 @@ class MarketDataJobScheduler:
             self.executor = None
 
         logger.info("Market data job scheduler stopped")
+
+    def _check_and_start_sales_catchup(self):
+        """Check if sales history catchup is needed and start it if necessary."""
+        try:
+            logger.info("Checking if sales history catchup is needed...")
+
+            # The sales history processor will automatically determine if catchup is needed
+            # based on how far behind we are from the tip
+            mode = sales_history_processor.determine_processing_mode()
+
+            if mode == "FULL_CATCHUP":
+                logger.info("Sales history is >50 blocks behind tip, starting Full Catchup Mode")
+
+                # Update CPID cache first
+                sales_history_processor.update_cpid_cache()
+
+                # Start catchup mode - it will automatically determine the mode
+                if not sales_history_processor.catchup_running:
+                    sales_history_processor.start_catchup_mode()
+                    logger.info("Sales history catchup mode started in background")
+                else:
+                    logger.info("Sales history catchup already running")
+            else:
+                logger.info(f"Sales history in {mode} mode, no bulk catchup needed")
+
+        except Exception as e:
+            logger.error(f"Error checking/starting sales history catchup: {e}")
+            # Don't fail the market data jobs if catchup check fails
 
     def _schedule_loop(self):
         """Main scheduling loop that runs jobs at their specified intervals."""
@@ -279,7 +311,9 @@ class MarketDataJobScheduler:
                         time.sleep(2)  # 2 second delay between batches
 
                 elapsed_time = time.time() - start_time
-                logger.info(f"✅ Stamp market data update complete: {len(stamps_to_update)} stamps processed in {elapsed_time:.1f}s")
+                logger.info(
+                    f"✅ Stamp market data update complete: {len(stamps_to_update)} stamps processed in {elapsed_time:.1f}s"
+                )
 
             finally:
                 task_db.close()
@@ -810,6 +844,41 @@ class MarketDataJobScheduler:
 
 # Global job scheduler instance
 market_data_job_scheduler = MarketDataJobScheduler()
+
+
+def start_sales_history_catchup():
+    """
+    Start only the sales history catchup process.
+    This runs independently of the full market data scheduler to ensure
+    we capture sales data from the beginning, not just when near the tip.
+    """
+    # Check if catchup is already running
+    if sales_history_processor.catchup_running:
+        logger.debug("Sales history catchup is already running, skipping start")
+        return
+
+    try:
+        logger.info("Starting sales history catchup independently...")
+
+        # The sales history processor will automatically determine if catchup is needed
+        # based on how far behind we are from the tip
+        mode = sales_history_processor.determine_processing_mode()
+
+        if mode == "FULL_CATCHUP":
+            logger.info("Sales history is >50 blocks behind tip, starting Full Catchup Mode")
+
+            # Update CPID cache first
+            sales_history_processor.update_cpid_cache()
+
+            # Start catchup mode - it will automatically determine the mode
+            sales_history_processor.start_catchup_mode()
+            logger.info("Sales history catchup mode started in background")
+        else:
+            logger.info(f"Sales history in {mode} mode, no bulk catchup needed")
+
+    except Exception as e:
+        logger.error(f"Error starting sales history catchup: {e}")
+        # Don't fail - this is a non-critical background process
 
 
 def start_market_data_jobs(max_workers: int = MAX_WORKERS):

@@ -176,8 +176,17 @@ def run_code_quality_checks(auto_fix=False):
             logger.error(colored("💀 FAIL: black", "red"))
             all_passed = False
 
-        # flake8 check
+        # flake8 check with optional autopep8 auto-fix
         logger.info("Running flake8...")
+        if auto_fix:
+            # Run autopep8 to fix many flake8 issues automatically
+            # Configure autopep8 to match flake8 settings: max-line-length=127, ignore E203,W503,E402,E501
+            logger.info("Running autopep8 to auto-fix flake8 issues...")
+            autopep8_cmd = "poetry run autopep8 --in-place --recursive --aggressive --aggressive --max-line-length=127 --ignore=E203,W503,E402,E501 src/"
+            logger.info(colored(f"H4XOR_RUN: {autopep8_cmd}", "magenta"))
+            if not run_command(autopep8_cmd, ignore_errors=True):
+                logger.warning(colored("autopep8 auto-fix had issues, continuing with flake8 check...", "yellow"))
+
         if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
             logger.info(colored("PASS: flake8 check", "green"))
         else:
@@ -751,8 +760,17 @@ def run_linters_only(auto_fix=False, with_coverage=False):
         logger.error(colored("💀 FAIL: black", "red"))
         all_passed = False
 
-    # flake8 check
+    # flake8 check with optional autopep8 auto-fix
     logger.info("Running flake8...")
+    if auto_fix:
+        # Run autopep8 to fix many flake8 issues automatically
+        # Configure autopep8 to match flake8 settings: max-line-length=127, ignore E203,W503,E402,E501
+        logger.info("Running autopep8 to auto-fix flake8 issues...")
+        autopep8_cmd = "poetry run autopep8 --in-place --recursive --aggressive --aggressive --max-line-length=127 --ignore=E203,W503,E402,E501 src/"
+        logger.info(colored(f"H4XOR_RUN: {autopep8_cmd}", "magenta"))
+        if not run_command(autopep8_cmd, ignore_errors=True):
+            logger.warning(colored("autopep8 auto-fix had issues, continuing with flake8 check...", "yellow"))
+
     if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
         logger.info(colored("PASS: flake8 check", "green"))
     else:

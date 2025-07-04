@@ -11,10 +11,9 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from index_core.fetch_utils import RateLimiter, fetch_xcp
-from index_core.stamp_market_processor import StampMarketDataProcessor
+from index_core.fetch_utils import RateLimiter, fetch_xcp, is_valid_counterparty_asset
 from index_core.sales_history_processor import sales_history_processor
-from index_core.database_manager import DatabaseManager
+from index_core.stamp_market_processor import StampMarketDataProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +58,11 @@ class StampWorker:
             Dictionary with processed market data or None if failed
         """
         try:
-            # CPIDs are now pre-filtered as valid Counterparty assets in the SQL query (ident='STAMP')
-            # No need for additional validation here!
+            # Validate CPID format (defense in depth, even though DB should filter correctly)
+            if not is_valid_counterparty_asset(cpid):
+                logger.warning(f"Skipping invalid CPID format: {cpid} (should have been filtered by DB)")
+                return None
+
             logger.debug(f"Processing market data for stamp {cpid}")
             start_time = time.time()
 
@@ -109,16 +111,20 @@ class StampWorker:
             # Rate limiting
             self.rate_limiter.acquire()
 
-            endpoint = f"/assets/{cpid}/dispensers"
-            params = {"limit": MAX_DISPENSERS_PER_REQUEST, "show_unconfirmed": "false"}
+            endpoint = "/dispensers"
+            params = {"asset": cpid, "limit": MAX_DISPENSERS_PER_REQUEST, "show_unconfirmed": "false"}
 
-            logger.debug(f"Fetching dispensers for {cpid}")
+            logger.debug(f"Fetching dispensers for {cpid} from endpoint: {endpoint}")
             response = fetch_xcp(endpoint, params)
 
             if response and "result" in response:
                 dispensers = response["result"]
                 logger.debug(f"Found {len(dispensers)} dispensers for {cpid}")
                 return dispensers
+            elif response and "error" in response:
+                # Log API errors more specifically
+                logger.warning(f"API error fetching dispensers for {cpid}: {response['error']}")
+                return []
             else:
                 logger.debug(f"No dispensers found for {cpid}")
                 return []
@@ -130,15 +136,15 @@ class StampWorker:
     def _fetch_dispenses(self, cpid: str) -> Optional[List[Dict]]:
         """
         DEPRECATED: This method is no longer used. We now query the stamp_sales_history table instead.
-        
+
         Fetch dispense history for a stamp from Counterparty API.
-        
+
         TODO: Architectural improvement opportunities:
         1. During initial indexing: Fetch dispenses by block as we process each block
            /blocks/{block_index}/dispenses - Build sales history incrementally
         2. When caught up to tip: Continue using block-based fetching for new blocks
         3. Market data refresh: Only fetch recent dispenses since last update
-        
+
         This would distribute API load and eliminate the need to fetch full history
         when market data jobs start running near tip.
 
@@ -254,6 +260,15 @@ class StampWorker:
             # This ensures we get accurate volume data that matches what's stored in the database
             volume_metrics = self._calculate_volume_metrics_from_history(cpid)
             market_data.update(volume_metrics)
+            
+            # Debug logging for volume calculations
+            logger.info(
+                f"Volume metrics for {cpid}: "
+                f"24h={volume_metrics.get('volume_24h_btc', 0)}, "
+                f"7d={volume_metrics.get('volume_7d_btc', 0)}, "
+                f"30d={volume_metrics.get('volume_30d_btc', 0)}"
+            )
+            
             # Set volume sources if we found any volume data
             if any(volume_metrics.get(f"volume_{period}_btc", 0) > 0 for period in ["24h", "7d", "30d"]):
                 market_data["volume_sources"] = {"dispenser": 1.0}
@@ -372,7 +387,7 @@ class StampWorker:
                     block_index = dispense.get("block_index")
                     if not block_time:
                         continue
-                        
+
                     # Skip dispenses before Bitcoin Stamps genesis
                     if block_index and block_index < STAMPS_GENESIS_BLOCK:
                         continue
@@ -383,11 +398,11 @@ class StampWorker:
                     # Get dispense data using correct field names from Counterparty API response
                     dispense_quantity = float(dispense.get("dispense_quantity", 0))
                     btc_amount = float(dispense.get("btc_amount", 0))  # Already provided in satoshis
-                    
+
                     # With verbose=true, we get the dispenser data nested in the response
                     dispenser_data = dispense.get("dispenser", {})
                     satoshirate = float(dispenser_data.get("satoshirate", 0))
-                    
+
                     # Get the dispenser tx hash
                     dispenser_tx_hash = dispense.get("dispenser_tx_hash")
 
@@ -430,25 +445,27 @@ class StampWorker:
                 volume_metrics["last_sale_dispenser_address"] = most_recent_dispenser
                 volume_metrics["last_sale_btc_amount"] = most_recent_btc_amount
                 volume_metrics["last_sale_dispenser_tx_hash"] = most_recent_dispenser_tx_hash
-                
+
                 # Log when we successfully capture recent sale data
-                logger.info(f"Captured recent sale: tx={most_recent_tx_hash}, buyer={most_recent_buyer}, "
-                           f"amount={most_recent_btc_amount} sats, dispenser_tx={most_recent_dispenser_tx_hash}")
+                logger.info(
+                    f"Captured recent sale: tx={most_recent_tx_hash}, buyer={most_recent_buyer}, "
+                    f"amount={most_recent_btc_amount} sats, dispenser_tx={most_recent_dispenser_tx_hash}"
+                )
 
             return volume_metrics
 
         except Exception as e:
             logger.error(f"Error calculating volume metrics: {e}")
             return {}
-    
+
     def _calculate_volume_metrics_from_history(self, cpid: str, db=None) -> Dict[str, Any]:
         """
         Calculate volume metrics from the sales history table.
-        
+
         Args:
             cpid: Counterparty asset ID
             db: Optional database connection
-            
+
         Returns:
             Dictionary with volume metrics
         """
@@ -458,39 +475,53 @@ class StampWorker:
             volume_7d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 7)
             volume_30d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 30)
             
+            # Debug logging
+            logger.debug(f"Raw volume data from sales history for {cpid}:")
+            logger.debug(f"  24h: {volume_24h}")
+            logger.debug(f"  7d: {volume_7d}")
+            logger.debug(f"  30d: {volume_30d}")
+
             # Get recent sales for the most recent sale info
             recent_sales = sales_history_processor.get_recent_sales(limit=1, cpid=cpid)
-            
+
             volume_metrics: Dict[str, Any] = {
-                "volume_24h_btc": volume_24h.get('volume_btc', 0.0),
-                "volume_7d_btc": volume_7d.get('volume_btc', 0.0),
-                "volume_30d_btc": volume_30d.get('volume_btc', 0.0),
-                "total_dispenses_count": volume_30d.get('trade_count', 0),
-                "recent_dispenses_count": volume_24h.get('trade_count', 0),
+                "volume_24h_btc": volume_24h.get("volume_btc", 0.0),
+                "volume_7d_btc": volume_7d.get("volume_btc", 0.0),
+                "volume_30d_btc": volume_30d.get("volume_btc", 0.0),
+                "total_dispenses_count": volume_30d.get("trade_count", 0),
+                "recent_dispenses_count": volume_24h.get("trade_count", 0),
             }
-            
+
             # Add most recent sale details if available
             if recent_sales:
                 most_recent = recent_sales[0]
-                volume_metrics.update({
-                    "recent_sale_price_btc": float(most_recent.get('unit_price_sats', 0)) / 100000000,
-                    "last_price_update": datetime.fromtimestamp(most_recent.get('block_time', 0)).isoformat() if most_recent.get('block_time') else None,
-                    "last_sale_block_index": most_recent.get('block_index'),
-                    "last_sale_tx_hash": most_recent.get('tx_hash'),
-                    "last_sale_buyer_address": most_recent.get('buyer_address'),
-                    "last_sale_dispenser_address": most_recent.get('seller_address'),
-                    "last_sale_btc_amount": most_recent.get('btc_amount'),
-                    "last_sale_dispenser_tx_hash": most_recent.get('dispenser_tx_hash'),
-                })
-                
+                volume_metrics.update(
+                    {
+                        "recent_sale_price_btc": float(most_recent.get("unit_price_sats", 0)) / 100000000,
+                        "last_price_update": (
+                            datetime.fromtimestamp(most_recent.get("block_time", 0)).isoformat()
+                            if most_recent.get("block_time")
+                            else None
+                        ),
+                        "last_sale_block_index": most_recent.get("block_index"),
+                        "last_sale_tx_hash": most_recent.get("tx_hash"),
+                        "last_sale_buyer_address": most_recent.get("buyer_address"),
+                        "last_sale_dispenser_address": most_recent.get("seller_address"),
+                        "last_sale_btc_amount": most_recent.get("btc_amount"),
+                        "last_sale_dispenser_tx_hash": most_recent.get("dispenser_tx_hash"),
+                    }
+                )
+
                 # Log when we successfully capture recent sale data
-                if most_recent.get('tx_hash'):
-                    logger.info(f"Captured recent sale from history: tx={most_recent.get('tx_hash')}, "
-                               f"buyer={most_recent.get('buyer_address')}, "
-                               f"amount={most_recent.get('btc_amount')} sats")
-            
+                if most_recent.get("tx_hash"):
+                    logger.info(
+                        f"Captured recent sale from history: tx={most_recent.get('tx_hash')}, "
+                        f"buyer={most_recent.get('buyer_address')}, "
+                        f"amount={most_recent.get('btc_amount')} sats"
+                    )
+
             return volume_metrics
-            
+
         except Exception as e:
             logger.error(f"Error calculating volume metrics from history: {e}")
             return {}

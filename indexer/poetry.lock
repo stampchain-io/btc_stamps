@@ -273,6 +273,22 @@ files = [
 cryptography = "*"
 
 [[package]]
+name = "autopep8"
+version = "2.3.2"
+description = "A tool that automatically formats Python code to conform to the PEP 8 style guide"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "autopep8-2.3.2-py2.py3-none-any.whl", hash = "sha256:ce8ad498672c845a0c3de2629c15b635ec2b05ef8177a6e7c91c74f3e9b51128"},
+    {file = "autopep8-2.3.2.tar.gz", hash = "sha256:89440a4f969197b69a995e4ce0661b031f455a9f776d2c5ba3dbd83466931758"},
+]
+
+[package.dependencies]
+pycodestyle = ">=2.12.0"
+tomli = {version = "*", markers = "python_version < \"3.11\""}
+
+[[package]]
 name = "backports-datetime-fromisoformat"
 version = "2.0.3"
 description = "Backport of Python 3.11's datetime.fromisoformat"
@@ -5009,4 +5025,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "d3bf16e376bb67bf349e7925f79709bfa553a010751c7b6f703815e275eecab1"
+content-hash = "022dc2ccd92c1f5799710046b123150b381df4dcfb9104aeb8d54a1680b5147b"

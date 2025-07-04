@@ -45,20 +45,9 @@ class TestSalesHistoryProcessorIntegration:
             sales_history_processor.last_cache_update = 0
 
     @pytest.fixture
-    def processor(self):
+    def processor(self, mock_db_manager, mock_cursor):
         """Create a fresh processor instance for testing"""
-        # Use a mock database manager for integration tests
-        mock_db_manager = Mock(spec=DatabaseManager)
-        mock_db = MagicMock()
-        mock_cursor = MagicMock()
-
-        # Setup mock database connection
-        mock_db_manager.connect.return_value = mock_db
-        mock_db_manager.get_long_running_connection.return_value = mock_db
-        mock_db.cursor.return_value.__enter__ = lambda self: mock_cursor
-        mock_db.cursor.return_value.__exit__ = lambda self, *args: None
-
-        # Return empty results by default
+        # Return empty results by default for integration tests
         mock_cursor.fetchall.return_value = []
         mock_cursor.fetchone.return_value = None
 
@@ -76,21 +65,49 @@ class TestSalesHistoryProcessorIntegration:
         if processor.catchup_executor:
             processor.catchup_executor.shutdown(wait=False)
 
-    def test_counterparty_api_dispenser_fetch(self, processor):
-        """Test fetching dispensers from Counterparty API"""
-        # Test with a known CPID that has dispensers
-        test_cpid = "A1111111111111111111"  # Replace with actual CPID if needed
+    def test_full_catchup_mode_api_fetch(self, processor):
+        """Test fetching all dispenses in Full Catchup Mode"""
+        # Test the fetch_all_dispenses method with a timeout to prevent hanging
+        import signal
 
-        # Mock the CPID cache to include our test CPID
-        processor.cpid_cache = {test_cpid}
-        processor.last_cache_update = time.time()
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Test timed out")
 
-        # Test fetching dispensers
-        dispensers_count = processor._process_single_cpid_dispenses(test_cpid)
+        # Set a 30 second timeout
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(30)
 
-        # Verify the API was called correctly
-        assert isinstance(dispensers_count, int)
-        assert dispensers_count >= 0
+        try:
+            # Mock the API to return a small dataset for testing
+            with patch("index_core.sales_history_processor.fetch_xcp") as mock_fetch:
+                mock_fetch.return_value = {
+                    "result": [
+                        {
+                            "tx_hash": "test_tx_1",
+                            "block_index": 800000,
+                            "asset": "A16668056020104546000",
+                            "source": "buyer1",
+                            "destination": "dispenser1",
+                            "dispense_quantity": 1,
+                            "btc_amount": 100000,
+                            "block_time": int(time.time()),
+                            "dispenser": {"satoshirate": 100000},
+                        }
+                    ],
+                    "next_cursor": None,  # No more pages
+                }
+
+                success = processor._fetch_all_dispenses()
+                signal.alarm(0)  # Cancel the alarm
+
+                # Verify the fetch was successful
+                assert success is True
+                assert len(processor.dispense_cache["data"]) == 1
+                assert processor.dispense_cache["highest_block"] == 800000
+
+        except TimeoutError:
+            signal.alarm(0)  # Cancel the alarm
+            pytest.fail("Test timed out after 30 seconds")
 
     def test_counterparty_api_dispense_fetch(self):
         """Test fetching dispenses from Counterparty API directly"""
@@ -112,10 +129,9 @@ class TestSalesHistoryProcessorIntegration:
             assert "source" in dispense
             assert "destination" in dispense
 
-    def test_cpid_cache_update(self, processor):
+    def test_cpid_cache_update(self, processor, mock_cursor):
         """Test CPID cache update from database"""
         # Mock database to return some CPIDs
-        mock_cursor = processor.db_manager.connect().cursor().__enter__()
         mock_cursor.fetchall.return_value = [
             ("A1111111111111111111",),
             ("A2222222222222222222",),
@@ -180,10 +196,9 @@ class TestSalesHistoryProcessorIntegration:
             # Should only process stamp CPIDs
             assert count == 2
 
-    def test_volume_calculation_accuracy(self, processor):
+    def test_volume_calculation_accuracy(self, processor, mock_cursor):
         """Test volume calculation from stored data"""
         # Mock the database to return sales data
-        mock_cursor = processor.db_manager.connect().cursor().__enter__()
 
         # Mock data for 24h volume calculation
         current_time = int(time.time())
@@ -239,9 +254,8 @@ class TestSalesHistoryProcessorIntegration:
             count = processor.process_block_dispenses(800001)
             assert count == 0
 
-    def test_catchup_mode_cpid_detection(self, processor):
+    def test_catchup_mode_cpid_detection(self, processor, mock_cursor):
         """Test that catchup mode correctly identifies CPIDs needing processing"""
-        mock_cursor = processor.db_manager.get_long_running_connection().cursor().__enter__()
 
         # Mock CPIDs that need catchup (no sales history)
         mock_cursor.fetchall.return_value = [
@@ -276,7 +290,7 @@ class TestSalesHistoryProcessorIntegration:
         processor.stop_catchup_mode()
         assert not processor.catchup_running
 
-    def test_dispense_data_parsing(self, processor):
+    def test_dispense_data_parsing(self, processor, mock_cursor):
         """Test correct parsing of dispense data from API response"""
         # Mock a dispense response with nested dispenser data
         test_dispense = {
@@ -292,33 +306,25 @@ class TestSalesHistoryProcessorIntegration:
             "dispenser": {"satoshirate": 100000, "status": 0},  # Price per unit  # Active
         }
 
-        # Process this dispense data
-        with patch.object(processor.db_manager, "connect") as mock_connect:
-            mock_db = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value = mock_db
-            mock_db.cursor.return_value.__enter__ = lambda self: mock_cursor
-            mock_db.cursor.return_value.__exit__ = lambda self, *args: None
+        # Store the dispense
+        processor._store_dispenser_sales([test_dispense])
 
-            # Store the dispense
-            processor._store_dispenser_sales([test_dispense])
+        # Verify the data was parsed correctly
+        mock_cursor.executemany.assert_called_once()
+        call_args = mock_cursor.executemany.call_args[0]
+        insert_data = call_args[1][0]  # First row of data
 
-            # Verify the data was parsed correctly
-            mock_cursor.executemany.assert_called_once()
-            call_args = mock_cursor.executemany.call_args[0]
-            insert_data = call_args[1][0]  # First row of data
-
-            # Verify field mapping
-            assert insert_data[0] == "abc123"  # tx_hash
-            assert insert_data[1] == 800000  # block_index
-            assert insert_data[2] == 1234567890  # block_time
-            assert insert_data[3] == "A1111111111111111111"  # cpid
-            assert insert_data[5] == "buyer_address"  # buyer_address
-            assert insert_data[6] == "dispenser_address"  # seller_address
-            assert insert_data[7] == 5  # quantity
-            assert insert_data[8] == 500000  # btc_amount
-            assert insert_data[9] == 100000  # unit_price_sats
-            assert insert_data[10] == "dispenser_tx_123"  # dispenser_tx_hash
+        # Verify field mapping
+        assert insert_data[0] == "abc123"  # tx_hash
+        assert insert_data[1] == 800000  # block_index
+        assert insert_data[2] == 1234567890  # block_time
+        assert insert_data[3] == "A1111111111111111111"  # cpid
+        assert insert_data[5] == "buyer_address"  # buyer_address
+        assert insert_data[6] == "dispenser_address"  # seller_address
+        assert insert_data[7] == 5  # quantity
+        assert insert_data[8] == 500000  # btc_amount
+        assert insert_data[9] == 100000  # unit_price_sats
+        assert insert_data[10] == "dispenser_tx_123"  # dispenser_tx_hash
 
 
 @pytest.mark.integration
@@ -374,19 +380,8 @@ class TestAutomaticCatchupMode:
     """Test automatic catchup mode behavior"""
 
     @pytest.fixture
-    def processor(self):
+    def processor(self, mock_db_manager, mock_cursor):
         """Create a fresh processor instance for testing"""
-        # Use a mock database manager for integration tests
-        mock_db_manager = Mock(spec=DatabaseManager)
-        mock_db = MagicMock()
-        mock_cursor = MagicMock()
-
-        # Setup mock database connection
-        mock_db_manager.connect.return_value = mock_db
-        mock_db_manager.get_long_running_connection.return_value = mock_db
-        mock_db.cursor.return_value.__enter__ = lambda self: mock_cursor
-        mock_db.cursor.return_value.__exit__ = lambda self, *args: None
-
         # Create fresh instance with clean state
         processor = SalesHistoryProcessor(db_manager=mock_db_manager)
         processor.catchup_running = False
@@ -400,10 +395,9 @@ class TestAutomaticCatchupMode:
         if processor.catchup_executor:
             processor.catchup_executor.shutdown(wait=False)
 
-    def test_catchup_starts_when_data_missing(self, processor):
+    def test_catchup_starts_when_data_missing(self, processor, mock_cursor):
         """Test that catchup mode starts automatically when sales data is missing"""
         # Mock database to indicate missing sales data
-        mock_cursor = processor.db_manager.get_long_running_connection().cursor().__enter__()
         mock_cursor.fetchall.return_value = [
             ("A1111111111111111111",),  # CPIDs needing catchup
         ]
@@ -420,10 +414,9 @@ class TestAutomaticCatchupMode:
         # if cpids_needing_catchup:
         #     processor.start_catchup_mode()
 
-    def test_no_catchup_when_data_exists(self, processor):
+    def test_no_catchup_when_data_exists(self, processor, mock_cursor):
         """Test that catchup mode doesn't start when data already exists"""
         # Mock database to indicate all CPIDs have sales data
-        mock_cursor = processor.db_manager.get_long_running_connection().cursor().__enter__()
         mock_cursor.fetchall.return_value = []  # No CPIDs need catchup
 
         cpids_needing_catchup = processor._get_cpids_needing_catchup(
@@ -441,11 +434,8 @@ class TestPerformance:
     """Performance tests for CPID filtering and processing"""
 
     @pytest.fixture
-    def processor(self):
+    def processor(self, mock_db_manager):
         """Create a fresh processor instance for testing"""
-        # Use a mock database manager for integration tests
-        mock_db_manager = Mock(spec=DatabaseManager)
-
         # Create fresh instance with clean state
         processor = SalesHistoryProcessor(db_manager=mock_db_manager)
         processor.catchup_running = False
@@ -477,33 +467,46 @@ class TestPerformance:
         elapsed = end_time - start_time
         assert elapsed < 0.01, f"CPID cache lookups too slow: {elapsed} seconds"
 
-    def test_batch_processing_performance(self, processor):
-        """Test performance of batch processing"""
-        # Mock a batch of CPIDs
-        batch_cpids = [f"A{i:019d}" for i in range(100)]
+    def test_cached_dispense_filtering_performance(self, processor):
+        """Test performance of filtering cached dispenses"""
+        # Create a large set of cached dispenses
+        test_dispenses = []
+        for i in range(10000):
+            test_dispenses.append(
+                {
+                    "tx_hash": f"tx_{i}",
+                    "block_index": 800000 + i,
+                    "asset": f"A{i%1000:019d}",  # 1000 unique CPIDs
+                    "source": f"buyer_{i}",
+                    "destination": f"dispenser_{i}",
+                    "dispense_quantity": 1,
+                    "btc_amount": 100000,
+                    "block_time": int(time.time()) - (10000 - i),
+                    "dispenser": {"satoshirate": 100000},
+                }
+            )
 
-        # Initialize the catchup executor for batch processing
-        from concurrent.futures import ThreadPoolExecutor
+        # Set up the cache
+        processor.dispense_cache = {
+            "data": test_dispenses,
+            "highest_block": 810000,
+            "fetched_at_tip": 810000,
+            "last_cpid_check_block": 800000,
+        }
 
-        processor.catchup_executor = ThreadPoolExecutor(max_workers=5)
-        processor.catchup_running = True
+        # Set up CPID cache with 100 CPIDs
+        processor.cpid_cache = {f"A{i:019d}" for i in range(100)}
 
-        try:
-            # Mock the processing to be fast
-            with patch.object(processor, "_process_single_cpid_dispenses") as mock_process:
-                mock_process.return_value = 5  # Each CPID has 5 dispenses
+        # Time the filtering operation
+        start_time = time.time()
+        with patch.object(processor, "_store_dispenser_sales") as mock_store:
+            count = processor._process_cached_dispenses()
+            end_time = time.time()
 
-                start_time = time.time()
-                processor._process_cpid_batch(batch_cpids, Mock())
-                end_time = time.time()
+            # Should filter 10000 dispenses quickly
+            elapsed = end_time - start_time
+            assert elapsed < 1.0, f"Dispense filtering too slow: {elapsed} seconds"
 
-                # Should process 100 CPIDs quickly
-                elapsed = end_time - start_time
-                assert elapsed < 5.0, f"Batch processing too slow: {elapsed} seconds"
-
-                # Verify all CPIDs were processed
-                assert mock_process.call_count == 100
-        finally:
-            # Clean up executor
-            if processor.catchup_executor:
-                processor.catchup_executor.shutdown(wait=False)
+            # Should have found dispenses for our 100 CPIDs
+            assert count > 0
+            assert mock_store.called
