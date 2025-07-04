@@ -590,7 +590,7 @@ def follow(
                     logger.info(
                         f"Starting market data job scheduler (within {market_data_threshold} blocks of tip: {blocks_behind} behind)..."
                     )
-                    start_market_data_jobs(max_workers=3)  # Use 3 workers for market data jobs (stamp, src20, collection)
+                    start_market_data_jobs(max_workers=10)  # Increased workers for better throughput with 59K+ stamps
                     market_data_scheduler_started = True
                     logger.info("Market data job scheduler started successfully")
                 except Exception as e:
@@ -717,7 +717,7 @@ def follow(
                             logger.info(
                                 f"🚀 Starting market data job scheduler now that we're caught up (only {blocks_behind} blocks behind tip)..."
                             )
-                            start_market_data_jobs(max_workers=3)
+                            start_market_data_jobs(max_workers=10)
                             market_data_scheduler_started = True
                             logger.info("Market data job scheduler started successfully after catching up")
                         except Exception as e:

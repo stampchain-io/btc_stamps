@@ -143,7 +143,10 @@ class StampWorker:
 
             if response and "result" in response:
                 dispenses = response["result"]
-                logger.debug(f"Found {len(dispenses)} dispenses for {cpid}")
+                if dispenses:
+                    logger.info(f"Found {len(dispenses)} dispenses for {cpid}")
+                else:
+                    logger.debug(f"No dispenses found for {cpid}")
                 return dispenses
             else:
                 logger.debug(f"No dispenses found for {cpid}")
@@ -373,7 +376,9 @@ class StampWorker:
                             most_recent_tx_hash = dispense.get("tx_hash")
                             most_recent_buyer = dispense.get("source")  # source is the buyer
                             most_recent_dispenser = dispense.get("destination")  # destination is the dispenser
-                            most_recent_btc_amount = dispense.get("btc_amount")
+                            # Calculate BTC amount in satoshis (dispense_quantity * satoshirate)
+                            most_recent_btc_amount = int(dispense_quantity * satoshirate)
+                            # Get the dispenser creation tx from the dispenser address field
                             most_recent_dispenser_tx_hash = dispense.get("dispenser_tx_hash")
 
                         # Add to appropriate time period buckets
@@ -399,6 +404,9 @@ class StampWorker:
                 volume_metrics["last_sale_dispenser_address"] = most_recent_dispenser
                 volume_metrics["last_sale_btc_amount"] = most_recent_btc_amount
                 volume_metrics["last_sale_dispenser_tx_hash"] = most_recent_dispenser_tx_hash
+                
+                # Log when we successfully capture recent sale data
+                logger.info(f"Captured recent sale: tx={most_recent_tx_hash}, buyer={most_recent_buyer}, amount={most_recent_btc_amount} sats")
 
             return volume_metrics
 
