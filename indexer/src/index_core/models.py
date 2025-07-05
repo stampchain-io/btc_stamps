@@ -112,6 +112,7 @@ class StampData:
     file_suffix: Optional[str] = None
     decoded_base64: Optional[Union[str, bytes]] = None
     src20_dict: Optional[dict] = None
+    actual_mimetype: Optional[str] = None  # For display when different from consensus mimetype
     src101_dict: Optional[dict] = None
     pval_src20: Optional[bool] = None
     pval_src101: Optional[bool] = None
@@ -407,10 +408,12 @@ class StampData:
             pass
 
         # Use enhanced MIME detection for better accuracy
+        from config import ENHANCED_MIME_DETECTION
+
         from .enhanced_mime_detection import get_processed_content_and_mime
 
         processed_data = bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data
-        processed_content, mime_type = get_processed_content_and_mime(processed_data)
+        processed_content, mime_type = get_processed_content_and_mime(processed_data, self.block_index)
 
         # Update the decoded data if it was decompressed (e.g., svgz to svg)
         if processed_content != processed_data:
@@ -422,6 +425,20 @@ class StampData:
         # Special handling for SVG files - use 'svg' suffix instead of 'svg+xml'
         if mime_type == "image/svg+xml":
             self.file_suffix = "svg"
+
+        # Dual processing for pre-ENHANCED_MIME_DETECTION blocks:
+        # If we're before the enhanced detection block and got text/plain,
+        # try enhanced detection again just for the content (not for consensus)
+        if self.block_index is not None and self.block_index < ENHANCED_MIME_DETECTION and mime_type == "text/plain":
+            # Try enhanced detection to see if we can get better content
+            enhanced_content, enhanced_mime = get_processed_content_and_mime(processed_data, ENHANCED_MIME_DETECTION)
+            if enhanced_mime == "image/svg+xml" and enhanced_content != processed_data:
+                # Update the decoded content for proper display, but keep the consensus suffix
+                self.decoded_base64 = enhanced_content
+                # Store the actual mime type for display purposes
+                self.actual_mimetype = enhanced_mime
+                # Note: self.file_suffix remains "plain" for consensus
+                # Note: self.stamp_mimetype remains "text/plain" for consensus
 
         if (mime_type == "text/plain" or mime_type == "application/javascript") and self.is_javascript(bytestring_data):
             self.file_suffix = "js"
@@ -747,12 +764,15 @@ class StampData:
 
         self.normalize_mime_and_suffix()
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
+        # Use actual_mimetype for file storage if available (for proper display of cursed stamps)
+        storage_mimetype = self.actual_mimetype if self.actual_mimetype else self.stamp_mimetype
+        storage_suffix = "svg" if self.actual_mimetype == "image/svg+xml" else self.file_suffix
         self.file_hash, filename, self.file_size_bytes = encode_and_store_file(
             db,
             self.tx_hash,
-            self.file_suffix,
+            storage_suffix,
             self.decoded_base64,
-            self.stamp_mimetype,
+            storage_mimetype,
         )
 
         self.update_cpid_and_stamp_url(filename)
