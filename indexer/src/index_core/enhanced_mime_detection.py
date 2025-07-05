@@ -120,29 +120,23 @@ def detect_and_decompress_svg(content_bytes):
                - is_svg: True if content is SVG after decompression
                - mime_type: Detected MIME type ("image/svg+xml" for SVG)
     """
-    # Check if content is already SVG
+    # Only decompress if it's likely to be SVG
     if is_svg_content(content_bytes):
         return content_bytes, True, "image/svg+xml"
 
-    # Performance optimization: Check gzip header first before calling magic
-    if is_gzip(content_bytes):
-        decompressed = try_decompress(content_bytes)
-        if decompressed and is_svg_content(decompressed):
-            return decompressed, True, "image/svg+xml"
-
-    # If not obviously gzipped, check with magic for edge cases
+    # Get magic MIME type first (preserves old behavior)
     try:
         magic_mime = magic.from_buffer(content_bytes, mime=True)
     except Exception:
         magic_mime = "application/octet-stream"
 
-    # Check for gzip MIME types that weren't caught by header check
+    # Only try decompression for explicit gzip MIME types
     if magic_mime in ("application/gzip", "application/x-gzip"):
         decompressed = try_decompress(content_bytes)
         if decompressed and is_svg_content(decompressed):
             return decompressed, True, "image/svg+xml"
 
-    # Not gzipped or not SVG after decompression
+    # Return original for all other cases (preserves consensus)
     return content_bytes, False, magic_mime
 
 
