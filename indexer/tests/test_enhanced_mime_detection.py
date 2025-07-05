@@ -216,8 +216,10 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         self.assertIsInstance(result, str)
 
     def test_is_gzip_valid_gzip_header(self):
-        """Test is_gzip detects valid gzip header."""
+        """Test is_gzip detects valid gzip header with DEFLATE compression method."""
         self.assertTrue(is_gzip(b"\x1f\x8b\x08\x00\x00\x00\x00\x00"))
+        # Also test with just minimum required bytes
+        self.assertTrue(is_gzip(b"\x1f\x8b\x08"))
 
     def test_is_gzip_invalid_gzip_header(self):
         """Test is_gzip rejects invalid headers."""
@@ -225,6 +227,8 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         self.assertFalse(is_gzip(b"\x1f\x8c"))  # Wrong second byte
         self.assertFalse(is_gzip(b""))  # Empty
         self.assertFalse(is_gzip(b"\x1f"))  # Too short
+        self.assertFalse(is_gzip(b"\x1f\x8b"))  # Too short (missing compression method)
+        self.assertFalse(is_gzip(b"\x1f\x8b\x00"))  # Wrong compression method (not DEFLATE)
 
     def test_try_decompress_valid_gzip(self):
         """Test try_decompress with valid gzip data."""
