@@ -4,6 +4,7 @@ Provides improved detection for HTML, JavaScript, CSS and other content types
 """
 
 import gzip
+import zlib
 
 import magic
 
@@ -114,7 +115,7 @@ def detect_and_decompress_svg(content_bytes):
                 # Return original content if decompressed content is not SVG
                 return content_bytes, False, magic_mime
 
-        except (gzip.BadGzipFile, OSError, EOFError):
+        except (gzip.BadGzipFile, OSError, EOFError, zlib.error):
             # Not actually gzipped or corrupted, return original
             return content_bytes, False, magic_mime
 
