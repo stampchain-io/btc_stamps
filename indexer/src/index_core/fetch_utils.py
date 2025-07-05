@@ -1374,7 +1374,8 @@ def is_valid_counterparty_asset(cpid: str) -> bool:
     Valid Counterparty assets:
     - Start with 'A' followed by numbers (e.g., A1234567890)
     - Are named assets (alphabetic strings without special chars)
-    - Are not SRC-20 hash tokens (alphanumeric hashes)
+    - Are named assets with dots (e.g., LAKSHMIPEPE.STAMP, WARBONDS.ONE)
+    - Are not SRC-20 hash tokens (random alphanumeric hashes)
 
     Args:
         cpid: The CPID/asset identifier to check
@@ -1392,6 +1393,13 @@ def is_valid_counterparty_asset(cpid: str) -> bool:
     # Check if it's a named asset (all letters, no numbers or special chars)
     if cpid.isalpha():
         return True
+
+    # Check if it's a named asset with a dot extension (e.g., NAME.STAMP, NAME.ONE)
+    if "." in cpid:
+        parts = cpid.split(".")
+        # Must have exactly 2 parts and both should be alphabetic
+        if len(parts) == 2 and all(part.isalpha() for part in parts):
+            return True
 
     # If it contains both letters and numbers mixed (like a hash), it's likely SRC-20
     has_letters = any(c.isalpha() for c in cpid)
