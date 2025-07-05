@@ -107,12 +107,13 @@ def try_decompress(content_bytes):
         return None
 
 
-def detect_and_decompress_svg(content_bytes):
+def detect_and_decompress_svg(content_bytes, block_index=None):
     """
     Detect and decompress gzipped SVG files (svgz) or gzipped binary files containing SVG.
 
     Args:
         content_bytes (bytes): The content to analyze and potentially decompress
+        block_index (int): The block index for consensus rules (optional)
 
     Returns:
         tuple: (decompressed_content_bytes, is_svg, mime_type)
@@ -120,40 +121,70 @@ def detect_and_decompress_svg(content_bytes):
                - is_svg: True if content is SVG after decompression
                - mime_type: Detected MIME type ("image/svg+xml" for SVG)
     """
+    # Import config to check consensus block height
+    from config import SVG_GZIP_DETECTION_V2
+
     # Only decompress if it's likely to be SVG
     if is_svg_content(content_bytes):
         return content_bytes, True, "image/svg+xml"
 
-    # Get magic MIME type first (preserves old behavior)
+    # Use old behavior for blocks before SVG_GZIP_DETECTION_V2
+    if block_index is None or block_index < SVG_GZIP_DETECTION_V2:
+        # Old behavior: attempt decompression for any gzip-like content
+        if is_gzip(content_bytes):
+            decompressed = try_decompress(content_bytes)
+            if decompressed and is_svg_content(decompressed):
+                return decompressed, True, "image/svg+xml"
+    else:
+        # New behavior: only decompress for explicit gzip MIME types
+        # Get magic MIME type first (preserves old behavior)
+        try:
+            magic_mime = magic.from_buffer(content_bytes, mime=True)
+        except Exception:
+            magic_mime = "application/octet-stream"
+
+        # Only try decompression for explicit gzip MIME types
+        if magic_mime in ("application/gzip", "application/x-gzip"):
+            decompressed = try_decompress(content_bytes)
+            if decompressed and is_svg_content(decompressed):
+                return decompressed, True, "image/svg+xml"
+
+    # Return original for all other cases (preserves consensus)
     try:
         magic_mime = magic.from_buffer(content_bytes, mime=True)
     except Exception:
         magic_mime = "application/octet-stream"
-
-    # Only try decompression for explicit gzip MIME types
-    if magic_mime in ("application/gzip", "application/x-gzip"):
-        decompressed = try_decompress(content_bytes)
-        if decompressed and is_svg_content(decompressed):
-            return decompressed, True, "image/svg+xml"
-
-    # Return original for all other cases (preserves consensus)
     return content_bytes, False, magic_mime
 
 
-def get_processed_content_and_mime(content_bytes):
+def get_processed_content_and_mime(content_bytes, block_index=None):
     """
     Get both processed content and MIME type for content that may need decompression.
 
     Args:
         content_bytes (bytes): The content to analyze
+        block_index (int): The block index for consensus rules (optional)
 
     Returns:
         tuple: (processed_content_bytes, mime_type)
                - processed_content_bytes: Original or decompressed content
                - mime_type: The detected MIME type
     """
+    # Import config to check consensus block height
+    from config import ENHANCED_MIME_DETECTION
+
+    # For blocks before ENHANCED_MIME_DETECTION, use only magic detection
+    # This preserves consensus for historical blocks where SVGs with comments
+    # were misdetected as text/plain
+    if block_index is not None and block_index < ENHANCED_MIME_DETECTION:
+        try:
+            magic_mime = magic.from_buffer(content_bytes, mime=True)
+        except Exception:
+            magic_mime = "application/octet-stream"
+        return content_bytes, magic_mime
+
     # Check for gzipped SVG files first
-    processed_content, is_svg, svg_mime = detect_and_decompress_svg(content_bytes)
+    processed_content, is_svg, svg_mime = detect_and_decompress_svg(content_bytes, block_index)
     if is_svg:
         return processed_content, svg_mime
 
@@ -174,7 +205,7 @@ def get_processed_content_and_mime(content_bytes):
     return content_to_analyze, magic_mime
 
 
-def enhanced_mime_detection(content_bytes):
+def enhanced_mime_detection(content_bytes, block_index=None):
     """
     Enhanced MIME type detection with custom logic for better accuracy.
 
@@ -184,9 +215,10 @@ def enhanced_mime_detection(content_bytes):
 
     Args:
         content_bytes (bytes): The content to analyze
+        block_index (int): The block index for consensus rules (optional)
 
     Returns:
         str: The detected MIME type
     """
-    _, mime_type = get_processed_content_and_mime(content_bytes)
+    _, mime_type = get_processed_content_and_mime(content_bytes, block_index)
     return mime_type

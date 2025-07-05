@@ -365,6 +365,8 @@ CP_SUBASSET_FEAT_BLOCK_START: int = 866000  # Subasset no longer require XCP fee
 # Consensus changes
 STRIP_WHITESPACE: int = 797200
 STOP_BASE64_REPAIR: int = 784550
+SVG_GZIP_DETECTION_V2: int = 906000  # Block height where new SVG gzip detection method activates
+ENHANCED_MIME_DETECTION: int = 906000  # Block height where enhanced MIME detection for SVG activates
 
 
 VERSION_MAJOR: Optional[int]
