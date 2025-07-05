@@ -88,7 +88,7 @@ def is_gzip(content_bytes):
     Returns:
         bool: True if content appears to be gzipped
     """
-    return len(content_bytes) >= 2 and content_bytes.startswith(b"\x1f\x8b")
+    return len(content_bytes) >= 3 and content_bytes[:2] == b"\x1f\x8b" and content_bytes[2] == 0x08
 
 
 def try_decompress(content_bytes):
