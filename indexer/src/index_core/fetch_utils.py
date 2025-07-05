@@ -1394,12 +1394,17 @@ def is_valid_counterparty_asset(cpid: str) -> bool:
     if cpid.isalpha():
         return True
 
-    # Check if it's a named asset with a dot extension (e.g., NAME.STAMP, NAME.ONE)
+    # Check if it's a named asset with a dot extension (e.g., NAME.STAMP, NAME.ONE, NAME.1)
     if "." in cpid:
         parts = cpid.split(".")
-        # Must have exactly 2 parts and both should be alphabetic
-        if len(parts) == 2 and all(part.isalpha() for part in parts):
-            return True
+        # Must have exactly 2 parts
+        if len(parts) == 2:
+            # First part must be alphabetic (the base name)
+            # Second part can contain letters, numbers, hyphens (for STAMP/SRC-721 assets)
+            if parts[0].isalpha() and len(parts[1]) > 0:
+                # Accept any non-empty extension for named assets
+                # This includes: .STAMP, .ONE, .1, .BURN-SACRIFICE, etc.
+                return True
 
     # If it contains both letters and numbers mixed (like a hash), it's likely SRC-20
     has_letters = any(c.isalpha() for c in cpid)
