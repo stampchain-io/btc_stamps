@@ -128,6 +128,9 @@ def detect_and_decompress_svg(content_bytes, block_index=None):
     if is_svg_content(content_bytes):
         return content_bytes, True, "image/svg+xml"
 
+    # Cache for magic MIME type to avoid duplicate calls
+    magic_mime = None
+
     # Use old behavior for blocks before SVG_GZIP_DETECTION_V2
     if block_index is None or block_index < SVG_GZIP_DETECTION_V2:
         # Old behavior: attempt decompression for any gzip-like content
@@ -150,10 +153,12 @@ def detect_and_decompress_svg(content_bytes, block_index=None):
                 return decompressed, True, "image/svg+xml"
 
     # Return original for all other cases (preserves consensus)
-    try:
-        magic_mime = magic.from_buffer(content_bytes, mime=True)
-    except Exception:
-        magic_mime = "application/octet-stream"
+    # Use cached magic_mime if available, otherwise detect it
+    if magic_mime is None:
+        try:
+            magic_mime = magic.from_buffer(content_bytes, mime=True)
+        except Exception:
+            magic_mime = "application/octet-stream"
     return content_bytes, False, magic_mime
 
 
