@@ -5,8 +5,10 @@ from index_core.enhanced_mime_detection import (
     detect_and_decompress_svg,
     enhanced_mime_detection,
     get_processed_content_and_mime,
+    is_gzip,
     is_legitimate_html,
     is_svg_content,
+    try_decompress,
 )
 
 
@@ -212,6 +214,39 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         # The exact behavior depends on the magic library implementation
         result = enhanced_mime_detection(b"test content")
         self.assertIsInstance(result, str)
+
+    def test_is_gzip_valid_gzip_header(self):
+        """Test is_gzip detects valid gzip header."""
+        self.assertTrue(is_gzip(b"\x1f\x8b\x08\x00\x00\x00\x00\x00"))
+
+    def test_is_gzip_invalid_gzip_header(self):
+        """Test is_gzip rejects invalid headers."""
+        self.assertFalse(is_gzip(b"not gzipped"))
+        self.assertFalse(is_gzip(b"\x1f\x8c"))  # Wrong second byte
+        self.assertFalse(is_gzip(b""))  # Empty
+        self.assertFalse(is_gzip(b"\x1f"))  # Too short
+
+    def test_try_decompress_valid_gzip(self):
+        """Test try_decompress with valid gzip data."""
+        original = b"Hello, World!"
+        compressed = gzip.compress(original)
+        result = try_decompress(compressed)
+        self.assertEqual(result, original)
+
+    def test_try_decompress_invalid_gzip(self):
+        """Test try_decompress with invalid gzip data."""
+        self.assertIsNone(try_decompress(b"not gzipped"))
+        self.assertIsNone(try_decompress(b"\x1f\x8b\x08\x00corrupted"))
+
+    def test_is_svg_content_with_large_content(self):
+        """Test is_svg_content only checks prefix for performance."""
+        # Create large SVG content
+        large_svg = b'<svg xmlns="http://www.w3.org/2000/svg">' + b"x" * 10000 + b"</svg>"
+        self.assertTrue(is_svg_content(large_svg))
+
+        # SVG markers after 512 bytes should not be detected
+        late_svg = b"x" * 600 + b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        self.assertFalse(is_svg_content(late_svg))
 
 
 if __name__ == "__main__":
