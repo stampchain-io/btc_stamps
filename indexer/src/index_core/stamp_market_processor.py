@@ -82,12 +82,24 @@ class StampMarketDataProcessor:
             # Validate CPID format (Counterparty asset ID or SRC-20 hash token)
             # Traditional Counterparty asset IDs: Start with 'A' followed by digits (min 13 chars)
             # Named assets: Alphabetic strings with optional dots (e.g., PEPECASH, NAKAMOTOCARD.STAMP)
+            # Named assets with extensions: NAME.extension where NAME is alphabetic and extension can be anything
             # SRC-20 hash tokens: 20-character alphanumeric strings
             is_traditional_cpid = cpid.startswith("A") and len(cpid) >= 13 and cpid[1:].isdigit()
-            is_named_asset = cpid.replace(".", "").isalpha() and len(cpid) <= 255  # Allow dots in named assets
+
+            # Check if it's a simple named asset (all alphabetic)
+            is_simple_named_asset = cpid.isalpha() and len(cpid) <= 255
+
+            # Check if it's a named asset with dot extension (e.g., NAME.STAMP, NAME.1, NAME.BURN-SACRIFICE)
+            is_named_with_extension = False
+            if "." in cpid and len(cpid) <= 255:
+                parts = cpid.split(".")
+                # First part must be alphabetic, extension can be anything non-empty
+                if len(parts) == 2 and parts[0].isalpha() and len(parts[1]) > 0:
+                    is_named_with_extension = True
+
             is_src20_hash = len(cpid) == 20 and cpid.isalnum()
 
-            if not (is_traditional_cpid or is_named_asset or is_src20_hash):
+            if not (is_traditional_cpid or is_simple_named_asset or is_named_with_extension or is_src20_hash):
                 raise exceptions.InvalidInputDataError(f"Invalid CPID format: {cpid}")
 
             validated_data["cpid"] = cpid
