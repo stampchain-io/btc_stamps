@@ -80,30 +80,47 @@ class TestSalesHistoryProcessorIntegration:
         try:
             # Mock the API to return a small dataset for testing
             with patch("index_core.sales_history_processor.fetch_xcp") as mock_fetch:
-                mock_fetch.return_value = {
-                    "result": [
-                        {
-                            "tx_hash": "test_tx_1",
-                            "block_index": 800000,
-                            "asset": "A16668056020104546000",
-                            "source": "buyer1",
-                            "destination": "dispenser1",
-                            "dispense_quantity": 1,
-                            "btc_amount": 100000,
-                            "block_time": int(time.time()),
-                            "dispenser": {"satoshirate": 100000},
-                        }
-                    ],
-                    "next_cursor": None,  # No more pages
-                }
+                with patch("index_core.sales_history_processor.rate_limiter.acquire"):
+                    mock_fetch.return_value = {
+                        "result": [
+                            {
+                                "tx_hash": "test_tx_1",
+                                "block_index": 800000,
+                                "asset": "A16668056020104546000",
+                                "source": "buyer1",
+                                "destination": "dispenser1",
+                                "dispense_quantity": 1,
+                                "btc_amount": 100000,
+                                "block_time": int(time.time()),
+                                "dispenser": {"satoshirate": 100000},
+                            }
+                        ],
+                        "next_cursor": None,  # No more pages
+                    }
 
-                success = processor._fetch_all_dispenses()
-                signal.alarm(0)  # Cancel the alarm
+                    # Pre-populate CPID cache so the dispense will be processed
+                    processor.cpid_cache = {"A16668056020104546000"}
 
-                # Verify the fetch was successful
-                assert success is True
-                assert len(processor.dispense_cache["data"]) == 1
-                assert processor.dispense_cache["highest_block"] == 800000
+                    # Track batch processing
+                    batch_processed = []
+
+                    def track_batch(dispenses, db=None):
+                        batch_processed.append(len(dispenses))
+                        return len([d for d in dispenses if d.get("asset") in processor.cpid_cache])
+
+                    processor._process_dispense_batch = Mock(side_effect=track_batch)
+
+                    success = processor._fetch_all_dispenses()
+                    signal.alarm(0)  # Cancel the alarm
+
+                    # Verify the fetch was successful
+                    assert success is True
+                    # With new batching, data is not kept in memory
+                    assert len(processor.dispense_cache["data"]) == 0
+                    assert processor.dispense_cache["highest_block"] == 800000
+                    # Should have processed the batch
+                    assert len(batch_processed) == 1
+                    assert batch_processed[0] == 1
 
         except TimeoutError:
             signal.alarm(0)  # Cancel the alarm

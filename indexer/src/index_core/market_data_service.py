@@ -348,6 +348,15 @@ class MarketDataService:
                         else:
                             values.append(value)
 
+                    # Debug logging for volume values
+                    if any(field in valid_fields for field in ["volume_24h_btc", "volume_7d_btc", "volume_30d_btc"]):
+                        logger.debug(
+                            f"Updating market data for {cpid} with volumes: "
+                            f"24h={valid_fields.get('volume_24h_btc', 'N/A')}, "
+                            f"7d={valid_fields.get('volume_7d_btc', 'N/A')}, "
+                            f"30d={valid_fields.get('volume_30d_btc', 'N/A')}"
+                        )
+
                     cursor.execute(query, values)
                     db.commit()
 

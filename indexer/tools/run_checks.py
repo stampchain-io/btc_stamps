@@ -484,6 +484,8 @@ def run_integration_tests():
         "poetry run pytest tests/test_kucoin_integration.py -v -m integration",
         "poetry run pytest tests/test_openstamp_integration.py -v -m integration",
         "poetry run pytest tests/test_src20_worker_integration.py -v -m integration",
+        # Activity calculator and dispenser optimization tests
+        "poetry run pytest tests/test_dispenser_bulk_fetcher_integration.py -v -m integration",
     ]
 
     all_passed = True
