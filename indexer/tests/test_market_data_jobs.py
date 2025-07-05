@@ -184,25 +184,31 @@ class TestMarketDataJobScheduler:
                 # Verify service was called for all assets
                 assert mock_service.update_stamp_market_data.call_count == 2
 
-    def test_get_stamps_needing_update_calls_database_function(self):
-        """Test that _get_stamps_needing_update uses the database function correctly."""
+    def test_get_stamps_needing_update_calls_activity_calculator(self):
+        """Test that _get_stamps_needing_update uses the activity calculator correctly."""
         expected_cpids = ["A1234567890123456789", "FUCKTHAT", "LEGENDARYBAR"]
 
-        # Patch the database function
-        with patch("index_core.database.get_stamps_needing_market_update") as mock_get_stamps:
-            mock_get_stamps.return_value = expected_cpids
+        # Mock the activity calculator response format
+        stamps_dict = {
+            "A1234567890123456789": ("12345", "HOT"),
+            "FUCKTHAT": ("54321", "WARM"),
+            "LEGENDARYBAR": ("98765", "COOL"),
+        }
+
+        # Patch the activity calculator
+        with patch("index_core.activity_calculator.StampActivityCalculator.get_stamps_needing_update") as mock_activity_calc:
+            mock_activity_calc.return_value = stamps_dict
 
             # Call the method
             result = self.scheduler._get_stamps_needing_update(self.mock_db)
 
-            # Verify the database function was called with correct parameters
-            mock_get_stamps.assert_called_once_with(
+            # Verify the activity calculator was called with correct parameters
+            mock_activity_calc.assert_called_once_with(
                 self.mock_db,
-                update_interval_minutes=15,  # STAMP_UPDATE_INTERVAL // 60
-                limit=10000,  # STAMP_SELECTION_LIMIT (new value)
+                limit=10000,  # STAMP_SELECTION_LIMIT
             )
 
-            # Verify result is returned correctly
+            # Verify result is returned correctly (should extract just the CPIDs)
             assert result == expected_cpids
 
     def test_src20_job_uses_bulk_fetch(self):
@@ -287,9 +293,13 @@ class TestMarketDataJobScheduler:
         """Test the full stamp market data update job flow."""
         # Mock the database manager connection
         with patch.object(self.scheduler.database_manager, "connect", return_value=self.mock_db):
-            # Mock the database function to return specific CPIDs
-            with patch("index_core.database.get_stamps_needing_market_update") as mock_get_stamps:
-                mock_get_stamps.return_value = ["CPID1", "CPID2"]
+            # Mock the activity calculator to return specific CPIDs
+            stamps_dict = {"CPID1": ("12345", "HOT"), "CPID2": ("54321", "WARM")}
+
+            with patch(
+                "index_core.activity_calculator.StampActivityCalculator.get_stamps_needing_update"
+            ) as mock_activity_calc:
+                mock_activity_calc.return_value = stamps_dict
 
                 with patch("index_core.market_data_jobs.StampWorker") as mock_worker_class:
                     with patch("index_core.market_data_jobs.market_data_service") as mock_service:
@@ -307,6 +317,12 @@ class TestMarketDataJobScheduler:
 
                         # Run the job
                         self.scheduler._update_stamp_market_data_job()
+
+                        # Verify activity calculator was called
+                        mock_activity_calc.assert_called_once_with(
+                            self.mock_db,
+                            limit=10000,  # STAMP_SELECTION_LIMIT
+                        )
 
                         # Verify StampWorker was used
                         mock_worker_class.assert_called()

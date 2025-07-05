@@ -2478,6 +2478,10 @@ def get_stamps_needing_market_update(db: Connection, update_interval_minutes: in
     Get list of stamp CPIDs that need market data updates.
     Includes stamps with ident='STAMP' or ident='SRC-721'.
 
+    DEPRECATED: This function uses fixed update intervals.
+    New code should use StampActivityCalculator.get_stamps_needing_update()
+    which provides activity-based optimization (93% API call reduction).
+
     Args:
         db: Database connection
         update_interval_minutes: Minutes since last update
@@ -2595,8 +2599,16 @@ def apply_schema_updates(db, cursor):
                 ("last_sale_dispenser_address", "VARCHAR(100)", "Dispenser address used in the most recent sale"),
                 ("last_sale_btc_amount", "BIGINT", "Actual BTC amount paid in satoshis for the most recent sale"),
                 ("last_sale_dispenser_tx_hash", "VARCHAR(64)", "Transaction hash that created the dispenser (optional)"),
+                (
+                    "activity_level",
+                    "ENUM('HOT', 'WARM', 'COOL', 'DORMANT', 'COLD') DEFAULT 'COLD'",
+                    "Activity level based on trading frequency for optimization",
+                ),
+                ("last_activity_time", "INT", "Unix timestamp of last trading activity"),
             ],
-            "indexes": [],  # No new indexes needed, idx_recent_sales already exists in CREATE TABLE
+            "indexes": [
+                ("idx_activity_level", ["activity_level", "last_updated"]),  # For activity-based update scheduling
+            ],
         }
     }
 

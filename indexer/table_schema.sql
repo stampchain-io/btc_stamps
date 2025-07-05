@@ -479,6 +479,10 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   `last_sale_btc_amount` BIGINT NULL COMMENT 'Actual BTC amount paid in satoshis for the most recent sale',
   `last_sale_dispenser_tx_hash` VARCHAR(64) NULL COMMENT 'Transaction hash that created the dispenser (optional)',
   
+  -- Activity Level Optimization
+  `activity_level` ENUM('HOT', 'WARM', 'COOL', 'DORMANT', 'COLD') DEFAULT 'COLD' COMMENT 'Activity level based on trading frequency for optimization',
+  `last_activity_time` INT NULL COMMENT 'Unix timestamp of last trading activity',
+  
   -- Metadata and Tracking
   `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last cache update time',
   `last_dispenser_block` INTEGER NULL COMMENT 'Last block where dispenser data was updated',
@@ -502,7 +506,8 @@ CREATE TABLE IF NOT EXISTS `stamp_market_data` (
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
   INDEX `idx_volume_composite` (`volume_24h_btc` DESC, `volume_7d_btc` DESC, `holder_count` DESC) COMMENT 'For trending/popular stamps',
   INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages',
-  INDEX `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting'
+  INDEX `idx_recent_sales` (`last_price_update` DESC, `volume_24h_btc` DESC) COMMENT 'For recent sales filtering and sorting',
+  INDEX `idx_activity_level` (`activity_level`, `last_updated`) COMMENT 'For activity-based update scheduling optimization'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Cached market data for Bitcoin Stamps to eliminate external API calls';
 
 

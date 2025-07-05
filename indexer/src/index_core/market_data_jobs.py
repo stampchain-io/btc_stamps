@@ -188,7 +188,7 @@ class MarketDataJobScheduler:
         """Check if a job is due to run based on its interval."""
         last_run = self.last_run_times.get(job_name)
         if last_run is None:
-            logger.info(f"Job {job_name} has never run before, marking as due")
+            logger.debug(f"Job {job_name} has never run before, marking as due")
             return True  # Never run before
 
         time_since_last_run = (current_time - last_run).total_seconds()
@@ -210,12 +210,12 @@ class MarketDataJobScheduler:
 
                 # Submit the job
                 if self.executor and self.running:
-                    logger.info(f"📋 Submitting market data job: {job_name}")
+                    logger.debug(f"📋 Submitting market data job: {job_name}")
 
                     try:
                         # Add debug wrapper to ensure job starts
                         def job_wrapper():
-                            logger.info(f"🚀 Starting market data job: {job_name}")
+                            logger.debug(f"🚀 Starting market data job: {job_name}")
                             start_time = time.time()
                             try:
                                 result = job_function()
@@ -233,7 +233,7 @@ class MarketDataJobScheduler:
                         future = self.executor.submit(job_wrapper)
                         self.job_futures[job_name] = future
                         self.last_run_times[job_name] = datetime.now()
-                        logger.info(f"📤 Job {job_name} submitted successfully")
+                        logger.debug(f"📤 Job {job_name} submitted successfully")
                     except Exception as submit_error:
                         logger.error(f"Failed to submit job {job_name}: {submit_error}")
                         import traceback
@@ -271,9 +271,9 @@ class MarketDataJobScheduler:
 
     def _update_stamp_market_data_job(self):
         """
-        Background job to update stamp market data.
+        Background job to update stamp market data using activity-based optimization.
 
-        Follows the pattern from update_cpids_async in blocks.py.
+        Uses activity levels to prioritize updates and reduce API calls.
         """
         logger.debug("Starting stamp market data update cycle")
         start_time = time.time()
@@ -283,6 +283,11 @@ class MarketDataJobScheduler:
             task_db = self.database_manager.connect()
 
             try:
+                # Log current activity level distribution for monitoring
+                from index_core.activity_calculator import StampActivityCalculator
+
+                StampActivityCalculator.log_activity_stats(task_db)
+
                 # Get stamps that need market data updates
                 stamps_to_update = self._get_stamps_needing_update(task_db)
 
@@ -290,7 +295,7 @@ class MarketDataJobScheduler:
                     logger.info("📭 No stamps need market data updates at this time")
                     return
 
-                logger.info(f"📊 Starting market data update for {len(stamps_to_update)} stamps")
+                logger.info(f"📊 Starting activity-based market data update for {len(stamps_to_update)} stamps")
 
                 # Process stamps in batches to avoid overwhelming external APIs
                 batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
@@ -308,7 +313,7 @@ class MarketDataJobScheduler:
 
                     # Rate limiting between batches
                     if not self.shutdown_event.is_set():
-                        time.sleep(2)  # 2 second delay between batches
+                        time.sleep(0.1)  # Small delay to prevent CPU spinning
 
                 elapsed_time = time.time() - start_time
                 logger.info(
@@ -514,17 +519,46 @@ class MarketDataJobScheduler:
                 raise
 
     def _get_stamps_needing_update(self, db) -> List[str]:
-        """Get list of stamp CPIDs that need market data updates."""
-        from index_core.database import get_stamps_needing_market_update
+        """Get list of stamp CPIDs that need market data updates using activity-based intervals."""
+        from index_core.activity_calculator import StampActivityCalculator
 
-        cpids = get_stamps_needing_market_update(
-            db, update_interval_minutes=STAMP_UPDATE_INTERVAL // 60, limit=STAMP_SELECTION_LIMIT
-        )
+        try:
+            # Use the activity calculator to get stamps prioritized by activity level
+            stamps_dict = StampActivityCalculator.get_stamps_needing_update(db, limit=STAMP_SELECTION_LIMIT)
 
-        logger.info(
-            f"Found {len(cpids)} valid Counterparty assets needing market data updates (limit: {STAMP_SELECTION_LIMIT})"
-        )
-        return cpids
+            # Extract just the CPIDs for processing
+            cpids = list(stamps_dict.keys())
+
+            # Log the activity distribution for monitoring
+            if cpids:
+                activity_counts: Dict[str, int] = {}
+                for cpid, (stamp, activity_level) in stamps_dict.items():
+                    # Handle both enum and string activity levels for compatibility
+                    level_str = activity_level.value if hasattr(activity_level, "value") else str(activity_level)
+                    activity_counts[level_str] = activity_counts.get(level_str, 0) + 1
+
+                logger.info(
+                    f"Found {len(cpids)} stamps needing activity-based updates: {activity_counts} "
+                    f"(limit: {STAMP_SELECTION_LIMIT})"
+                )
+            else:
+                logger.info("No stamps need market data updates at this time")
+
+            return cpids
+
+        except Exception as e:
+            logger.error(f"Error getting activity-based stamps needing update: {e}")
+            logger.warning("Falling back to legacy update logic...")
+
+            # Fallback to old logic if activity calculator fails
+            from index_core.database import get_stamps_needing_market_update
+
+            cpids = get_stamps_needing_market_update(
+                db, update_interval_minutes=STAMP_UPDATE_INTERVAL // 60, limit=STAMP_SELECTION_LIMIT
+            )
+
+            logger.info(f"Found {len(cpids)} stamps using legacy logic (fallback)")
+            return cpids
 
     def _get_collections_needing_update(self, db) -> List[str]:
         """Get list of collection IDs that need market data updates."""

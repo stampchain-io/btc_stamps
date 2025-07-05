@@ -40,6 +40,8 @@ class TestSalesHistoryProcessor:
             sales_history_processor.cpid_cache.clear()
         if hasattr(sales_history_processor, "last_cache_update"):
             sales_history_processor.last_cache_update = 0
+        if hasattr(sales_history_processor, "catchup_buffer"):
+            sales_history_processor.catchup_buffer.clear()
         if hasattr(sales_history_processor, "progress"):
             sales_history_processor.progress = {
                 "total_cpids": 0,
@@ -834,22 +836,34 @@ class TestSalesHistoryProcessorEdgeCases:
         assert mode == "FULL_CATCHUP"  # No history means full catchup
 
     @patch("index_core.sales_history_processor.fetch_xcp")
-    def test_full_catchup_pagination(self, mock_fetch, processor):
-        """Test pagination handling in Full Catchup Mode"""
+    @patch("index_core.sales_history_processor.rate_limiter")
+    def test_full_catchup_pagination(self, mock_rate_limiter, mock_fetch, processor):
+        """Test pagination handling in Full Catchup Mode with memory-friendly batching"""
+        mock_rate_limiter.acquire = Mock()
+
+        # Mock the batch processing
+        processor._process_dispense_batch = Mock(return_value=100)
+
         # Mock multiple pages of responses
         mock_fetch.side_effect = [
-            {"result": [{"block_index": i} for i in range(1000)], "next_cursor": 1000},
-            {"result": [{"block_index": i} for i in range(1000, 2000)], "next_cursor": 2000},
-            {"result": [{"block_index": i} for i in range(2000, 2500)], "next_cursor": None},  # Last page
+            {"result": [{"block_index": i, "asset": f"A{i:020d}"} for i in range(1000)], "next_cursor": 1000},
+            {"result": [{"block_index": i, "asset": f"A{i:020d}"} for i in range(1000, 2000)], "next_cursor": 2000},
+            {
+                "result": [{"block_index": i, "asset": f"A{i:020d}"} for i in range(2000, 2500)],
+                "next_cursor": None,
+            },  # Last page
         ]
 
         # Fetch all dispenses
         success = processor._fetch_all_dispenses()
 
         assert success is True
-        assert len(processor.dispense_cache["data"]) == 2500
+        # With new batching, data is not kept in memory
+        assert len(processor.dispense_cache["data"]) == 0
         assert processor.dispense_cache["highest_block"] == 2499
         assert mock_fetch.call_count == 3
+        # Should process one batch (3 pages < 10 pages per batch)
+        assert processor._process_dispense_batch.call_count == 1
 
     def test_cpid_filtering_in_cached_dispenses(self, processor, mock_db_manager):
         """Test CPID filtering when processing cached dispenses"""

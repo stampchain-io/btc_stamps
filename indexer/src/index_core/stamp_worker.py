@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from index_core.dispenser_bulk_fetcher import dispenser_bulk_fetcher
 from index_core.fetch_utils import RateLimiter, fetch_xcp, is_valid_counterparty_asset
 from index_core.sales_history_processor import sales_history_processor
 from index_core.stamp_market_processor import StampMarketDataProcessor
@@ -99,7 +100,10 @@ class StampWorker:
 
     def _fetch_dispensers(self, cpid: str) -> Optional[List[Dict]]:
         """
-        Fetch dispenser data for a stamp from Counterparty API.
+        Fetch dispenser data for a stamp using the optimized bulk fetcher.
+
+        This replaces individual API calls with a shared cache that fetches ALL dispensers
+        in ~100 API calls vs 49,177 individual calls (500x improvement).
 
         Args:
             cpid: Counterparty asset ID
@@ -108,30 +112,45 @@ class StampWorker:
             List of dispenser dictionaries or None if failed
         """
         try:
-            # Rate limiting
-            self.rate_limiter.acquire()
+            # Check if we need to refresh the bulk cache (once per hour)
+            current_time = time.time()
+            if dispenser_bulk_fetcher.should_fetch(current_time):
+                logger.debug("Refreshing bulk dispenser cache...")
+                dispenser_bulk_fetcher.fetch_all_open_dispensers()
 
-            endpoint = "/dispensers"
-            params = {"asset": cpid, "limit": MAX_DISPENSERS_PER_REQUEST, "show_unconfirmed": "false"}
+            # Get dispensers for this CPID from cache
+            dispensers = dispenser_bulk_fetcher.dispenser_cache.get(cpid, [])
 
-            logger.debug(f"Fetching dispensers for {cpid} from endpoint: {endpoint}")
-            response = fetch_xcp(endpoint, params)
-
-            if response and "result" in response:
-                dispensers = response["result"]
-                logger.debug(f"Found {len(dispensers)} dispensers for {cpid}")
-                return dispensers
-            elif response and "error" in response:
-                # Log API errors more specifically
-                logger.warning(f"API error fetching dispensers for {cpid}: {response['error']}")
-                return []
-            else:
-                logger.debug(f"No dispensers found for {cpid}")
-                return []
+            logger.debug(f"Found {len(dispensers)} dispensers for {cpid} from bulk cache")
+            return dispensers
 
         except Exception as e:
-            logger.error(f"Error fetching dispensers for {cpid}: {e}")
-            return None
+            logger.error(f"Error fetching dispensers from bulk cache for {cpid}: {e}")
+            logger.warning("Falling back to individual API call...")
+
+            # Fallback to old individual API call logic
+            try:
+                self.rate_limiter.acquire()
+                endpoint = "/dispensers"
+                params = {"asset": cpid, "limit": MAX_DISPENSERS_PER_REQUEST, "show_unconfirmed": "false"}
+
+                logger.debug(f"Fetching dispensers for {cpid} from endpoint (fallback): {endpoint}")
+                response = fetch_xcp(endpoint, params)
+
+                if response and "result" in response:
+                    dispensers = response["result"]
+                    logger.debug(f"Found {len(dispensers)} dispensers for {cpid} (fallback)")
+                    return dispensers
+                elif response and "error" in response:
+                    logger.warning(f"API error fetching dispensers for {cpid}: {response['error']}")
+                    return []
+                else:
+                    logger.debug(f"No dispensers found for {cpid} (fallback)")
+                    return []
+
+            except Exception as fallback_error:
+                logger.error(f"Fallback dispenser fetch also failed for {cpid}: {fallback_error}")
+                return None
 
     def _fetch_dispenses(self, cpid: str) -> Optional[List[Dict]]:
         """
@@ -260,15 +279,15 @@ class StampWorker:
             # This ensures we get accurate volume data that matches what's stored in the database
             volume_metrics = self._calculate_volume_metrics_from_history(cpid)
             market_data.update(volume_metrics)
-            
+
             # Debug logging for volume calculations
-            logger.info(
+            logger.debug(
                 f"Volume metrics for {cpid}: "
                 f"24h={volume_metrics.get('volume_24h_btc', 0)}, "
                 f"7d={volume_metrics.get('volume_7d_btc', 0)}, "
                 f"30d={volume_metrics.get('volume_30d_btc', 0)}"
             )
-            
+
             # Set volume sources if we found any volume data
             if any(volume_metrics.get(f"volume_{period}_btc", 0) > 0 for period in ["24h", "7d", "30d"]):
                 market_data["volume_sources"] = {"dispenser": 1.0}
@@ -470,16 +489,21 @@ class StampWorker:
             Dictionary with volume metrics
         """
         try:
+            logger.debug(f"Starting volume calculation from sales history for {cpid}")
+
             # Get volume data from sales history
             volume_24h = sales_history_processor.calculate_volume_from_history(cpid, hours=24)
             volume_7d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 7)
             volume_30d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 30)
-            
+            # Calculate total volume (all time) - using a large number of hours
+            volume_total = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 365 * 10)  # 10 years
+
             # Debug logging
             logger.debug(f"Raw volume data from sales history for {cpid}:")
             logger.debug(f"  24h: {volume_24h}")
             logger.debug(f"  7d: {volume_7d}")
             logger.debug(f"  30d: {volume_30d}")
+            logger.debug(f"  total: {volume_total}")
 
             # Get recent sales for the most recent sale info
             recent_sales = sales_history_processor.get_recent_sales(limit=1, cpid=cpid)
@@ -488,6 +512,7 @@ class StampWorker:
                 "volume_24h_btc": volume_24h.get("volume_btc", 0.0),
                 "volume_7d_btc": volume_7d.get("volume_btc", 0.0),
                 "volume_30d_btc": volume_30d.get("volume_btc", 0.0),
+                "total_volume_btc": volume_total.get("volume_btc", 0.0),
                 "total_dispenses_count": volume_30d.get("trade_count", 0),
                 "recent_dispenses_count": volume_24h.get("trade_count", 0),
             }
