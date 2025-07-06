@@ -375,12 +375,14 @@ class MarketDataJobScheduler:
                 # Create a single worker instance
                 src20_worker = SRC20Worker()
 
+                # Initialize lookups to avoid UnboundLocalError
+                openstamp_lookup = {}
+                
                 # Fetch ALL market data from OpenStamp in ONE call
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
 
                 if openstamp_tokens:
                     # Convert OpenStamp data to a lookup dict by token name
-                    openstamp_lookup = {}
                     for token_data in openstamp_tokens:
                         tick = token_data.get("name", "").upper()
                         # Filter: Only process tokens <= 5 characters (SRC-20 spec)
