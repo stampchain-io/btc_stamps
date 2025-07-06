@@ -296,17 +296,18 @@ class TestStampScanIntegration:
         assert result["tick"] == "TEST"
 
     def test_stampscan_api_single_token_response(self):
-        """Test handling of single token response format."""
-        with patch.object(self.worker, "_stampscan_api_call") as mock_api_call:
-            # Mock single token response (dict instead of list)
-            mock_api_call.return_value = {"tick": "stamp", "floor_unit_price": 2.0e-7, "mcap": 200.0, "holder_count": 14000}
+        """Test handling of single token response format when cached."""
+        # Set up cache with single token as dict (simulating edge case)
+        single_token_response = {"tick": "stamp", "floor_unit_price": 2.0e-7, "mcap": 200.0, "holder_count": 14000}
+        self.worker._stampscan_cache = single_token_response
+        self.worker._stampscan_cache_time = 9999999999  # Far future to ensure cache is used
 
-            result = self.worker._fetch_stampscan_data("STAMP")
+        result = self.worker._fetch_stampscan_data("STAMP")
 
-            assert result is not None
-            assert result["tick"] == "STAMP"
-            assert result["price_btc"] == 2.0e-7
-            assert result["market_cap_btc"] == 200.0
+        assert result is not None
+        assert result["tick"] == "STAMP"
+        assert result["price_btc"] == 2.0e-7
+        assert result["market_cap_btc"] == 200.0
 
     def test_stampscan_case_insensitive_matching(self):
         """Test case-insensitive token matching."""

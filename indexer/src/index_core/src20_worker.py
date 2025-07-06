@@ -400,22 +400,12 @@ class SRC20Worker:
         try:
             logger.debug(f"Fetching StampScan data for {tick}")
 
-            # Use cached StampScan data if available
+            # Use cached StampScan data if available, refresh via bulk fetch if needed
             current_time = time.time()
             if self._stampscan_cache is None or (current_time - self._stampscan_cache_time) > self._stampscan_cache_ttl:
-                logger.debug("Fetching fresh StampScan data for cache")
-                try:
-                    self._stampscan_cache = self._stampscan_api_call(STAMPSCAN_LISTING_SUMMARY_ENDPOINT)
-                    self._stampscan_cache_time = current_time
-                except requests.exceptions.HTTPError as e:
-                    if e.response and e.response.status_code == 403:
-                        logger.debug("StampScan API access denied (403 Forbidden) - will use cached data if available")
-                    else:
-                        logger.error(f"Failed to fetch StampScan data: {e}")
-                    self._stampscan_cache = None
-                except Exception as e:
-                    logger.error(f"Failed to fetch StampScan data: {e}")
-                    self._stampscan_cache = None
+                logger.debug("Refreshing StampScan cache via bulk fetch")
+                # Use the new bulk fetch method which handles caching
+                self.fetch_all_stampscan_data()
 
             # Find token data in cached response
             if self._stampscan_cache:
@@ -423,14 +413,16 @@ class SRC20Worker:
                 # The response is either a single dict or a list of dicts
                 token_data = None
 
+                tick_upper = tick.upper()
+
                 if isinstance(self._stampscan_cache, dict):
                     # Single token response
-                    if self._stampscan_cache.get("tick", "").lower() == tick.lower():
+                    if self._stampscan_cache.get("tick", "").upper() == tick_upper:
                         token_data = self._stampscan_cache
                 elif isinstance(self._stampscan_cache, list):
                     # Multiple tokens response - find our token
                     for item in self._stampscan_cache:
-                        if isinstance(item, dict) and item.get("tick", "").lower() == tick.lower():
+                        if isinstance(item, dict) and item.get("tick", "").upper() == tick_upper:
                             token_data = item
                             break
 
@@ -1050,6 +1042,59 @@ class SRC20Worker:
             logger.error(f"Error fetching all OpenStamp data: {e}")
             return []
 
+    def fetch_all_stampscan_data(self) -> List[Dict]:
+        """
+        Fetch all market data from StampScan API in one call.
+
+        Returns:
+            List of token data dictionaries
+        """
+        try:
+            # Use cached data if available
+            current_time = time.time()
+            if self._stampscan_cache is None or (current_time - self._stampscan_cache_time) > self._stampscan_cache_ttl:
+                logger.debug("Fetching fresh StampScan data for all tokens")
+                try:
+                    response = self._stampscan_api_call(STAMPSCAN_LISTING_SUMMARY_ENDPOINT)
+                    if response:
+                        # StampScan returns an array of token objects
+                        if isinstance(response, list):
+                            self._stampscan_cache = response
+                            self._stampscan_cache_time = current_time
+                            logger.info(f"StampScan: Retrieved data for {len(response)} tokens")
+                        elif isinstance(response, dict) and "data" in response:
+                            # Handle wrapped response format
+                            data = response["data"]
+                            if isinstance(data, list):
+                                self._stampscan_cache = data
+                                self._stampscan_cache_time = current_time
+                                logger.info(f"StampScan: Retrieved data for {len(data)} tokens")
+                        else:
+                            logger.warning(f"StampScan: Unexpected response format: {type(response)}")
+                            return []
+                    else:
+                        logger.warning("StampScan: No data retrieved")
+                        return []
+                except requests.exceptions.HTTPError as e:
+                    if e.response and e.response.status_code == 403:
+                        logger.debug("StampScan API access denied (403 Forbidden) - will use cached data if available")
+                    else:
+                        logger.error(f"Failed to fetch StampScan data: {e}")
+                    return []
+                except Exception as e:
+                    logger.error(f"Failed to fetch StampScan data: {e}")
+                    return []
+
+            # Return cached data
+            if self._stampscan_cache:
+                return self._stampscan_cache
+            else:
+                return []
+
+        except Exception as e:
+            logger.error(f"Error fetching all StampScan data: {e}")
+            return []
+
     def transform_openstamp_data(self, token_data: Dict) -> Optional[Dict]:
         """
         Transform raw OpenStamp token data into standardized market data format.
@@ -1077,6 +1122,33 @@ class SRC20Worker:
 
         except Exception as e:
             logger.error(f"Error transforming OpenStamp data: {e}")
+            return None
+
+    def transform_stampscan_data(self, token_data: Dict) -> Optional[Dict]:
+        """
+        Transform raw StampScan token data into standardized market data format.
+
+        Args:
+            token_data: Raw token data from StampScan API
+
+        Returns:
+            Transformed market data dictionary or None if failed
+        """
+        try:
+            # Use existing _process_stampscan_data method which already handles the transformation
+            tick = token_data.get("tick", "")
+            if not tick:
+                return None
+
+            market_data = self._process_stampscan_data(tick, token_data)
+            if market_data:
+                market_data["data_source"] = "stampscan"
+                return market_data
+            else:
+                return None
+
+        except Exception as e:
+            logger.error(f"Error transforming StampScan data: {e}")
             return None
 
     def _aggregate_multi_source_data(self, tick: str, source_data: Dict[str, Dict]) -> Optional[Dict]:

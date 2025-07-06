@@ -451,6 +451,91 @@ class MarketDataJobScheduler:
                 else:
                     logger.warning("OpenStamp: No data retrieved")
 
+                # Fetch ALL market data from StampScan in ONE call
+                stampscan_tokens = src20_worker.fetch_all_stampscan_data()
+                stampscan_lookup = {}
+
+                if stampscan_tokens:
+                    # Convert StampScan data to a lookup dict by token name
+                    for token_data in stampscan_tokens:
+                        tick = token_data.get("tick", "").upper()
+                        # Filter: Only process tokens <= 5 characters (SRC-20 spec)
+                        if tick and len(tick) <= 5:
+                            stampscan_lookup[tick] = token_data
+
+                    stampscan_token_set = set(stampscan_lookup.keys())
+                    logger.debug(f"StampScan: Retrieved {len(stampscan_token_set)} tokens")
+                else:
+                    logger.warning("StampScan: No data retrieved")
+
+                # Now process ALL tokens with multi-source aggregation
+                # Get union of all tokens from both sources
+                all_tokens = set()
+                if openstamp_lookup:
+                    all_tokens.update(openstamp_lookup.keys())
+                if stampscan_lookup:
+                    all_tokens.update(stampscan_lookup.keys())
+
+                # Find intersection with database tokens
+                all_tokens_normalized = {normalize_token(token): token for token in all_tokens}
+                matching_tokens_normalized = database_tokens_normalized.keys() & all_tokens_normalized.keys()
+
+                # Convert back to original case for processing
+                tokens_to_process = {database_tokens_normalized[token_norm] for token_norm in matching_tokens_normalized}
+
+                logger.debug(f"Processing {len(tokens_to_process)} tokens from all sources")
+
+                # Process each token with data from ALL available sources
+                processed_count = 0
+                error_count = 0
+
+                for tick in tokens_to_process:
+                    if self.shutdown_event.is_set():
+                        logger.info("Shutdown requested, stopping SRC-20 updates")
+                        break
+
+                    try:
+                        tick_upper = tick.upper()
+                        source_data = {}
+
+                        # Collect data from OpenStamp
+                        if tick_upper in openstamp_lookup:
+                            openstamp_data = src20_worker.transform_openstamp_data(openstamp_lookup[tick_upper])
+                            if openstamp_data:
+                                source_data["openstamp"] = openstamp_data
+
+                        # Collect data from StampScan
+                        if tick_upper in stampscan_lookup:
+                            stampscan_data = src20_worker.transform_stampscan_data(stampscan_lookup[tick_upper])
+                            if stampscan_data:
+                                source_data["stampscan"] = stampscan_data
+
+                        # Only process if we have data from at least one source
+                        if source_data:
+                            # Aggregate data from all sources
+                            aggregated_data = src20_worker._aggregate_multi_source_data(tick, source_data)
+                            if aggregated_data:
+                                market_data_service.update_src20_market_data(tick, aggregated_data, task_db)
+
+                                # Store source tracking data for effectiveness analysis
+                                src20_worker._store_source_data(tick, source_data)
+
+                                processed_count += 1
+
+                                if processed_count % 50 == 0:
+                                    logger.debug(f"Processed {processed_count} tokens...")
+                            else:
+                                error_count += 1
+
+                    except Exception as e:
+                        error_count += 1
+                        logger.warning(f"Error processing token {tick}: {e}")
+
+                if error_count > 0:
+                    logger.warning(f"Multi-source: Processed {processed_count} tokens ({error_count} errors)")
+                else:
+                    logger.debug(f"Multi-source: Processed {processed_count} tokens successfully")
+
                 # Update STAMP token from KuCoin (only token we track there)
                 try:
                     stamp_data = src20_worker.process_src20_market_data("STAMP")
