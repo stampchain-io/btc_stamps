@@ -61,12 +61,36 @@ def print_summary(table_name, prod_count, dev_count, has_differences):
 
 def print_stamp_comparison(prod_record, dev_record):
     """Print detailed comparison of matching tx_hash with different stamps."""
+    # Validate that stamp numbers and CPIDs match
+    stamp_matches = prod_record[0] == dev_record[0]
+    cpid_matches = prod_record[5] == dev_record[5]
+
+    # Check if IDENT difference is only STAMP -> SRC-721
+    ident_acceptable = (prod_record[1] == "STAMP" and dev_record[1] == "SRC-721") or (prod_record[1] == dev_record[1])
+
+    # Determine if this is a real issue or just expected IDENT difference
+    is_real_issue = not stamp_matches or not cpid_matches or not ident_acceptable
+
     print(f"\n  TX: {prod_record[2][:8]}... Block[{prod_record[3]}]")
+
+    # Add validation status
+    if not is_real_issue:
+        print(f"    {colored('✓ VALIDATED: Only expected IDENT change', 'green')}")
+    else:
+        print(f"    {colored('✗ VALIDATION FAILED:', 'red')}", end="")
+        if not stamp_matches:
+            print(f" {colored('Stamp mismatch', 'red')}", end="")
+        if not cpid_matches:
+            print(f" {colored('CPID mismatch', 'red')}", end="")
+        if not ident_acceptable:
+            print(f" {colored('Unexpected IDENT change', 'red')}", end="")
+        print()
+
     print(
-        f"    Prod: Stamp={colored(prod_record[0], 'yellow')} Ident={colored(prod_record[1], 'yellow')} CPID={colored(prod_record[5], 'yellow')}"
+        f"    Prod: Stamp={colored(prod_record[0], 'yellow' if stamp_matches else 'red')} Ident={colored(prod_record[1], 'yellow')} CPID={colored(prod_record[5], 'yellow' if cpid_matches else 'red')}"
     )
     print(
-        f"    Dev:  Stamp={colored(dev_record[0], 'yellow')} Ident={colored(dev_record[1], 'yellow')} CPID={colored(dev_record[5], 'yellow')}"
+        f"    Dev:  Stamp={colored(dev_record[0], 'yellow' if stamp_matches else 'red')} Ident={colored(dev_record[1], 'yellow')} CPID={colored(dev_record[5], 'yellow' if cpid_matches else 'red')}"
     )
 
 
@@ -164,8 +188,47 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index, show_json=False):
 
         if mismatched:
             print(colored(f"\n→ Matching TX hash but different stamps ({len(mismatched)} records):", "yellow"))
+
+            # Track validation results
+            validated_count = 0
+            real_issues = []
+
+            for tx in sorted(mismatched, key=lambda x: prod_dict[x][3]):
+                prod_rec = prod_dict[tx]
+                dev_rec = dev_dict[tx]
+
+                # Check if this is just an expected IDENT change
+                stamp_matches = prod_rec[0] == dev_rec[0]
+                cpid_matches = prod_rec[5] == dev_rec[5]
+                ident_acceptable = (prod_rec[1] == "STAMP" and dev_rec[1] == "SRC-721") or (prod_rec[1] == dev_rec[1])
+
+                if stamp_matches and cpid_matches and ident_acceptable:
+                    validated_count += 1
+                else:
+                    real_issues.append(tx)
+
+            # Show first 5 examples
             for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
                 print_stamp_comparison(prod_dict[tx], dev_dict[tx])
+
+            # Print validation summary
+            print(colored(f"\n📊 Validation Summary:", "cyan"))
+            print(f"   Total mismatched records: {len(mismatched)}")
+            print(f"   ✓ Validated (only STAMP→SRC-721): {colored(validated_count, 'green')}")
+            print(f"   ✗ Real issues: {colored(len(real_issues), 'red' if real_issues else 'green')}")
+
+            if real_issues:
+                print(colored("\n⚠️  CRITICAL: Found real mismatches that are NOT just IDENT changes!", "red", attrs=["bold"]))
+                print("   These require investigation:")
+                for tx in real_issues[:3]:
+                    prod_rec = prod_dict[tx]
+                    dev_rec = dev_dict[tx]
+                    print(f"   - TX {tx[:8]}... - ", end="")
+                    if prod_rec[0] != dev_rec[0]:
+                        print(f"Stamp: {prod_rec[0]}→{dev_rec[0]} ", end="")
+                    if prod_rec[5] != dev_rec[5]:
+                        print(f"CPID: {prod_rec[5]}→{dev_rec[5]} ", end="")
+                    print()
 
     else:
         print(colored("\n✓ All stamps match perfectly!", "green", attrs=["bold"]))
