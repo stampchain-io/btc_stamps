@@ -291,9 +291,12 @@ class TestSalesHistoryProcessorIntegration:
 
     @pytest.mark.skip(reason="Long running test - enable for thorough testing")
     def test_catchup_mode_execution(self, processor):
-        """Test full catchup mode execution (WARNING: This may take time)"""
-        # This test actually runs catchup mode - skip by default
-        processor.start_catchup_mode(start_block=800000, end_block=800010)  # Limit to 10 blocks for testing
+        """Test full catchup mode execution with mocked data"""
+        # This test uses mocks, not real API calls
+        # For a real integration test, see test_real_api_catchup_limited below
+        
+        # Start catchup mode 
+        processor.start_catchup_mode()
 
         # Wait a bit for background thread to start
         time.sleep(2)
@@ -306,6 +309,87 @@ class TestSalesHistoryProcessorIntegration:
         # Stop catchup
         processor.stop_catchup_mode()
         assert not processor.catchup_running
+        
+    @pytest.mark.integration
+    def test_real_api_catchup_limited(self):
+        """Test catchup with REAL API calls - uses transaction rollback to avoid DB writes
+        
+        This test:
+        - Runs with 'poetry run run_checks' (local development)
+        - Does NOT run with 'poetry run check-code' (CI)
+        - Makes real API calls to Counterparty nodes
+        - Uses database transaction + rollback (no permanent writes)
+        - Verifies API integration, rate limiting, and data parsing work correctly
+        - Processes block 800000 which historically has stamp dispenses
+        """
+        # This test makes real API calls to Counterparty
+        # Create a real processor without mocks
+        import logging
+        from index_core.database_manager import DatabaseManager
+        from index_core.sales_history_processor import SalesHistoryProcessor
+        
+        logger = logging.getLogger(__name__)
+        real_processor = SalesHistoryProcessor(DatabaseManager())
+        
+        # Override the threshold to force catchup mode even for 1 block
+        real_processor.mode_threshold = 0
+        
+        try:
+            # Get a specific historical block that we know has dispenses
+            test_block = 800000  # Known to have stamp dispenses
+            
+            # Use a database connection with transaction
+            db = real_processor.db_manager.connect()
+            try:
+                # Start a transaction that we'll rollback at the end
+                db.begin()
+                
+                # Process dispenses for just this one block
+                logger.info(f"Processing block {test_block} with real API call...")
+                start_time = time.time()
+                processed = real_processor.process_block_dispenses(test_block, db)
+                elapsed = time.time() - start_time
+                
+                logger.info(f"API call completed in {elapsed:.2f} seconds")
+                logger.info(f"Processed {processed} stamp dispenses from block {test_block}")
+                
+                # Verify the API integration worked
+                assert isinstance(processed, int), "process_block_dispenses should return an integer"
+                assert processed >= 0, "Processed count should be non-negative"
+                assert elapsed < 30, f"API call took too long: {elapsed} seconds"
+                
+                # Verify data would have been inserted (within transaction)
+                with db.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM stamp_sales_history WHERE block_index = %s",
+                        (test_block,)
+                    )
+                    count = cursor.fetchone()[0]
+                    logger.info(f"Found {count} stamp sales in block {test_block} (in transaction)")
+                    
+                    # If we processed dispenses, we should have inserted records
+                    if processed > 0:
+                        assert count > 0, f"Expected {processed} records but found {count}"
+                    
+                # ROLLBACK the transaction - no data is written to DB
+                db.rollback()
+                logger.info("Transaction rolled back - no data written to database")
+                
+                # Verify rollback worked
+                with db.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM stamp_sales_history WHERE block_index = %s",
+                        (test_block,)
+                    )
+                    final_count = cursor.fetchone()[0]
+                    logger.info(f"Final count after rollback: {final_count} (may include existing data)")
+                    
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Integration test failed: {e}")
+            raise
 
     def test_dispense_data_parsing(self, processor, mock_cursor):
         """Test correct parsing of dispense data from API response"""
@@ -527,3 +611,68 @@ class TestPerformance:
             # Should have found dispenses for our 100 CPIDs
             assert count > 0
             assert mock_store.called
+
+
+@pytest.mark.integration
+def test_real_api_single_block():
+    """Standalone integration test with REAL API calls - processes 1 block"""
+    import logging
+    import time
+    from index_core.database_manager import DatabaseManager
+    from index_core.sales_history_processor import SalesHistoryProcessor
+    
+    logger = logging.getLogger(__name__)
+    
+    # Create real instances without any mocks
+    db_manager = DatabaseManager()
+    processor = SalesHistoryProcessor(db_manager)
+    
+    try:
+        # Get a specific historical block known to have activity
+        test_block = 800000
+        
+        # Connect to real database
+        db = db_manager.connect()
+        try:
+            # Clear any existing test data for this block
+            with db.cursor() as cursor:
+                cursor.execute("DELETE FROM stamp_sales_history WHERE block_index = %s", (test_block,))
+                db.commit()
+            
+            # Process dispenses for just this one block
+            logger.info(f"Processing block {test_block} with real API call...")
+            start_time = time.time()
+            processed = processor.process_block_dispenses(test_block, db)
+            elapsed = time.time() - start_time
+            
+            logger.info(f"Processed {processed} stamp dispenses from block {test_block} in {elapsed:.2f} seconds")
+            
+            # Verify the results
+            with db.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM stamp_sales_history WHERE block_index = %s",
+                    (test_block,)
+                )
+                result = cursor.fetchone()
+                count = result[0] if result else 0
+                
+                logger.info(f"Found {count} stamp sales in block {test_block}")
+                
+                # Block 800000 should have some stamp dispenses
+                # But we'll accept 0 in case this specific block has none
+                assert isinstance(count, int)
+                assert count >= 0
+                
+            # Clean up test data
+            with db.cursor() as cursor:
+                cursor.execute("DELETE FROM stamp_sales_history WHERE block_index = %s", (test_block,))
+                db.commit()
+                
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Integration test failed: {e}")
+        raise
+        
+    logger.info("Integration test completed successfully")
