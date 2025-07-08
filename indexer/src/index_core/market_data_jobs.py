@@ -377,7 +377,7 @@ class MarketDataJobScheduler:
 
                 # Initialize lookups to avoid UnboundLocalError
                 openstamp_lookup = {}
-                
+
                 # Fetch ALL market data from OpenStamp in ONE call
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
 

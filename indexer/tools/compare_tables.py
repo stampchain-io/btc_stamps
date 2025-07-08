@@ -220,12 +220,16 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index, show_json=False):
             if real_issues:
                 print(colored("\n⚠️  CRITICAL: Found real mismatches that are NOT just IDENT changes!", "red", attrs=["bold"]))
                 print("   These require investigation:")
-                for tx in real_issues[:3]:
+                print("\n" + "=" * 80)
+                for tx in real_issues[:10]:  # Show more examples
                     prod_rec = prod_dict[tx]
                     dev_rec = dev_dict[tx]
-                    print(f"   - TX {tx[:8]}... - ", end="")
+                    print(f"\n   Transaction: {tx}")
+                    print(f"   Block: {prod_rec[3]}")
+                    print(f"   Production:  Stamp={prod_rec[0]:<10} CPID={prod_rec[1]:<25} Ident={prod_rec[2]:<10}")
+                    print(f"   Development: Stamp={dev_rec[0]:<10} CPID={dev_rec[1]:<25} Ident={dev_rec[2]:<10}")
                     if prod_rec[0] != dev_rec[0]:
-                        print(f"Stamp: {prod_rec[0]}→{dev_rec[0]} ", end="")
+                        print(colored(f"   ⚠️  STAMP NUMBER MISMATCH: {prod_rec[0]} → {dev_rec[0]}", "red"))
                     if prod_rec[5] != dev_rec[5]:
                         print(f"CPID: {prod_rec[5]}→{dev_rec[5]} ", end="")
                     print()

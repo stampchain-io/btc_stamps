@@ -2722,10 +2722,26 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
 
         if etag_file.exists():
             try:
-                current_etag = etag_file.read_text().strip()
-                if current_etag:
-                    headers["If-None-Match"] = current_etag
-                    logger.debug(f"Found local ETag for {filename}: '{current_etag}'")
+                etag_content = etag_file.read_text().strip()
+                if etag_content:
+                    # Try to parse as JSON (new format)
+                    try:
+                        import json
+
+                        cache_data = json.loads(etag_content)
+                        current_etag = cache_data.get("etag", "")
+                        logger.debug(
+                            f"Found cached data for {filename}: ETag='{current_etag}', "
+                            f"timestamp={cache_data.get('timestamp')}, "
+                            f"rows={cache_data.get('row_count')}"
+                        )
+                    except json.JSONDecodeError:
+                        # Fall back to plain text (old format)
+                        current_etag = etag_content
+                        logger.debug(f"Found local ETag for {filename} (legacy format): '{current_etag}'")
+
+                    if current_etag:
+                        headers["If-None-Match"] = current_etag
                 else:
                     logger.debug(f"ETag file {etag_file} was empty.")
             except Exception as e:
@@ -2754,6 +2770,7 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
         # Execute the insert_query for each row.
         # The query itself (passed as argument) handles INSERT or UPDATE logic.
         rows_processed = 0
+        rows_failed = 0
         for row in csv_reader:
             # Skip empty rows if any
             if not any(field.strip() for field in row):
@@ -2762,18 +2779,32 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
                 cursor.execute(insert_query, tuple(row))
                 rows_processed += 1
             except Exception as e:
+                rows_failed += 1
                 logger.error(f"Error processing row {row} from {filename}: {e}")
                 # Decide if you want to continue or raise the exception
                 # raise # Uncomment to stop processing on the first error
                 continue  # Comment out to stop processing on the first error
 
-        logger.info(f"Finished processing {rows_processed} rows from {filename}")
+        logger.info(
+            f"Finished processing {rows_processed} rows from {filename}"
+            + (f" ({rows_failed} failed)" if rows_failed > 0 else "")
+        )
 
-        # Save the new ETag
+        # Save the new ETag with metadata
         if new_etag:
             try:
-                etag_file.write_text(new_etag)
-                logger.debug(f"Saved new ETag '{new_etag}' to {etag_file}")
+                import json
+                from datetime import datetime
+
+                cache_data = {
+                    "etag": new_etag,
+                    "timestamp": datetime.now().isoformat(),
+                    "file_size": len(response.text),
+                    "row_count": rows_processed,
+                    "url": csv_url,
+                }
+                etag_file.write_text(json.dumps(cache_data, indent=2))
+                logger.debug(f"Saved new ETag '{new_etag}' with metadata to {etag_file}")
             except Exception as e:
                 logger.warning(f"Could not write ETag file {etag_file}: {e}")
         elif current_etag:  # If server didn't send ETag, remove old one
