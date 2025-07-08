@@ -277,12 +277,12 @@ class SalesHistoryProcessor:
         if previous_mode != self.mode:
             logger.info(f"Mode switch: {previous_mode} -> {self.mode}")
 
-        logger.info(f"Starting sales history catchup in {self.mode} mode")
+        logger.debug(f"Starting sales history catchup in {self.mode} mode")
 
         # Start the catchup in a background thread
         threading.Thread(target=self._run_catchup, daemon=True).start()
 
-        logger.info("Started sales history catchup mode in background")
+        logger.debug("Started sales history catchup mode in background")
 
     def stop_catchup_mode(self):
         """Stop the catchup mode if running."""
@@ -566,7 +566,7 @@ class SalesHistoryProcessor:
                 self._run_full_catchup(db)
             else:
                 # Real-time mode doesn't need special catchup
-                logger.info("In REALTIME mode - no bulk catchup needed")
+                logger.debug("In REALTIME mode - no bulk catchup needed")
 
         except Exception as e:
             logger.error(f"Error in sales history catchup: {e}")
