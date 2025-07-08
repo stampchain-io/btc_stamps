@@ -168,8 +168,36 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index, show_json=False):
         print(f"├─ Production records: {colored(len(prod_records), 'cyan')}")
         print(f"└─ Development records: {colored(len(dev_records), 'cyan')}")
 
+    # Track validation results
+    validated_count = 0
+    real_issues = []
+    has_real_issues = False
+
+    if mismatched:
+        for tx in sorted(mismatched, key=lambda x: prod_dict[x][3]):
+            prod_rec = prod_dict[tx]
+            dev_rec = dev_dict[tx]
+
+            # Check if this is just an expected IDENT change
+            stamp_matches = prod_rec[0] == dev_rec[0]
+            cpid_matches = prod_rec[5] == dev_rec[5]
+            ident_acceptable = (prod_rec[1] == "STAMP" and dev_rec[1] == "SRC-721") or (prod_rec[1] == dev_rec[1])
+
+            if stamp_matches and cpid_matches and ident_acceptable:
+                validated_count += 1
+            else:
+                real_issues.append(tx)
+                has_real_issues = True
+
+    # Determine if we have actual problems
+    has_actual_problems = bool(only_in_prod or only_in_dev or real_issues)
+
     if only_in_prod or only_in_dev or mismatched:
-        print(colored("\n✗ Differences found", "red", attrs=["bold"]))
+        # If only IDENT changes, show as warning
+        if not has_actual_problems and validated_count > 0:
+            print(colored("\n⚠️  Differences found (IDENT changes only)", "yellow", attrs=["bold"]))
+        else:
+            print(colored("\n✗ Differences found", "red", attrs=["bold"]))
 
         # First show items that exist in one side but not the other
         if only_in_prod:
@@ -188,24 +216,6 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index, show_json=False):
 
         if mismatched:
             print(colored(f"\n→ Matching TX hash but different stamps ({len(mismatched)} records):", "yellow"))
-
-            # Track validation results
-            validated_count = 0
-            real_issues = []
-
-            for tx in sorted(mismatched, key=lambda x: prod_dict[x][3]):
-                prod_rec = prod_dict[tx]
-                dev_rec = dev_dict[tx]
-
-                # Check if this is just an expected IDENT change
-                stamp_matches = prod_rec[0] == dev_rec[0]
-                cpid_matches = prod_rec[5] == dev_rec[5]
-                ident_acceptable = (prod_rec[1] == "STAMP" and dev_rec[1] == "SRC-721") or (prod_rec[1] == dev_rec[1])
-
-                if stamp_matches and cpid_matches and ident_acceptable:
-                    validated_count += 1
-                else:
-                    real_issues.append(tx)
 
             # Show first 5 examples
             for tx in sorted(mismatched, key=lambda x: prod_dict[x][3])[:5]:
@@ -237,7 +247,8 @@ def compare_stamptable(prod_cursor, dev_cursor, block_index, show_json=False):
     else:
         print(colored("\n✓ All stamps match perfectly!", "green", attrs=["bold"]))
 
-    return bool(only_in_prod or only_in_dev or mismatched)
+    # Return tuple: (has_issues, is_only_ident_changes)
+    return has_actual_problems, (validated_count > 0 and not has_actual_problems)
 
 
 def compare_cursed_stamps(prod_cursor, dev_cursor, block_index, show_json=False):
@@ -572,7 +583,15 @@ def compare_src101(prod_cursor, dev_cursor, block_index, prod_src101, dev_src101
 
 def print_final_summary(comparison_results, show_json=False):
     """Print a concise final summary of all comparisons."""
-    total_issues = sum(1 for r in comparison_results.values() if r["has_issues"])
+    # Count real issues (excluding IDENT-only changes)
+    total_issues = sum(
+        1 for table, r in comparison_results.items() 
+        if r["has_issues"] and not (table == "StampTableV4" and r.get("is_only_ident_changes", False))
+    )
+    total_warnings = sum(
+        1 for table, r in comparison_results.items()
+        if table == "StampTableV4" and r.get("is_only_ident_changes", False)
+    )
     total_tables = len(comparison_results)
 
     # Calculate severity
@@ -597,11 +616,16 @@ def print_final_summary(comparison_results, show_json=False):
     print("═" * 60)
 
     if total_issues == 0:
-        print(colored(f"\n ✓ SUCCESS: All {total_tables} tables match perfectly!", "green", attrs=["bold"]))
-        print(colored("\n EXIT CODE: 0 (SUCCESS)", "green"))
+        if total_warnings > 0:
+            print(colored(f"\n ✓ SUCCESS: All {total_tables} tables match (with {total_warnings} warning)", "green", attrs=["bold"]))
+            print(colored("\n EXIT CODE: 0 (SUCCESS)", "green"))
+        else:
+            print(colored(f"\n ✓ SUCCESS: All {total_tables} tables match perfectly!", "green", attrs=["bold"]))
+            print(colored("\n EXIT CODE: 0 (SUCCESS)", "green"))
     else:
+        warning_msg = f" and {total_warnings} warning" if total_warnings > 0 else ""
         print(
-            colored(f"\n ⚠️  ATTENTION: {total_issues} of {total_tables} tables have discrepancies", "yellow", attrs=["bold"])
+            colored(f"\n ⚠️  ATTENTION: {total_issues} of {total_tables} tables have discrepancies{warning_msg}", "yellow", attrs=["bold"])
         )
         print(colored(f"\n TOTAL ERRORS: {total_errors}", "red"))
         print(colored("\n EXIT CODE: 1 (FAILURE)", "red"))
@@ -611,17 +635,25 @@ def print_final_summary(comparison_results, show_json=False):
     print("─" * 60)
 
     for table, result in comparison_results.items():
-        icon = "✓" if not result["has_issues"] else "✗"
-        color = "green" if not result["has_issues"] else "red"
-        status = "PASS" if not result["has_issues"] else "FAIL"
+        # Special handling for StampTableV4 with only IDENT changes
+        if table == "StampTableV4" and result.get("is_only_ident_changes", False):
+            icon = "⚠"
+            color = "yellow"
+            status = "WARN"
+        else:
+            icon = "✓" if not result["has_issues"] else "✗"
+            color = "green" if not result["has_issues"] else "red"
+            status = "PASS" if not result["has_issues"] else "FAIL"
 
         print(f" {colored(icon, color)} {table:<22} {colored(status, color):<6}", end="")
-        if result["has_issues"]:
+        if result["has_issues"] or (table == "StampTableV4" and result.get("is_only_ident_changes", False)):
             issues = []
             if result.get("diff_count", 0) > 0:
                 issues.append(f"Δ={result['diff_count']}")
             if result.get("mismatch_count", 0) > 0:
                 issues.append(f"Mismatches={result['mismatch_count']}")
+            if table == "StampTableV4" and result.get("is_only_ident_changes", False):
+                issues.append("IDENT changes only")
             print(f"  {', '.join(issues)}")
         else:
             print()
@@ -872,7 +904,8 @@ Exit Codes:
         dev_src101 = dev_cursor.fetchall()
 
         # StampTableV4 comparison
-        stamp_has_issues = compare_stamptable(prod_cursor, dev_cursor, block_index, show_json)
+        stamp_result = compare_stamptable(prod_cursor, dev_cursor, block_index, show_json)
+        stamp_has_issues, is_only_ident_changes = stamp_result
         cursed_has_issues = compare_cursed_stamps(prod_cursor, dev_cursor, block_index, show_json)
 
         # Count differences for StampTableV4
@@ -885,7 +918,11 @@ Exit Codes:
             dev_count = dev_cursor.fetchone()[0]
             stamp_diff_count = abs(prod_count - dev_count)
 
-        comparison_results["StampTableV4"] = {"has_issues": stamp_has_issues, "diff_count": stamp_diff_count}
+        comparison_results["StampTableV4"] = {
+            "has_issues": stamp_has_issues, 
+            "diff_count": stamp_diff_count, 
+            "is_only_ident_changes": is_only_ident_changes
+        }
         comparison_results["Cursed Stamps"] = {"has_issues": cursed_has_issues}
 
         # SRC20Valid comparison
@@ -978,6 +1015,16 @@ Exit Codes:
     print_final_summary(comparison_results, show_json)
 
     # Return appropriate exit code based on mismatches
+    # Don't fail for IDENT-only changes in StampTableV4
+    stamp_only_ident = comparison_results.get("StampTableV4", {}).get("is_only_ident_changes", False)
+    if stamp_only_ident and not comparison_results.get("StampTableV4", {}).get("has_issues", False):
+        # If StampTableV4 only has IDENT changes and no real issues, don't count it as a failure
+        has_mismatches = any(
+            result.get("has_issues", False) 
+            for table, result in comparison_results.items() 
+            if table != "StampTableV4"
+        ) or comparison_results.get("Block Hashes", {}).get("has_issues", False)
+    
     exit_code = 1 if has_mismatches else 0
 
     if not show_json:
