@@ -424,20 +424,9 @@ class StampData:
         if mime_type == "image/svg+xml":
             self.file_suffix = "svg"
 
-        # Dual processing for pre-ENHANCED_MIME_DETECTION blocks:
-        # If we're before the enhanced detection block and got text/plain,
-        # try enhanced detection again just for the content (not for consensus)
-        # DISABLED for consensus safety - this could affect stamp processing
-        # if self.block_index is not None and self.block_index < ENHANCED_MIME_DETECTION and mime_type == "text/plain":
-        #     # Try enhanced detection to see if we can get better content
-        #     enhanced_content, enhanced_mime = get_processed_content_and_mime(processed_data, ENHANCED_MIME_DETECTION)
-        #     if enhanced_mime == "image/svg+xml" and enhanced_content != processed_data:
-        #         # Update the decoded content for proper display, but keep the consensus suffix
-        #         self.decoded_base64 = enhanced_content
-        #         # Store the actual mime type for display purposes
-        #         self.actual_mimetype = enhanced_mime
-        #         # Note: self.file_suffix remains "plain" for consensus
-        #         # Note: self.stamp_mimetype remains "text/plain" for consensus
+        # Store original values for consensus before any dual processing
+        self._consensus_file_suffix = self.file_suffix
+        self._consensus_mimetype = self.stamp_mimetype
 
         if (mime_type == "text/plain" or mime_type == "application/javascript") and self.is_javascript(bytestring_data):
             self.file_suffix = "js"
@@ -762,13 +751,51 @@ class StampData:
             cache_manager.set_cache_value("reissue", self.cpid, True)
 
         self.normalize_mime_and_suffix()
+
+        # Dual processing for cursed stamps: Try enhanced detection for better display
+        # This happens AFTER stamp classification, so it's consensus-safe
+        if self.is_cursed and hasattr(self, "_consensus_file_suffix"):
+            # Only try enhanced detection if we had a potentially compressed file
+            if self._consensus_mimetype in [
+                "text/plain",
+                "application/octet-stream",
+                "application/gzip",
+                "application/x-gzip",
+            ]:
+                from config import ENHANCED_MIME_DETECTION
+
+                from .enhanced_mime_detection import get_processed_content_and_mime
+
+                # Try enhanced detection with future block height to get decompression
+                enhanced_content, enhanced_mime = get_processed_content_and_mime(
+                    self.decoded_base64 if isinstance(self.decoded_base64, bytes) else self.decoded_base64.encode("utf-8"),
+                    ENHANCED_MIME_DETECTION,
+                )
+
+                # If we got better content (e.g., decompressed SVG), use it for display
+                if enhanced_mime == "image/svg+xml" and enhanced_content != self.decoded_base64:
+                    self.decoded_base64 = enhanced_content
+                    self.actual_mimetype = enhanced_mime
+                    # For storage, use the enhanced version for better display
+                    storage_suffix = "svg"
+                    storage_mimetype = enhanced_mime
+                else:
+                    storage_suffix = self.file_suffix
+                    storage_mimetype = self.stamp_mimetype
+            else:
+                storage_suffix = self.file_suffix
+                storage_mimetype = self.stamp_mimetype
+        else:
+            storage_suffix = self.file_suffix
+            storage_mimetype = self.stamp_mimetype
+
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
         self.file_hash, filename, self.file_size_bytes = encode_and_store_file(
             db,
             self.tx_hash,
-            self.file_suffix,
+            storage_suffix,
             self.decoded_base64,
-            self.stamp_mimetype,
+            storage_mimetype,
         )
 
         self.update_cpid_and_stamp_url(filename)
