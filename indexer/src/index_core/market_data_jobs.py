@@ -119,7 +119,7 @@ class MarketDataJobScheduler:
     def _check_and_start_sales_catchup(self):
         """Check if sales history catchup is needed and start it if necessary."""
         try:
-            logger.info("Checking if sales history catchup is needed...")
+            logger.debug("Checking if sales history catchup is needed...")
 
             # The sales history processor will automatically determine if catchup is needed
             # based on how far behind we are from the tip
@@ -979,7 +979,7 @@ def start_sales_history_catchup():
         return
 
     try:
-        logger.info("Starting sales history catchup independently...")
+        logger.debug("Starting sales history catchup independently...")
 
         # The sales history processor will automatically determine if catchup is needed
         # based on how far behind we are from the tip
