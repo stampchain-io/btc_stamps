@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 
@@ -7,11 +8,78 @@ import pymysql as mysql
 from termcolor import colored
 
 
+def get_git_info():
+    """Get current git branch and commit hash."""
+    try:
+        # Get current branch
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], 
+                                       stderr=subprocess.DEVNULL).decode().strip()
+        
+        # Get current commit hash (short and full versions)
+        commit_short = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], 
+                                             stderr=subprocess.DEVNULL).decode().strip()
+        commit_full = subprocess.check_output(["git", "rev-parse", "HEAD"], 
+                                            stderr=subprocess.DEVNULL).decode().strip()
+        
+        # Check if working directory is clean
+        status = subprocess.check_output(["git", "status", "--porcelain"], 
+                                       stderr=subprocess.DEVNULL).decode().strip()
+        is_clean = len(status) == 0
+        
+        # Get commit message
+        commit_msg = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], 
+                                           stderr=subprocess.DEVNULL).decode().strip()
+        
+        # Get commit timestamp
+        commit_time = subprocess.check_output(["git", "log", "-1", "--pretty=%ci"], 
+                                            stderr=subprocess.DEVNULL).decode().strip()
+        
+        # Get remote URL (if available)
+        try:
+            remote_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"], 
+                                               stderr=subprocess.DEVNULL).decode().strip()
+        except subprocess.CalledProcessError:
+            remote_url = None
+        
+        return {
+            "branch": branch,
+            "commit": commit_short,
+            "commit_full": commit_full,
+            "is_clean": is_clean,
+            "commit_msg": commit_msg[:50] + "..." if len(commit_msg) > 50 else commit_msg,
+            "commit_time": commit_time,
+            "remote_url": remote_url
+        }
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 def print_connection_details(prod_host, dev_host, block_index):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("\n" + "═" * 60)
     print(colored(f"  DATABASE COMPARISON REPORT - {timestamp}  ", "white", "on_blue", attrs=["bold"]))
     print("═" * 60)
+    
+    # Add git information
+    git_info = get_git_info()
+    if git_info:
+        print(f"\n🔧 Git Information:")
+        print(f"   Branch: {colored(git_info['branch'], 'magenta', attrs=['bold'])}")
+        print(f"   Commit: {colored(git_info['commit'], 'magenta')} {'✓' if git_info['is_clean'] else '⚠️  (uncommitted changes)'}")
+        if not git_info['is_clean']:
+            print(f"   {'':11}{colored('Warning: Working directory has uncommitted changes', 'yellow')}")
+        print(f"   Time: {git_info['commit_time']}")
+        print(f"   Message: {git_info['commit_msg']}")
+        if git_info['remote_url']:
+            # Clean up the URL for display
+            if git_info['remote_url'].startswith('git@'):
+                display_url = git_info['remote_url'].replace(':', '/').replace('git@', 'https://')
+            else:
+                display_url = git_info['remote_url']
+            if display_url.endswith('.git'):
+                display_url = display_url[:-4]
+            print(f"   Repository: {display_url}")
+    
     print(f"\n📊 Databases: {colored(prod_host, 'cyan')} → {colored(dev_host, 'cyan')}")
     print(f"📈 Block Range: Up to block {colored(str(block_index), 'green', attrs=['bold'])}")
     print("─" * 60)
@@ -601,9 +669,13 @@ def print_final_summary(comparison_results, show_json=False):
 
     if show_json:
         # JSON output for CI/testing
+        git_info = get_git_info()
         summary = {
+            "timestamp": datetime.now().isoformat(),
+            "git": git_info if git_info else {"error": "Unable to get git info"},
             "total_tables": total_tables,
             "tables_with_issues": total_issues,
+            "total_warnings": total_warnings,
             "total_errors": total_errors,
             "exit_code": 1 if total_issues > 0 else 0,
             "tables": comparison_results,
