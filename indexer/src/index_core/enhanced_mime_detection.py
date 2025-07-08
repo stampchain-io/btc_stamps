@@ -133,11 +133,9 @@ def detect_and_decompress_svg(content_bytes, block_index=None):
 
     # Use old behavior for blocks before SVG_GZIP_DETECTION_V2
     if block_index is None or block_index < SVG_GZIP_DETECTION_V2:
-        # Old behavior: attempt decompression for any gzip-like content
-        if is_gzip(content_bytes):
-            decompressed = try_decompress(content_bytes)
-            if decompressed and is_svg_content(decompressed):
-                return decompressed, True, "image/svg+xml"
+        # Old behavior: NO decompression for consensus safety
+        # Just detect based on raw content without any decompression
+        pass
     else:
         # New behavior: only decompress for explicit gzip MIME types
         # Get magic MIME type first (preserves old behavior)
@@ -178,17 +176,22 @@ def get_processed_content_and_mime(content_bytes, block_index=None):
     # Import config to check consensus block height
     from config import ENHANCED_MIME_DETECTION
 
-    # For blocks before ENHANCED_MIME_DETECTION, use only magic detection
-    # This preserves consensus for historical blocks where SVGs with comments
-    # were misdetected as text/plain
+    # For blocks before ENHANCED_MIME_DETECTION, match dev branch behavior exactly
+    # Dev branch calls enhanced_mime_detection which does HTML detection + magic
     if block_index is not None and block_index < ENHANCED_MIME_DETECTION:
+        # Match dev branch's enhanced_mime_detection behavior for historical blocks
         try:
             magic_mime = magic.from_buffer(content_bytes, mime=True)
         except Exception:
             magic_mime = "application/octet-stream"
+
+        # Dev branch also does HTML detection
+        if is_legitimate_html(content_bytes):
+            return content_bytes, "text/html"
+
         return content_bytes, magic_mime
 
-    # Check for gzipped SVG files first
+    # For new blocks, check for gzipped SVG files first
     processed_content, is_svg, svg_mime = detect_and_decompress_svg(content_bytes, block_index)
     if is_svg:
         return processed_content, svg_mime
