@@ -39,7 +39,18 @@ node_modules/
 *.sln
 *.sw?
 # OS specific
+.roo/*
+
 # Task files
 tasks.json
 tasks/ 
 .roo/*
+claude/*
+.cursor/*
+.clinerules/*
+.trae/*
+.windsurf/*
+.claude/commands/*
+.github/instructions/*
+.roomodes
+.windsurfrules
