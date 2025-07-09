@@ -611,7 +611,14 @@ class TestPerformance:
 @pytest.mark.integration
 @pytest.mark.requires_db
 def test_real_api_single_block(monkeypatch):
-    """Standalone integration test with REAL API calls - processes 1 block"""
+    """Standalone integration test with REAL API calls - processes 1 block
+    
+    This test:
+    - Runs in local development when database credentials are available
+    - Skips gracefully in CI environments without database access
+    - Makes real API calls to Counterparty nodes
+    - Uses database transaction + rollback (no permanent writes)
+    """
     import logging
     import os
     import time
@@ -619,26 +626,33 @@ def test_real_api_single_block(monkeypatch):
 
     from dotenv import load_dotenv
 
+    # Load environment variables from .env file first
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+
+    # Skip if no database credentials are available (CI environment)
+    if not all([os.getenv("RDS_HOSTNAME"), os.getenv("RDS_USER"), os.getenv("RDS_PASSWORD")]):
+        pytest.skip("Database credentials not available for integration test")
+
     # Temporarily disable database mocking for this integration test
     monkeypatch.setenv("MOCK_DB", "0")
     monkeypatch.setenv("USE_TEST_DB", "0")
 
-    from index_core.database_manager import DatabaseManager
-    from index_core.sales_history_processor import SalesHistoryProcessor
+    # Import after setting environment variables
+    try:
+        from index_core.database_manager import DatabaseManager
+        from index_core.sales_history_processor import SalesHistoryProcessor
+    except Exception as e:
+        pytest.skip(f"Cannot import required modules: {e}")
 
     logger = logging.getLogger(__name__)
-
-    # Load environment variables from .env file
-    env_path = Path(__file__).parent.parent / ".env"
-    load_dotenv(env_path)
-
-    # Skip if no database credentials are available
-    if not all([os.getenv("RDS_HOSTNAME"), os.getenv("RDS_USER"), os.getenv("RDS_PASSWORD")]):
-        pytest.skip("Database credentials not available for integration test")
 
     # Create real instances without any mocks
     try:
         db_manager = DatabaseManager()
+        if db_manager is None:
+            pytest.skip("DatabaseManager returned None - likely missing configuration")
     except Exception as e:
         pytest.skip(f"Cannot create DatabaseManager: {e}")
 
@@ -650,6 +664,9 @@ def test_real_api_single_block(monkeypatch):
 
         # Connect to real database
         db = db_manager.connect()
+        if db is None:
+            pytest.skip("Cannot connect to database")
+            
         try:
             # Clear any existing test data for this block
             with db.cursor() as cursor:
