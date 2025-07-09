@@ -609,18 +609,39 @@ class TestPerformance:
 
 
 @pytest.mark.integration
-def test_real_api_single_block():
+@pytest.mark.requires_db
+def test_real_api_single_block(monkeypatch):
     """Standalone integration test with REAL API calls - processes 1 block"""
     import logging
+    import os
     import time
+    from pathlib import Path
+
+    from dotenv import load_dotenv
+
+    # Temporarily disable database mocking for this integration test
+    monkeypatch.setenv("MOCK_DB", "0")
+    monkeypatch.setenv("USE_TEST_DB", "0")
 
     from index_core.database_manager import DatabaseManager
     from index_core.sales_history_processor import SalesHistoryProcessor
 
     logger = logging.getLogger(__name__)
 
+    # Load environment variables from .env file
+    env_path = Path(__file__).parent.parent / ".env"
+    load_dotenv(env_path)
+
+    # Skip if no database credentials are available
+    if not all([os.getenv("RDS_HOSTNAME"), os.getenv("RDS_USER"), os.getenv("RDS_PASSWORD")]):
+        pytest.skip("Database credentials not available for integration test")
+
     # Create real instances without any mocks
-    db_manager = DatabaseManager()
+    try:
+        db_manager = DatabaseManager()
+    except Exception as e:
+        pytest.skip(f"Cannot create DatabaseManager: {e}")
+
     processor = SalesHistoryProcessor(db_manager)
 
     try:

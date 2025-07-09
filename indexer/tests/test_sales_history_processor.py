@@ -809,31 +809,100 @@ class TestSalesHistoryProcessorEdgeCases:
         assert mock_cursor.executemany.call_count == 2  # 150 / 100 = 2 batches
         assert len(processor.catchup_buffer) == 0
 
-    def test_determine_processing_mode_logic(self, processor, mock_cursor):
+    @patch("index_core.sales_history_processor.rate_limiter")
+    @patch("index_core.sales_history_processor.fetch_xcp")
+    def test_process_single_block_mocked(self, mock_fetch, mock_rate_limiter, processor, mock_db_manager):
+        """Test processing a single block with mocked API calls"""
+        # Mock rate limiter
+        mock_rate_limiter.acquire = Mock()
+        # Mock the API response
+        mock_fetch.return_value = {
+            "result": [
+                {
+                    "tx_hash": "test_tx_1",
+                    "block_index": 800000,
+                    "block_time": 1234567890,
+                    "asset": "A16668056020104546000",
+                    "source": "buyer1",
+                    "destination": "dispenser1",
+                    "dispense_quantity": 1,
+                    "btc_amount": 100000,
+                    "dispenser_tx_hash": "disp_tx1",
+                    "dispenser": {"satoshirate": 100000},
+                },
+                {
+                    "tx_hash": "test_tx_2",
+                    "block_index": 800000,
+                    "block_time": 1234567890,
+                    "asset": "XCP",  # Not a stamp
+                    "source": "buyer2",
+                    "destination": "dispenser2",
+                    "dispense_quantity": 1000,
+                    "btc_amount": 50000,
+                    "dispenser_tx_hash": "disp_tx2",
+                },
+            ]
+        }
+
+        # Add the stamp CPID to cache
+        processor.cpid_cache = {"A16668056020104546000"}
+
+        # Ensure processor is in REALTIME mode, not catchup
+        processor.mode = "REALTIME"
+        processor.catchup_running = False
+
+        # Mock the update_cpid_cache to not overwrite our test cache
+        processor.update_cpid_cache = Mock()
+
+        # Process the block
+        db = mock_db_manager.connect()
+        count = processor.process_block_dispenses(800000, db)
+
+        # Should have processed 1 stamp dispense (not XCP)
+        assert count == 1
+        assert mock_fetch.called
+
+        # Verify the correct sale was stored
+        cursor = mock_db_manager.connect()._cursor
+        cursor.executemany.assert_called_once()
+        _, data = cursor.executemany.call_args[0]
+        assert len(data) == 1
+        assert data[0][0] == "test_tx_1"  # tx_hash
+        assert data[0][3] == "A16668056020104546000"  # cpid
+
+    @patch("index_core.sales_history_processor.Backend")
+    def test_determine_processing_mode_logic(self, mock_backend_class, processor, mock_cursor):
         """Test the mode determination logic with different scenarios"""
+        # Mock the Backend instance
+        mock_backend = Mock()
+        mock_backend_class.return_value = mock_backend
+
         # Scenario 1: Far behind (should be FULL_CATCHUP)
-        mock_cursor.fetchone.side_effect = [
-            (850000,),  # Highest sales block
-            (851000,),  # Current tip
-        ]
+        mock_cursor.fetchone.return_value = (850000,)  # Highest sales block
+        mock_backend.getblockcount.return_value = 851000  # Current tip
         mode = processor.determine_processing_mode()
         assert mode == "FULL_CATCHUP"  # 1000 blocks behind > 200 threshold
 
         # Scenario 2: Close to tip (should be REALTIME)
-        mock_cursor.fetchone.side_effect = [
-            (850000,),  # Highest sales block
-            (850100,),  # Current tip
-        ]
+        mock_cursor.fetchone.return_value = (850000,)  # Highest sales block
+        mock_backend.getblockcount.return_value = 850100  # Current tip
         mode = processor.determine_processing_mode()
         assert mode == "REALTIME"  # 100 blocks behind < 200 threshold
 
         # Scenario 3: No sales history (should be FULL_CATCHUP)
-        mock_cursor.fetchone.side_effect = [
-            (None,),  # No sales history
-            (850000,),  # Current tip
-        ]
+        mock_cursor.fetchone.return_value = (None,)  # No sales history
+        mock_backend.getblockcount.return_value = 850000  # Current tip
         mode = processor.determine_processing_mode()
         assert mode == "FULL_CATCHUP"  # No history means full catchup
+
+        # Scenario 4: Backend fails, falls back to blocks table
+        mock_cursor.fetchone.side_effect = [
+            (850000,),  # Highest sales block
+            (850100,),  # Current tip from blocks table
+        ]
+        mock_backend.getblockcount.side_effect = Exception("Backend error")
+        mode = processor.determine_processing_mode()
+        assert mode == "REALTIME"  # Should fall back to blocks table
 
     @patch("index_core.sales_history_processor.fetch_xcp")
     @patch("index_core.sales_history_processor.rate_limiter")

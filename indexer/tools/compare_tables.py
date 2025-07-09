@@ -12,35 +12,36 @@ def get_git_info():
     """Get current git branch and commit hash."""
     try:
         # Get current branch
-        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], 
-                                       stderr=subprocess.DEVNULL).decode().strip()
-        
+        branch = (
+            subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        )
+
         # Get current commit hash (short and full versions)
-        commit_short = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], 
-                                             stderr=subprocess.DEVNULL).decode().strip()
-        commit_full = subprocess.check_output(["git", "rev-parse", "HEAD"], 
-                                            stderr=subprocess.DEVNULL).decode().strip()
-        
+        commit_short = (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        )
+        commit_full = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+
         # Check if working directory is clean
-        status = subprocess.check_output(["git", "status", "--porcelain"], 
-                                       stderr=subprocess.DEVNULL).decode().strip()
+        status = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
         is_clean = len(status) == 0
-        
+
         # Get commit message
-        commit_msg = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], 
-                                           stderr=subprocess.DEVNULL).decode().strip()
-        
+        commit_msg = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], stderr=subprocess.DEVNULL).decode().strip()
+
         # Get commit timestamp
-        commit_time = subprocess.check_output(["git", "log", "-1", "--pretty=%ci"], 
-                                            stderr=subprocess.DEVNULL).decode().strip()
-        
+        commit_time = subprocess.check_output(["git", "log", "-1", "--pretty=%ci"], stderr=subprocess.DEVNULL).decode().strip()
+
         # Get remote URL (if available)
         try:
-            remote_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"], 
-                                               stderr=subprocess.DEVNULL).decode().strip()
+            remote_url = (
+                subprocess.check_output(["git", "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL)
+                .decode()
+                .strip()
+            )
         except subprocess.CalledProcessError:
             remote_url = None
-        
+
         return {
             "branch": branch,
             "commit": commit_short,
@@ -48,7 +49,7 @@ def get_git_info():
             "is_clean": is_clean,
             "commit_msg": commit_msg[:50] + "..." if len(commit_msg) > 50 else commit_msg,
             "commit_time": commit_time,
-            "remote_url": remote_url
+            "remote_url": remote_url,
         }
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
@@ -59,27 +60,29 @@ def print_connection_details(prod_host, dev_host, block_index):
     print("\n" + "═" * 60)
     print(colored(f"  DATABASE COMPARISON REPORT - {timestamp}  ", "white", "on_blue", attrs=["bold"]))
     print("═" * 60)
-    
+
     # Add git information
     git_info = get_git_info()
     if git_info:
         print(f"\n🔧 Git Information:")
         print(f"   Branch: {colored(git_info['branch'], 'magenta', attrs=['bold'])}")
-        print(f"   Commit: {colored(git_info['commit'], 'magenta')} {'✓' if git_info['is_clean'] else '⚠️  (uncommitted changes)'}")
-        if not git_info['is_clean']:
+        print(
+            f"   Commit: {colored(git_info['commit'], 'magenta')} {'✓' if git_info['is_clean'] else '⚠️  (uncommitted changes)'}"
+        )
+        if not git_info["is_clean"]:
             print(f"   {'':11}{colored('Warning: Working directory has uncommitted changes', 'yellow')}")
         print(f"   Time: {git_info['commit_time']}")
         print(f"   Message: {git_info['commit_msg']}")
-        if git_info['remote_url']:
+        if git_info["remote_url"]:
             # Clean up the URL for display
-            if git_info['remote_url'].startswith('git@'):
-                display_url = git_info['remote_url'].replace(':', '/').replace('git@', 'https://')
+            if git_info["remote_url"].startswith("git@"):
+                display_url = git_info["remote_url"].replace(":", "/").replace("git@", "https://")
             else:
-                display_url = git_info['remote_url']
-            if display_url.endswith('.git'):
+                display_url = git_info["remote_url"]
+            if display_url.endswith(".git"):
                 display_url = display_url[:-4]
             print(f"   Repository: {display_url}")
-    
+
     print(f"\n📊 Databases: {colored(prod_host, 'cyan')} → {colored(dev_host, 'cyan')}")
     print(f"📈 Block Range: Up to block {colored(str(block_index), 'green', attrs=['bold'])}")
     print("─" * 60)
@@ -653,12 +656,12 @@ def print_final_summary(comparison_results, show_json=False):
     """Print a concise final summary of all comparisons."""
     # Count real issues (excluding IDENT-only changes)
     total_issues = sum(
-        1 for table, r in comparison_results.items() 
+        1
+        for table, r in comparison_results.items()
         if r["has_issues"] and not (table == "StampTableV4" and r.get("is_only_ident_changes", False))
     )
     total_warnings = sum(
-        1 for table, r in comparison_results.items()
-        if table == "StampTableV4" and r.get("is_only_ident_changes", False)
+        1 for table, r in comparison_results.items() if table == "StampTableV4" and r.get("is_only_ident_changes", False)
     )
     total_tables = len(comparison_results)
 
@@ -689,7 +692,11 @@ def print_final_summary(comparison_results, show_json=False):
 
     if total_issues == 0:
         if total_warnings > 0:
-            print(colored(f"\n ✓ SUCCESS: All {total_tables} tables match (with {total_warnings} warning)", "green", attrs=["bold"]))
+            print(
+                colored(
+                    f"\n ✓ SUCCESS: All {total_tables} tables match (with {total_warnings} warning)", "green", attrs=["bold"]
+                )
+            )
             print(colored("\n EXIT CODE: 0 (SUCCESS)", "green"))
         else:
             print(colored(f"\n ✓ SUCCESS: All {total_tables} tables match perfectly!", "green", attrs=["bold"]))
@@ -697,7 +704,11 @@ def print_final_summary(comparison_results, show_json=False):
     else:
         warning_msg = f" and {total_warnings} warning" if total_warnings > 0 else ""
         print(
-            colored(f"\n ⚠️  ATTENTION: {total_issues} of {total_tables} tables have discrepancies{warning_msg}", "yellow", attrs=["bold"])
+            colored(
+                f"\n ⚠️  ATTENTION: {total_issues} of {total_tables} tables have discrepancies{warning_msg}",
+                "yellow",
+                attrs=["bold"],
+            )
         )
         print(colored(f"\n TOTAL ERRORS: {total_errors}", "red"))
         print(colored("\n EXIT CODE: 1 (FAILURE)", "red"))
@@ -991,9 +1002,9 @@ Exit Codes:
             stamp_diff_count = abs(prod_count - dev_count)
 
         comparison_results["StampTableV4"] = {
-            "has_issues": stamp_has_issues, 
-            "diff_count": stamp_diff_count, 
-            "is_only_ident_changes": is_only_ident_changes
+            "has_issues": stamp_has_issues,
+            "diff_count": stamp_diff_count,
+            "is_only_ident_changes": is_only_ident_changes,
         }
         comparison_results["Cursed Stamps"] = {"has_issues": cursed_has_issues}
 
@@ -1092,11 +1103,9 @@ Exit Codes:
     if stamp_only_ident and not comparison_results.get("StampTableV4", {}).get("has_issues", False):
         # If StampTableV4 only has IDENT changes and no real issues, don't count it as a failure
         has_mismatches = any(
-            result.get("has_issues", False) 
-            for table, result in comparison_results.items() 
-            if table != "StampTableV4"
+            result.get("has_issues", False) for table, result in comparison_results.items() if table != "StampTableV4"
         ) or comparison_results.get("Block Hashes", {}).get("has_issues", False)
-    
+
     exit_code = 1 if has_mismatches else 0
 
     if not show_json:
