@@ -117,7 +117,7 @@ def run_command(command, ignore_errors=False, suppress_stderr=False):
 
 def run_autopep8():
     """Run autopep8 to automatically fix flake8 issues.
-    
+
     Returns:
         bool: True if autopep8 ran successfully, False otherwise
     """
