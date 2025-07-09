@@ -612,7 +612,7 @@ class TestPerformance:
 @pytest.mark.requires_db
 def test_real_api_single_block(monkeypatch):
     """Standalone integration test with REAL API calls - processes 1 block
-    
+
     This test:
     - Runs in local development when database credentials are available
     - Skips gracefully in CI environments without database access
@@ -666,7 +666,7 @@ def test_real_api_single_block(monkeypatch):
         db = db_manager.connect()
         if db is None:
             pytest.skip("Cannot connect to database")
-            
+
         try:
             # Clear any existing test data for this block
             with db.cursor() as cursor:
