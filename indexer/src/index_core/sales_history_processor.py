@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
+from index_core.backend import Backend
 from index_core.database_manager import DatabaseManager
 from index_core.fetch_utils import RateLimiter, fetch_xcp, is_valid_counterparty_asset
 
@@ -98,11 +99,16 @@ class SalesHistoryProcessor:
                 result = cursor.fetchone()
                 highest_sales_block = result[0] if result and result[0] else 0
 
-            # Get current Bitcoin tip
-            with db.cursor() as cursor:
-                cursor.execute("SELECT MAX(block_index) FROM blocks")
-                result = cursor.fetchone()
-                current_tip = result[0] if result and result[0] else 0
+            # Get current Bitcoin tip from the backend (actual chain tip)
+            try:
+                backend = Backend()
+                current_tip = backend.getblockcount()
+            except Exception as e:
+                logger.warning(f"Failed to get Bitcoin tip from backend: {e}. Falling back to local blocks table.")
+                with db.cursor() as cursor:
+                    cursor.execute("SELECT MAX(block_index) FROM blocks")
+                    result = cursor.fetchone()
+                    current_tip = result[0] if result and result[0] else 0
 
             blocks_behind = current_tip - highest_sales_block
 

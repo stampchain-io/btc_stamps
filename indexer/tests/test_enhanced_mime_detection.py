@@ -116,7 +116,8 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
 
-        content, is_svg, mime_type = detect_and_decompress_svg(gzipped_svg)
+        # Test with block height after SVG_GZIP_DETECTION_V2 activation
+        content, is_svg, mime_type = detect_and_decompress_svg(gzipped_svg, block_index=906001)
         self.assertEqual(content, svg_content)
         self.assertTrue(is_svg)
         self.assertEqual(mime_type, "image/svg+xml")
@@ -154,7 +155,8 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
 
-        processed_content, mime_type = get_processed_content_and_mime(gzipped_svg)
+        # Test with block height after ENHANCED_MIME_DETECTION activation
+        processed_content, mime_type = get_processed_content_and_mime(gzipped_svg, block_index=906001)
         self.assertEqual(processed_content, svg_content)
         self.assertEqual(mime_type, "image/svg+xml")
 
@@ -182,7 +184,8 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         """Test enhanced detection returns image/svg+xml for gzipped SVG."""
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
-        result = enhanced_mime_detection(gzipped_svg)
+        # Test with block height after ENHANCED_MIME_DETECTION activation
+        result = enhanced_mime_detection(gzipped_svg, block_index=906001)
         self.assertEqual(result, "image/svg+xml")
 
     def test_enhanced_mime_detection_fallback_to_magic(self):

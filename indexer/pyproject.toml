@@ -50,6 +50,7 @@ psutil = ">=6.1.1"
 filelock = ">=3.16.1"
 aiohttp = "^3.11.16"
 ratelimit = "^2.2.1"
+redis = "^6.2.0"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
