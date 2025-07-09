@@ -1338,7 +1338,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
     config.FORCE = False
 
     try:
-        logger.debug(f"\n{'='*50}")
+        logger.debug(f"\n{'=' * 50}")
         logger.debug(f"Validating ledger hash for block {block_index}")
         logger.debug(f"Local ledger hash: {ledger_hash}")
 
@@ -1361,7 +1361,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
         # Quick comparison of hashes - if they match, we can return immediately
         if api_ledger_hash == ledger_hash:
             logger.debug(f"Ledger hashes match for block {block_index}. Skipping detailed comparison.")
-            logger.debug(f"{'='*50}\n")
+            logger.debug(f"{'=' * 50}\n")
             return True
 
         # If we get here, hashes don't match - perform detailed comparison for debugging
@@ -1399,7 +1399,7 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
             for diff in differences:
                 logger.debug(f"  {diff}")
 
-        logger.debug(f"{'='*50}\n")
+        logger.debug(f"{'=' * 50}\n")
         return False  # Return False as hashes don't match
 
     except Exception as e:
