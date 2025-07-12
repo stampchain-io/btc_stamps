@@ -187,9 +187,13 @@ class ReprocessingQueue:
                     with open(json_path, "r") as f:
                         state_data = json.load(f)
                     if state_data:
-                        self.save_fallback_state(list(state_data.keys())[0] if state_data else 0, state_data)
+                        # Iterate over all block states instead of just the first one
+                        for block_index, block_state in state_data.items():
+                            # Convert block_index to int if it's a string
+                            block_index_int = int(block_index) if isinstance(block_index, str) else block_index
+                            self.save_fallback_state(block_index_int, {block_index: block_state})
                         os.rename(json_path, f"{json_path}.migrated")  # Backup old file
-                        logger.info(f"Migrated fallback state from {json_path} to DB")
+                        logger.info(f"Migrated {len(state_data)} fallback states from {json_path} to DB")
                 except Exception as e:
                     logger.warning(f"Failed to migrate old JSON: {e}")
 
