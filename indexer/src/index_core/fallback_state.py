@@ -40,7 +40,7 @@ def load_failed_blocks() -> Dict[int, bool]:
     if block_index is None:
         logger.debug("Cannot load fallback state: CURRENT_BLOCK_INDEX is None")
         return {}
-    
+
     state = queue.load_fallback_state(block_index) or {}
     if state:
         logger.debug(f"Loaded fallback state with {len(state)} failed blocks")
