@@ -2,6 +2,7 @@ import time
 from unittest import mock
 
 from index_core.pipeline_utils import CPBlocksPipeline
+from index_core.reprocessing_queue import ReprocessingQueue
 
 # Mock the dependencies
 with mock.patch("index_core.pipeline_utils.Backend") as mock_backend:
@@ -13,15 +14,15 @@ with mock.patch("index_core.pipeline_utils.Backend") as mock_backend:
         with mock.patch("index_core.pipeline_utils.get_healthy_nodes") as mock_get:
             with mock.patch("index_core.pipeline_utils.update_healthy_nodes") as mock_update:
                 with mock.patch("index_core.pipeline_utils.is_shutdown_requested") as mock_shutdown:
-                    with mock.patch("index_core.pipeline_utils.get_fallback_state_manager") as mock_fsm:
+                    # Mock ReprocessingQueue for fallback state
+                    with mock.patch.object(ReprocessingQueue, "get_instance") as mock_queue:
                         mock_shutdown.return_value = False
                         mock_get.return_value = []  # No healthy nodes
 
-                        mock_mgr = mock.MagicMock()
-                        mock_mgr.is_fallback_active.return_value = False
-                        mock_mgr.get_failed_blocks.return_value = set()
-                        mock_mgr.get_fallback_start_block.return_value = None
-                        mock_fsm.return_value = mock_mgr
+                        mock_queue_instance = mock.MagicMock()
+                        mock_queue_instance.get_oldest_failed_block.return_value = None
+                        mock_queue_instance.load_fallback_state.return_value = {}
+                        mock_queue.return_value = mock_queue_instance
 
                         print("Creating pipeline...")
                         pipeline = CPBlocksPipeline()
