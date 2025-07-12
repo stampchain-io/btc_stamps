@@ -776,3 +776,108 @@ COMMENT='Unified sales history for all stamp transactions - enables charts, rece
 -- and only applies necessary changes, avoiding duplicate column/index errors
 
 -- fix owners table
+
+-- =====================================================================
+-- MONITORING VIEWS FOR FRONTEND API CONSUMPTION
+-- =====================================================================
+-- These views provide monitoring data for the frontend team's API endpoints
+-- without requiring additional backend APIs in the indexer repo
+-- =====================================================================
+
+-- Queue monitoring view for reprocessing queue status
+CREATE OR REPLACE VIEW `v_reprocessing_queue_stats` AS
+SELECT 
+    'reprocessing_queue' as queue_name,
+    COUNT(*) as total_items,
+    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_items,
+    SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing_items,
+    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_items,
+    SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed_items,
+    AVG(attempts) as avg_attempts,
+    MAX(attempts) as max_attempts,
+    MIN(FROM_UNIXTIME(added_at)) as oldest_item_time,
+    MAX(FROM_UNIXTIME(added_at)) as newest_item_time,
+    COUNT(CASE WHEN attempts >= 5 THEN 1 END) as items_at_max_attempts
+FROM reprocess_queue
+WHERE added_at > UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 24 HOUR));
+
+-- Processing health indicators view
+CREATE OR REPLACE VIEW `v_processing_health` AS
+SELECT 
+    MAX(block_index) as latest_block_processed,
+    COUNT(*) as blocks_processed_24h,
+    AVG(TIMESTAMPDIFF(SECOND, block_time, NOW())) as avg_block_lag_seconds,
+    MAX(TIMESTAMPDIFF(SECOND, block_time, NOW())) as max_block_lag_seconds
+FROM blocks 
+WHERE block_time > DATE_SUB(NOW(), INTERVAL 24 HOUR);
+
+-- Stamp processing metrics view
+CREATE OR REPLACE VIEW `v_stamp_processing_metrics` AS
+SELECT 
+    COUNT(*) as stamps_processed_24h,
+    COUNT(DISTINCT creator) as unique_creators_24h,
+    AVG(file_size_bytes) as avg_file_size_bytes,
+    SUM(CASE WHEN is_btc_stamp = 1 THEN 1 ELSE 0 END) as btc_stamps_24h,
+    SUM(CASE WHEN ident = 'CURSED' THEN 1 ELSE 0 END) as cursed_stamps_24h
+FROM StampTableV4 
+WHERE block_time > DATE_SUB(NOW(), INTERVAL 24 HOUR);
+
+-- API failure tracking view (for Counterparty API health)
+-- Note: This requires logging API calls to a table (implemented in enhanced logging)
+CREATE TABLE IF NOT EXISTS `api_call_log` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `endpoint` VARCHAR(255) NOT NULL,
+  `method` VARCHAR(10) NOT NULL,
+  `status_code` INT,
+  `response_time_ms` INT,
+  `success` BOOLEAN,
+  `error_message` TEXT,
+  `timestamp` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_timestamp` (`timestamp`),
+  INDEX `idx_endpoint_success` (`endpoint`, `success`, `timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE OR REPLACE VIEW `v_api_health_metrics` AS
+SELECT 
+    endpoint,
+    COUNT(*) as total_calls_24h,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_calls,
+    ROUND((SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as success_rate_percent,
+    AVG(response_time_ms) as avg_response_time_ms,
+    MAX(response_time_ms) as max_response_time_ms,
+    COUNT(CASE WHEN success = 0 THEN 1 END) as failed_calls
+FROM api_call_log 
+WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+GROUP BY endpoint;
+
+-- =====================================================================
+-- FRONTEND TEAM DOCUMENTATION
+-- =====================================================================
+/*
+MONITORING VIEWS USAGE GUIDE FOR FRONTEND TEAM:
+
+1. v_reprocessing_queue_stats:
+   - Query for queue health and backlog status
+   - Alert if pending_items > 50 or items_at_max_attempts > 10
+
+2. v_processing_health:
+   - Monitor indexer performance and lag
+   - Alert if avg_block_lag_seconds > 300 (5 minutes)
+
+3. v_stamp_processing_metrics:
+   - Track stamp processing throughput
+   - Monitor for processing anomalies
+
+4. v_api_health_metrics:
+   - Counterparty API health monitoring
+   - Alert if success_rate_percent < 95% for any endpoint
+
+Example queries:
+- SELECT * FROM v_reprocessing_queue_stats;
+- SELECT * FROM v_processing_health;
+- SELECT * FROM v_api_health_metrics WHERE success_rate_percent < 95;
+*/
+
+-- =====================================================================
+-- END MONITORING VIEWS
+-- =====================================================================

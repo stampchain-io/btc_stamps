@@ -20,6 +20,8 @@ from index_core.node_health import (
     update_healthy_nodes,
 )
 
+from .cache_utils import cache_manager, cached_api_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -642,6 +644,7 @@ async def fetch_xcp_async(
 #########################################################################
 
 
+@cached_api_call("block_hash", ttl=3600)  # Cache block hashes for 1 hour
 def get_xcp_block_hash(block_index: int, limit: Optional[int] = None) -> Optional[Union[str, Dict[int, Optional[str]]]]:
     """
     Get the XCP block hash for a specific block or range of blocks.
@@ -682,6 +685,7 @@ def get_xcp_block_hash(block_index: int, limit: Optional[int] = None) -> Optiona
         return {idx: None for idx in range(block_index, block_index + limit)}
 
 
+@cached_api_call("xcp_fetch", ttl=300)  # Cache API responses for 5 minutes
 def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fetch data from XCP V2 API."""
     # Get healthy nodes or use provided node
@@ -1465,3 +1469,40 @@ def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_
 
     logger.warning(f"Timeout: CP not ready for block {block_index} after {max_wait}s")
     return False
+
+
+def get_xcp_block_hashes_batch(start_block: int, end_block: int) -> Dict[int, Optional[str]]:
+    """Get block hashes for a range of blocks with caching and batching optimization."""
+    results = {}
+
+    # Check cache first for individual blocks
+    uncached_blocks = []
+    for block_idx in range(start_block, end_block + 1):
+        cache_key = cache_manager._generate_key("block_hash", block_idx, None)
+        cached_hash = cache_manager.get(cache_key)
+        if cached_hash is not None:
+            results[block_idx] = cached_hash
+        else:
+            uncached_blocks.append(block_idx)
+
+    # Fetch uncached blocks in batches
+    if uncached_blocks:
+        batch_size = 20  # Reasonable batch size for API
+        for i in range(0, len(uncached_blocks), batch_size):
+            batch = uncached_blocks[i : i + batch_size]
+            try:
+                # Use existing function for the batch
+                batch_results = get_xcp_block_hash(batch[0], len(batch))
+                if isinstance(batch_results, dict):
+                    results.update(batch_results)
+                    # Cache individual results
+                    for block_idx, hash_val in batch_results.items():
+                        cache_key = cache_manager._generate_key("block_hash", block_idx, None)
+                        cache_manager.set(cache_key, hash_val, 3600)
+            except Exception as e:
+                logger.error(f"Error fetching batch {batch}: {e}")
+                # Set None for failed blocks
+                for block_idx in batch:
+                    results[block_idx] = None
+
+    return results
