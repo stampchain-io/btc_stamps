@@ -644,7 +644,7 @@ async def fetch_xcp_async(
 #########################################################################
 
 
-@cached_api_call("block_hash", ttl=3600)  # Cache block hashes for 1 hour
+@cached_api_call("block_hash_single", ttl=3600)  # Cache single block hashes for 1 hour
 def get_xcp_block_hash(block_index: int, limit: Optional[int] = None) -> Optional[Union[str, Dict[int, Optional[str]]]]:
     """
     Get the XCP block hash for a specific block or range of blocks.
@@ -1478,7 +1478,7 @@ def get_xcp_block_hashes_batch(start_block: int, end_block: int) -> Dict[int, Op
     # Check cache first for individual blocks
     uncached_blocks = []
     for block_idx in range(start_block, end_block + 1):
-        cache_key = cache_manager._generate_key("block_hash", block_idx, None)
+        cache_key = cache_manager._generate_key("block_hash_batch", block_idx, None)
         cached_hash = cache_manager.get(cache_key)
         if cached_hash is not None:
             results[block_idx] = cached_hash
@@ -1497,7 +1497,7 @@ def get_xcp_block_hashes_batch(start_block: int, end_block: int) -> Dict[int, Op
                     results.update(batch_results)
                     # Cache individual results
                     for block_idx, hash_val in batch_results.items():
-                        cache_key = cache_manager._generate_key("block_hash", block_idx, None)
+                        cache_key = cache_manager._generate_key("block_hash_batch", block_idx, None)
                         cache_manager.set(cache_key, hash_val, 3600)
             except Exception as e:
                 logger.error(f"Error fetching batch {batch}: {e}")

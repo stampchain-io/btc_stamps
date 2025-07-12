@@ -87,8 +87,6 @@ from index_core.stamp import parse_stamp
 from index_core.transaction_utils import process_tx
 from index_core.zmq_utils import ZMQNotifier
 
-from .reprocessing_queue import ReprocessingQueue
-
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -98,9 +96,6 @@ GC_INTERVAL = 100
 
 # Initialize backend instance - use the singleton
 backend_instance = Backend()
-
-# Global queue instance (init once)
-reprocess_queue = ReprocessingQueue.get_instance()
 
 # BlockProcessor TxResult (different from transaction_utils TxResult)
 TxResult = namedtuple(
