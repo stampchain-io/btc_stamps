@@ -5,8 +5,8 @@ import sys
 
 from dotenv import load_dotenv
 
-# Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+# Add the project root's src directory to the path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src"))
 
 
 # Import after path setup
