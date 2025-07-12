@@ -676,7 +676,7 @@ def update_healthy_nodes():
                         logger.error(f"Error marking node failure: {health_err}")
 
         # Update the global list (no locking to avoid deadlocks)
-        logger.info(f"Health check summary: {nodes_healthy}/{nodes_checked} nodes are healthy")
+        logger.debug(f"Health check summary: {nodes_healthy}/{nodes_checked} nodes are healthy")
 
         if healthy_nodes_local:
             # Try to acquire lock, but don't block
@@ -685,7 +685,7 @@ def update_healthy_nodes():
                 lock_acquired = healthy_nodes_lock.acquire(timeout=1)
                 if lock_acquired:
                     healthy_nodes = healthy_nodes_local
-                    logger.info(f"Updated healthy nodes: {[n['name'] for n in healthy_nodes_local]}")
+                    logger.debug(f"Updated healthy nodes: {[n['name'] for n in healthy_nodes_local]}")
                 else:
                     logger.warning("Could not acquire lock to update healthy_nodes list")
             finally:

@@ -69,14 +69,33 @@ class CPBlocksPipeline:
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
-        self.state_manager = None  # Removed get_fallback_state_manager
+        # Initialize state manager for SQLite-based fallback state persistence
+        if fallback_mode:
+            from .reprocessing_queue import ReprocessingQueue
+
+            self.state_manager = ReprocessingQueue.get_instance()
+        else:
+            self.state_manager = None
 
         # Initialize from persisted state if available (for tests and state continuity)
-        if self.state_manager and self.state_manager.is_fallback_active():
-            self.failed_cp_blocks = self.state_manager.get_failed_blocks()
-            self.fallback_started_at = self.state_manager.get_fallback_start_block()
-            logger.warning(f"🔄 Detected previous fallback mode state - started at block {self.fallback_started_at}")
-            logger.warning(f"📦 {len(self.failed_cp_blocks)} blocks previously processed in fallback mode")
+        if self.state_manager:
+            # Check if we have any fallback states persisted
+            oldest_failed_block = self.state_manager.get_oldest_failed_block()
+            if oldest_failed_block:
+                # Load the fallback state for the oldest block
+                fallback_state = self.state_manager.load_fallback_state(oldest_failed_block)
+                if fallback_state:
+                    # Convert the loaded state to our internal format (ensure keys are integers)
+                    self.failed_cp_blocks = set(int(k) for k in fallback_state.keys()) if fallback_state else set()
+                    self.fallback_started_at = oldest_failed_block
+                    logger.warning(f"🔄 Detected previous fallback mode state - started at block {self.fallback_started_at}")
+                    logger.warning(f"📦 {len(self.failed_cp_blocks)} blocks previously processed in fallback mode")
+                else:
+                    self.failed_cp_blocks = set()
+                    self.fallback_started_at = None
+            else:
+                self.failed_cp_blocks = set()
+                self.fallback_started_at = None
         else:
             self.failed_cp_blocks = set()  # Track blocks that failed CP processing for later rollback
             self.fallback_started_at = None  # Flag for when CP nodes become available again
@@ -95,13 +114,14 @@ class CPBlocksPipeline:
             start_block = config.CP_STAMP_GENESIS_BLOCK
 
         # Check for fallback state and handle rollback if needed
-        if self.state_manager and self.state_manager.is_fallback_active():
-            rollback_block = self.state_manager.get_fallback_start_block()
+        if self.state_manager and self.fallback_started_at:
+            # We have persistent fallback state from initialization
+            rollback_block = self.fallback_started_at
             if rollback_block:
                 logger.warning(f"🔄 Performing startup rollback to block {rollback_block}")
                 self._perform_startup_rollback(rollback_block)
                 # Clear the fallback state after successful rollback
-                self.state_manager.end_fallback_mode()
+                self.state_manager.clear_fallback_state(rollback_block)
                 # Also clear local state
                 self.failed_cp_blocks.clear()
                 self.fallback_started_at = None
@@ -189,7 +209,9 @@ class CPBlocksPipeline:
 
                         # Persist fallback state to survive restarts
                         if self.state_manager:
-                            self.state_manager.start_fallback_mode(start_block)
+                            # Save fallback state using SQLite queue
+                            fallback_data = {start_block: True}  # Mark this block as needing reprocessing
+                            self.state_manager.save_fallback_state(start_block, fallback_data)
 
                         self.initial_blocks_ready.set()  # Signal ready to continue processing
                         return
@@ -568,7 +590,9 @@ class CPBlocksPipeline:
 
         # Persist fallback state to survive restarts
         if self.state_manager:
-            self.state_manager.start_fallback_mode(current_block)
+            # Save fallback state using SQLite queue
+            fallback_data = {current_block: True}  # Mark this block as needing reprocessing
+            self.state_manager.save_fallback_state(current_block, fallback_data)
             logger.info(f"Fallback state persisted starting at block {current_block}")
 
         # Create initial fallback blocks if queue is empty to prevent blocking
