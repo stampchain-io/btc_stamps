@@ -190,12 +190,12 @@ def test_get_status_empty(queue):
 
 
 def test_clear_all_fallbacks(queue):
-    # First add some fallback state
-    queue.save_fallback_state(100, {"test": "data"})
+    # First add some fallback state - use correct Dict[int, bool] format
+    queue.save_fallback_state(100, {123: True})
 
     # Verify it was saved
     state = queue.load_fallback_state(100)
-    assert state == {"test": "data"}
+    assert state == {123: True}
 
     # Clear all fallbacks
     queue.clear_all_fallbacks()

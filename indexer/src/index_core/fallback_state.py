@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def save_failed_blocks(failed_blocks: Dict[int, bool]) -> None:
-    """Save failed blocks state using SQLite queue."""
+    """Save failed blocks state using normalized SQLite structure."""
     try:
         queue = ReprocessingQueue.get_instance()
         # Handle case where CURRENT_BLOCK_INDEX is None
@@ -23,9 +23,9 @@ def save_failed_blocks(failed_blocks: Dict[int, bool]) -> None:
         if block_index is None:
             logger.warning("Cannot save fallback state: CURRENT_BLOCK_INDEX is None")
             return
-        # Convert Dict[int, bool] to Dict[str, Any] for JSON serialization
-        state_data = {str(k): v for k, v in failed_blocks.items()}
-        queue.save_fallback_state(block_index, state_data)
+
+        # No more JSON conversion - direct integer keys
+        queue.save_fallback_state(block_index, failed_blocks)
         logger.info(f"Saved fallback state for block {block_index}")
     except Exception as e:
         logger.error(f"Failed to save fallback state: {e}")
@@ -33,7 +33,7 @@ def save_failed_blocks(failed_blocks: Dict[int, bool]) -> None:
 
 
 def load_failed_blocks() -> Dict[int, bool]:
-    """Load failed blocks from SQLite, return empty dict if none."""
+    """Load failed blocks from normalized SQLite structure."""
     queue = ReprocessingQueue.get_instance()
     # Handle case where CURRENT_BLOCK_INDEX is None
     block_index = util.CURRENT_BLOCK_INDEX
@@ -41,10 +41,11 @@ def load_failed_blocks() -> Dict[int, bool]:
         logger.debug("Cannot load fallback state: CURRENT_BLOCK_INDEX is None")
         return {}
 
-    state = queue.load_fallback_state(block_index) or {}
+    # Load from normalized structure - returns Dict[int, bool] directly
+    state = queue.load_fallback_state(block_index)
     if state:
         logger.debug(f"Loaded fallback state with {len(state)} failed blocks")
-        # Convert string keys to integers since JSON storage returns string keys
+        # Ensure all keys are integers (defensive programming)
         return {int(k): bool(v) for k, v in state.items()}
     return {}
 

@@ -131,7 +131,7 @@ def test_fallback_state_save_on_enter_fallback_mode(temp_db, mock_backend, mock_
         # Verify state was persisted to SQLite
         queue = ReprocessingQueue.get_instance()
         loaded_state = queue.load_fallback_state(12350)
-        assert loaded_state == {"12350": True}  # SQLite stores keys as strings
+        assert loaded_state == {12350: True}  # New normalized structure preserves integer keys
 
 
 def test_fallback_state_clear_after_rollback(temp_db, mock_backend, mock_node_health):
