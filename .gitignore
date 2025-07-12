@@ -32,7 +32,7 @@ node_modules/
 # Environment variables
 # Editor directories and files
 .idea
-.vscode
+.vscode/mcp.json
 *.suo
 *.ntvs*
 *.njsproj
@@ -54,3 +54,5 @@ claude/*
 .github/instructions/*
 .roomodes
 .windsurfrules
+
+reprocess_queue.db

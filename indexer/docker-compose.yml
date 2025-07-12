@@ -68,6 +68,10 @@ services:
     #   - rpc_password
     #   - aws_credentials
 
+    volumes:
+      - ./data:/app/data  # For persistent SQLite queue
+      # Ensure data/ exists on host
+
     networks:
       - db_mysql_cluster_network   # Connect to existing MySQL network
 

@@ -48,6 +48,8 @@ from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, Dat
 from index_core.memory_manager import memory_manager
 from index_core.stamp_types import NO_DEPLOY, DeployResult
 
+from .fallback_state import load_failed_blocks
+
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 
@@ -1207,7 +1209,6 @@ def perform_complete_rollback(block_index: int) -> None:
         block_index: The block index to rollback to
     """
     from index_core.backend import Backend
-    from index_core.fallback_state import get_fallback_state_manager
 
     logger.info(f"🔄 Starting complete rollback to block {block_index}")
 
@@ -1236,13 +1237,14 @@ def perform_complete_rollback(block_index: int) -> None:
         logger.info(f"✅ Complete rollback finished to block {block_index}")
 
         # Check if we should clear fallback state
-        fallback_manager = get_fallback_state_manager()
-        if fallback_manager.is_fallback_active():
-            fallback_start_block = fallback_manager.get_fallback_start_block()
+        failed_blocks = load_failed_blocks()
+        if failed_blocks:
+            fallback_start_block = min(failed_blocks.keys())  # Get min instead of manager
             if fallback_start_block and block_index <= fallback_start_block:
                 logger.info(f"Clearing fallback state (started at block {fallback_start_block})...")
-                fallback_manager.end_fallback_mode()
-                logger.info("Fallback state cleared successfully!")
+                from .fallback_state import clear_fallback_state
+
+                clear_fallback_state(fallback_start_block)  # Or clear_all_fallbacks() if available
             else:
                 logger.info(f"Note: Fallback mode is active (started at block {fallback_start_block})")
                 logger.info(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")

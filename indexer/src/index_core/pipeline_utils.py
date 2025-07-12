@@ -10,7 +10,6 @@ import time
 
 import config
 from index_core.backend import Backend
-from index_core.fallback_state import get_fallback_state_manager
 from index_core.fetch_utils import fetch_xcp_blocks_concurrent
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
 
@@ -70,7 +69,7 @@ class CPBlocksPipeline:
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
-        self.state_manager = get_fallback_state_manager() if fallback_mode else None
+        self.state_manager = None  # Removed get_fallback_state_manager
 
         # Initialize from persisted state if available (for tests and state continuity)
         if self.state_manager and self.state_manager.is_fallback_active():

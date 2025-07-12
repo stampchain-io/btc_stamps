@@ -134,15 +134,29 @@ class TestNodeRoundRobin:
             {"name": "node2", "url": "http://node2.com:4000/v2"},
         ],
     )
+    @patch("index_core.fetch_utils.update_healthy_nodes")
     @patch("index_core.fetch_utils.get_healthy_nodes")
-    def test_fetch_xcp_uses_traditional_failover_with_two_nodes(self, mock_get_healthy_nodes):
+    def test_fetch_xcp_uses_traditional_failover_with_two_nodes(self, mock_get_healthy_nodes, mock_update_healthy_nodes):
         """Test that fetch_xcp uses traditional failover when only 2 nodes are configured."""
         from index_core.fetch_utils import fetch_xcp
+
+        # Mock update_healthy_nodes to do nothing
+        mock_update_healthy_nodes.return_value = None
 
         mock_get_healthy_nodes.return_value = [
             {"name": "node1", "url": "http://node1.com:4000/v2"},
             {"name": "node2", "url": "http://node2.com:4000/v2"},
         ]
+
+        # Initialize node health trackers for the test nodes
+        from index_core.cache_utils import cache_manager
+        from index_core.node_health import NodeHealth, node_health_tracker
+
+        # Clear any cached results to ensure the test makes actual calls
+        cache_manager.clear()
+
+        node_health_tracker["node1"] = NodeHealth("node1", "http://node1.com:4000/v2")
+        node_health_tracker["node2"] = NodeHealth("node2", "http://node2.com:4000/v2")
 
         with patch("requests.get") as mock_requests:
             mock_response = Mock()
