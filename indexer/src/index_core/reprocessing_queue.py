@@ -1,4 +1,3 @@
-import json
 import logging
 import random
 import sqlite3
@@ -159,25 +158,46 @@ class ReprocessingQueue:
         self.conn.close()
 
     def _init_fallback_table(self):
-        """Initialize fallback states table if not exists."""
+        """Initialize fallback states table with normalized structure."""
         with self.lock:
             cursor = self.conn.cursor()
+            # Create the main fallback sessions table
             cursor.execute(
                 """
-                CREATE TABLE IF NOT EXISTS fallback_states (
+                CREATE TABLE IF NOT EXISTS fallback_sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    block_index INTEGER UNIQUE,
-                    state_data TEXT NOT NULL,  -- JSON blob of failed_cp_blocks dict
+                    start_block_index INTEGER NOT NULL UNIQUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """
             )
+            # Create the failed blocks table (normalized)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS failed_blocks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    block_index INTEGER NOT NULL,
+                    needs_reprocessing BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES fallback_sessions(id) ON DELETE CASCADE,
+                    UNIQUE(session_id, block_index)
+                )
+            """
+            )
+            # Create indexes for performance
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_blocks_session ON failed_blocks(session_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_blocks_block_index ON failed_blocks(block_index)")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fallback_sessions_start_block ON fallback_sessions(start_block_index)"
+            )
+
             self.conn.commit()
             cursor.close()
 
     def migrate_old_json(self, json_path: str = "fallback_state.json"):
-        """Migrate existing JSON fallback to DB if file exists."""
+        """Migrate existing JSON fallback to normalized DB structure if file exists."""
         import json
         import os
 
@@ -187,73 +207,219 @@ class ReprocessingQueue:
                     with open(json_path, "r") as f:
                         state_data = json.load(f)
                     if state_data:
-                        # Iterate over all block states instead of just the first one
-                        for block_index, block_state in state_data.items():
-                            # Convert block_index to int if it's a string (JSON keys are always strings)
-                            block_index_int = int(block_index) if isinstance(block_index, str) else block_index
-                            # Wrap the individual block state in the expected format
-                            self.save_fallback_state(block_index_int, {block_index: block_state})
+                        # Migrate each block state to the new normalized structure
+                        for block_index_str, block_state in state_data.items():
+                            block_index = int(block_index_str)
+                            # Create a session for this block
+                            self._create_fallback_session(block_index)
+                            # Add the failed block to the session
+                            if isinstance(block_state, dict):
+                                for failed_block_str, _ in block_state.items():
+                                    failed_block = int(str(failed_block_str))
+                                    self._add_failed_block_to_session(block_index, failed_block)
+                            else:
+                                # Simple case: just add the block itself
+                                self._add_failed_block_to_session(block_index, block_index)
+
                         os.rename(json_path, f"{json_path}.migrated")  # Backup old file
-                        logger.info(f"Migrated {len(state_data)} fallback states from {json_path} to DB")
+                        logger.info(f"Migrated {len(state_data)} fallback states from {json_path} to normalized DB")
                 except Exception as e:
                     logger.warning(f"Failed to migrate old JSON: {e}")
 
-    def save_fallback_state(self, block_index: int, state_data: Dict[str, Any]) -> None:
-        """Save failed_cp_blocks state as JSON blob."""
-        state_json = json.dumps(state_data)
+    def save_fallback_state(self, start_block_index: int, failed_blocks: Dict[int, bool]) -> None:
+        """Save fallback state using normalized table structure."""
         with self.lock:
             cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO fallback_states
-                (block_index, state_data, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-            """,
-                (block_index, state_json),
-            )
-            self.conn.commit()
-            cursor.close()
+            try:
+                # Create or update the fallback session
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO fallback_sessions
+                    (start_block_index, updated_at)
+                    VALUES (?, CURRENT_TIMESTAMP)
+                    """,
+                    (start_block_index,),
+                )
 
-    def load_fallback_state(self, block_index: int) -> Optional[Dict[str, Any]]:
-        """Load failed_cp_blocks state for given block, return None if not found."""
+                # Get the session ID
+                cursor.execute("SELECT id FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
+                session_id = cursor.fetchone()[0]
+
+                # Clear existing failed blocks for this session
+                cursor.execute("DELETE FROM failed_blocks WHERE session_id = ?", (session_id,))
+
+                # Insert all failed blocks
+                for block_index, needs_reprocessing in failed_blocks.items():
+                    cursor.execute(
+                        """
+                        INSERT INTO failed_blocks (session_id, block_index, needs_reprocessing)
+                        VALUES (?, ?, ?)
+                        """,
+                        (session_id, block_index, needs_reprocessing),
+                    )
+
+                self.conn.commit()
+                logger.debug(
+                    f"Saved fallback state for session starting at block {start_block_index} with {len(failed_blocks)} failed blocks"
+                )
+            except sqlite3.Error as e:
+                logger.error(f"Failed to save fallback state: {e}")
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def load_fallback_state(self, start_block_index: int) -> Optional[Dict[int, bool]]:
+        """Load fallback state for given session start block, return None if not found."""
         with self.lock:
             cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                SELECT state_data FROM fallback_states
-                WHERE block_index = ?
-            """,
-                (block_index,),
-            )
-            result = cursor.fetchone()
-            cursor.close()
-            if result:
-                return json.loads(result[0])
-            return None
+            try:
+                # Get the session ID
+                cursor.execute("SELECT id FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
+                session_result = cursor.fetchone()
+                if not session_result:
+                    return None
+
+                session_id = session_result[0]
+
+                # Get all failed blocks for this session
+                cursor.execute(
+                    """
+                    SELECT block_index, needs_reprocessing FROM failed_blocks
+                    WHERE session_id = ?
+                    ORDER BY block_index
+                    """,
+                    (session_id,),
+                )
+
+                failed_blocks = {}
+                for block_index, needs_reprocessing in cursor.fetchall():
+                    failed_blocks[block_index] = bool(needs_reprocessing)
+
+                return failed_blocks if failed_blocks else None
+            except sqlite3.Error as e:
+                logger.error(f"Failed to load fallback state: {e}")
+                return None
+            finally:
+                cursor.close()
 
     def get_oldest_failed_block(self) -> Optional[int]:
-        """Get the smallest failed block index from states."""
+        """Get the smallest failed block index from all sessions."""
         with self.lock:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT MIN(block_index) FROM fallback_states")
+            cursor.execute("SELECT MIN(start_block_index) FROM fallback_sessions")
             result = cursor.fetchone()
             cursor.close()
             return result[0] if result and result[0] else None
 
-    def clear_fallback_state(self, block_index: int) -> None:
+    def clear_fallback_state(self, start_block_index: int) -> None:
         """Remove fallback state after successful processing."""
         with self.lock:
             cursor = self.conn.cursor()
-            cursor.execute("DELETE FROM fallback_states WHERE block_index = ?", (block_index,))
-            self.conn.commit()
-            cursor.close()
-            logger.info(f"Cleared fallback state for block {block_index}")
+            try:
+                # Delete the session (CASCADE will delete associated failed_blocks)
+                cursor.execute("DELETE FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
+                deleted_sessions = cursor.rowcount
+                self.conn.commit()
+
+                if deleted_sessions > 0:
+                    logger.info(f"Cleared fallback state for session starting at block {start_block_index}")
+                else:
+                    logger.debug(f"No fallback state found for session starting at block {start_block_index}")
+            except sqlite3.Error as e:
+                logger.error(f"Failed to clear fallback state: {e}")
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
 
     def clear_all_fallbacks(self) -> None:
         """Clear all fallback states (e.g., after full recovery)."""
         with self.lock:
             cursor = self.conn.cursor()
-            cursor.execute("DELETE FROM fallback_states")
-            self.conn.commit()
+            try:
+                cursor.execute("DELETE FROM fallback_sessions")  # CASCADE will delete failed_blocks
+                deleted_sessions = cursor.rowcount
+                self.conn.commit()
+                logger.info(f"Cleared all fallback states from DB ({deleted_sessions} sessions)")
+            except sqlite3.Error as e:
+                logger.error(f"Failed to clear all fallback states: {e}")
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    def _create_fallback_session(self, start_block_index: int) -> int:
+        """Create a new fallback session and return its ID."""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO fallback_sessions (start_block_index)
+                VALUES (?)
+                """,
+                (start_block_index,),
+            )
+            cursor.execute("SELECT id FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
+            session_id = cursor.fetchone()[0]
+            return session_id
+        finally:
             cursor.close()
-            logger.info("Cleared all fallback states from DB")
+
+    def _add_failed_block_to_session(self, start_block_index: int, failed_block_index: int) -> None:
+        """Add a failed block to an existing session."""
+        cursor = self.conn.cursor()
+        try:
+            # Get session ID
+            cursor.execute("SELECT id FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
+            session_result = cursor.fetchone()
+            if not session_result:
+                raise ValueError(f"No fallback session found for start block {start_block_index}")
+
+            session_id = session_result[0]
+
+            # Add failed block
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO failed_blocks (session_id, block_index, needs_reprocessing)
+                VALUES (?, ?, TRUE)
+                """,
+                (session_id, failed_block_index),
+            )
+        finally:
+            cursor.close()
+
+    def get_fallback_stats(self) -> Dict[str, Any]:
+        """Get comprehensive fallback state statistics."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                # Get session count
+                cursor.execute("SELECT COUNT(*) FROM fallback_sessions")
+                session_count = cursor.fetchone()[0]
+
+                # Get total failed blocks
+                cursor.execute("SELECT COUNT(*) FROM failed_blocks")
+                total_failed_blocks = cursor.fetchone()[0]
+
+                # Get blocks needing reprocessing
+                cursor.execute("SELECT COUNT(*) FROM failed_blocks WHERE needs_reprocessing = TRUE")
+                blocks_needing_reprocessing = cursor.fetchone()[0]
+
+                # Get oldest session
+                cursor.execute("SELECT MIN(start_block_index) FROM fallback_sessions")
+                oldest_session = cursor.fetchone()[0]
+
+                # Get newest session
+                cursor.execute("SELECT MAX(start_block_index) FROM fallback_sessions")
+                newest_session = cursor.fetchone()[0]
+
+                return {
+                    "session_count": session_count,
+                    "total_failed_blocks": total_failed_blocks,
+                    "blocks_needing_reprocessing": blocks_needing_reprocessing,
+                    "oldest_session_start_block": oldest_session,
+                    "newest_session_start_block": newest_session,
+                }
+            finally:
+                cursor.close()

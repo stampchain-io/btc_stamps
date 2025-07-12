@@ -22,8 +22,8 @@ def test_save_load_clear(mock_queue: Mock) -> None:
     test_data = {789: True}
     with patch("src.index_core.util.CURRENT_BLOCK_INDEX", 789):
         save_failed_blocks(test_data)
-        # Expect string keys since save_failed_blocks converts int keys to strings for JSON
-        mock_queue.save_fallback_state.assert_called_with(789, {"789": True})
+        # New normalized structure preserves integer keys directly
+        mock_queue.save_fallback_state.assert_called_with(789, {789: True})
         loaded = load_failed_blocks()
         assert loaded == {123: True, 456: False}
         mock_queue.load_fallback_state.assert_called_with(789)
@@ -56,8 +56,8 @@ def test_save_error_handling(mock_queue: Mock) -> None:
         with pytest.raises(Exception) as exc_info:
             save_failed_blocks({789: True})
         assert "Database error" in str(exc_info.value)
-        # Expect string keys since save_failed_blocks converts int keys to strings for JSON
-        mock_queue.save_fallback_state.assert_called_with(789, {"789": True})
+        # New normalized structure preserves integer keys directly
+        mock_queue.save_fallback_state.assert_called_with(789, {789: True})
 
 
 def test_load_returns_empty_dict_when_none(mock_queue: Mock) -> None:
