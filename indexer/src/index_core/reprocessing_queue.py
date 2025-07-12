@@ -4,7 +4,7 @@ import random
 import sqlite3
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import config  # Assuming configs like REPROCESS_DB_PATH, REPROCESS_MAX_ATTEMPTS=5, REPROCESS_CLEANUP_AGE=86400 (24h)
 
@@ -189,15 +189,16 @@ class ReprocessingQueue:
                     if state_data:
                         # Iterate over all block states instead of just the first one
                         for block_index, block_state in state_data.items():
-                            # Convert block_index to int if it's a string
+                            # Convert block_index to int if it's a string (JSON keys are always strings)
                             block_index_int = int(block_index) if isinstance(block_index, str) else block_index
+                            # Wrap the individual block state in the expected format
                             self.save_fallback_state(block_index_int, {block_index: block_state})
                         os.rename(json_path, f"{json_path}.migrated")  # Backup old file
                         logger.info(f"Migrated {len(state_data)} fallback states from {json_path} to DB")
                 except Exception as e:
                     logger.warning(f"Failed to migrate old JSON: {e}")
 
-    def save_fallback_state(self, block_index: int, state_data: Dict) -> None:
+    def save_fallback_state(self, block_index: int, state_data: Dict[str, Any]) -> None:
         """Save failed_cp_blocks state as JSON blob."""
         state_json = json.dumps(state_data)
         with self.lock:
@@ -213,7 +214,7 @@ class ReprocessingQueue:
             self.conn.commit()
             cursor.close()
 
-    def load_fallback_state(self, block_index: int) -> Optional[Dict]:
+    def load_fallback_state(self, block_index: int) -> Optional[Dict[str, Any]]:
         """Load failed_cp_blocks state for given block, return None if not found."""
         with self.lock:
             cursor = self.conn.cursor()
