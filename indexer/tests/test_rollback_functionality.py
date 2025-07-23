@@ -155,6 +155,10 @@ def test_rollback_tool_command_line_interface():
     import os
     import sys
 
+    # Skip if we're in CI environment without proper database setup
+    if os.getenv("CI") and not os.getenv("TEST_WITH_REAL_DB"):
+        pytest.skip("Skipping rollback tool test in CI without real database")
+
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 
     # Test the simplified interface
