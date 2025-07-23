@@ -499,8 +499,8 @@ class SalesHistoryProcessor:
         start_time = time.time()
 
         # Get the process_from_block filter if we're in full catchup
-        process_from_block = getattr(self, '_process_from_block', 0)
-        
+        process_from_block = getattr(self, "_process_from_block", 0)
+
         # Filter for our CPIDs and block range
         relevant_dispenses: List[Dict[str, Any]] = []
         checked_count = 0
@@ -513,12 +513,12 @@ class SalesHistoryProcessor:
 
             asset = dispense.get("asset")
             block_index = dispense.get("block_index", 0)
-            
+
             # Skip if before our cutoff block
             if block_index <= process_from_block:
                 skipped_blocks += 1
                 continue
-                
+
             if asset and asset in self.cpid_cache:
                 relevant_dispenses.append(dispense)
             checked_count += 1
@@ -776,7 +776,7 @@ class SalesHistoryProcessor:
 
         # Mark where we started checking for new CPIDs
         self.dispense_cache["last_cpid_check_block"] = process_from_block
-        
+
         return True
 
     def check_and_process_new_cpids(self, current_block: int):
