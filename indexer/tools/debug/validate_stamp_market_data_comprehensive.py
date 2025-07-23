@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.index_core.database_manager import DatabaseManager
+from pymysql.cursors import DictCursor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

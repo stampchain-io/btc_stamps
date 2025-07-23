@@ -329,7 +329,7 @@ class StampMarketDataValidator:
                     WHERE s.cpid LIKE 'A%' 
                     AND LENGTH(s.cpid) > 15
                     AND s.stamp_base != 'SRC-20'
-                    ORDER BY RAND()
+                    ORDER BY s.stamp MOD (SELECT ROUND(RAND() * 1000000))
                     LIMIT %s
                 """,
                     (sample_size,),

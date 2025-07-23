@@ -498,9 +498,13 @@ class SalesHistoryProcessor:
         logger.debug(f"Starting to filter {len(dispenses)} dispenses...")
         start_time = time.time()
 
-        # Filter for our CPIDs
+        # Get the process_from_block filter if we're in full catchup
+        process_from_block = getattr(self, '_process_from_block', 0)
+        
+        # Filter for our CPIDs and block range
         relevant_dispenses: List[Dict[str, Any]] = []
         checked_count = 0
+        skipped_blocks = 0
         for i, dispense in enumerate(dispenses):
             if i % 1000 == 0 and i > 0:
                 logger.info(
@@ -508,13 +512,21 @@ class SalesHistoryProcessor:
                 )
 
             asset = dispense.get("asset")
+            block_index = dispense.get("block_index", 0)
+            
+            # Skip if before our cutoff block
+            if block_index <= process_from_block:
+                skipped_blocks += 1
+                continue
+                
             if asset and asset in self.cpid_cache:
                 relevant_dispenses.append(dispense)
             checked_count += 1
 
         filter_time = time.time() - start_time
         logger.info(
-            f"Filtering complete: {len(relevant_dispenses)} stamp dispenses found out of {len(dispenses)} total (took {filter_time:.2f}s)"
+            f"Filtering complete: {len(relevant_dispenses)} stamp dispenses found out of {len(dispenses)} total "
+            f"(skipped {skipped_blocks} before block {process_from_block}, took {filter_time:.2f}s)"
         )
 
         if not relevant_dispenses:
@@ -749,21 +761,23 @@ class SalesHistoryProcessor:
             logger.info(f"Sales history exists up to block {highest_processed_block} - will continue from there")
             process_from_block = highest_processed_block
 
+        # Store the process_from_block in the instance for use in _fetch_all_dispenses
+        self._process_from_block = process_from_block
+
         # Fetch all dispenses from API
+        # Note: _fetch_all_dispenses now processes data in batches and doesn't keep it in memory
         if not self._fetch_all_dispenses():
             logger.error("Failed to fetch dispenses, aborting catchup")
-            return
+            return False
 
-        # Process dispenses starting from our determined block
-        logger.info(f"Processing dispenses after block {process_from_block}")
-        processed = self._process_cached_dispenses(after_block=process_from_block)
-
-        self.progress["total_sales"] = processed
-
-        logger.info(f"Initial processing complete: {processed} dispenses stored")
+        # The data has already been processed during _fetch_all_dispenses batch processing
+        # No need to call _process_cached_dispenses since dispense_cache["data"] is empty
+        logger.info(f"Full catchup complete. Total sales processed: {self.progress['total_sales']}")
 
         # Mark where we started checking for new CPIDs
         self.dispense_cache["last_cpid_check_block"] = process_from_block
+        
+        return True
 
     def check_and_process_new_cpids(self, current_block: int):
         """
