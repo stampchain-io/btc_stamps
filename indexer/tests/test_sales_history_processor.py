@@ -981,12 +981,14 @@ class TestSalesHistoryProcessorEdgeCases:
         # Run catchup should process from genesis despite existing history
         # This test validates the logic, not the full execution
         db = mock_db_manager.connect()
-        with patch.object(processor, "_fetch_all_dispenses", return_value=True):
-            with patch.object(processor, "_process_cached_dispenses", return_value=1000) as mock_process:
-                processor._run_full_catchup(db)
+        with patch.object(processor, "_fetch_all_dispenses", return_value=True) as mock_fetch:
+            processor._run_full_catchup(db)
 
-                # Should process from block 0 (after_block=0)
-                mock_process.assert_called_with(after_block=0)
+            # Should set _process_from_block to 0 for full rebuild
+            assert processor._process_from_block == 0
+
+            # _fetch_all_dispenses should be called
+            mock_fetch.assert_called_once()
 
         # Clean up
         del os.environ["FORCE_SALES_HISTORY_REBUILD"]
