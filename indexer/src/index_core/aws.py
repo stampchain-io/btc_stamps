@@ -36,8 +36,8 @@ def get_s3_objects(db, bucket_name, s3_client):
     logger.info(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
     cursor.execute("SELECT path_key, md5 FROM s3objects")
-    results = cursor.fetchall() or {}
-    results = {row[0]: {"key": row[0], "md5": row[1]} for row in results}
+    db_results = cursor.fetchall() or []
+    results = {row[0]: {"key": row[0], "md5": row[1]} for row in db_results}
     cursor.close()
     if results:
         logger.info(f"Found {len(results)} existing S3 objects from database")
@@ -102,7 +102,9 @@ def update_s3_db_objects(db, filename, file_obj_md5):
         )
 
         cursor.close()
+        db.commit()  # IMPORTANT: Commit the transaction to release locks
     except Exception as e:
+        db.rollback()  # Rollback on error
         logger.warning(f"ERROR: Unable to update the s3objects table. Error: {e}")
 
 
@@ -130,9 +132,11 @@ def add_s3_objects_to_db(db, s3_objects):
         cursor.executemany(query, values)
 
         cursor.close()
+        db.commit()  # IMPORTANT: Commit the transaction to release locks
 
         logger.info("S3 objects added to the database successfully")
     except Exception as e:
+        db.rollback()  # Rollback on error
         logger.warning(f"ERROR: Unable to add S3 objects to the database. Error: {e}")
 
 

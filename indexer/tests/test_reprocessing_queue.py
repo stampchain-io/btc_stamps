@@ -39,7 +39,7 @@ def test_enqueue_dequeue(queue):
             """
             INSERT INTO reprocess_queue
             (tx_hash, attempts, next_retry_time, status, added_at)
-            VALUES (?, 0, 0, 'pending', unixepoch())
+            VALUES (?, 0, 0, 'pending', CAST(strftime('%s', 'now') AS INTEGER))
             """,
             ("tx1",),
         )
@@ -88,7 +88,7 @@ def test_max_attempts(queue):
             """
             INSERT INTO reprocess_queue
             (tx_hash, attempts, next_retry_time, status, added_at)
-            VALUES (?, 0, 0, 'pending', unixepoch())
+            VALUES (?, 0, 0, 'pending', CAST(strftime('%s', 'now') AS INTEGER))
             """,
             ("tx1",),
         )
@@ -157,7 +157,7 @@ def test_concurrency(queue):
                 """
                 INSERT INTO reprocess_queue
                 (tx_hash, attempts, next_retry_time, status, added_at)
-                VALUES (?, 0, 0, 'pending', unixepoch())
+                VALUES (?, 0, 0, 'pending', CAST(strftime('%s', 'now') AS INTEGER))
                 """,
                 (f"tx{i}",),
             )

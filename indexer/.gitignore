@@ -4,4 +4,10 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
-.pytest_cache/ 
+.pytest_cache/
+
+# Archive tools
+tools/archive/
+
+# Test artifacts
+test_reprocess_queue.db

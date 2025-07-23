@@ -116,9 +116,15 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
 
-        # Test with block height after SVG_GZIP_DETECTION_V2 activation
+        # Test pre-activation behavior (block < 999999)
         content, is_svg, mime_type = detect_and_decompress_svg(gzipped_svg, block_index=906001)
-        self.assertEqual(content, svg_content)
+        self.assertEqual(content, gzipped_svg)  # Should return original gzipped content
+        self.assertFalse(is_svg)  # Not detected as SVG when not decompressed
+        self.assertNotEqual(mime_type, "image/svg+xml")  # Should be gzip mime type
+
+        # Test post-activation behavior (block >= 999999)
+        content, is_svg, mime_type = detect_and_decompress_svg(gzipped_svg, block_index=999999)
+        self.assertEqual(content, svg_content)  # Should return decompressed SVG
         self.assertTrue(is_svg)
         self.assertEqual(mime_type, "image/svg+xml")
 
@@ -155,10 +161,15 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
 
-        # Test with block height after ENHANCED_MIME_DETECTION activation
+        # Test pre-activation behavior (block < 999999)
         processed_content, mime_type = get_processed_content_and_mime(gzipped_svg, block_index=906001)
-        self.assertEqual(processed_content, svg_content)
-        self.assertEqual(mime_type, "image/svg+xml")
+        self.assertEqual(processed_content, gzipped_svg)  # Should return original gzipped content
+        self.assertEqual(mime_type, "application/gzip")  # Should detect as gzip
+
+        # Test post-activation behavior (block >= 999999)
+        processed_content, mime_type = get_processed_content_and_mime(gzipped_svg, block_index=999999)
+        self.assertEqual(processed_content, svg_content)  # Should return decompressed SVG
+        self.assertEqual(mime_type, "image/svg+xml")  # Should detect as SVG
 
     def test_get_processed_content_and_mime_html(self):
         """Test get_processed_content_and_mime with HTML content."""
@@ -184,9 +195,14 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         """Test enhanced detection returns image/svg+xml for gzipped SVG."""
         svg_content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>'
         gzipped_svg = gzip.compress(svg_content)
-        # Test with block height after ENHANCED_MIME_DETECTION activation
+
+        # Test pre-activation behavior (block < 999999)
         result = enhanced_mime_detection(gzipped_svg, block_index=906001)
-        self.assertEqual(result, "image/svg+xml")
+        self.assertEqual(result, "application/gzip")  # Should detect as gzip before activation
+
+        # Test post-activation behavior (block >= 999999)
+        result = enhanced_mime_detection(gzipped_svg, block_index=999999)
+        self.assertEqual(result, "image/svg+xml")  # Should detect as SVG after activation
 
     def test_enhanced_mime_detection_fallback_to_magic(self):
         """Test fallback to magic detection for non-HTML content."""

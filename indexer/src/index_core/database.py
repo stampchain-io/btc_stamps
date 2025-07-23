@@ -503,6 +503,7 @@ def insert_transactions(db, transactions):
                     str(tx.destination),
                     tx.btc_amount,
                     tx.fee,
+                    tx.fee_rate_sat_vb,  # Added fee_rate_sat_vb field
                     tx.data,
                     tx.keyburn,
                 )
@@ -522,9 +523,10 @@ def insert_transactions(db, transactions):
                         destination,
                         btc_amount,
                         fee,
+                        fee_rate_sat_vb,
                         data,
                         keyburn
-                    ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)""",
+                    ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s, %s)""",
                     batch,
                 )
 
@@ -1155,9 +1157,25 @@ def insert_batch_to_temp(cursor, temp_table, balances_batch):
 
 
 def purge_block_db(db: Connection, block_index: int) -> None:
-    """Purge transactions from the database for a reorg or where transactions were partially committed."""
-    # Clear all caches using the centralized cache manager
-    clear_all_caches()
+    """
+    Purge ALL data from the database from the specified block onwards.
+
+    This function is used by all rollback mechanisms (manual and automatic) to ensure
+    consistent behavior. It clears:
+    - All transaction and block data
+    - All stamps (StampTableV4, collection_stamps)
+    - All token data (SRC20, SRC101)
+    - All market data (stamp_sales_history)
+    - All caches
+
+    Args:
+        db: Database connection
+        block_index: Block to purge from (inclusive)
+    """
+    # CRITICAL: Do NOT clear caches before database operations!
+    # Clearing caches first causes stamp counter to be recalculated from 
+    # database BEFORE stamps are deleted, leading to gaps in stamp numbers.
+    # Caches must be cleared AFTER database purge.
     cursor = db.cursor()
 
     # First, delete from collection_stamps
@@ -1198,17 +1216,39 @@ def purge_block_db(db: Connection, block_index: int) -> None:
 
     db.commit()
     cursor.close()
+    
+    # CRITICAL: Clear all caches AFTER database purge is complete
+    # This ensures stamp counter is recalculated from the correct database state
+    clear_all_caches()
+    logger.info("Cleared all caches after database purge")
 
 
-def perform_complete_rollback(block_index: int) -> None:
+def perform_complete_rollback(block_index: int, force: bool = False) -> None:
     """
     Perform a complete rollback using the same functions as the indexer.
     This ensures consistency between manual and automatic rollbacks.
 
     Args:
         block_index: The block index to rollback to
+        force: If True, skip safety checks (use with extreme caution)
     """
     from index_core.backend import Backend
+    from index_core.reprocess_safety import (
+        ReprocessSafetyError,
+        log_safety_check,
+        validate_block_number,
+    )
+
+    # Safety validation before any database operations (unless forced)
+    if not force:
+        try:
+            validate_block_number(block_index, "database rollback target")
+            log_safety_check(f"Validated rollback target block {block_index}")
+        except ReprocessSafetyError as e:
+            logger.error(f"SAFETY VIOLATION in perform_complete_rollback: {e}")
+            raise RuntimeError(f"Rollback blocked by safety check: {e}")
+    else:
+        logger.warning(f"⚠️  FORCE ROLLBACK: Safety checks bypassed for rollback to block {block_index}")
 
     logger.info(f"🔄 Starting complete rollback to block {block_index}")
 
@@ -1232,7 +1272,9 @@ def perform_complete_rollback(block_index: int) -> None:
         logger.info("Rebuilding database state...")
         rebuild_balances(db)
         rebuild_owners(db)
-        update_src20_token_stats(db)
+        # Skip src20_token_stats update - this is now handled by async holder updater
+        # update_src20_token_stats(db)
+        logger.debug("Skipping src20_token_stats update - handled by async holder updater")
 
         logger.info(f"✅ Complete rollback finished to block {block_index}")
 
@@ -2239,6 +2281,7 @@ def insert_src20_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
                 "confidence_level": "confidence_level",
                 "last_price_update": "last_price_update",
                 "update_frequency_minutes": "update_frequency_minutes",
+                "price_source_type": "price_source_type",
             }
 
             # Build field lists
@@ -2593,6 +2636,14 @@ def apply_schema_updates(db, cursor):
     # Format: {table_name: {columns: [(name, type, comment)], indexes: [(name, columns)]}}
     # NOTE: This only handles additions. For removals/modifications, manual intervention is required.
     schema_updates = {
+        "transactions": {
+            "columns": [
+                ("fee_rate_sat_vb", "DECIMAL(10,2)", "Fee rate in satoshis per virtual byte"),
+            ],
+            "indexes": [
+                ("idx_fee_rate", ["fee_rate_sat_vb"]),  # For fee rate analysis and sorting
+            ],
+        },
         "stamp_market_data": {
             "columns": [
                 ("last_sale_block_index", "INTEGER", "Block index of the most recent sale"),
@@ -2611,7 +2662,36 @@ def apply_schema_updates(db, cursor):
             "indexes": [
                 ("idx_activity_level", ["activity_level", "last_updated"]),  # For activity-based update scheduling
             ],
-        }
+        },
+        "src20_market_data": {
+            "columns": [
+                ("progress_percentage", "DECIMAL(5,2) DEFAULT 0.00", "Minting progress as percentage (0.00-100.00)"),
+                ("total_minted", "BIGINT DEFAULT 0", "Total amount minted from balances table sum"),
+                ("total_mints", "INTEGER DEFAULT 0", "Total count of MINT operations from SRC20Valid table"),
+                (
+                    "price_source_type",
+                    "ENUM('last_traded', 'floor_ask', 'composite', 'unknown') DEFAULT 'unknown'",
+                    "Type of price in price_btc field",
+                ),
+            ],
+            "indexes": [
+                ("idx_progress_percentage", ["progress_percentage"]),  # For PROGRESS_ASC/PROGRESS_DESC sorting
+                ("idx_total_minted", ["total_minted"]),  # For minted amount sorting
+            ],
+        },
+        "SRC20Valid": {
+            "columns": [],
+            "indexes": [
+                ("idx_src20valid_tick_op", ["tick", "op"]),  # Frontend team optimization
+                ("idx_src20valid_op_tick_max", ["op", "tick", "max"]),  # Frontend team optimization
+            ],
+        },
+        "balances": {
+            "columns": [],
+            "indexes": [
+                ("idx_balances_tick_amt", ["tick", "amt"]),  # Frontend team optimization
+            ],
+        },
     }
 
     updates_applied = 0

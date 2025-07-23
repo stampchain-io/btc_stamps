@@ -343,6 +343,7 @@ def test_tx_result_namedtuple():
             "destination_nvalue",
             "btc_amount",
             "fee",
+            "fee_rate_sat_vb",  # Added fee_rate_sat_vb field
             "data",
             "decoded_tx",
             "keyburn",
@@ -364,6 +365,7 @@ def test_tx_result_namedtuple():
         destination_nvalue=0,
         btc_amount=100000,
         fee=1000,
+        fee_rate_sat_vb=4.0,  # Added fee_rate_sat_vb value
         data=b"test_data",
         decoded_tx={},
         keyburn="keyburn_addr",
@@ -381,4 +383,5 @@ def test_tx_result_namedtuple():
     assert tx_result.tx_hash == "tx_hash"
     assert tx_result.block_index == 1000
     assert tx_result.is_op_return is False
-    assert len(tx_result) == 16  # Verify all fields are present
+    assert tx_result.fee_rate_sat_vb == 4.0  # Test new field
+    assert len(tx_result) == 17  # Updated count to include new field

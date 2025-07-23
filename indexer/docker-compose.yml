@@ -24,6 +24,7 @@ services:
       # Other Configuration
       - BACKEND_POLL_INTERVAL=${BACKEND_POLL_INTERVAL:-0.5}
       - DOMAINNAME=${DOMAINNAME:-}
+      - DATA_DIR=/app/data
       
       # AWS Configuration
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}

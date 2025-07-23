@@ -806,7 +806,9 @@ class TestSalesHistoryProcessorEdgeCases:
         processor._flush_catchup_buffer()
 
         # Should have been written in batches
-        assert mock_cursor.executemany.call_count == 2  # 150 / 100 = 2 batches
+        # With INSERT_BATCH_SIZE=50 and CHUNK_COMMIT_SIZE=25:
+        # 150 items = 3 batches of 50, each split into 2 chunks of 25 = 6 executemany calls
+        assert mock_cursor.executemany.call_count == 6
         assert len(processor.catchup_buffer) == 0
 
     @patch("index_core.sales_history_processor.rate_limiter")

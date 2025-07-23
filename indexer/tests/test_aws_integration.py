@@ -6,8 +6,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 import io
 import types
 
-import pytest
-
 # Stub boto3 and colorlog before importing aws/config
 fake_boto3 = types.ModuleType("boto3")
 fake_boto3.client = lambda *args, **kwargs: None  # type: ignore[attr-defined]
@@ -48,6 +46,14 @@ class FakeDB:
 
     def cursor(self):
         return self.cursor_obj
+
+    def commit(self):
+        """Fake commit method."""
+        pass
+
+    def rollback(self):
+        """Fake rollback method."""
+        pass
 
 
 class FakePaginator:
