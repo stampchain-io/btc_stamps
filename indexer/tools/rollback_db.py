@@ -84,7 +84,7 @@ def main() -> None:
             current_block = backend.getblockcount()
             print(f"Rollback from {current_block} to {args.block_index} ({current_block - args.block_index} blocks)")
             print()
-        except:
+        except Exception:
             pass
 
     # Safety confirmation unless --confirm is used
