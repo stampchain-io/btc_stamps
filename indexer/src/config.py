@@ -368,8 +368,8 @@ CP_SUBASSET_FEAT_BLOCK_START: int = 866000  # Subasset no longer require XCP fee
 # Consensus changes
 STRIP_WHITESPACE: int = 797200
 STOP_BASE64_REPAIR: int = 784550
-SVG_GZIP_DETECTION_V2: int = 906000  # Block height where new SVG gzip detection method activates
-ENHANCED_MIME_DETECTION: int = 906000  # Block height where enhanced MIME detection for SVG activates
+SVG_GZIP_DETECTION_V2: int = 999999  # Block height where new SVG gzip detection method activates
+ENHANCED_MIME_DETECTION: int = 999999  # Block height where enhanced MIME detection for SVG activates
 
 
 VERSION_MAJOR: Optional[int]
@@ -422,6 +422,9 @@ SRC_VALIDATION_API2 = (
     "https://pkizh327c7.execute-api.us-west-2.amazonaws.com/prod/external/balanceHash?blockIndex={block_index}&secret={secret}"
 )
 SRC_VALIDATION_SECRET_API2: Optional[str] = os.environ.get("SRC_VALIDATION_SECRET_API2", None)
+
+# Enable background validation of SRC-20 blocks processed with FORCE=True
+ENABLE_SRC20_BACKGROUND_VALIDATION = bool(os.environ.get("ENABLE_SRC20_BACKGROUND_VALIDATION", "true").lower() == "true")
 
 BURNKEYS = [
     "022222222222222222222222222222222222222222222222222222222222222222",

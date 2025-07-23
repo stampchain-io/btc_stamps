@@ -55,12 +55,16 @@ class TestTransactionProcessing:
         # Mock script analysis functions
         with patch("index_core.script.get_asm") as mock_get_asm, patch(
             "index_core.script.get_checkmultisig"
-        ) as mock_get_multisig, patch("index_core.script.get_p2wsh") as mock_get_p2wsh:
+        ) as mock_get_multisig, patch("index_core.script.get_p2wsh") as mock_get_p2wsh, patch(
+            "index_core.transaction_utils.calculate_total_inputs"
+        ) as mock_calculate_inputs:
 
             # Setup mocks
             mock_get_asm.return_value = ["OP_1", "pubkey1", "pubkey2", "OP_2", "OP_CHECKMULTISIG"]
             mock_get_multisig.return_value = (["pubkey1", "pubkey2"], 1, 546)
             mock_get_p2wsh.return_value = []
+            # Mock calculate_total_inputs to return 2000, so fee = 2000 - 1000 = 1000
+            mock_calculate_inputs.return_value = 2000
 
             # Test the function
             result = process_vout(mock_ctx, 900001)
@@ -69,7 +73,7 @@ class TestTransactionProcessing:
             assert result.pubkeys_compiled == ["pubkey1", "pubkey2"]
             assert result.keyburn == 546
             assert result.is_op_return is None  # OP_RETURN detection may return None for non-OP_RETURN
-            assert result.fee == 1000
+            assert result.fee == 1000  # Now correctly calculated as inputs(2000) - outputs(1000) = 1000
             assert result.is_olga is False  # Pre-OLGA block behavior
             assert result.p2wsh_data_chunks == []
 
@@ -575,19 +579,23 @@ class TestTransactionProcessingEdgeCases:
         mock_ctx = Mock()
         mock_ctx.vout = [mock_vout1, mock_vout2]
 
-        with patch("index_core.script.get_asm") as mock_get_asm:
+        with patch("index_core.script.get_asm") as mock_get_asm, patch(
+            "index_core.transaction_utils.calculate_total_inputs"
+        ) as mock_calculate_inputs:
             # Return ASM that doesn't end with OP_CHECKMULTISIG
             mock_get_asm.side_effect = [
                 ["OP_DUP", "OP_HASH160", "pubkeyhash", "OP_EQUALVERIFY", "OP_CHECKSIG"],
                 ["OP_0", "hash"],
             ]
+            # Mock calculate_total_inputs to return 3000, so fee = 3000 - 1500 = 1500
+            mock_calculate_inputs.return_value = 3000
 
             result = process_vout(mock_ctx, 900001)
 
             # Original logic: only checks asm[-1] == "OP_CHECKMULTISIG"
             assert result.pubkeys_compiled == []
             assert result.keyburn is None  # Original behavior: None, not 0
-            assert result.fee == 1500
+            assert result.fee == 1500  # Now correctly calculated as inputs(3000) - outputs(1500) = 1500
 
     def test_process_vout_empty_vouts(self):
         """Test process_vout with transaction having no outputs"""

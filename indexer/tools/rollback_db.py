@@ -19,6 +19,11 @@ load_dotenv()
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from index_core.database import perform_complete_rollback
+from index_core.reprocess_safety import (
+    ReprocessSafetyError,
+    validate_block_number,
+    validate_rollback_distance,
+)
 from index_core.reprocessing_queue import ReprocessingQueue
 
 
@@ -31,8 +36,56 @@ def main() -> None:
     )
     parser.add_argument("block_index", type=int, help="Block index to clear from")
     parser.add_argument("--confirm", action="store_true", help="Skip confirmation prompt (use with caution)")
+    parser.add_argument("--force", action="store_true", help="Override safety checks (DANGEROUS - use only when necessary)")
 
     args = parser.parse_args()
+
+    # Safety validation BEFORE any prompts
+    if not args.force:
+        try:
+            # Validate the target block
+            validate_block_number(args.block_index, "rollback target")
+
+            # Get current block height for distance validation
+            from index_core.backend import Backend
+
+            backend = Backend()
+            current_block = backend.getblockcount()
+
+            # Validate rollback distance
+            validate_rollback_distance(current_block, args.block_index)
+
+            print(
+                f"✅ Safety checks passed: rollback from {current_block} to {args.block_index} ({current_block - args.block_index} blocks)"
+            )
+            print()
+
+        except ReprocessSafetyError as e:
+            print(f"❌ SAFETY VIOLATION: {e}")
+            print()
+            print("This rollback appears unsafe and has been blocked.")
+            print("To override this safety check, use: poetry run rollback {args.block_index} --force")
+            print("WARNING: Only use --force if you are absolutely certain!")
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ Error during safety check: {e}")
+            sys.exit(1)
+    else:
+        # Force flag used - show strong warning
+        print("⚠️  WARNING: Safety checks bypassed with --force flag!")
+        print("⚠️  This rollback may be dangerous!")
+        print()
+
+        # Still get current block for display
+        try:
+            from index_core.backend import Backend
+
+            backend = Backend()
+            current_block = backend.getblockcount()
+            print(f"Rollback from {current_block} to {args.block_index} ({current_block - args.block_index} blocks)")
+            print()
+        except:
+            pass
 
     # Safety confirmation unless --confirm is used
     if not args.confirm:
@@ -70,7 +123,7 @@ def main() -> None:
 
     try:
         # Use the indexer's rollback method - same as production
-        perform_complete_rollback(args.block_index)
+        perform_complete_rollback(args.block_index, force=args.force)
 
         print("✅ Rollback completed successfully!")
         print()

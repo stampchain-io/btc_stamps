@@ -539,7 +539,7 @@ class StampWorker:
 
                 # Log when we successfully capture recent sale data
                 if most_recent.get("tx_hash"):
-                    logger.info(
+                    logger.debug(
                         f"Captured recent sale from history: tx={most_recent.get('tx_hash')}, "
                         f"buyer={most_recent.get('buyer_address')}, "
                         f"amount={most_recent.get('btc_amount')} sats"

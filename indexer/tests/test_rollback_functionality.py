@@ -101,8 +101,6 @@ def test_indexer_rollback_method_integration(temp_db, clean_singleton):
             ) as mock_clear_caches, patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances, patch(
                 "src.index_core.database.rebuild_owners"
             ) as mock_rebuild_owners, patch(
-                "src.index_core.database.update_src20_token_stats"
-            ) as mock_update_stats, patch(
                 "src.index_core.backend.Backend"
             ):
 
@@ -114,7 +112,7 @@ def test_indexer_rollback_method_integration(temp_db, clean_singleton):
                 mock_clear_caches.assert_called()
                 mock_rebuild_balances.assert_called_with(mock_conn)
                 mock_rebuild_owners.assert_called_with(mock_conn)
-                mock_update_stats.assert_called_with(mock_conn)
+                # Note: update_src20_token_stats is now handled by async holder updater
 
 
 def test_bitcoin_block_rollback_not_affected():
@@ -135,8 +133,6 @@ def test_bitcoin_block_rollback_not_affected():
         ) as mock_clear_caches, patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances, patch(
             "src.index_core.database.rebuild_owners"
         ) as mock_rebuild_owners, patch(
-            "src.index_core.database.update_src20_token_stats"
-        ) as mock_update_stats, patch(
             "src.index_core.backend.Backend"
         ):
 
@@ -149,9 +145,11 @@ def test_bitcoin_block_rollback_not_affected():
             mock_clear_caches.assert_called()
             mock_rebuild_balances.assert_called_with(mock_conn)
             mock_rebuild_owners.assert_called_with(mock_conn)
-            mock_update_stats.assert_called_with(mock_conn)
+            # Note: update_src20_token_stats is now handled by async holder updater
 
 
+@pytest.mark.integration
+@pytest.mark.requires_bitcoin_node
 def test_rollback_tool_command_line_interface():
     """Test that the simplified rollback tool's command line interface works."""
     import os
@@ -168,14 +166,17 @@ def test_rollback_tool_command_line_interface():
             mock_args = Mock()
             mock_args.block_index = 12000
             mock_args.confirm = True  # Skip confirmation prompt
+            mock_args.force = False  # Explicitly set force to False
             mock_parse.return_value = mock_args
 
             # Mock the perform_complete_rollback function
             with patch("rollback_db.perform_complete_rollback") as mock_rollback:
                 main()
-                mock_rollback.assert_called_with(12000)
+                mock_rollback.assert_called_with(12000, force=False)
 
 
+@pytest.mark.integration
+@pytest.mark.requires_bitcoin_node
 def test_rollback_tool_safety_confirmation():
     """Test that the rollback tool shows safety confirmation when --confirm is not used."""
     import os
@@ -238,11 +239,7 @@ def test_fallback_state_integration_with_rollback(temp_db, clean_singleton):
 
             with patch("src.index_core.database.purge_block_db"), patch("src.index_core.database.clear_all_caches"), patch(
                 "src.index_core.database.rebuild_balances"
-            ), patch("src.index_core.database.rebuild_owners"), patch(
-                "src.index_core.database.update_src20_token_stats"
-            ), patch(
-                "src.index_core.backend.Backend"
-            ):
+            ), patch("src.index_core.database.rebuild_owners"), patch("src.index_core.backend.Backend"):
                 # Perform rollback to block before fallback started
                 perform_complete_rollback(12000)
 

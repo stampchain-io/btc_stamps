@@ -6,6 +6,13 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import config  # Assuming configs like REPROCESS_DB_PATH, REPROCESS_MAX_ATTEMPTS=5, REPROCESS_CLEANUP_AGE=86400 (24h)
+from index_core.reprocess_safety import (
+    ReprocessSafetyError,
+    get_safe_reprocess_db_path,
+    log_safety_check,
+    validate_block_number,
+    validate_fallback_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +32,17 @@ class ReprocessingQueue:
             cls._instance = cls()
         return cls._instance
 
-    def __init__(self, db_path: str = getattr(config, "REPROCESS_DB_PATH", "reprocess_queue.db")):
+    def __init__(self, db_path: Optional[str] = None):
         """Initialize SQLite-based queue with WAL mode for thread-safety."""
         if ReprocessingQueue._instance is not None:
             raise Exception("Singleton instance already exists")
+
+        # Use safety module to get appropriate DB path
+        if db_path is None:
+            db_path = get_safe_reprocess_db_path()
+
         self.db_path = db_path
+        log_safety_check(f"Initializing reprocess queue at: {self.db_path}")
         self.lock = threading.Lock()
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")  # Enable Write-Ahead Logging for concurrency
@@ -47,7 +60,7 @@ class ReprocessingQueue:
                     attempts INTEGER DEFAULT 0,
                     next_retry_time REAL,  -- Unix timestamp
                     status TEXT DEFAULT 'pending',  -- pending, processing, failed, done
-                    added_at REAL DEFAULT (unixepoch()),  -- Creation timestamp
+                    added_at REAL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),  -- Creation timestamp
                     last_attempt_at REAL  -- Last retry timestamp
                 )
             """
@@ -62,7 +75,7 @@ class ReprocessingQueue:
                     """
                     INSERT OR REPLACE INTO reprocess_queue
                     (tx_hash, attempts, next_retry_time, status, added_at, last_attempt_at)
-                    VALUES (?, 0, ?, 'pending', unixepoch(), NULL)
+                    VALUES (?, 0, ?, 'pending', CAST(strftime('%s', 'now') AS INTEGER), NULL)
                 """,
                     (tx_hash, time.time() + exponential_backoff(0)),
                 )
@@ -79,7 +92,7 @@ class ReprocessingQueue:
             cur.execute(
                 """
                 SELECT tx_hash, attempts FROM reprocess_queue
-                WHERE next_retry_time <= unixepoch() AND status IN ('pending', 'failed')
+                WHERE next_retry_time <= CAST(strftime('%s', 'now') AS INTEGER) AND status IN ('pending', 'failed')
                 ORDER BY next_retry_time ASC
                 LIMIT ?
             """,
@@ -103,12 +116,13 @@ class ReprocessingQueue:
             attempts = row[0] + 1
             if success:
                 cur.execute(
-                    'UPDATE reprocess_queue SET status = "done", last_attempt_at = unixepoch() WHERE tx_hash = ?', (tx_hash,)
+                    "UPDATE reprocess_queue SET status = \"done\", last_attempt_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE tx_hash = ?",
+                    (tx_hash,),
                 )
                 logger.info(f"Successfully reprocessed {tx_hash}")
             elif attempts >= getattr(config, "REPROCESS_MAX_ATTEMPTS", 5):
                 cur.execute(
-                    'UPDATE reprocess_queue SET attempts = ?, status = "failed", last_attempt_at = unixepoch() WHERE tx_hash = ?',
+                    "UPDATE reprocess_queue SET attempts = ?, status = \"failed\", last_attempt_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE tx_hash = ?",
                     (attempts, tx_hash),
                 )
                 logger.error(f"Max attempts reached for {tx_hash}. Error: {error_msg}")
@@ -121,7 +135,7 @@ class ReprocessingQueue:
                     attempts = ?,
                     next_retry_time = ?,
                     status = "failed",
-                    last_attempt_at = unixepoch()
+                    last_attempt_at = CAST(strftime('%s', 'now') AS INTEGER)
                     WHERE tx_hash = ?
                 """,
                     (attempts, next_time, tx_hash),
@@ -228,6 +242,14 @@ class ReprocessingQueue:
 
     def save_fallback_state(self, start_block_index: int, failed_blocks: Dict[int, bool]) -> None:
         """Save fallback state using normalized table structure."""
+        # Safety validation before saving
+        try:
+            validate_fallback_state(start_block_index, failed_blocks)
+            log_safety_check(f"Validated fallback state for block {start_block_index} with {len(failed_blocks)} failed blocks")
+        except ReprocessSafetyError as e:
+            logger.error(f"SAFETY VIOLATION: Cannot save fallback state: {e}")
+            raise
+
         with self.lock:
             cursor = self.conn.cursor()
             try:
@@ -271,6 +293,14 @@ class ReprocessingQueue:
 
     def load_fallback_state(self, start_block_index: int) -> Optional[Dict[int, bool]]:
         """Load fallback state for given session start block, return None if not found."""
+        # Validate block number before loading
+        try:
+            validate_block_number(start_block_index, "fallback load block")
+        except ReprocessSafetyError as e:
+            logger.error(f"SAFETY VIOLATION: Cannot load fallback state: {e}")
+            # Return None instead of raising to prevent crash, but log the issue
+            return None
+
         with self.lock:
             cursor = self.conn.cursor()
             try:

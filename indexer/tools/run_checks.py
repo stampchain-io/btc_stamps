@@ -232,12 +232,13 @@ def run_code_quality_checks(auto_fix=False):
 
         # Run tests excluding only tests that require a Bitcoin node
         # Include unit tests, mocked tests, and tests that only need internet
+        # Exclude integration tests which make real API calls
         cmd = [
             "poetry",
             "run",
             "pytest",
             "-m",
-            "not requires_bitcoin_node",
+            "not requires_bitcoin_node and not integration",
             "-v",
             "-W",
             "ignore::UserWarning",

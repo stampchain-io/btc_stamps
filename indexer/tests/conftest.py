@@ -11,6 +11,8 @@ import pytest
 os.environ["TESTING"] = "1"
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
+# Disable sales history catchup during tests to prevent background API calls
+os.environ["ENABLE_SALES_HISTORY_CATCHUP"] = "false"
 
 # Import database fixtures to make them available globally
 from .fixtures.database_fixtures import (  # noqa: F401
@@ -164,3 +166,17 @@ def sample_src20_transfer():
         "block_time": 1712745960,
         "tx_index": 769796,
     }
+
+
+@pytest.fixture(autouse=True)
+def reset_coordinator():
+    """Automatically reset the coordinator singleton before and after each test."""
+    from index_core.background_coordinator import BackgroundCoordinator
+
+    # Reset before test
+    BackgroundCoordinator._instance = None
+
+    yield
+
+    # Reset after test
+    BackgroundCoordinator._instance = None
