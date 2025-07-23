@@ -163,14 +163,14 @@ class StampActivityCalculator:
                     activity_level = ActivityLevel(level_str)
                     results[cpid] = (stamp, activity_level)
 
-                logger.info(f"Found {len(results)} stamps needing updates")
+                logger.debug(f"Found {len(results)} stamps needing updates")
 
                 # Log distribution
                 level_counts: Dict[str, int] = {}
                 for _, (_, level) in results.items():
                     level_counts[level.value] = level_counts.get(level.value, 0) + 1
 
-                logger.info(f"Update distribution: {level_counts}")
+                logger.debug(f"Update distribution: {level_counts}")
 
                 return results
 
@@ -181,7 +181,7 @@ class StampActivityCalculator:
     @staticmethod
     def update_activity_on_sale(cpid: str, db) -> None:
         """
-        Update stamp to HOT when a sale occurs
+        Update stamp to HOT when a sale occurs and refresh market data
 
         Args:
             cpid: Stamp identifier
@@ -189,22 +189,102 @@ class StampActivityCalculator:
         """
         try:
             with db.cursor() as cursor:
+                # Get the latest sales data for this CPID
                 cursor.execute(
                     """
-                    UPDATE stamp_market_data
-                    SET
-                        activity_level = 'HOT',
-                        last_activity_time = UNIX_TIMESTAMP()
+                    SELECT
+                        MAX(block_index) as last_sale_block,
+                        SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 86400 THEN btc_amount ELSE 0 END) as volume_24h_sats,
+                        SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 604800 THEN btc_amount ELSE 0 END) as volume_7d_sats,
+                        SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 2592000 THEN btc_amount ELSE 0 END) as volume_30d_sats,
+                        SUM(btc_amount) as total_volume_sats,
+                        MAX(unit_price_sats) as recent_price_sats,
+                        MAX(tx_hash) as last_sale_tx,
+                        MAX(buyer_address) as last_buyer,
+                        MAX(seller_address) as last_seller,
+                        MAX(btc_amount) as last_sale_amount,
+                        MAX(dispenser_tx_hash) as last_dispenser_tx
+                    FROM stamp_sales_history
                     WHERE cpid = %s
                 """,
                     (cpid,),
                 )
 
-                if cursor.rowcount > 0:
-                    logger.debug(f"Updated {cpid} to HOT activity level after sale")
+                sales_data = cursor.fetchone()
+
+                if sales_data and sales_data[0]:  # Has sales data
+                    # Convert satoshis to BTC
+                    volume_24h_btc = (sales_data[1] or 0) / 100000000
+                    volume_7d_btc = (sales_data[2] or 0) / 100000000
+                    volume_30d_btc = (sales_data[3] or 0) / 100000000
+                    total_volume_btc = (sales_data[4] or 0) / 100000000
+                    recent_price_btc = (sales_data[5] or 0) / 100000000
+
+                    logger.info(f"Updating market data for {cpid}: 24h_vol={volume_24h_btc:.8f} BTC, block={sales_data[0]}")
+
+                    # Update market data with sales information
+                    cursor.execute(
+                        """
+                        UPDATE stamp_market_data
+                        SET
+                            activity_level = 'HOT',
+                            last_activity_time = UNIX_TIMESTAMP(),
+                            volume_24h_btc = %s,
+                            volume_7d_btc = %s,
+                            volume_30d_btc = %s,
+                            total_volume_btc = %s,
+                            recent_sale_price_btc = %s,
+                            last_sale_block_index = %s,
+                            last_sale_tx_hash = %s,
+                            last_sale_buyer_address = %s,
+                            last_sale_dispenser_address = %s,
+                            last_sale_btc_amount = %s,
+                            last_sale_dispenser_tx_hash = %s,
+                            last_updated = CURRENT_TIMESTAMP
+                        WHERE cpid = %s
+                    """,
+                        (
+                            volume_24h_btc,
+                            volume_7d_btc,
+                            volume_30d_btc,
+                            total_volume_btc,
+                            recent_price_btc,
+                            sales_data[0],
+                            sales_data[6],
+                            sales_data[7],
+                            sales_data[8],
+                            sales_data[9],
+                            sales_data[10],
+                            cpid,
+                        ),
+                    )
+
+                    rows_updated = cursor.rowcount
+                    if rows_updated > 0:
+                        logger.info(f"✅ Updated market data for {cpid}: HOT activity, {volume_24h_btc:.8f} BTC 24h volume")
+                    else:
+                        logger.warning(f"⚠️ No market data record found for {cpid}, creating one...")
+                        # If no market data record exists, we should create one
+                        # This will be handled by the market data processor later
+                else:
+                    # Just update activity level if no sales data
+                    cursor.execute(
+                        """
+                        UPDATE stamp_market_data
+                        SET
+                            activity_level = 'HOT',
+                            last_activity_time = UNIX_TIMESTAMP(),
+                            last_updated = CURRENT_TIMESTAMP
+                        WHERE cpid = %s
+                    """,
+                        (cpid,),
+                    )
+
+                    if cursor.rowcount > 0:
+                        logger.debug(f"Updated {cpid} to HOT activity level (no sales data found)")
 
         except Exception as e:
-            logger.error(f"Error updating activity level for {cpid}: {e}")
+            logger.error(f"Error updating activity level for {cpid}: {e}", exc_info=True)
 
     @staticmethod
     def update_activity_on_dispenser_change(cpid: str, has_dispensers: bool, db) -> None:
@@ -273,15 +353,15 @@ class StampActivityCalculator:
                 """
                 )
 
-                logger.info("Activity Level Distribution:")
+                logger.debug("Activity Level Distribution:")
                 total_stamps = 0
                 for level, count, volume, holders in cursor.fetchall():
                     total_stamps += count
-                    logger.info(
+                    logger.debug(
                         f"  {level}: {count} stamps, " f"{volume or 0:.8f} BTC volume, " f"{holders or 0:.1f} avg holders"
                     )
 
-                logger.info(f"Total stamps with activity levels: {total_stamps}")
+                logger.debug(f"Total stamps with activity levels: {total_stamps}")
 
         except Exception as e:
             logger.error(f"Error logging activity stats: {e}")

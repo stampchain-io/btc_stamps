@@ -86,7 +86,7 @@ class ZMQNotifier:
                 except UnicodeDecodeError:
                     seq_str = seq.decode("utf-8", errors="replace")
                     logger.debug(f"Non-UTF-8 sequence received, using replacement characters: {seq_str}")
-                logger.info(f"Received ZMQ notification - Topic: {topic_str}, Sequence: {seq_str}")
+                logger.debug(f"Received ZMQ notification - Topic: {topic_str}, Sequence: {seq_str}")
                 return topic, body, seq
         except zmq.error.ZMQError as e:
             logger.error(f"Error receiving ZMQ notification: {e}")

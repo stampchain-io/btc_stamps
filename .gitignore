@@ -54,3 +54,5 @@ claude/*
 
 reprocess_queue.db
 reprocess_queue.*
+.taskmaster/*
+indexer/validation_queue.*

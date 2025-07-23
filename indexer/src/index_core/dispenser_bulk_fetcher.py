@@ -48,7 +48,7 @@ class DispenserBulkFetcher:
         Returns:
             Dict mapping cpid -> list of dispensers
         """
-        logger.info("Starting bulk dispenser fetch...")
+        logger.debug("Starting bulk dispenser fetch...")
         start_time = time.time()
 
         all_dispensers = []
@@ -104,7 +104,7 @@ class DispenserBulkFetcher:
             self.dispenser_cache = dispensers_by_cpid
             self.last_fetch_time = time.time()
 
-            logger.info(
+            logger.debug(
                 f"Bulk dispenser fetch complete: "
                 f"{len(all_dispensers)} dispensers for "
                 f"{len(dispensers_by_cpid)} unique assets in "
@@ -132,7 +132,7 @@ class DispenserBulkFetcher:
 
         # Check if we need to refresh cache
         if self.should_refresh_cache(current_block):
-            logger.info(f"Refreshing dispenser cache for block {current_block}")
+            logger.debug(f"Refreshing dispenser cache for block {current_block}")
             self.dispenser_cache = self.fetch_all_open_dispensers()
             self.last_fetch_block = current_block
             self.last_fetch_time = time.time()

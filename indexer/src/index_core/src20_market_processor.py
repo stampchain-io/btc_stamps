@@ -139,6 +139,15 @@ class SRC20MarketDataProcessor:
                     else:
                         logger.warning(f"Invalid {field} format, skipping: {data[field]}")
 
+            # Validate price_source_type field (optional)
+            if "price_source_type" in data and data["price_source_type"] is not None:
+                allowed_types = ["last_traded", "floor_ask", "composite", "unknown"]
+                if data["price_source_type"] in allowed_types:
+                    validated_data["price_source_type"] = data["price_source_type"]
+                else:
+                    logger.warning(f"Invalid price_source_type: {data['price_source_type']}, using 'unknown'")
+                    validated_data["price_source_type"] = "unknown"
+
             # Validate quality metrics (optional, with defaults)
             quality_score = data.get("data_quality_score", DEFAULT_QUALITY_SCORE)
             validated_quality = self._validate_decimal_field(
@@ -282,6 +291,17 @@ class SRC20MarketDataProcessor:
             # Add metadata
             transformed_data["primary_exchange"] = exchange_name
             transformed_data["exchange_sources"] = json.dumps([exchange_name])
+
+            # Set price_source_type based on exchange
+            if exchange_name.lower() == "openstamp":
+                # OpenStamp provides floor prices
+                transformed_data["price_source_type"] = "floor_ask"
+            elif exchange_name.lower() in ["kucoin", "stampscan"]:
+                # KuCoin and StampScan typically provide last traded prices
+                transformed_data["price_source_type"] = "last_traded"
+            else:
+                # Default for other exchanges
+                transformed_data["price_source_type"] = "unknown"
 
             # Set quality and confidence based on exchange reliability
             exchange_quality = {

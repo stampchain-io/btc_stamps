@@ -21,6 +21,7 @@ from index_core.node_health import (
 )
 
 from .cache_utils import cache_manager, cached_api_call
+from .circuit_breaker import endpoint_circuit_breakers
 
 logger = logging.getLogger(__name__)
 
@@ -546,6 +547,11 @@ async def fetch_xcp_async(
 
     for node in nodes_to_try:
         try:
+            # Check circuit breaker before attempting request
+            if not endpoint_circuit_breakers.can_proceed(node["name"]):
+                logger.debug(f"Circuit breaker OPEN for {node['name']}, skipping")
+                continue
+
             url = f"{node['url'].rstrip('/')}{endpoint}"
             logger.debug(f"Async fetch from {node['name']} at URL: {url} with params: {params}")
 
@@ -583,6 +589,7 @@ async def fetch_xcp_async(
                                 health_tracker = node_health_tracker.get(node["name"])
                                 if health_tracker:
                                     health_tracker.mark_success()
+                                endpoint_circuit_breakers.record_success(node["name"])
                                 return data
                             else:
                                 error_text = await response.text()
@@ -592,6 +599,7 @@ async def fetch_xcp_async(
                                 health_tracker = node_health_tracker.get(node["name"])
                                 if health_tracker:
                                     health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+                                endpoint_circuit_breakers.record_failure(node["name"])
 
                 except RuntimeError as re:
                     if "cannot schedule new futures after shutdown" in str(re):
@@ -608,11 +616,13 @@ async def fetch_xcp_async(
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
                     health_tracker.mark_failure("Timeout during session.get")
+                endpoint_circuit_breakers.record_failure(node["name"])
             except aiohttp.ServerDisconnectedError as sde:
                 logger.warning(f"Server disconnected from {node['name']} for {url}: {sde}")
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
                     health_tracker.mark_failure(f"ServerDisconnectedError: {sde}")
+                endpoint_circuit_breakers.record_failure(node["name"])
             except Exception as inner_get_exc:
                 logger.error(
                     f"Exception during session.get for {url}. Error: {type(inner_get_exc).__name__}: {inner_get_exc}",
@@ -621,12 +631,14 @@ async def fetch_xcp_async(
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
                     health_tracker.mark_failure(f"Exception during session.get: {type(inner_get_exc).__name__}")
+                endpoint_circuit_breakers.record_failure(node["name"])
 
         except Exception as e:
             logger.error(f"Outer exception for node {node['name']} in fetch_xcp_async: {type(e).__name__}: {e}", exc_info=True)
             health_tracker = node_health_tracker.get(node["name"])
             if health_tracker:
                 health_tracker.mark_failure(str(e))
+            endpoint_circuit_breakers.record_failure(node["name"])
 
     logger.error("All nodes failed in async fetch")
 
@@ -708,6 +720,8 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
                     logger.error("Still no healthy nodes after update")
                     return {"result": [], "next_cursor": None, "result_count": 0}
 
+            # Type assertion for mypy - we've already checked primary_node is not None
+            assert primary_node is not None
             logger.info(f"🔄 Round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
 
             # Get all healthy nodes for fallback
@@ -715,7 +729,7 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
             nodes_to_try = [primary_node]
             # Add other healthy nodes as fallback
             for node in healthy_nodes:
-                if node["name"] != primary_node["name"] and node not in nodes_to_try:
+                if node and node["name"] != primary_node["name"] and node not in nodes_to_try:
                     nodes_to_try.append(node)
         else:
             # Traditional failover approach
@@ -1456,7 +1470,7 @@ def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_
 
                 # Check if CP has processed our target block
                 if cp_height and cp_height >= block_index and server_ready:
-                    logger.info(f"✅ CP ready for block {block_index} (cp_height={cp_height})")
+                    logger.debug(f"✅ CP ready for block {block_index} (cp_height={cp_height})")
                     return True
 
                 if cp_height and block_index - cp_height > 0:

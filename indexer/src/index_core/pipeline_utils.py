@@ -12,6 +12,12 @@ import config
 from index_core.backend import Backend
 from index_core.fetch_utils import fetch_xcp_blocks_concurrent
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
+from index_core.reprocess_safety import (
+    ReprocessSafetyError,
+    log_safety_check,
+    validate_block_number,
+    validate_rollback_distance,
+)
 
 logger = logging.getLogger(__name__)
 backend_instance = Backend()
@@ -21,7 +27,7 @@ class CPBlocksPipeline:
     """Background worker that prefetches blocks and keeps them in a queue."""
 
     # Cleanup interval for stuck fetches (in seconds)
-    CLEANUP_INTERVAL_SECONDS = 30
+    CLEANUP_INTERVAL_SECONDS = 10
 
     def __init__(
         self,
@@ -66,6 +72,7 @@ class CPBlocksPipeline:
         self.fetch_futures = {}  # Track active fetch futures
         self.blocks_fetch_timestamps = {}  # Track when each block started being fetched
         self.fetch_timeout = 60  # Timeout for block fetches in seconds
+        self.failed_fetch_blocks = {}  # Track blocks that failed to fetch with retry count
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
@@ -668,19 +675,33 @@ class CPBlocksPipeline:
         Uses the same rollback method as the manual rollback command.
         """
         try:
+            # Safety validation before rollback
+            try:
+                validate_block_number(target_block, "rollback target")
+
+                # Get current block for distance validation
+                current_block = backend_instance.getblockcount()
+                validate_rollback_distance(current_block, target_block)
+
+                log_safety_check(f"Rollback validated: current={current_block}, target={target_block}")
+            except ReprocessSafetyError as e:
+                logger.error(f"SAFETY VIOLATION: Cannot perform rollback: {e}")
+                raise RuntimeError(f"Safety check failed: {e}")
+
             # Import the shared rollback function
             from index_core.database import perform_complete_rollback
 
             logger.info(f"🔄 Starting startup rollback to block {target_block}")
 
             # Use the same rollback function as the manual command
+            # NEVER force automatic rollbacks - they must pass safety checks
             # Capture print output by temporarily redirecting to logger
             import contextlib
             import io
 
             f = io.StringIO()
             with contextlib.redirect_stdout(f):
-                perform_complete_rollback(target_block)
+                perform_complete_rollback(target_block, force=False)  # Explicit force=False for clarity
 
             # Log the output from the rollback function
             rollback_output = f.getvalue()
@@ -897,7 +918,17 @@ class CPBlocksPipeline:
                             else:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
                                 logger.error(f"❌ Block {res_block_index} fetch FAILED: {error_msg}")
-                                logger.warning(f"Block {res_block_index} will remain in blocks_being_fetched until cleanup")
+                                # Immediately clean up failed blocks instead of waiting for cleanup cycle
+                                with self._blocks_fetch_lock:
+                                    self.blocks_being_fetched.discard(res_block_index)
+                                    self.blocks_fetch_timestamps.pop(res_block_index, None)
+                                    # Track failed blocks for potential retry
+                                    self.failed_fetch_blocks[res_block_index] = (
+                                        self.failed_fetch_blocks.get(res_block_index, 0) + 1
+                                    )
+                                logger.info(
+                                    f"Block {res_block_index} removed from blocks_being_fetched due to fetch failure (attempt #{self.failed_fetch_blocks.get(res_block_index, 1)})"
+                                )
 
                         if added_blocks:
                             added_range = (
