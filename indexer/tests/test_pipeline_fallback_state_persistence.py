@@ -8,7 +8,7 @@ persists and loads fallback state across pipeline restarts.
 import tempfile
 import threading
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -26,7 +26,7 @@ def temp_db():
     if ReprocessingQueue._instance is not None:
         try:
             ReprocessingQueue._instance.close()
-        except:
+        except Exception:
             pass
     ReprocessingQueue._instance = None
 
@@ -36,7 +36,7 @@ def temp_db():
     if ReprocessingQueue._instance is not None:
         try:
             ReprocessingQueue._instance.close()
-        except:
+        except Exception:
             pass
     ReprocessingQueue._instance = None
 
