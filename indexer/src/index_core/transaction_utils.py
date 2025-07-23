@@ -94,7 +94,7 @@ def calculate_total_inputs(ctx):
         # First pass: collect all transaction hashes we need to fetch
         tx_hashes_to_fetch = []
         input_refs = []  # Store (tx_hash, output_index) for each input
-        
+
         for vin in ctx.vin:
             # Check for coinbase transaction (no previous output)
             if not hasattr(vin, "prevout") or not vin.prevout:
@@ -108,38 +108,38 @@ def calculate_total_inputs(ctx):
 
             prev_tx_hash = util.ib2h(vin.prevout.hash)
             prev_tx_index = vin.prevout.n
-            
+
             tx_hashes_to_fetch.append(prev_tx_hash)
             input_refs.append((prev_tx_hash, prev_tx_index))
 
         # Batch fetch all previous transactions at once
         if not tx_hashes_to_fetch:
             return 0
-            
+
         try:
             # Use batch fetching for efficiency
             prev_txs = backend_instance.getrawtransaction_batch(tx_hashes_to_fetch, verbose=False)
-            
+
             total_input_value = 0
-            
+
             # Process each input with its fetched transaction
             for tx_hash, output_index in input_refs:
                 if tx_hash not in prev_txs or prev_txs[tx_hash] is None:
                     logger.debug(f"Could not fetch previous transaction {tx_hash}")
                     return 0
-                
+
                 # Deserialize and get the output value
                 prev_ctx = backend_instance.deserialize(prev_txs[tx_hash])
-                
+
                 if output_index < len(prev_ctx.vout):
                     prev_vout = prev_ctx.vout[output_index]
                     total_input_value += prev_vout.nValue
                 else:
                     logger.warning(f"Invalid output index {output_index} for transaction {tx_hash}")
                     return 0
-                    
+
             return total_input_value
-            
+
         except Exception as e:
             logger.debug(f"Error in batch fetching previous transactions: {e}")
             return 0

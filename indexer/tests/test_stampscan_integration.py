@@ -217,7 +217,15 @@ class TestStampScanIntegration:
             assert mock_get.call_count >= 2
 
             # Verify rate limiter was used (calls should be spaced)
-            for call in mock_get.call_args_list:
+            # Filter for StampScan calls only (they have User-Agent headers)
+            stampscan_calls = [
+                call for call in mock_get.call_args_list if call[1].get("headers", {}).get("User-Agent") is not None
+            ]
+
+            # Should have at least 2 StampScan calls
+            assert len(stampscan_calls) >= 2
+
+            for call in stampscan_calls:
                 args, kwargs = call
                 assert kwargs.get("timeout") == 10  # REQUEST_TIMEOUT = 10
                 assert "User-Agent" in kwargs.get("headers", {})
