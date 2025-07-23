@@ -849,27 +849,25 @@ GROUP BY endpoint;
 -- =====================================================================
 -- FRONTEND TEAM DOCUMENTATION
 -- =====================================================================
-/*
-MONITORING VIEWS USAGE GUIDE FOR FRONTEND TEAM:
-
-1. v_processing_health:
-   - Monitor indexer performance and lag
-   - Alert if avg_block_lag_seconds > 300 (5 minutes)
-
-2. v_stamp_processing_metrics:
-   - Track stamp processing throughput
-   - Monitor for processing anomalies
-
-3. v_api_health_metrics:
-   - Counterparty API health monitoring
-   - Alert if success_rate_percent < 95% for any endpoint
-
-Example queries:
-- SELECT * FROM v_processing_health;
-- SELECT * FROM v_api_health_metrics WHERE success_rate_percent < 95;
-
-Note: The reprocessing queue monitoring is handled separately through the SQLite-based queue system.
-*/
+-- MONITORING VIEWS USAGE GUIDE FOR FRONTEND TEAM:
+-- 
+-- 1. v_processing_health:
+--    - Monitor indexer performance and lag
+--    - Alert if avg_block_lag_seconds > 300 (5 minutes)
+-- 
+-- 2. v_stamp_processing_metrics:
+--    - Track stamp processing throughput
+--    - Monitor for processing anomalies
+-- 
+-- 3. v_api_health_metrics:
+--    - Counterparty API health monitoring
+--    - Alert if success_rate_percent < 95% for any endpoint
+-- 
+-- Example queries:
+-- - SELECT * FROM v_processing_health;
+-- - SELECT * FROM v_api_health_metrics WHERE success_rate_percent < 95;
+-- 
+-- Note: The reprocessing queue monitoring is handled separately through the SQLite-based queue system.
 
 -- =====================================================================
 -- END MONITORING VIEWS
