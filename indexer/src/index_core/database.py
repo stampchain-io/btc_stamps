@@ -1173,7 +1173,7 @@ def purge_block_db(db: Connection, block_index: int) -> None:
         block_index: Block to purge from (inclusive)
     """
     # CRITICAL: Do NOT clear caches before database operations!
-    # Clearing caches first causes stamp counter to be recalculated from 
+    # Clearing caches first causes stamp counter to be recalculated from
     # database BEFORE stamps are deleted, leading to gaps in stamp numbers.
     # Caches must be cleared AFTER database purge.
     cursor = db.cursor()
@@ -1216,7 +1216,7 @@ def purge_block_db(db: Connection, block_index: int) -> None:
 
     db.commit()
     cursor.close()
-    
+
     # CRITICAL: Clear all caches AFTER database purge is complete
     # This ensures stamp counter is recalculated from the correct database state
     clear_all_caches()
