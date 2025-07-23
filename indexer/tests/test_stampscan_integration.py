@@ -199,6 +199,8 @@ class TestStampScanIntegration:
         test_worker = SRC20Worker()
         test_worker._stampscan_cache = None
         test_worker._stampscan_cache_time = 0
+        test_worker._openstamp_cache = None
+        test_worker._openstamp_cache_time = 0
 
         with patch("index_core.src20_worker.requests.get") as mock_get:
             mock_response = Mock()
