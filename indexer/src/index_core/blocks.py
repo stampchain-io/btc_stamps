@@ -29,7 +29,7 @@ from index_core.block_validation import (
     filter_block_transactions,
     validate_block_against_production,
 )
-from index_core.caching import cache_manager, clear_all_caches
+from index_core.caching import cache_manager
 from index_core.check import ConsensusError
 from index_core.database import (  # update_src20_token_stats,  # Now handled by async holder updater
     check_db_connection,
