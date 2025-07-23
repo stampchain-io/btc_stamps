@@ -84,15 +84,17 @@ def calculate_total_inputs(ctx):
     Note:
         - Coinbase transactions (first transaction in block) have no real inputs, returns 0
         - Gracefully handles errors by returning 0 to preserve consensus behavior
-        - Uses existing backend_instance.getrawtransaction() pattern from get_tx_info()
+        - Uses batch fetching for efficiency when multiple inputs exist
     """
     try:
         if not hasattr(ctx, "vin") or not ctx.vin:
             logger.debug("Transaction has no inputs")
             return 0
 
-        total_input_value = 0
-
+        # First pass: collect all transaction hashes we need to fetch
+        tx_hashes_to_fetch = []
+        input_refs = []  # Store (tx_hash, output_index) for each input
+        
         for vin in ctx.vin:
             # Check for coinbase transaction (no previous output)
             if not hasattr(vin, "prevout") or not vin.prevout:
@@ -104,28 +106,43 @@ def calculate_total_inputs(ctx):
                 logger.debug("Coinbase transaction detected (null hash), returning 0 fee")
                 return 0
 
-            try:
-                # Get the previous transaction
-                prev_tx_hash = vin.prevout.hash
-                prev_tx_index = vin.prevout.n
+            prev_tx_hash = util.ib2h(vin.prevout.hash)
+            prev_tx_index = vin.prevout.n
+            
+            tx_hashes_to_fetch.append(prev_tx_hash)
+            input_refs.append((prev_tx_hash, prev_tx_index))
 
-                # Fetch previous transaction using same pattern as get_tx_info()
-                prev_tx_hex = backend_instance.getrawtransaction(util.ib2h(prev_tx_hash))
-                prev_ctx = backend_instance.deserialize(prev_tx_hex)
-
-                # Get the output being spent
-                if prev_tx_index < len(prev_ctx.vout):
-                    prev_vout = prev_ctx.vout[prev_tx_index]
+        # Batch fetch all previous transactions at once
+        if not tx_hashes_to_fetch:
+            return 0
+            
+        try:
+            # Use batch fetching for efficiency
+            prev_txs = backend_instance.getrawtransaction_batch(tx_hashes_to_fetch, verbose=False)
+            
+            total_input_value = 0
+            
+            # Process each input with its fetched transaction
+            for tx_hash, output_index in input_refs:
+                if tx_hash not in prev_txs or prev_txs[tx_hash] is None:
+                    logger.debug(f"Could not fetch previous transaction {tx_hash}")
+                    return 0
+                
+                # Deserialize and get the output value
+                prev_ctx = backend_instance.deserialize(prev_txs[tx_hash])
+                
+                if output_index < len(prev_ctx.vout):
+                    prev_vout = prev_ctx.vout[output_index]
                     total_input_value += prev_vout.nValue
                 else:
-                    logger.warning(f"Invalid output index {prev_tx_index} for transaction {util.ib2h(prev_tx_hash)}")
+                    logger.warning(f"Invalid output index {output_index} for transaction {tx_hash}")
                     return 0
-
-            except Exception as e:
-                logger.debug(f"Error fetching input transaction {util.ib2h(prev_tx_hash) if prev_tx_hash else 'unknown'}: {e}")
-                return 0
-
-        return total_input_value
+                    
+            return total_input_value
+            
+        except Exception as e:
+            logger.debug(f"Error in batch fetching previous transactions: {e}")
+            return 0
 
     except Exception as e:
         logger.debug(f"Error calculating total inputs: {e}")
@@ -223,11 +240,15 @@ def calculate_legacy_size(ctx):
 
         # For SegWit transactions, we need to calculate size without witness data
         # This is more complex and would require reconstructing the transaction
-        # For now, we'll use an approximation based on the serialized size
-        # The witness data typically adds 25-30% to transaction size
-
+        # without witness fields, which is not easily available in our current setup.
+        #
+        # TODO: Implement proper SegWit base size calculation by parsing the
+        # transaction structure and excluding witness data. For now, we use
+        # an approximation that may not be accurate for all transaction types.
+        #
         # Estimate base size (without witness) as ~75% of total size
-        # This is a reasonable approximation for most SegWit transactions
+        # This approximation works reasonably well for typical P2WPKH transactions
+        # but may be less accurate for complex scripts or multisig transactions.
         estimated_base_size = int(len(serialized_tx) * 0.75)
 
         return estimated_base_size
