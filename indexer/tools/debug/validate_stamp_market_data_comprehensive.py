@@ -17,6 +17,7 @@ load_dotenv()
 
 from src.index_core.database_manager import DatabaseManager
 from pymysql.cursors import DictCursor
+import pymysql
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -569,8 +570,14 @@ def main():
         # Close database connection
         db.close()
 
+    except pymysql.Error as e:
+        logger.error(f"Database error: {e}")
+        sys.exit(1)
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {e}")
+        sys.exit(1)
     except Exception as e:
-        logger.error(f"Error validating STAMP market data: {e}", exc_info=True)
+        logger.error(f"Unexpected error: {type(e).__name__}: {e}", exc_info=True)
         sys.exit(1)
 
 

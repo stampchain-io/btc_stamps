@@ -134,8 +134,14 @@ def main() -> None:
         print("  ✓ SRC20 token statistics updated")
         print("  ✓ Fallback state cleared (if applicable)")
 
+    except ReprocessSafetyError as e:
+        print(f"❌ Safety violation during rollback: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"❌ Error during rollback: {e}")
+        print(f"❌ Unexpected error during rollback: {type(e).__name__}: {e}")
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
 
