@@ -115,9 +115,9 @@ class TestSrc20Parsing:
         db_simulator = DBSimulator(db_simulation_path)
 
         # Print total number of test cases only once
-        if not hasattr(self.setup_environment, "_printed"):
+        if not hasattr(self.__class__, "_test_count_printed"):
             print(f"\nTotal number of test cases: {len(src20_variations_data)}\n")
-            self.setup_environment._printed = True
+            self.__class__._test_count_printed = True
 
         yield db_simulator
 

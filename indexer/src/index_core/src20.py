@@ -1350,6 +1350,17 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
             logger.warning(
                 f"FORCE was enabled due to API retrieval failure for block {block_index}. Continuing with processing."
             )
+
+            # Add to validation queue for later checking
+            try:
+                from index_core.validation_queue import ValidationQueueManager
+
+                queue_manager = ValidationQueueManager.get_instance()
+                queue_manager.add_to_queue(block_index, ledger_hash, valid_src20_str)
+                logger.info(f"Added block {block_index} to validation queue for later checking")
+            except Exception as e:
+                logger.error(f"Failed to add block {block_index} to validation queue: {e}")
+
             return True
 
         if api_ledger_validation is None:

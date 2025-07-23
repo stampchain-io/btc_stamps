@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   `destination` TEXT COLLATE utf8mb4_bin,
   `btc_amount` BIGINT,
   `fee` BIGINT,
+  `fee_rate_sat_vb` DECIMAL(10,2) NULL COMMENT 'Fee rate in satoshis per virtual byte',
   `data` MEDIUMBLOB,
   `supported` BIT DEFAULT 1,
   `keyburn` tinyint(1) DEFAULT NULL,
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   UNIQUE KEY `tx_hash_index` (`tx_hash`, `tx_index`),
   INDEX `block_hash_index` (`block_index`, `block_hash`),
   INDEX `idx_block_index_time` (`block_index`, `block_time`),
+  INDEX `idx_fee_rate` (`fee_rate_sat_vb` DESC) COMMENT 'For fee rate analysis and sorting',
   CONSTRAINT transactions_blocks_fk FOREIGN KEY (`block_index`, `block_hash`) REFERENCES blocks(`block_index`, `block_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
@@ -587,6 +589,7 @@ CREATE TABLE IF NOT EXISTS `src20_market_data` (
   `price_btc` DECIMAL(16,8) NULL COMMENT 'Current price in BTC',
   `price_usd` DECIMAL(16,8) NULL COMMENT 'Current price in USD',
   `floor_price_btc` DECIMAL(16,8) NULL COMMENT 'Floor price from marketplace',
+  `price_source_type` ENUM('last_traded', 'floor_ask', 'composite', 'unknown') DEFAULT 'unknown' COMMENT 'Type of price in price_btc field',
   `market_cap_btc` DECIMAL(20,8) DEFAULT 0 COMMENT 'Market capitalization in BTC',
   `market_cap_usd` DECIMAL(20,8) DEFAULT 0 COMMENT 'Market capitalization in USD',
   
@@ -605,6 +608,11 @@ CREATE TABLE IF NOT EXISTS `src20_market_data` (
   `holder_count` INTEGER DEFAULT 0 COMMENT 'Total number of holders',
   `circulating_supply` DECIMAL(38,18) DEFAULT 0 COMMENT 'Circulating supply',
   `max_supply` DECIMAL(38,18) DEFAULT 0 COMMENT 'Maximum supply',
+  
+  -- Progress Data (eliminates expensive CTEs)
+  `progress_percentage` DECIMAL(5,2) DEFAULT 0.00 COMMENT 'Minting progress as percentage (0.00-100.00)',
+  `total_minted` BIGINT DEFAULT 0 COMMENT 'Total amount minted from balances table sum',
+  `total_mints` INTEGER DEFAULT 0 COMMENT 'Total count of MINT operations from SRC20Valid table',
   
   -- Multi-Source Attribution
   `primary_exchange` VARCHAR(50) NULL COMMENT 'Primary exchange for price data',
@@ -627,7 +635,9 @@ CREATE TABLE IF NOT EXISTS `src20_market_data` (
   INDEX `idx_last_updated` (`last_updated`) COMMENT 'For cache freshness checks',
   INDEX `idx_data_quality` (`data_quality_score` DESC) COMMENT 'For quality-based filtering',
   INDEX `idx_update_schedule` (`last_updated`, `update_frequency_minutes`) COMMENT 'For background job scheduling',
-  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages'
+  INDEX `idx_market_overview` (`floor_price_btc`, `holder_count`, `volume_24h_btc`, `data_quality_score`) COMMENT 'For market overview pages',
+  INDEX `idx_progress_percentage` (`progress_percentage` DESC) COMMENT 'For PROGRESS_ASC/PROGRESS_DESC sorting',
+  INDEX `idx_total_minted` (`total_minted` DESC) COMMENT 'For minted amount sorting'
   
   -- Note: Foreign key constraint removed to work with existing database constraints
   -- Data integrity maintained by application logic
@@ -776,3 +786,89 @@ COMMENT='Unified sales history for all stamp transactions - enables charts, rece
 -- and only applies necessary changes, avoiding duplicate column/index errors
 
 -- fix owners table
+
+-- =====================================================================
+-- MONITORING VIEWS FOR FRONTEND API CONSUMPTION
+-- =====================================================================
+-- These views provide monitoring data for the frontend team's API endpoints
+-- without requiring additional backend APIs in the indexer repo
+-- =====================================================================
+
+-- Note: The reprocessing queue uses SQLite separately and is not part of the MySQL schema
+-- The v_reprocessing_queue_stats view has been removed as it references a SQLite table
+
+-- Processing health indicators view
+CREATE OR REPLACE VIEW `v_processing_health` AS
+SELECT 
+    MAX(block_index) as latest_block_processed,
+    COUNT(*) as blocks_processed_24h,
+    AVG(TIMESTAMPDIFF(SECOND, block_time, NOW())) as avg_block_lag_seconds,
+    MAX(TIMESTAMPDIFF(SECOND, block_time, NOW())) as max_block_lag_seconds
+FROM blocks 
+WHERE block_time > DATE_SUB(NOW(), INTERVAL 24 HOUR);
+
+-- Stamp processing metrics view
+CREATE OR REPLACE VIEW `v_stamp_processing_metrics` AS
+SELECT 
+    COUNT(*) as stamps_processed_24h,
+    COUNT(DISTINCT creator) as unique_creators_24h,
+    AVG(file_size_bytes) as avg_file_size_bytes,
+    SUM(CASE WHEN is_btc_stamp = 1 THEN 1 ELSE 0 END) as btc_stamps_24h,
+    SUM(CASE WHEN ident = 'CURSED' THEN 1 ELSE 0 END) as cursed_stamps_24h
+FROM StampTableV4 
+WHERE block_time > DATE_SUB(NOW(), INTERVAL 24 HOUR);
+
+-- API failure tracking view (for Counterparty API health)
+-- Note: This requires logging API calls to a table (implemented in enhanced logging)
+CREATE TABLE IF NOT EXISTS `api_call_log` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `endpoint` VARCHAR(255) NOT NULL,
+  `method` VARCHAR(10) NOT NULL,
+  `status_code` INT,
+  `response_time_ms` INT,
+  `success` BOOLEAN,
+  `error_message` TEXT,
+  `timestamp` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_timestamp` (`timestamp`),
+  INDEX `idx_endpoint_success` (`endpoint`, `success`, `timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
+
+CREATE OR REPLACE VIEW `v_api_health_metrics` AS
+SELECT 
+    endpoint,
+    COUNT(*) as total_calls_24h,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_calls,
+    ROUND((SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as success_rate_percent,
+    AVG(response_time_ms) as avg_response_time_ms,
+    MAX(response_time_ms) as max_response_time_ms,
+    COUNT(CASE WHEN success = 0 THEN 1 END) as failed_calls
+FROM api_call_log 
+WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+GROUP BY endpoint;
+
+-- =====================================================================
+-- FRONTEND TEAM DOCUMENTATION
+-- =====================================================================
+-- MONITORING VIEWS USAGE GUIDE FOR FRONTEND TEAM:
+-- 
+-- 1. v_processing_health:
+--    - Monitor indexer performance and lag
+--    - Alert if avg_block_lag_seconds > 300 (5 minutes)
+-- 
+-- 2. v_stamp_processing_metrics:
+--    - Track stamp processing throughput
+--    - Monitor for processing anomalies
+-- 
+-- 3. v_api_health_metrics:
+--    - Counterparty API health monitoring
+--    - Alert if success_rate_percent < 95% for any endpoint
+-- 
+-- Example queries:
+-- - SELECT * FROM v_processing_health;
+-- - SELECT * FROM v_api_health_metrics WHERE success_rate_percent < 95;
+-- 
+-- Note: The reprocessing queue monitoring is handled separately through the SQLite-based queue system.
+
+-- =====================================================================
+-- END MONITORING VIEWS
+-- =====================================================================

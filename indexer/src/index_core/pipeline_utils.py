@@ -10,9 +10,14 @@ import time
 
 import config
 from index_core.backend import Backend
-from index_core.fallback_state import get_fallback_state_manager
 from index_core.fetch_utils import fetch_xcp_blocks_concurrent
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
+from index_core.reprocess_safety import (
+    ReprocessSafetyError,
+    log_safety_check,
+    validate_block_number,
+    validate_rollback_distance,
+)
 
 logger = logging.getLogger(__name__)
 backend_instance = Backend()
@@ -22,7 +27,7 @@ class CPBlocksPipeline:
     """Background worker that prefetches blocks and keeps them in a queue."""
 
     # Cleanup interval for stuck fetches (in seconds)
-    CLEANUP_INTERVAL_SECONDS = 30
+    CLEANUP_INTERVAL_SECONDS = 10
 
     def __init__(
         self,
@@ -67,17 +72,37 @@ class CPBlocksPipeline:
         self.fetch_futures = {}  # Track active fetch futures
         self.blocks_fetch_timestamps = {}  # Track when each block started being fetched
         self.fetch_timeout = 60  # Timeout for block fetches in seconds
+        self.failed_fetch_blocks = {}  # Track blocks that failed to fetch with retry count
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
-        self.state_manager = get_fallback_state_manager() if fallback_mode else None
+        # Initialize state manager for SQLite-based fallback state persistence
+        if fallback_mode:
+            from .reprocessing_queue import ReprocessingQueue
+
+            self.state_manager = ReprocessingQueue.get_instance()
+        else:
+            self.state_manager = None
 
         # Initialize from persisted state if available (for tests and state continuity)
-        if self.state_manager and self.state_manager.is_fallback_active():
-            self.failed_cp_blocks = self.state_manager.get_failed_blocks()
-            self.fallback_started_at = self.state_manager.get_fallback_start_block()
-            logger.warning(f"🔄 Detected previous fallback mode state - started at block {self.fallback_started_at}")
-            logger.warning(f"📦 {len(self.failed_cp_blocks)} blocks previously processed in fallback mode")
+        if self.state_manager:
+            # Check if we have any fallback states persisted
+            oldest_failed_block = self.state_manager.get_oldest_failed_block()
+            if oldest_failed_block:
+                # Load the fallback state for the oldest block
+                fallback_state = self.state_manager.load_fallback_state(oldest_failed_block)
+                if fallback_state:
+                    # Convert the loaded state to our internal format (ensure keys are integers)
+                    self.failed_cp_blocks = set(int(k) for k in fallback_state.keys()) if fallback_state else set()
+                    self.fallback_started_at = oldest_failed_block
+                    logger.warning(f"🔄 Detected previous fallback mode state - started at block {self.fallback_started_at}")
+                    logger.warning(f"📦 {len(self.failed_cp_blocks)} blocks previously processed in fallback mode")
+                else:
+                    self.failed_cp_blocks = set()
+                    self.fallback_started_at = None
+            else:
+                self.failed_cp_blocks = set()
+                self.fallback_started_at = None
         else:
             self.failed_cp_blocks = set()  # Track blocks that failed CP processing for later rollback
             self.fallback_started_at = None  # Flag for when CP nodes become available again
@@ -96,13 +121,14 @@ class CPBlocksPipeline:
             start_block = config.CP_STAMP_GENESIS_BLOCK
 
         # Check for fallback state and handle rollback if needed
-        if self.state_manager and self.state_manager.is_fallback_active():
-            rollback_block = self.state_manager.get_fallback_start_block()
+        if self.state_manager and self.fallback_started_at:
+            # We have persistent fallback state from initialization
+            rollback_block = self.fallback_started_at
             if rollback_block:
                 logger.warning(f"🔄 Performing startup rollback to block {rollback_block}")
                 self._perform_startup_rollback(rollback_block)
                 # Clear the fallback state after successful rollback
-                self.state_manager.end_fallback_mode()
+                self.state_manager.clear_fallback_state(rollback_block)
                 # Also clear local state
                 self.failed_cp_blocks.clear()
                 self.fallback_started_at = None
@@ -190,7 +216,9 @@ class CPBlocksPipeline:
 
                         # Persist fallback state to survive restarts
                         if self.state_manager:
-                            self.state_manager.start_fallback_mode(start_block)
+                            # Save fallback state using SQLite queue
+                            fallback_data = {start_block: True}  # Mark this block as needing reprocessing
+                            self.state_manager.save_fallback_state(start_block, fallback_data)
 
                         self.initial_blocks_ready.set()  # Signal ready to continue processing
                         return
@@ -569,7 +597,9 @@ class CPBlocksPipeline:
 
         # Persist fallback state to survive restarts
         if self.state_manager:
-            self.state_manager.start_fallback_mode(current_block)
+            # Save fallback state using SQLite queue
+            fallback_data = {current_block: True}  # Mark this block as needing reprocessing
+            self.state_manager.save_fallback_state(current_block, fallback_data)
             logger.info(f"Fallback state persisted starting at block {current_block}")
 
         # Create initial fallback blocks if queue is empty to prevent blocking
@@ -645,19 +675,33 @@ class CPBlocksPipeline:
         Uses the same rollback method as the manual rollback command.
         """
         try:
+            # Safety validation before rollback
+            try:
+                validate_block_number(target_block, "rollback target")
+
+                # Get current block for distance validation
+                current_block = backend_instance.getblockcount()
+                validate_rollback_distance(current_block, target_block)
+
+                log_safety_check(f"Rollback validated: current={current_block}, target={target_block}")
+            except ReprocessSafetyError as e:
+                logger.error(f"SAFETY VIOLATION: Cannot perform rollback: {e}")
+                raise RuntimeError(f"Safety check failed: {e}")
+
             # Import the shared rollback function
             from index_core.database import perform_complete_rollback
 
             logger.info(f"🔄 Starting startup rollback to block {target_block}")
 
             # Use the same rollback function as the manual command
+            # NEVER force automatic rollbacks - they must pass safety checks
             # Capture print output by temporarily redirecting to logger
             import contextlib
             import io
 
             f = io.StringIO()
             with contextlib.redirect_stdout(f):
-                perform_complete_rollback(target_block)
+                perform_complete_rollback(target_block, force=False)  # Explicit force=False for clarity
 
             # Log the output from the rollback function
             rollback_output = f.getvalue()
@@ -874,7 +918,17 @@ class CPBlocksPipeline:
                             else:
                                 error_msg = block_data.get("error", "Unknown error") if block_data else "Empty data"
                                 logger.error(f"❌ Block {res_block_index} fetch FAILED: {error_msg}")
-                                logger.warning(f"Block {res_block_index} will remain in blocks_being_fetched until cleanup")
+                                # Immediately clean up failed blocks instead of waiting for cleanup cycle
+                                with self._blocks_fetch_lock:
+                                    self.blocks_being_fetched.discard(res_block_index)
+                                    self.blocks_fetch_timestamps.pop(res_block_index, None)
+                                    # Track failed blocks for potential retry
+                                    self.failed_fetch_blocks[res_block_index] = (
+                                        self.failed_fetch_blocks.get(res_block_index, 0) + 1
+                                    )
+                                logger.info(
+                                    f"Block {res_block_index} removed from blocks_being_fetched due to fetch failure (attempt #{self.failed_fetch_blocks.get(res_block_index, 1)})"
+                                )
 
                         if added_blocks:
                             added_range = (

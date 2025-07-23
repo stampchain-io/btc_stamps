@@ -95,5 +95,43 @@
     ],
     "python.defaultInterpreterPath": "${workspaceFolder}/indexer/.venv/bin/python",
     "python.pythonPath": "${workspaceFolder}/indexer/.venv/bin/python",
-    "python.venvPath": "${workspaceFolder}/indexer"
+    "python.venvPath": "${workspaceFolder}/indexer",
+    
+    // Add isort configuration
+    "isort.args": [
+        "--profile=black",
+        "--line-length=127"
+    ],
+    "isort.path": ["${workspaceFolder}/indexer/.venv/bin/isort"],
+    
+    // Add mypy configuration via Pylance
+    "python.analysis.typeCheckingMode": "strict",
+    "python.analysis.autoImportCompletions": true,
+    "python.linting.mypyEnabled": true,
+    "python.linting.mypyPath": "${workspaceFolder}/indexer/.venv/bin/mypy",
+    "python.linting.mypyArgs": [
+        "--explicit-package-bases",
+        "--config-file=${workspaceFolder}/indexer/pyproject.toml"
+    ],
+    
+    // Add bandit (security linting)
+    "python.linting.banditEnabled": true,
+    "python.linting.banditPath": "${workspaceFolder}/indexer/.venv/bin/bandit",
+    "python.linting.banditArgs": [
+        "-r",
+        "src/",
+        "tests/", 
+        "tools/",
+        "-s",
+        "B608",
+        "-lll"
+    ],
+    
+    // Ensure all linting is enabled
+    "python.linting.enabled": true,
+    
+    // Format imports on save
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    }
 }

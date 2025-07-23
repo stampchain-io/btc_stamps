@@ -24,6 +24,7 @@ services:
       # Other Configuration
       - BACKEND_POLL_INTERVAL=${BACKEND_POLL_INTERVAL:-0.5}
       - DOMAINNAME=${DOMAINNAME:-}
+      - DATA_DIR=/app/data
       
       # AWS Configuration
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
@@ -67,6 +68,10 @@ services:
     #   - rds_password
     #   - rpc_password
     #   - aws_credentials
+
+    volumes:
+      - ./data:/app/data  # For persistent SQLite queue
+      # Ensure data/ exists on host
 
     networks:
       - db_mysql_cluster_network   # Connect to existing MySQL network

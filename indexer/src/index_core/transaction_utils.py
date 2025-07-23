@@ -12,6 +12,7 @@ Functions:
     list_tx(): List transaction data for block processing
     process_tx(): Process individual transactions with stamp issuances
     quick_filter_src20_transaction(): Fast filtering for SRC-20 transactions
+    calculate_total_inputs(): Calculate total input value for fee calculation
 """
 
 import logging
@@ -42,6 +43,7 @@ TxResult = namedtuple(
         "destination_nvalue",
         "btc_amount",
         "fee",
+        "fee_rate_sat_vb",  # Added fee_rate_sat_vb field
         "data",
         "decoded_tx",
         "keyburn",
@@ -62,10 +64,274 @@ vOutInfo = namedtuple(
         "keyburn",
         "is_op_return",
         "fee",
+        "fee_rate_sat_vb",
         "is_olga",
         "p2wsh_data_chunks",
     ],
 )
+
+
+def calculate_total_inputs(ctx):
+    """
+    Calculate the total value of all inputs in a transaction.
+
+    Args:
+        ctx: The decoded transaction context containing vin array
+
+    Returns:
+        int: Total input value in satoshis, or 0 if calculation fails
+
+    Note:
+        - Coinbase transactions (first transaction in block) have no real inputs, returns 0
+        - Gracefully handles errors by returning 0 to preserve consensus behavior
+        - Uses batch fetching for efficiency when multiple inputs exist
+    """
+    try:
+        if not hasattr(ctx, "vin") or not ctx.vin:
+            logger.debug("Transaction has no inputs")
+            return 0
+
+        # First pass: collect all transaction hashes we need to fetch
+        tx_hashes_to_fetch = []
+        input_refs = []  # Store (tx_hash, output_index) for each input
+
+        for vin in ctx.vin:
+            # Check for coinbase transaction (no previous output)
+            if not hasattr(vin, "prevout") or not vin.prevout:
+                logger.debug("Coinbase transaction detected, returning 0 fee")
+                return 0
+
+            # Check for null hash (coinbase indicator)
+            if hasattr(vin.prevout, "hash") and vin.prevout.hash == b"\x00" * 32:
+                logger.debug("Coinbase transaction detected (null hash), returning 0 fee")
+                return 0
+
+            prev_tx_hash = util.ib2h(vin.prevout.hash)
+            prev_tx_index = vin.prevout.n
+
+            tx_hashes_to_fetch.append(prev_tx_hash)
+            input_refs.append((prev_tx_hash, prev_tx_index))
+
+        # Batch fetch all previous transactions at once
+        if not tx_hashes_to_fetch:
+            return 0
+
+        try:
+            # Use batch fetching for efficiency
+            prev_txs = backend_instance.getrawtransaction_batch(tx_hashes_to_fetch, verbose=False)
+
+            total_input_value = 0
+
+            # Process each input with its fetched transaction
+            for tx_hash, output_index in input_refs:
+                if tx_hash not in prev_txs or prev_txs[tx_hash] is None:
+                    logger.debug(f"Could not fetch previous transaction {tx_hash}")
+                    return 0
+
+                # Deserialize and get the output value
+                prev_ctx = backend_instance.deserialize(prev_txs[tx_hash])
+
+                if output_index < len(prev_ctx.vout):
+                    prev_vout = prev_ctx.vout[output_index]
+                    total_input_value += prev_vout.nValue
+                else:
+                    logger.warning(f"Invalid output index {output_index} for transaction {tx_hash}")
+                    return 0
+
+            return total_input_value
+
+        except Exception as e:
+            logger.debug(f"Error in batch fetching previous transactions: {e}")
+            return 0
+
+    except Exception as e:
+        logger.debug(f"Error calculating total inputs: {e}")
+        return 0
+
+
+def serialize_transaction(ctx):
+    """
+    Serialize a transaction to get its raw byte representation.
+
+    Args:
+        ctx: The decoded transaction context
+
+    Returns:
+        bytes: Serialized transaction bytes, or empty bytes if serialization fails
+
+    Note:
+        - Uses existing backend_instance.serialize() method
+        - Gracefully handles errors by returning empty bytes
+    """
+    try:
+        if not ctx:
+            logger.debug("No transaction context provided")
+            return b""
+
+        # Use backend serialize method (opposite of deserialize)
+        serialized_bytes = backend_instance.serialize(ctx)
+        return serialized_bytes
+
+    except Exception as e:
+        logger.debug(f"Error serializing transaction: {e}")
+        return b""
+
+
+def has_witness_data(ctx):
+    """
+    Check if a transaction contains witness (SegWit) data.
+
+    Args:
+        ctx: The decoded transaction context
+
+    Returns:
+        bool: True if transaction has witness data, False otherwise
+
+    Note:
+        - SegWit transactions have witness data in their inputs
+        - Legacy transactions do not have witness data
+    """
+    try:
+        if not hasattr(ctx, "vin") or not ctx.vin:
+            return False
+
+        # Check if any input has witness data
+        for vin in ctx.vin:
+            if hasattr(vin, "scriptWitness") and vin.scriptWitness:
+                # Check if witness has actual data (not just empty)
+                if hasattr(vin.scriptWitness, "stack") and vin.scriptWitness.stack:
+                    return True
+                elif isinstance(vin.scriptWitness, list) and vin.scriptWitness:
+                    return True
+                elif isinstance(vin.scriptWitness, bytes) and vin.scriptWitness:
+                    return True
+
+        return False
+
+    except Exception as e:
+        logger.debug(f"Error checking witness data: {e}")
+        return False
+
+
+def calculate_legacy_size(ctx):
+    """
+    Calculate the size of a transaction as if it were a legacy (non-SegWit) transaction.
+
+    Args:
+        ctx: The decoded transaction context
+
+    Returns:
+        int: Transaction size in bytes, or 0 if calculation fails
+
+    Note:
+        - For legacy transactions, this is the actual size
+        - For SegWit transactions, this excludes witness data
+        - Used in virtual size calculation for SegWit transactions
+    """
+    try:
+        # Serialize the transaction to get byte representation
+        serialized_tx = serialize_transaction(ctx)
+        if not serialized_tx:
+            return 0
+
+        # For legacy transactions, return the actual serialized size
+        if not has_witness_data(ctx):
+            return len(serialized_tx)
+
+        # For SegWit transactions, we need to calculate size without witness data
+        # This is more complex and would require reconstructing the transaction
+        # without witness fields, which is not easily available in our current setup.
+        #
+        # TODO: Implement proper SegWit base size calculation by parsing the
+        # transaction structure and excluding witness data. For now, we use
+        # an approximation that may not be accurate for all transaction types.
+        #
+        # Estimate base size (without witness) as ~75% of total size
+        # This approximation works reasonably well for typical P2WPKH transactions
+        # but may be less accurate for complex scripts or multisig transactions.
+        estimated_base_size = int(len(serialized_tx) * 0.75)
+
+        return estimated_base_size
+
+    except Exception as e:
+        logger.debug(f"Error calculating legacy size: {e}")
+        return 0
+
+
+def calculate_segwit_weight(ctx):
+    """
+    Calculate the weight of a SegWit transaction according to BIP 141.
+
+    Args:
+        ctx: The decoded transaction context
+
+    Returns:
+        int: Transaction weight in weight units, or 0 if calculation fails
+
+    Note:
+        - Weight = (base_size * 4) + witness_size
+        - Base size excludes witness data
+        - Witness size includes only witness data
+        - For legacy transactions, weight = size * 4
+    """
+    try:
+        if not has_witness_data(ctx):
+            # Legacy transaction: weight = size * 4
+            legacy_size = calculate_legacy_size(ctx)
+            return legacy_size * 4
+
+        # SegWit transaction: weight = (base_size * 4) + witness_size
+        base_size = calculate_legacy_size(ctx)
+
+        # Get total serialized size (including witness)
+        total_size = len(serialize_transaction(ctx))
+
+        # Estimate witness size as the difference
+        witness_size = total_size - base_size
+
+        # Calculate weight according to BIP 141
+        weight = (base_size * 4) + witness_size
+
+        return weight
+
+    except Exception as e:
+        logger.debug(f"Error calculating SegWit weight: {e}")
+        return 0
+
+
+def calculate_virtual_size(ctx):
+    """
+    Calculate the virtual size (vsize) of a transaction.
+
+    Args:
+        ctx: The decoded transaction context
+
+    Returns:
+        int: Virtual size in virtual bytes (vbytes), or 0 if calculation fails
+
+    Note:
+        - For legacy transactions: vsize = size
+        - For SegWit transactions: vsize = ceil(weight / 4)
+        - Virtual size is used for fee rate calculations (sats/vB)
+    """
+    try:
+        if not has_witness_data(ctx):
+            # Legacy transaction: vsize = size
+            return calculate_legacy_size(ctx)
+
+        # SegWit transaction: vsize = ceil(weight / 4)
+        weight = calculate_segwit_weight(ctx)
+        if weight == 0:
+            return 0
+
+        # Use ceiling division to match Bitcoin Core behavior
+        vsize = (weight + 3) // 4  # Equivalent to ceil(weight / 4)
+
+        return vsize
+
+    except Exception as e:
+        logger.debug(f"Error calculating virtual size: {e}")
+        return 0
 
 
 def process_vout(ctx, block_index, stamp_issuance=None):
@@ -83,7 +349,7 @@ def process_vout(ctx, block_index, stamp_issuance=None):
     vouts = ctx.vout
     keyburn = None
     is_op_return = None
-    script_token_values = 0
+    total_output_value = 0
     p2wsh_data_chunks = []
     is_olga = False
 
@@ -92,8 +358,7 @@ def process_vout(ctx, block_index, stamp_issuance=None):
     for idx, vout in enumerate(vouts):
         asm = script.get_asm(vout.scriptPubKey)
         n_value = vout.nValue
-        script_token_values += n_value
-        fee = script_token_values
+        total_output_value += n_value
 
         if asm[-1] == "OP_CHECKMULTISIG":
             # Multisig outputs encoded with SRC-20 data
@@ -117,16 +382,30 @@ def process_vout(ctx, block_index, stamp_issuance=None):
                 is_olga = True
                 logger.debug(f"Found P2WSH output at index {idx} with bytes: {data_bytes.hex()[:20]}...")
 
+    # Calculate actual transaction fee: inputs - outputs
+    total_input_value = calculate_total_inputs(ctx)
+    fee = total_input_value - total_output_value
+
+    # Validate fee calculation
+    if fee < 0:
+        logger.warning(f"Negative fee calculated: inputs={total_input_value}, outputs={total_output_value}, setting fee=0")
+        fee = 0
+    elif fee > 1000000:  # 0.01 BTC = 1,000,000 satoshis (unusually high)
+        logger.warning(f"Unusually high fee calculated: {fee} satoshis")
+
+    # Calculate fee rate in sats/vB
+    virtual_size = calculate_virtual_size(ctx)
+    if virtual_size > 0 and fee > 0:
+        fee_rate_sat_vb = round(fee / virtual_size, 2)  # Round to 2 decimal places
+    else:
+        fee_rate_sat_vb = 0.0
+
     vOutInfo = namedtuple(
         "vOutInfo",
-        ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
+        ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "fee_rate_sat_vb", "is_olga", "p2wsh_data_chunks"],
     )
 
-    # Handle edge case where transaction has no outputs (should not happen in real Bitcoin transactions)
-    if "fee" not in locals():
-        fee = 0
-
-    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga, p2wsh_data_chunks)
+    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, fee_rate_sat_vb, is_olga, p2wsh_data_chunks)
 
 
 def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
@@ -396,6 +675,16 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
             p2wsh_data,
         ) = list_tx(db, block_index, tx_hash, tx_hex, stamp_issuance=stamp_issuance)
 
+        # Calculate fee rate for this transaction
+        fee_rate_sat_vb = 0.0
+        if decoded_tx:
+            try:
+                virtual_size = calculate_virtual_size(decoded_tx)
+                if virtual_size > 0 and fee and fee > 0:
+                    fee_rate_sat_vb = round(fee / virtual_size, 2)
+            except Exception as e:
+                logger.debug(f"Error calculating fee rate for tx {tx_hash}: {e}")
+
         return TxResult(
             None,
             source,
@@ -404,6 +693,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
             destination_nvalue,
             btc_amount,
             fee,
+            fee_rate_sat_vb,
             data,
             decoded_tx,
             keyburn,
@@ -417,7 +707,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     except Exception:
 
         return TxResult(
-            None, None, None, None, None, None, None, None, None, None, None, tx_hash, block_index, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, tx_hash, block_index, None, None, None
         )
 
 

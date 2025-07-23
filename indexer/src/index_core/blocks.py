@@ -8,6 +8,7 @@ import concurrent.futures
 import decimal
 import http
 import logging
+import os
 import sys
 import threading
 import time
@@ -28,9 +29,9 @@ from index_core.block_validation import (
     filter_block_transactions,
     validate_block_against_production,
 )
-from index_core.caching import cache_manager, clear_all_caches
+from index_core.caching import cache_manager
 from index_core.check import ConsensusError
-from index_core.database import (
+from index_core.database import (  # update_src20_token_stats,  # Now handled by async holder updater
     check_db_connection,
     get_unlocked_cpids,
     initialize,
@@ -46,7 +47,6 @@ from index_core.database import (
     rebuild_owners,
     update_assets_in_db,
     update_parsed_block,
-    update_src20_token_stats,
 )
 from index_core.exceptions import (
     BlockAlreadyExistsError,
@@ -73,6 +73,7 @@ from index_core.resource_manager import cleanup_resources
 if config.ENABLE_MARKET_DATA_SCHEDULER:
     from index_core.sales_history_processor import sales_history_processor
 
+from index_core.async_holder_updater import schedule_holder_update
 from index_core.signal_handlers import setup_signal_handler
 from index_core.src20 import (
     Src20Dict,
@@ -82,6 +83,7 @@ from index_core.src20 import (
     update_src20_balances,
     validate_src20_ledger_hash,
 )
+from index_core.src20_holder_updater import get_holder_updater
 from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
 from index_core.transaction_utils import process_tx
@@ -108,6 +110,7 @@ TxResult = namedtuple(
         "destination_nvalue",
         "btc_amount",
         "fee",
+        "fee_rate_sat_vb",  # Added fee_rate_sat_vb field
         "data",
         "decoded_tx",
         "keyburn",
@@ -147,6 +150,7 @@ class BlockProcessor:
                     destination_nvalue=result.destination_nvalue,
                     btc_amount=result.btc_amount,
                     fee=result.fee,
+                    fee_rate_sat_vb=result.fee_rate_sat_vb,
                     data=result.data,
                     decoded_tx=result.decoded_tx,
                     keyburn=result.keyburn,
@@ -202,11 +206,24 @@ class BlockProcessor:
                         logger.error(f"Error in match_and_insert_collection_data: {e}", exc_info=True)
                         raise
 
-    def finalize_block(self, block_index, block_time, txhash_list):
+    def finalize_block(self, block_index, block_time, txhash_list, block_tip=None):
         if self.processed_src20_in_block:
             balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
             insert_into_src20_tables(self.db, self.processed_src20_in_block)
             valid_src20_str = process_balance_updates(balance_updates)
+
+            # Track affected tokens for holder count updates
+            # But defer the actual update to after the transaction commits
+            holder_updater = get_holder_updater()
+
+            # Track all affected tokens from this block
+            for src20_op in self.processed_src20_in_block:
+                if src20_op.get("op") in ["DEPLOY", "MINT", "TRANSFER"] and src20_op.get("tick"):
+                    holder_updater.track_affected_token(src20_op["tick"])
+                    # Ensure market data entry exists for new tokens
+                    # This is lightweight and can be done in the transaction
+                    if src20_op.get("op") == "DEPLOY":
+                        holder_updater.ensure_market_data_exists(src20_op["tick"], self.db)
         else:
             valid_src20_str = ""
 
@@ -275,8 +292,8 @@ def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
                     block_tip - block_index > 100 and block_index % 1000 == 0
                 )
                 if should_update_stats:
-                    logger.debug(f"Updating token stats at block {block_index} (src20_txs: {src20_in_block})")
-                    update_src20_token_stats(db)
+                    logger.debug(f"Token stats update at block {block_index} now handled by async holder updater")
+                    # update_src20_token_stats(db)  # Now handled by async holder updater
 
             db.commit()
             update_parsed_block(db, block_index)
@@ -441,16 +458,13 @@ def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
     try:
         # Perform the actual database rollback
         purge_block_db(db, target_block)
-
-        # Clear all caches
-        clear_all_caches()
-        logger.info("Cleared all caches after rollback")
+        # Note: purge_block_db now handles cache clearing internally after database operations
 
         # Rebuild critical database state
         logger.info("Rebuilding database state...")
         rebuild_balances(db)
         rebuild_owners(db)
-        update_src20_token_stats(db)
+        # update_src20_token_stats(db)  # Now handled by async holder updater
         logger.info(f"Successfully rolled back to block {target_block}")
 
     except Exception as e:
@@ -559,7 +573,7 @@ def follow(
             initialize(db)
             rebuild_balances(db)
             rebuild_owners(db)
-            update_src20_token_stats(db)
+            # update_src20_token_stats(db)  # Now handled by async holder updater
 
         # Get index of last block and current tip
         block_tip = backend_instance.getblockcount()
@@ -569,7 +583,12 @@ def follow(
         else:
             block_index = util.CURRENT_BLOCK_INDEX + 1
 
-        logger.info(f"Resuming parsing from block {block_index}, current tip: {block_tip}")
+        # Log startup status with clear indication if we're caught up
+        if block_index > block_tip:
+            logger.info(f"✅ Indexer is caught up at block {block_tip} - waiting for new blocks...")
+        else:
+            blocks_behind = block_tip - block_index + 1
+            logger.info(f"Resuming parsing from block {block_index}, current tip: {block_tip} ({blocks_behind} blocks behind)")
         tx_index = next_tx_index(db)
 
         # Initialize ZMQ if enabled
@@ -616,7 +635,11 @@ def follow(
                     logger.info(
                         f"Starting market data job scheduler (within {market_data_threshold} blocks of tip: {blocks_behind} behind)..."
                     )
-                    start_market_data_jobs(max_workers=10)  # Increased workers for better throughput with 59K+ stamps
+                    # Use conservative worker count to leave connections for sales history
+                    # With DB_MAX_CONNECTIONS=20, use 6 workers to leave headroom
+                    max_workers = min(6, int(os.getenv("DB_MAX_CONNECTIONS", "20")) // 3)
+                    start_market_data_jobs(max_workers=max_workers)
+                    logger.info(f"Market data jobs started with {max_workers} workers")
                     market_data_scheduler_started = True
                     logger.info("Market data job scheduler started successfully")
                 except Exception as e:
@@ -690,6 +713,9 @@ def follow(
             else:
                 logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
                 return True  # Continue processing
+
+        # Initialize at_chain_tip tracking variable
+        at_chain_tip = False
 
         while True:
             # Check if shutdown has been requested via callback or global flag
@@ -771,7 +797,7 @@ def follow(
                     if profiler:
                         profiler.start_block_profiling()
 
-                    # Define at_chain_tip here to ensure it's always available
+                    # Update at_chain_tip status for current block
                     at_chain_tip = block_index == block_tip
 
                     # Find the section where the block is fetched from the pipeline
@@ -789,16 +815,40 @@ def follow(
 
                         # Check if the pipeline is in the process of fetching this block
                         pipeline_fetching = False
+                        fetch_start_time = None
                         if cp_pipeline_instance:
                             with cp_pipeline_instance._blocks_fetch_lock:
                                 pipeline_fetching = block_index in cp_pipeline_instance.blocks_being_fetched
+                                if pipeline_fetching:
+                                    fetch_start_time = cp_pipeline_instance.blocks_fetch_timestamps.get(block_index)
 
                         # Wait if the pipeline is actively fetching the block we need
                         if pipeline_fetching:
-                            logger.debug(f"Block {block_index} is currently being fetched by the pipeline, waiting...")
-                            time.sleep(3)  # Short wait to let the fetch complete
-                            db.rollback()
-                            continue
+                            # Check if the block has been fetching for too long
+                            if fetch_start_time:
+                                fetch_duration = time.time() - fetch_start_time
+                                if fetch_duration > 90:  # If it's been fetching for more than 90 seconds
+                                    logger.warning(
+                                        f"Block {block_index} has been in pipeline fetch for {fetch_duration:.1f}s, "
+                                        f"forcing cleanup and proceeding with direct fetch"
+                                    )
+                                    # Force cleanup of this stuck block
+                                    with cp_pipeline_instance._blocks_fetch_lock:
+                                        cp_pipeline_instance.blocks_being_fetched.discard(block_index)
+                                        cp_pipeline_instance.blocks_fetch_timestamps.pop(block_index, None)
+                                else:
+                                    logger.debug(
+                                        f"Block {block_index} is currently being fetched by the pipeline "
+                                        f"(for {fetch_duration:.1f}s), waiting..."
+                                    )
+                                    time.sleep(3)  # Short wait to let the fetch complete
+                                    db.rollback()
+                                    continue
+                            else:
+                                logger.debug(f"Block {block_index} is currently being fetched by the pipeline, waiting...")
+                                time.sleep(3)  # Short wait to let the fetch complete
+                                db.rollback()
+                                continue
 
                         # Also check if the pipeline is still initializing
                         pipeline_initializing = (
@@ -827,8 +877,8 @@ def follow(
                             # Additional verification for blocks at tip
                             from index_core.fetch_utils import wait_for_cp_block_processed
 
-                            if not wait_for_cp_block_processed(block_index, max_wait=15.0):
-                                logger.warning(f"CP not ready for block {block_index}, skipping")
+                            if not wait_for_cp_block_processed(block_index, max_wait=60.0):
+                                logger.warning(f"CP not ready for block {block_index} after 60s, skipping")
                                 db.rollback()
                                 continue
                         else:
@@ -1170,7 +1220,7 @@ def follow(
                             stamps_in_block,
                             src20_in_block,
                             src101_in_block,
-                        ) = block_processor.finalize_block(block_index, block_time, txhash_list)
+                        ) = block_processor.finalize_block(block_index, block_time, txhash_list, block_tip)
 
                         stamp_issuances_list.pop(block_index, None)
                         log_block_info(
@@ -1186,6 +1236,60 @@ def follow(
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
                         logger.debug(f"After commit: block_index now {block_index}, continuing to next iteration")
+
+                        # Update holder counts after commit to avoid long transactions
+                        # Only run this when we're near the chain tip or at specific intervals during bulk sync
+                        should_update_market_data = False
+                        if block_tip is not None:
+                            # Near chain tip (within 10 blocks)
+                            if block_tip - block_index <= 10:
+                                should_update_market_data = True
+                            # During bulk sync, update every 1000 blocks
+                            elif (block_index - 1) % 1000 == 0:  # block_index - 1 because we just incremented
+                                should_update_market_data = True
+                        else:
+                            # If block_tip not provided, update at regular intervals
+                            should_update_market_data = (block_index - 1) % 100 == 0
+
+                        # TEMPORARILY DISABLED: Direct holder count updates causing lock timeouts
+                        # TODO: This should only run via async_holder_updater
+                        # if should_update_market_data:
+                        #     try:
+                        #         holder_updater = get_holder_updater()
+                        #         # Update holder counts if we have affected tokens
+                        #         if holder_updater.get_affected_token_count() > 0:
+                        #             # Use a new connection for the update
+                        #             updated_count = holder_updater.update_holder_counts(block_index - 1)
+                        #             if updated_count > 0:
+                        #                 logger.debug(
+                        #                     f"Updated holder counts and progress for {updated_count} SRC-20 tokens at block {block_index - 1}"
+                        #                 )
+                        #     except Exception as e:
+                        #         logger.error(f"Error updating SRC-20 market data at block {block_index - 1}: {e}")
+                        #         # Don't fail the block for market data updates
+                        # else:
+                        #     # Clear tracked tokens without updating if not at update interval
+                        #     holder_updater = get_holder_updater()
+                        #     holder_updater.clear()
+
+                        # Schedule async holder updates if enabled
+                        holder_updater = get_holder_updater()
+
+                        if should_update_market_data and holder_updater.get_affected_token_count() > 0:
+                            # Get affected tokens before clearing
+                            affected_tokens = set()
+                            if hasattr(holder_updater, "affected_tokens"):
+                                affected_tokens = holder_updater.affected_tokens.copy()
+
+                            # Schedule async update
+                            if affected_tokens:
+                                logger.debug(
+                                    f"Scheduling holder update for {len(affected_tokens)} tokens at block {block_index}"
+                                )
+                                schedule_holder_update(block_index - 1, affected_tokens)
+
+                        # Clear tracked tokens
+                        holder_updater.clear()
 
                         # Confirm that the previous block was successfully processed by the pipeline
                         if cp_pipeline_instance:
@@ -1278,7 +1382,13 @@ def follow(
                     # Double-check if we're actually caught up with fresh data
                     if block_index > fresh_block_tip:
                         # Indexer is caught up (block_index > fresh_block_tip), wait for new blocks
-                        logger.info(
+                        # Log as INFO when first reaching the tip (important status update)
+                        if not at_chain_tip:
+                            logger.info(
+                                f"✅ Indexer caught up to blockchain tip at block {block_index-1} (tip: {fresh_block_tip})"
+                            )
+                            at_chain_tip = True
+                        logger.debug(
                             f"Indexer caught up at block {block_index} (fresh tip: {fresh_block_tip}), waiting for new blocks..."
                         )
                         db.rollback()  # Rollback any uncommitted transaction before waiting
@@ -1301,7 +1411,7 @@ def follow(
                     if server.shutdown_flag.is_set():
                         logger.info("Shutdown flag detected, completing current block processing...")
                         # Ensure current block processing completes
-                        block_processor.finalize_block(block_index, block_time, txhash_list)
+                        block_processor.finalize_block(block_index, block_time, txhash_list, fresh_block_tip)
                         db.commit()
                         logger.info("Current block processing completed successfully")
                         break
@@ -1363,7 +1473,7 @@ def follow(
                                         logger.debug(f"Non-UTF-8 topic received in blocks.py: {topic_str}")
 
                                     if topic_str in ["hashblock", "rawblock"]:
-                                        logger.info(f"Processing new block notification via ZMQ: {topic_str}")
+                                        logger.debug(f"Processing new block notification via ZMQ: {topic_str}")
                                         # Invalidate the blockcount cache first to ensure fresh block height
                                         backend_instance.invalidate_blockcount_cache()
                                         block_tip = backend_instance.getblockcount()

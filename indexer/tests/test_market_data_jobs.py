@@ -205,7 +205,7 @@ class TestMarketDataJobScheduler:
             # Verify the activity calculator was called with correct parameters
             mock_activity_calc.assert_called_once_with(
                 self.mock_db,
-                limit=10000,  # STAMP_SELECTION_LIMIT
+                limit=500,  # STAMP_SELECTION_LIMIT (reduced for production)
             )
 
             # Verify result is returned correctly (should extract just the CPIDs)
@@ -331,7 +331,7 @@ class TestMarketDataJobScheduler:
                         # Verify activity calculator was called
                         mock_activity_calc.assert_called_once_with(
                             self.mock_db,
-                            limit=10000,  # STAMP_SELECTION_LIMIT
+                            limit=500,  # STAMP_SELECTION_LIMIT (reduced for production)
                         )
 
                         # Verify StampWorker was used

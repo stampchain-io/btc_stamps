@@ -8,6 +8,7 @@ integrating with the existing database and API infrastructure.
 
 import concurrent.futures
 import logging
+import os
 import threading
 import time
 import unicodedata
@@ -17,6 +18,7 @@ from typing import Dict, List, Optional, Set
 import config
 from index_core.database_manager import DatabaseManager
 from index_core.fetch_utils import RateLimiter
+from index_core.holder_count_catchup_job import holder_count_catchup_job
 from index_core.market_data_service import market_data_service
 from index_core.sales_history_processor import sales_history_processor
 from index_core.src20_worker import SRC20Worker
@@ -24,25 +26,29 @@ from index_core.stamp_worker import StampWorker
 
 logger = logging.getLogger(__name__)
 
-# Configuration constants for job scheduling
-STAMP_UPDATE_INTERVAL = 900  # 15 minutes in seconds
-SRC20_UPDATE_INTERVAL = 300  # 5 minutes in seconds
-COLLECTION_UPDATE_INTERVAL = 1800  # 30 minutes in seconds
+# Configuration constants for job scheduling - can be overridden by environment variables
+STAMP_UPDATE_INTERVAL = int(os.getenv("MARKET_DATA_STAMP_UPDATE_INTERVAL", "900"))  # 15 minutes default
+SRC20_UPDATE_INTERVAL = int(os.getenv("MARKET_DATA_SRC20_UPDATE_INTERVAL", "300"))  # 5 minutes default
+COLLECTION_UPDATE_INTERVAL = int(os.getenv("MARKET_DATA_COLLECTION_UPDATE_INTERVAL", "1800"))  # 30 minutes default
+HOLDER_COUNT_UPDATE_INTERVAL = int(os.getenv("MARKET_DATA_HOLDER_UPDATE_INTERVAL", "300"))  # 5 minutes default
 
-# Batch processing configuration - INCREASED FOR FULL COVERAGE
-STAMP_BATCH_SIZE = 100  # Keep manageable for API rate limiting
-SRC20_BATCH_SIZE = 50  # Keep manageable for exchange APIs
+# Batch processing configuration - optimized for production
+STAMP_BATCH_SIZE = int(os.getenv("MARKET_DATA_STAMP_BATCH_SIZE", "50"))  # Reduced for database efficiency
+SRC20_BATCH_SIZE = int(os.getenv("MARKET_DATA_SRC20_BATCH_SIZE", "25"))  # Reduced for exchange API stability
 
-# DRAMATICALLY INCREASE SELECTION LIMITS FOR COMPREHENSIVE PROCESSING
-STAMP_SELECTION_LIMIT = 10000  # Process up to 10K stamps per cycle (was 500)
-SRC20_SELECTION_LIMIT = 1000  # Process up to 1K SRC-20 tokens per cycle (was 150)
+# Selection limits - how many items to process per cycle
+STAMP_SELECTION_LIMIT = int(os.getenv("MARKET_DATA_STAMP_SELECTION_LIMIT", "500"))  # Reduced for production
+SRC20_SELECTION_LIMIT = int(os.getenv("MARKET_DATA_SRC20_SELECTION_LIMIT", "150"))  # Reduced for production
+
+# Commit chunk size - how often to commit database changes
+COMMIT_CHUNK_SIZE = int(os.getenv("MARKET_DATA_COMMIT_CHUNK_SIZE", "10"))  # Commit every N updates
 
 # Rate limiting configuration
-MAX_WORKERS = 3
-DEFAULT_RATE_LIMIT = 1.5  # requests per second for Counterparty API
+MAX_WORKERS = int(os.getenv("MARKET_DATA_MAX_WORKERS", "3"))
+DEFAULT_RATE_LIMIT = float(os.getenv("MARKET_DATA_RATE_LIMIT", "1.5"))  # requests per second for Counterparty API
 
 # Rate limiting for external APIs (workers have their own rate limiters)
-COUNTERPARTY_RATE_LIMITER = RateLimiter(calls_per_second=2.0)
+COUNTERPARTY_RATE_LIMITER = RateLimiter(calls_per_second=DEFAULT_RATE_LIMIT)
 
 
 class MarketDataJobScheduler:
@@ -118,6 +124,11 @@ class MarketDataJobScheduler:
 
     def _check_and_start_sales_catchup(self):
         """Check if sales history catchup is needed and start it if necessary."""
+        # Check if sales history catchup is enabled
+        if not os.getenv("ENABLE_SALES_HISTORY_CATCHUP", "true").lower() == "true":
+            logger.info("Sales history catchup is disabled via ENABLE_SALES_HISTORY_CATCHUP=false")
+            return
+
         try:
             logger.debug("Checking if sales history catchup is needed...")
 
@@ -138,7 +149,7 @@ class MarketDataJobScheduler:
                 else:
                     logger.info("Sales history catchup already running")
             else:
-                logger.info(f"Sales history in {mode} mode, no bulk catchup needed")
+                logger.debug(f"Sales history in {mode} mode, no bulk catchup needed")
 
         except Exception as e:
             logger.error(f"Error checking/starting sales history catchup: {e}")
@@ -164,6 +175,11 @@ class MarketDataJobScheduler:
                 # Check if collection market data update is due
                 if self._is_job_due("collection_update", COLLECTION_UPDATE_INTERVAL, current_time):
                     self._submit_job("collection_update", self._update_collection_market_data_job)
+
+                # TEMPORARILY DISABLED: Holder count catchup causing lock contention
+                # TODO: Re-enable after optimizing query performance
+                # if self._is_job_due("holder_count_catchup", HOLDER_COUNT_UPDATE_INTERVAL, current_time):
+                #     self._submit_job("holder_count_catchup", self._update_holder_count_catchup_job)
 
                 # Clean up completed jobs
                 self._cleanup_completed_jobs()
@@ -220,7 +236,7 @@ class MarketDataJobScheduler:
                             try:
                                 result = job_function()
                                 elapsed = time.time() - start_time
-                                logger.info(f"✅ Completed market data job: {job_name} in {elapsed:.1f}s")
+                                logger.debug(f"✅ Completed market data job: {job_name} in {elapsed:.1f}s")
                                 return result
                             except Exception as job_error:
                                 elapsed = time.time() - start_time
@@ -275,32 +291,44 @@ class MarketDataJobScheduler:
 
         Uses activity levels to prioritize updates and reduce API calls.
         """
-        logger.debug("Starting stamp market data update cycle")
-        start_time = time.time()
+        from index_core.background_coordinator import BackgroundCoordinator
+
+        coordinator = BackgroundCoordinator.get_instance()
+
+        if not coordinator.start_task("market_data_stamps", is_heavy=True):
+            logger.debug("Skipping stamp market data update - another heavy operation is running")
+            return
 
         try:
-            # Use existing database connection without initialization
-            task_db = self.database_manager.connect()
+            logger.debug("Starting stamp market data update cycle")
+            start_time = time.time()
 
             try:
-                # Log current activity level distribution for monitoring
-                from index_core.activity_calculator import StampActivityCalculator
+                # Use existing database connection without initialization
+                task_db = self.database_manager.connect()
 
-                StampActivityCalculator.log_activity_stats(task_db)
+                try:
+                    # Log current activity level distribution for monitoring
+                    from index_core.activity_calculator import StampActivityCalculator
+
+                    StampActivityCalculator.log_activity_stats(task_db)
+                except Exception as e:
+                    logger.warning(f"Failed to log activity stats: {e}")
+                    # Continue without logging stats
 
                 # Get stamps that need market data updates
                 stamps_to_update = self._get_stamps_needing_update(task_db)
 
                 if not stamps_to_update:
-                    logger.info("📭 No stamps need market data updates at this time")
+                    logger.debug("📭 No stamps need market data updates at this time")
                     return
 
-                logger.info(f"📊 Starting activity-based market data update for {len(stamps_to_update)} stamps")
+                logger.debug(f"📊 Starting activity-based market data update for {len(stamps_to_update)} stamps")
 
                 # Process stamps in batches to avoid overwhelming external APIs
                 batches = self._split_into_batches(stamps_to_update, STAMP_BATCH_SIZE)
                 total_batches = len(batches)
-                logger.info(f"🔄 Processing {len(stamps_to_update)} stamps in {total_batches} batches")
+                logger.debug(f"🔄 Processing {len(stamps_to_update)} stamps in {total_batches} batches")
 
                 for batch_num, batch in enumerate(batches, 1):
                     if self.shutdown_event.is_set():
@@ -308,7 +336,7 @@ class MarketDataJobScheduler:
                         break
 
                     if batch_num % 10 == 0 or batch_num == 1 or batch_num == total_batches:
-                        logger.info(f"📈 Stamp update progress: {batch_num}/{total_batches} batches")
+                        logger.debug(f"📈 Stamp update progress: {batch_num}/{total_batches} batches")
                     self._process_stamp_batch(task_db, batch)
 
                     # Rate limiting between batches
@@ -316,7 +344,7 @@ class MarketDataJobScheduler:
                         time.sleep(0.1)  # Small delay to prevent CPU spinning
 
                 elapsed_time = time.time() - start_time
-                logger.info(
+                logger.debug(
                     f"✅ Stamp market data update complete: {len(stamps_to_update)} stamps processed in {elapsed_time:.1f}s"
                 )
 
@@ -327,6 +355,8 @@ class MarketDataJobScheduler:
             logger.error(f"Error in stamp market data update job: {e}")
             if not config.FORCE:
                 raise
+        finally:
+            coordinator.end_task("market_data_stamps", is_heavy=True)
 
     def _get_src20_tokens_from_database(self, db) -> Set[str]:
         """Get all SRC-20 tokens that exist in the database."""
@@ -357,6 +387,14 @@ class MarketDataJobScheduler:
 
         Uses exchange APIs for SRC-20 token data.
         """
+        from index_core.background_coordinator import BackgroundCoordinator
+
+        coordinator = BackgroundCoordinator.get_instance()
+
+        if not coordinator.start_task("market_data_src20", is_heavy=True):
+            logger.debug("Skipping SRC-20 market data update - another heavy operation is running")
+            return
+
         try:
             logger.debug("Starting SRC-20 market data update cycle")
             start_time = time.time()
@@ -562,6 +600,8 @@ class MarketDataJobScheduler:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             if not config.FORCE:
                 raise
+        finally:
+            coordinator.end_task("market_data_src20", is_heavy=True)
 
     def _update_collection_market_data_job(self):
         """
@@ -569,39 +609,99 @@ class MarketDataJobScheduler:
 
         Aggregates individual asset data into collection-level metrics.
         """
-        logger.debug("Starting collection market data update cycle")
-        start_time = time.time()
+        from index_core.background_coordinator import BackgroundCoordinator
+
+        coordinator = BackgroundCoordinator.get_instance()
+
+        if not coordinator.start_task("market_data_collections", is_heavy=True):
+            logger.debug("Skipping collection market data update - another heavy operation is running")
+            return
 
         try:
-            # Use existing database connection without initialization
-            task_db = self.database_manager.connect()
+            logger.debug("Starting collection market data update cycle")
+            start_time = time.time()
 
             try:
-                # Get collections that need market data updates
-                collections_to_update = self._get_collections_needing_update(task_db)
+                # Use existing database connection without initialization
+                task_db = self.database_manager.connect()
 
-                if not collections_to_update:
-                    logger.info("No collections need market data updates")
-                    return
+                try:
+                    # Get collections that need market data updates
+                    collections_to_update = self._get_collections_needing_update(task_db)
 
-                logger.debug(f"Updating market data for {len(collections_to_update)} collections")
+                    if not collections_to_update:
+                        logger.info("No collections need market data updates")
+                        return
 
-                # Process collections
-                for collection_id in collections_to_update:
-                    if self.shutdown_event.is_set():
-                        logger.info("Shutdown requested, stopping collection updates")
-                        break
+                    logger.debug(f"Updating market data for {len(collections_to_update)} collections")
 
-                    self._process_collection_update(task_db, collection_id)
+                    # Process collections
+                    for collection_id in collections_to_update:
+                        if self.shutdown_event.is_set():
+                            logger.info("Shutdown requested, stopping collection updates")
+                            break
 
-                elapsed_time = time.time() - start_time
-                logger.debug(f"Collection update complete: {len(collections_to_update)} collections in {elapsed_time:.1f}s")
+                        self._process_collection_update(task_db, collection_id)
+
+                    elapsed_time = time.time() - start_time
+                    logger.debug(
+                        f"Collection update complete: {len(collections_to_update)} collections in {elapsed_time:.1f}s"
+                    )
+                except Exception as e:
+                    logger.error(f"Error processing collections: {e}")
+                    raise
 
             finally:
                 task_db.close()
 
         except Exception as e:
             logger.error(f"Error in collection market data update job: {e}")
+            if not config.FORCE:
+                raise
+        finally:
+            coordinator.end_task("market_data_collections", is_heavy=True)
+
+    def _update_holder_count_catchup_job(self):
+        """
+        Background job to update SRC-20 holder counts that are missing or outdated.
+
+        This job catches up tokens with NULL or stale holder_count, total_minted,
+        or progress_percentage data.
+        """
+        logger.debug("Starting holder count catchup job")
+        start_time = time.time()
+
+        try:
+            # Get current block height and tip
+            task_db = self.database_manager.connect()
+
+            try:
+                # Get the current indexed block height
+                with task_db.cursor() as cursor:
+                    cursor.execute("SELECT MAX(block_index) FROM blocks")
+                    result = cursor.fetchone()
+                    current_block = result[0] if result and result[0] else 0
+
+                # Get blockchain tip from backend
+                from index_core.backend import Backend
+
+                backend = Backend()
+                tip_block = backend.getblockcount()
+
+                # Run the holder count catchup job
+                updated_count = holder_count_catchup_job.run(current_block, tip_block)
+
+                elapsed_time = time.time() - start_time
+                if updated_count > 0:
+                    logger.info(f"Holder count catchup complete: {updated_count} tokens updated in {elapsed_time:.1f}s")
+                else:
+                    logger.debug(f"Holder count catchup complete: no updates needed (took {elapsed_time:.1f}s)")
+
+            finally:
+                task_db.close()
+
+        except Exception as e:
+            logger.error(f"Error in holder count catchup job: {e}")
             if not config.FORCE:
                 raise
 
@@ -624,12 +724,12 @@ class MarketDataJobScheduler:
                     level_str = activity_level.value if hasattr(activity_level, "value") else str(activity_level)
                     activity_counts[level_str] = activity_counts.get(level_str, 0) + 1
 
-                logger.info(
+                logger.debug(
                     f"Found {len(cpids)} stamps needing activity-based updates: {activity_counts} "
                     f"(limit: {STAMP_SELECTION_LIMIT})"
                 )
             else:
-                logger.info("No stamps need market data updates at this time")
+                logger.debug("No stamps need market data updates at this time")
 
             return cpids
 
@@ -973,6 +1073,11 @@ def start_sales_history_catchup():
     This runs independently of the full market data scheduler to ensure
     we capture sales data from the beginning, not just when near the tip.
     """
+    # Check if sales history catchup is enabled
+    if not os.getenv("ENABLE_SALES_HISTORY_CATCHUP", "true").lower() == "true":
+        logger.info("Sales history catchup is disabled via ENABLE_SALES_HISTORY_CATCHUP=false")
+        return
+
     # Check if catchup is already running
     if sales_history_processor.catchup_running:
         logger.debug("Sales history catchup is already running, skipping start")

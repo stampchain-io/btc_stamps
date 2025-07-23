@@ -46,6 +46,12 @@ services:
       - BITCOIND_PORT=8332
 ```
 
+## System Requirements
+
+- Python 3.10+ (3.12 recommended)
+- MySQL 8.4.0+
+- Bitcoin Core node with RPC access
+
 ## Environment Variables
 
 | Variable | Description | Default |

@@ -63,7 +63,8 @@ class StampData:
         destination (str): The destination address of the transaction.
         destination_nvalue (int): The amount of vout[0].
         btc_amount (float): The amount of BTC in the transaction.
-        fee (float): The transaction fee.
+        fee (float): The transaction fee in satoshis.
+        fee_rate_sat_vb (Optional[float]): The fee rate in satoshis per virtual byte.
         data (str): The data associated with the transaction.
         decoded_tx (dict): The decoded transaction.
         keyburn (int): The keyburn value.
@@ -117,6 +118,7 @@ class StampData:
     pval_src20: Optional[bool] = None
     pval_src101: Optional[bool] = None
     is_posh: Optional[bool] = False
+    fee_rate_sat_vb: Optional[float] = None  # Fee rate in satoshis per virtual byte
     precomputed_collections: ClassVar[List[Dict]] = []
     collection_name: Optional[str] = None
     collection_description: Optional[str] = None

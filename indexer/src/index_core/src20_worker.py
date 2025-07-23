@@ -573,6 +573,8 @@ class SRC20Worker:
                     # Map to our standard volume fields
                     if period == "sum_1d":
                         market_data["volume_24h_btc"] = period_volume
+                    elif period == "sum_7d":
+                        market_data["volume_7d_btc"] = period_volume
                     logger.debug(f"StampScan {period} volume for {tick}: {period_volume} BTC")
 
             # Store transaction hash reference (optional)
@@ -1061,14 +1063,14 @@ class SRC20Worker:
                         if isinstance(response, list):
                             self._stampscan_cache = response
                             self._stampscan_cache_time = current_time
-                            logger.info(f"StampScan: Retrieved data for {len(response)} tokens")
+                            logger.debug(f"StampScan: Retrieved data for {len(response)} tokens")
                         elif isinstance(response, dict) and "data" in response:
                             # Handle wrapped response format
                             data = response["data"]
                             if isinstance(data, list):
                                 self._stampscan_cache = data
                                 self._stampscan_cache_time = current_time
-                                logger.info(f"StampScan: Retrieved data for {len(data)} tokens")
+                                logger.debug(f"StampScan: Retrieved data for {len(data)} tokens")
                         else:
                             logger.warning(f"StampScan: Unexpected response format: {type(response)}")
                             return []
@@ -1177,6 +1179,7 @@ class SRC20Worker:
                 "price_usd": None,
                 "volume_24h_btc": None,
                 "volume_24h_usd": None,
+                "volume_7d_btc": None,
                 "holder_count": None,
                 "market_cap_btc": None,
                 "price_change_24h_percent": None,
@@ -1196,6 +1199,7 @@ class SRC20Worker:
             holder_counts = []
             quality_scores = []
             total_confidence = 0.0
+            price_sources = []  # Track sources contributing to price
 
             for source, data in source_data.items():
                 weight = confidence_weights.get(source, 5.0)  # Default medium confidence
@@ -1204,6 +1208,7 @@ class SRC20Worker:
                 # Collect price data with weights
                 if data.get("price_btc") is not None:
                     price_values.append((float(data["price_btc"]), weight))
+                    price_sources.append(source)
 
                 # Collect volume data with weights
                 if data.get("volume_24h_btc") is not None:
@@ -1237,6 +1242,17 @@ class SRC20Worker:
                 if primary_source:
                     aggregated["primary_exchange"] = primary_source
 
+                    # Set price_source_type based on data aggregation
+                    if len(price_sources) > 1:
+                        # Multiple sources contributed to the price - it's a composite
+                        aggregated["price_source_type"] = "composite"
+                    elif primary_source.lower() == "openstamp":
+                        aggregated["price_source_type"] = "floor_ask"
+                    elif primary_source.lower() in ["kucoin", "stampscan"]:
+                        aggregated["price_source_type"] = "last_traded"
+                    else:
+                        aggregated["price_source_type"] = "unknown"
+
             # Sum volumes (different exchanges = additive volume)
             if volume_values:
                 total_volume = sum(volume for volume, _ in volume_values)
@@ -1268,6 +1284,7 @@ class SRC20Worker:
             for field in [
                 "price_usd",
                 "volume_24h_usd",
+                "volume_7d_btc",
                 "market_cap_btc",
                 "circulating_supply",
                 "max_supply",

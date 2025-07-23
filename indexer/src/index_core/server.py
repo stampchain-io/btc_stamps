@@ -295,9 +295,13 @@ def connect_to_backend():
 def start_all(db: Connection) -> None:
     """Start the server with proper initialization and shutdown handling."""
     executor = None  # Initialize executor to None
+    validator = None  # Initialize validator to None
     try:
         # Initialize the executor
         executor = concurrent.futures.ThreadPoolExecutor()
+
+        # Initialize validator variable to avoid UnboundLocalError
+        validator = None
 
         # Backend
         connect_to_backend()  # This sets the global backend_instance
@@ -310,6 +314,42 @@ def start_all(db: Connection) -> None:
                     logger.info("Starting async upload worker...")
                     start_upload_worker()
 
+        # TEMPORARILY DISABLED: Async holder updater causing lock timeouts
+        # TODO: Re-enable after optimizing queries to work with smaller batches
+        # # Start async holder count updater
+        # try:
+        #     from index_core.async_holder_updater import start_worker as start_holder_worker
+        #     logger.info("Starting async holder count updater...")
+        #     start_holder_worker()
+        # except Exception as e:
+        #     logger.error(f"Failed to start async holder updater: {e}")
+        #     # Continue without async holder updates
+        # Check if async holder updates are enabled
+        if os.getenv("ENABLE_ASYNC_HOLDER_UPDATES", "true").lower() == "true":
+            try:
+                from index_core.async_holder_updater import start_worker as start_holder_worker
+
+                logger.info("Starting async holder count updater...")
+                start_holder_worker()
+            except Exception as e:
+                logger.error(f"Failed to start async holder updater: {e}")
+        else:
+            logger.info("Async holder count updater is disabled via ENABLE_ASYNC_HOLDER_UPDATES=false")
+
+        # Start the SRC-20 validation background service
+        if config.ENABLE_SRC20_BACKGROUND_VALIDATION:
+            try:
+                import asyncio
+
+                from index_core.background_validator import get_background_validator
+
+                validator = get_background_validator()
+                logger.info("Starting SRC-20 background validator...")
+                asyncio.run(validator.start())
+            except Exception as e:
+                logger.error(f"Failed to start background validator: {e}")
+                # Continue without background validation
+
         # Start the main indexing process
         blocks.follow(db)
     except Exception as e:
@@ -318,6 +358,25 @@ def start_all(db: Connection) -> None:
         if not shutdown_flag.is_set():
             shutdown_flag.set()
         logger.info("Server shutdown initiated.")
+
+        # Stop the background validator if it's running
+        if validator and config.ENABLE_SRC20_BACKGROUND_VALIDATION:
+            try:
+                logger.info("Stopping SRC-20 background validator...")
+                import asyncio
+
+                asyncio.run(validator.stop())
+            except Exception as e:
+                logger.error(f"Error stopping background validator: {e}")
+
+        # Stop async holder count updater
+        try:
+            from index_core.async_holder_updater import stop_worker as stop_holder_worker
+
+            logger.info("Stopping async holder count updater...")
+            stop_holder_worker(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error stopping async holder updater: {e}")
 
         # Wait for pending uploads to complete with a timeout
         if config.USE_ASYNC_UPLOADS and config.STORE_FILES:

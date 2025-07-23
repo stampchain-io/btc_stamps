@@ -144,15 +144,36 @@ class TestStampActivityCalculator:
         """Test updating activity level when sale occurs"""
         # Configure mock
         mock_cursor.rowcount = 1
+        # Mock the SELECT query result (sales data)
+        mock_cursor.fetchone.return_value = (
+            900000,  # last_sale_block
+            1000000,  # volume_24h_sats
+            5000000,  # volume_7d_sats
+            10000000,  # volume_30d_sats
+            20000000,  # total_volume_sats
+            50000,  # recent_price_sats
+            "tx123",  # last_sale_tx
+            "buyer123",  # last_buyer
+            "seller123",  # last_seller
+            100000,  # last_sale_amount
+            "dispenser123",  # last_dispenser_tx
+        )
 
         StampActivityCalculator.update_activity_on_sale("A123456789", mock_db_connection)
 
-        # Verify SQL was called correctly
-        mock_cursor.execute.assert_called_once()
-        sql_call = mock_cursor.execute.call_args[0][0]
-        assert "UPDATE stamp_market_data" in sql_call
-        assert "activity_level = 'HOT'" in sql_call
-        assert "last_activity_time = UNIX_TIMESTAMP()" in sql_call
+        # Verify both SQL calls were made
+        assert mock_cursor.execute.call_count == 2
+
+        # First call should be SELECT
+        first_call = mock_cursor.execute.call_args_list[0][0][0]
+        assert "SELECT" in first_call
+        assert "FROM stamp_sales_history" in first_call
+
+        # Second call should be UPDATE
+        second_call = mock_cursor.execute.call_args_list[1][0][0]
+        assert "UPDATE stamp_market_data" in second_call
+        assert "activity_level = 'HOT'" in second_call
+        assert "last_activity_time = UNIX_TIMESTAMP()" in second_call
 
     def test_update_activity_on_dispenser_change_add(self, mock_db_connection, mock_cursor):
         """Test updating activity level when dispensers are added"""
