@@ -3,11 +3,10 @@
 
 import json
 import logging
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -55,7 +54,7 @@ def check_src20_market_data(db, tick: str) -> Optional[Dict]:
     with db.cursor(DictCursor) as cursor:
         # Try both uppercase and lowercase
         query = """
-        SELECT 
+        SELECT
             tick,
             price_btc,
             price_usd,
@@ -99,7 +98,7 @@ def check_stamp_market_data(db, cpid: str) -> Optional[Dict]:
         # Try both uppercase and lowercase
         # Note: stamp_market_data has different column names than src20_market_data
         query = """
-        SELECT 
+        SELECT
             cpid,
             floor_price_btc,
             recent_sale_price_btc,
@@ -145,7 +144,7 @@ def get_other_src20_examples(db, limit: int = 5) -> List[Dict]:
     """Get examples of other SRC-20 tokens with market data."""
     with db.cursor(DictCursor) as cursor:
         query = """
-        SELECT 
+        SELECT
             tick,
             price_btc,
             price_usd,
@@ -165,10 +164,10 @@ def get_other_src20_examples(db, limit: int = 5) -> List[Dict]:
            OR (price_usd IS NOT NULL AND price_usd > 0)
            OR (market_cap_btc IS NOT NULL AND market_cap_btc > 0)
            OR (volume_24h_btc IS NOT NULL AND volume_24h_btc > 0)
-        ORDER BY 
-            CASE 
-                WHEN volume_24h_btc IS NOT NULL AND volume_24h_btc > 0 THEN volume_24h_btc 
-                ELSE 0 
+        ORDER BY
+            CASE
+                WHEN volume_24h_btc IS NOT NULL AND volume_24h_btc > 0 THEN volume_24h_btc
+                ELSE 0
             END DESC,
             CASE
                 WHEN holder_count IS NOT NULL THEN holder_count
@@ -186,7 +185,7 @@ def get_stamp_info(db, tick: str) -> Optional[Dict]:
     with db.cursor(DictCursor) as cursor:
         # First check if STAMP exists as a deploy in SRC20Valid
         query = """
-        SELECT 
+        SELECT
             tick,
             max,
             deci as decimals,
@@ -249,7 +248,7 @@ def analyze_data_sources(exchange_sources: Optional[str]) -> Dict[str, bool]:
                     sources["StampScan"] = True
                 else:
                     sources["Other"] = True
-    except:
+    except (json.JSONDecodeError, TypeError, KeyError):
         pass
 
     return sources
@@ -433,7 +432,7 @@ def generate_report(
                     freshness = f"🔴 Stale ({hours_ago:.1f} hours ago)"
 
                 report.append(f"  Data Freshness: {freshness}")
-            except:
+            except (ValueError, TypeError, AttributeError):
                 pass
 
         report.append("")
@@ -449,7 +448,7 @@ def generate_report(
                     else stamp_data["exchange_sources"]
                 )
                 report.append(json.dumps(sources_data, indent=2))
-            except:
+            except (json.JSONDecodeError, TypeError, KeyError):
                 report.append(str(stamp_data["exchange_sources"]))
             report.append("")
 
