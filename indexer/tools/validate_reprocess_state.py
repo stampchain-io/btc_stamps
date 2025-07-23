@@ -44,8 +44,8 @@ def check_database(db_path: str, auto_clean: bool = False) -> bool:
     issues_found = False
 
     try:
-        # Check fallback sessions
-        cursor.execute("SELECT id, start_block_index, created_at FROM fallback_sessions ORDER BY start_block_index")
+        # Check fallback sessions (limit to 1000 for memory efficiency)
+        cursor.execute("SELECT id, start_block_index, created_at FROM fallback_sessions ORDER BY start_block_index LIMIT 1000")
         sessions = cursor.fetchall()
 
         if sessions:
