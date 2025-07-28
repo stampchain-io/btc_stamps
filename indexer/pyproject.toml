@@ -77,7 +77,7 @@ pytest-cov = "^6.1.1"
 pre-commit = "^4.1.0"
 types-toml = "^0.10.8"
 maturin = "^1.4.0"
-patchelf = "^0.17.2.2"
+patchelf = "^0.17.2.4"
 pytest-asyncio = "^1.0.0"
 
 [tool.poetry.scripts]
