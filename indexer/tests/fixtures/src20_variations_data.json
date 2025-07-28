@@ -3098,5 +3098,28 @@
         "processed_src20_in_block": [],
         "p2wsh_data": null,
         "tx_hash": "dummy_tx_hash"
+    },
+    {
+        "description": "SRC20.DEPLOY.EXTENDED - DEPLOY with extended metadata fields",
+        "src20JsonString": "{\"p\": \"SRC-20\", \"op\": \"DEPLOY\", \"tick\": \"FORGE\", \"max\": \"21000000\", \"lim\": \"21000000\", \"dec\": 18, \"x\": \"stamp_forge\", \"web\": \"https://stampforge.io\", \"email\": \"forge@stampforge.io\", \"tg\": \"stamp_forge\", \"description\": \"In the forge of innovation, art and code become one. - StampForge Protocol\", \"img\": \"st:510f2a20e1be944468f8\"}",
+        "expectedOutcome": {
+            "stamp_success": true,
+            "src20_success": true,
+            "message": "DEPLOY successful: Valid token deployment with extended metadata fields"
+        },
+        "source": "1SourceAddr",
+        "destination": "1DestAddr",
+        "btc_amount": 0.0,
+        "fee": 0.0,
+        "decoded_tx": "{}",
+        "keyburn": 1,
+        "tx_index": 0,
+        "block_index": 0,
+        "block_time": 0,
+        "is_op_return": false,
+        "valid_stamps_in_block": [],
+        "processed_src20_in_block": [],
+        "p2wsh_data": null,
+        "tx_hash": "dummy_tx_hash"
     }
 ]
