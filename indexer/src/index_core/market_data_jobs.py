@@ -416,6 +416,14 @@ class MarketDataJobScheduler:
                 # Initialize lookups to avoid UnboundLocalError
                 openstamp_lookup = {}
 
+                # Define normalize_token function for case-insensitive token matching
+                def normalize_token(token):
+                    """Normalize token for case-insensitive comparison, handling Unicode properly."""
+                    # Normalize Unicode (NFD decomposition)
+                    normalized = unicodedata.normalize("NFD", token)
+                    # Convert to uppercase
+                    return normalized.upper()
+
                 # Fetch ALL market data from OpenStamp in ONE call
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
 
@@ -431,13 +439,6 @@ class MarketDataJobScheduler:
                     logger.debug(f"OpenStamp: Retrieved {len(openstamp_token_set)} tokens")
 
                     # Create case-insensitive mappings for matching (with Unicode normalization)
-                    def normalize_token(token):
-                        """Normalize token for case-insensitive comparison, handling Unicode properly."""
-                        # Normalize Unicode (NFD decomposition)
-                        normalized = unicodedata.normalize("NFD", token)
-                        # Convert to uppercase
-                        return normalized.upper()
-
                     database_tokens_normalized = {normalize_token(token): token for token in database_tokens}
                     openstamp_tokens_normalized = {normalize_token(token): token for token in openstamp_lookup.keys()}
 
