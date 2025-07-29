@@ -30,6 +30,31 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install
+        working-directory: ./indexer
+
+      - name: Setup Rust and build parser
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust parser
+        working-directory: ./indexer
+        run: |
+          pip install maturin
+          maturin develop --release
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@beta
@@ -50,13 +75,29 @@ jobs:
           # assignee_trigger: "claude-bot"
           
           # Optional: Allow Claude to run specific commands
-          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          allowed_tools: |
+            Bash(cd indexer && poetry install)
+            Bash(cd indexer && poetry run pytest)
+            Bash(cd indexer && poetry run pytest tests/*)
+            Bash(cd indexer && poetry run lint)
+            Bash(cd indexer && poetry run lint --auto-fix)
+            Bash(cd indexer && poetry run check-code)
+            Bash(cd indexer && poetry run run_checks)
+            Bash(cd indexer && poetry run coverage)
+            Bash(cd indexer && poetry run coverage-quick)
+            Bash(cd indexer && poetry run indexer)
+            Bash(cd indexer && poetry run task build)
+            Bash(cd indexer && poetry run task build-dev)
           
           # Optional: Add custom instructions for Claude to customize its behavior for your project
-          # custom_instructions: |
-          #   Follow our coding standards
-          #   Ensure all new code has tests
-          #   Use TypeScript for new files
+          custom_instructions: |
+            This is a Python project managed by Poetry. Always use Poetry commands from the indexer directory.
+            Follow the CLAUDE.md file for development standards and commands.
+            Use parameterized queries with %s placeholders for database operations.
+            Follow existing code conventions and patterns.
+            Always run lint and type checks before completing tasks.
+            IMPORTANT: Always include [skip-version] in commit messages to prevent triggering version bumps.
+            When working on PRs, be aware that CI checks are already running - avoid duplicating test runs.
           
           # Optional: Custom environment variables for Claude
           # claude_env: |
