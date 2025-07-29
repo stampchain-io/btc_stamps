@@ -5,6 +5,7 @@ This module is designed to break circular imports between fetch_utils and blocks
 
 import concurrent.futures
 import logging
+import os
 import threading
 import time
 
@@ -76,6 +77,7 @@ class CPBlocksPipeline:
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
+        self.fallback_failure_threshold = int(os.environ.get("CP_FALLBACK_FAILURE_THRESHOLD", "3"))  # Configurable threshold
         # Initialize state manager for SQLite-based fallback state persistence
         if fallback_mode:
             from .reprocessing_queue import ReprocessingQueue
@@ -929,6 +931,21 @@ class CPBlocksPipeline:
                                 logger.info(
                                     f"Block {res_block_index} removed from blocks_being_fetched due to fetch failure (attempt #{self.failed_fetch_blocks.get(res_block_index, 1)})"
                                 )
+
+                                # Check if we should trigger fallback mode after repeated failures
+                                if self.fallback_mode and self.fallback_started_at is None:
+                                    failure_count = self.failed_fetch_blocks.get(res_block_index, 0)
+                                    # Trigger fallback after configured number of failures for any block
+                                    if failure_count >= self.fallback_failure_threshold:
+                                        logger.warning(
+                                            f"Block {res_block_index} failed {failure_count} times (threshold: {self.fallback_failure_threshold}) - triggering fallback mode"
+                                        )
+                                        self._enter_fallback_mode()
+                                        # Create fallback block for this failed block
+                                        with self._lock:
+                                            if res_block_index not in self.queue:
+                                                self.queue[res_block_index] = self.create_fallback_block(res_block_index)
+                                                self.failed_cp_blocks.add(res_block_index)
 
                         if added_blocks:
                             added_range = (

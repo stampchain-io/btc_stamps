@@ -698,7 +698,7 @@ def get_xcp_block_hash(block_index: int, limit: Optional[int] = None) -> Optiona
 
 
 @cached_api_call("xcp_fetch", ttl=300)  # Cache API responses for 5 minutes
-def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Fetch data from XCP V2 API."""
     # Get healthy nodes or use provided node
     nodes_to_try = []
@@ -718,7 +718,7 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
                 primary_node = get_next_healthy_node_round_robin()
                 if not primary_node:
                     logger.error("Still no healthy nodes after update")
-                    return {"result": [], "next_cursor": None, "result_count": 0}
+                    return None
 
             # Type assertion for mypy - we've already checked primary_node is not None
             assert primary_node is not None
@@ -740,7 +740,7 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
                 healthy_nodes = get_healthy_nodes()
                 if not healthy_nodes:
                     logger.error("Still no healthy nodes after update")
-                    return {"result": [], "next_cursor": None, "result_count": 0}
+                    return None
             nodes_to_try = healthy_nodes
 
     # Try each node until success
@@ -795,7 +795,7 @@ def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Opti
     except Exception as e:
         logger.error(f"Failed to update node health after total failure: {e}")
 
-    return {"result": [], "next_cursor": None, "result_count": 0}
+    return None
 
 
 def verify_cp_block_hash(block_index: int, expected_hash: str | None = None, max_retries: int = 5) -> bool:
@@ -850,6 +850,71 @@ def verify_cp_block_hash(block_index: int, expected_hash: str | None = None, max
 #########################################################################
 
 
+async def _validate_block_data_completeness(block_index: int, block_data: Dict[str, Any]) -> bool:
+    """
+    Validate that the fetched block data is complete.
+
+    Args:
+        block_index: The block index
+        block_data: The fetched block data
+
+    Returns:
+        bool: True if data appears complete, False otherwise
+    """
+    try:
+        # Check basic structure
+        if not block_data or "transactions" not in block_data:
+            logger.error(f"Block {block_index}: Missing transactions field")
+            return False
+
+        transactions = block_data.get("transactions", [])
+
+        # Check for suspiciously low transaction count
+        tx_count = len(transactions)
+        if tx_count == 0:
+            logger.warning(f"Block {block_index}: No transactions found - this may be valid for empty blocks")
+            # Empty blocks are possible, so we don't fail validation
+            return True
+
+        # Check if we hit pagination limits
+        # Safe pagination: 25 per page * 1000 pages = 25,000 max
+        # 2-step workaround: now properly paginated, no fixed limit
+        if tx_count == 25000:
+            logger.error(f"Block {block_index}: Exactly 25,000 transactions - likely hit safe pagination limit!")
+            return False
+        elif tx_count % 2000 == 0 and tx_count >= 2000:
+            # Multiple of 2000 could indicate we hit a page boundary limit
+            logger.warning(f"Block {block_index}: {tx_count} transactions (multiple of 2000) - verify completeness")
+
+        # Check that all transactions have required fields
+        for i, tx in enumerate(transactions):
+            if not tx.get("tx_hash"):
+                logger.error(f"Block {block_index}: Transaction at index {i} missing tx_hash")
+                return False
+
+        # For issuances, verify events are properly attached
+        issuances = block_data.get("issuances", [])
+        if issuances:
+            # Check that issuance transactions have events
+            issuance_tx_hashes = {iss.get("tx_hash") for iss in issuances if iss.get("tx_hash")}
+            tx_hash_to_tx = {tx.get("tx_hash"): tx for tx in transactions if tx.get("tx_hash")}
+
+            for tx_hash in issuance_tx_hashes:
+                if tx_hash in tx_hash_to_tx:
+                    tx = tx_hash_to_tx[tx_hash]
+                    if not tx.get("events"):
+                        logger.warning(
+                            f"Block {block_index}: Issuance transaction {tx_hash} has no events - possible incomplete data"
+                        )
+
+        logger.debug(f"Block {block_index}: Validation passed with {tx_count} transactions")
+        return True
+
+    except Exception as e:
+        logger.error(f"Block {block_index}: Validation error: {e}")
+        return False
+
+
 async def fetch_block_transactions_with_pagination(
     block_index: int, node_url: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
@@ -872,10 +937,17 @@ async def fetch_block_transactions_with_pagination(
     # Check if we should use the workaround
     if config.CP_API_USE_VERBOSE_WORKAROUND:
         logger.debug(f"Fetching block {block_index} transactions with verbose=true safe pagination workaround")
-        return await _fetch_block_transactions_verbose_safe_pagination(block_index, node_url)
+        result = await _fetch_block_transactions_verbose_safe_pagination(block_index, node_url)
     else:
         logger.debug(f"Fetching block {block_index} transactions with original verbose=true method")
-        return await _fetch_block_transactions_original(block_index, node_url)
+        result = await _fetch_block_transactions_original(block_index, node_url)
+
+    # Validate the result has complete data
+    if result and not await _validate_block_data_completeness(block_index, result):
+        logger.error(f"Block {block_index} data validation failed - incomplete data detected")
+        return None
+
+    return result
 
 
 async def _fetch_block_transactions_workaround(block_index: int, node_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -892,15 +964,55 @@ async def _fetch_block_transactions_workaround(block_index: int, node_url: Optio
     # Step 1: Get all transactions with verbose=false (supports high limits)
     logger.debug("Step 1: Fetching all transactions with verbose=false")
     tx_endpoint = f"/blocks/{block_index}/transactions"
-    tx_params = {"verbose": "false", "limit": "2000", "show_unconfirmed": "false"}
 
-    tx_response = await fetch_xcp_async(tx_endpoint, tx_params, timeout=30)
-    if not tx_response or "result" not in tx_response:
-        logger.error(f"Failed to fetch transactions for block {block_index}")
+    # First, get the total count if possible
+    count_params = {"verbose": "false", "limit": "1", "show_unconfirmed": "false"}
+    count_response = await fetch_xcp_async(tx_endpoint, count_params, timeout=30)
+
+    expected_count = None
+    if count_response and "result_count" in count_response:
+        expected_count = count_response["result_count"]
+        logger.debug(f"Block {block_index} expects {expected_count} transactions")
+
+    # Fetch with pagination to handle large blocks
+    all_transactions = []
+    next_cursor = None
+    page_count = 0
+
+    while True:
+        page_count += 1
+        tx_params = {"verbose": "false", "limit": "2000", "show_unconfirmed": "false"}
+        if next_cursor:
+            tx_params["cursor"] = next_cursor
+
+        tx_response = await fetch_xcp_async(tx_endpoint, tx_params, timeout=30)
+        if not tx_response or "result" not in tx_response:
+            logger.error(f"Failed to fetch transactions page {page_count} for block {block_index}")
+            return None
+
+        page_transactions = tx_response["result"]
+        all_transactions.extend(page_transactions)
+        logger.debug(f"Page {page_count}: Got {len(page_transactions)} transactions, total: {len(all_transactions)}")
+
+        # Check if there are more pages
+        if "next_cursor" in tx_response and tx_response["next_cursor"]:
+            next_cursor = tx_response["next_cursor"]
+        else:
+            break
+
+        # Safety check to prevent infinite loops
+        if page_count > 50:  # 50 pages * 2000 = 100,000 transactions max
+            logger.error(f"Too many pages ({page_count}) for block {block_index} - possible infinite loop")
+            return None
+
+    logger.debug(f"Got {len(all_transactions)} transactions total")
+
+    # Validate against expected count if available
+    if expected_count is not None and len(all_transactions) != expected_count:
+        logger.error(
+            f"Transaction count mismatch for block {block_index}: " f"expected {expected_count}, got {len(all_transactions)}"
+        )
         return None
-
-    all_transactions = tx_response["result"]
-    logger.debug(f"Got {len(all_transactions)} transactions")
 
     # Create a mapping of tx_hash to transaction for quick lookup
     tx_map = {tx["tx_hash"]: tx for tx in all_transactions}
@@ -935,8 +1047,9 @@ async def _fetch_block_transactions_workaround(block_index: int, node_url: Optio
                     await asyncio.sleep(1 * (retry_attempt + 1))
 
         if not events_data or "result" not in events_data:
-            logger.warning(f"Failed to fetch events page {page_count} for block {block_index}")
-            break
+            logger.error(f"Failed to fetch events page {page_count} for block {block_index} - data may be incomplete!")
+            # Don't break - mark as incomplete and return None to trigger fallback
+            return None
 
         page_events = events_data["result"]
         all_events.extend(page_events)
@@ -1015,7 +1128,7 @@ async def _fetch_block_transactions_verbose_safe_pagination(
     all_transactions: List[Dict[str, Any]] = []
     next_cursor = None
     page_count = 0
-    max_pages = 500  # Safety limit (25 txs/page * 500 pages = 12,500 max txs per block)
+    max_pages = 1000  # Increased safety limit (25 txs/page * 1000 pages = 25,000 max txs per block)
 
     while page_count < max_pages:
         page_count += 1
@@ -1071,6 +1184,15 @@ async def _fetch_block_transactions_verbose_safe_pagination(
         else:
             logger.debug(f"No more pages to fetch for block {block_index}")
             break
+
+    # Check if we hit the max pages limit
+    if page_count >= max_pages and next_cursor:
+        logger.error(
+            f"⚠️ Hit max pages limit ({max_pages}) for block {block_index} with {len(all_transactions)} transactions! "
+            f"There may be more transactions that were not fetched. Falling back to 2-step workaround."
+        )
+        # Fall back to 2-step workaround which has higher limits
+        return await _fetch_block_transactions_workaround(block_index, node_url)
 
     logger.debug(
         f"Completed safe verbose pagination for block {block_index}: {len(all_transactions)} transactions across {page_count} pages"
