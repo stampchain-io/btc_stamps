@@ -9,6 +9,7 @@ import decimal
 import http
 import logging
 import os
+import random
 import sys
 import threading
 import time
@@ -300,7 +301,19 @@ def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
             block_index += 1
             return block_index
         except Exception as e:
-            logger.error(f"Error committing block {block_index} (attempt {attempt + 1}/{max_retries}): {e}")
+            # Check for MySQL deadlock error (1213)
+            is_deadlock = False
+            if hasattr(e, "args") and len(e.args) > 0:
+                if isinstance(e.args[0], int) and e.args[0] == 1213:
+                    is_deadlock = True
+                    logger.warning(f"Database deadlock detected at block {block_index} (attempt {attempt + 1}/{max_retries})")
+                elif isinstance(e.args[0], str) and "Deadlock found" in e.args[0]:
+                    is_deadlock = True
+                    logger.warning(f"Database deadlock detected at block {block_index} (attempt {attempt + 1}/{max_retries})")
+
+            if not is_deadlock:
+                logger.error(f"Error committing block {block_index} (attempt {attempt + 1}/{max_retries}): {e}")
+
             db.rollback()
 
             if attempt < max_retries - 1:
@@ -1089,6 +1102,25 @@ def follow(
                         backend_instance.get_tx_list(block_hash)
                     )
 
+                    # Log transaction counts for debugging
+                    bitcoin_tx_count = len(txhash_list_full)
+                    cp_tx_count = 0
+                    if block_index in stamp_issuances_list and "transactions" in stamp_issuances_list[block_index]:
+                        cp_tx_count = len(stamp_issuances_list[block_index]["transactions"])
+
+                    # It's normal for Counterparty to have fewer transactions than Bitcoin
+                    # Only log at debug level since CP transactions are a subset of BTC transactions
+                    if cp_tx_count == 0 and bitcoin_tx_count > 0:
+                        logger.debug(
+                            f"Block {block_index}: {bitcoin_tx_count} Bitcoin transactions, "
+                            f"{cp_tx_count} Counterparty transactions (normal - no CP activity)"
+                        )
+                    elif cp_tx_count > 0:
+                        logger.debug(
+                            f"Block {block_index}: {bitcoin_tx_count} Bitcoin transactions, "
+                            f"{cp_tx_count} Counterparty transactions"
+                        )
+
                     try:
                         # Try to get xcp_block_hash, fall back to block_hash if needed
                         if "xcp_block_hash" in stamp_issuances_list[block_index]:
@@ -1612,6 +1644,21 @@ def follow(
                 sys.exit(1)  # Exit the process
 
             except Exception as e:
+                # Check for MySQL deadlock error (1213)
+                is_deadlock = False
+                if hasattr(e, "args") and len(e.args) > 0:
+                    if isinstance(e.args[0], int) and e.args[0] == 1213:
+                        is_deadlock = True
+                    elif isinstance(e.args[0], str) and "Deadlock found" in str(e.args[0]):
+                        is_deadlock = True
+
+                if is_deadlock:
+                    logger.warning(f"Database deadlock detected at block {block_index}, will retry")
+                    db.rollback()
+                    # Short sleep with jitter to avoid thundering herd
+                    time.sleep(1 + random.uniform(0, 2))
+                    continue
+
                 logger.error(f"Error processing block {block_index}: {e}")
                 if "Duplicate entry" in str(e):
                     logger.warning(f"Rolling back block {block_index} due to duplicate key error")
