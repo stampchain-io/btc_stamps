@@ -168,34 +168,9 @@ def get_src_or_img_from_data(stamp, block_index):
         else:
             raise ValueError("invalid p")
     else:
-        # Description exists - this is a Counterparty issuance response
         stamp_description = stamp.get("description")
         if stamp_description is None:
             return None, None, None, None
-
-        # Check if description starts with "stamp:" for image stamps
-        if stamp_description.startswith("stamp:"):
-            # This is a base64 image stamp
-            base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
-            decoded_base64, is_valid_base64 = decode_base64(base64_string, block_index)
-            return decoded_base64, base64_string, stamp_mimetype, is_valid_base64
-        
-        # Try to parse description as JSON to check for SRC protocols
-        try:
-            import json
-            protocol_data = json.loads(stamp_description)
-            
-            # Check if this is an SRC protocol
-            if isinstance(protocol_data, dict) and ("p" in protocol_data or "P" in protocol_data):
-                protocol = protocol_data.get("p", protocol_data.get("P", "")).upper()
-                if protocol in ["SRC-20", "SRC-721", "SRC-101"]:
-                    # Return the parsed protocol data, not the Counterparty issuance
-                    return protocol_data, None, None, 1
-        except (json.JSONDecodeError, TypeError):
-            # Not valid JSON, treat as regular description
-            pass
-
-        # If we get here, it's some other kind of description - try as base64
         base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
         decoded_base64, is_valid_base64 = decode_base64(base64_string, block_index)
         return decoded_base64, base64_string, stamp_mimetype, is_valid_base64

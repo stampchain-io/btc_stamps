@@ -698,7 +698,9 @@ def get_xcp_block_hash(block_index: int, limit: Optional[int] = None) -> Optiona
 
 
 @cached_api_call("xcp_fetch", ttl=300)  # Cache API responses for 5 minutes
-def fetch_xcp(endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def fetch_xcp(
+    endpoint: str, params: Optional[Dict[str, Any]] = None, node: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, Any]]:
     """Fetch data from XCP V2 API."""
     # Get healthy nodes or use provided node
     nodes_to_try = []

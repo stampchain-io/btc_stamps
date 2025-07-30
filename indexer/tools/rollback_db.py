@@ -46,11 +46,21 @@ def main() -> None:
             # Validate the target block
             validate_block_number(args.block_index, "rollback target")
 
-            # Get current block height for distance validation
-            from index_core.backend import Backend
+            # Get current block height from database for distance validation
+            from index_core.database_manager import DatabaseManager
 
-            backend = Backend()
-            current_block = backend.getblockcount()
+            db_manager = DatabaseManager()
+            db = db_manager.connect()
+            cursor = db.cursor()
+            cursor.execute("SELECT MAX(block_index) FROM blocks")
+            result = cursor.fetchone()
+            db.close()
+
+            if result and result[0] is not None:
+                current_block = result[0]
+            else:
+                # If no blocks in database, treat as block 0
+                current_block = 0
 
             # Validate rollback distance
             validate_rollback_distance(current_block, args.block_index)
@@ -78,12 +88,19 @@ def main() -> None:
 
         # Still get current block for display
         try:
-            from index_core.backend import Backend
+            from index_core.database_manager import DatabaseManager
 
-            backend = Backend()
-            current_block = backend.getblockcount()
-            print(f"Rollback from {current_block} to {args.block_index} ({current_block - args.block_index} blocks)")
-            print()
+            db_manager = DatabaseManager()
+            db = db_manager.connect()
+            cursor = db.cursor()
+            cursor.execute("SELECT MAX(block_index) FROM blocks")
+            result = cursor.fetchone()
+            db.close()
+
+            if result and result[0] is not None:
+                current_block = result[0]
+                print(f"Rollback from {current_block} to {args.block_index} ({current_block - args.block_index} blocks)")
+                print()
         except Exception:
             pass
 
