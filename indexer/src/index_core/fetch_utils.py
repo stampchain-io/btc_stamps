@@ -874,7 +874,7 @@ async def _validate_block_data_completeness(block_index: int, block_data: Dict[s
         # Check for suspiciously low transaction count
         tx_count = len(transactions)
         if tx_count == 0:
-            logger.warning(f"Block {block_index}: No transactions found - this may be valid for empty blocks")
+            logger.debug(f"Block {block_index}: No transactions found - empty block")
             # Empty blocks are possible, so we don't fail validation
             return True
 
