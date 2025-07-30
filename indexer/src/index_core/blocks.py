@@ -893,6 +893,7 @@ def follow(
                             if not wait_for_cp_block_processed(block_index, max_wait=60.0):
                                 logger.warning(f"CP not ready for block {block_index} after 60s, skipping")
                                 db.rollback()
+                                time.sleep(config.BACKEND_POLL_INTERVAL)
                                 continue
                         else:
                             logger.info(
@@ -1522,6 +1523,7 @@ def follow(
 
                                         if not wait_for_cp_block_processed(block_tip, max_wait=25.0):
                                             logger.warning(f"CP not ready for block {block_tip}, will retry")
+                                            time.sleep(config.BACKEND_POLL_INTERVAL)
                                             continue
 
                                         # Reset start_time to measure only the actual block processing time
