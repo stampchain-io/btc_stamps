@@ -1371,6 +1371,11 @@ def follow(
                             f"Consensus error at block {block_index}, attempt {consensus_error_count}/{max_consensus_retries}"
                         )
                         db.rollback()
+                        # Clear caches to prevent inconsistent state on retry
+                        from index_core.caching import clear_all_caches
+
+                        clear_all_caches()
+                        logger.debug("Cleared all caches after consensus error rollback")
                         # Exponential backoff for retries
                         if not server.shutdown_flag.is_set():
                             time.sleep(min(5 * consensus_error_count, 30))
@@ -1657,6 +1662,11 @@ def follow(
                 if is_deadlock:
                     logger.warning(f"Database deadlock detected at block {block_index}, will retry")
                     db.rollback()
+                    # Clear caches to prevent inconsistent state on retry
+                    from index_core.caching import clear_all_caches
+
+                    clear_all_caches()
+                    logger.debug("Cleared all caches after deadlock rollback")
                     # Short sleep with jitter to avoid thundering herd
                     time.sleep(1 + random.uniform(0, 2))
                     continue
