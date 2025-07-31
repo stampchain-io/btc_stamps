@@ -271,14 +271,14 @@ def initialize_config(
 
     # Set ZMQ ports based on network type
     if config.TESTNET:
-        config.ZMQ_TX_PORT = config.ZMQ_PORT_TESTNET_TX
-        config.ZMQ_BLOCK_PORT = config.ZMQ_PORT_TESTNET_BLOCK
+        config.ZMQ_TX_PORT = int(config.ZMQ_PORT_TESTNET_TX)
+        config.ZMQ_BLOCK_PORT = int(config.ZMQ_PORT_TESTNET_BLOCK)
     elif config.REGTEST:
-        config.ZMQ_TX_PORT = config.ZMQ_PORT_REGTEST_TX
-        config.ZMQ_BLOCK_PORT = config.ZMQ_PORT_REGTEST_BLOCK
+        config.ZMQ_TX_PORT = int(config.ZMQ_PORT_REGTEST_TX)
+        config.ZMQ_BLOCK_PORT = int(config.ZMQ_PORT_REGTEST_BLOCK)
     else:
-        config.ZMQ_TX_PORT = config.ZMQ_PORT_MAINNET_TX
-        config.ZMQ_BLOCK_PORT = config.ZMQ_PORT_MAINNET_BLOCK
+        config.ZMQ_TX_PORT = int(config.ZMQ_PORT_MAINNET_TX)
+        config.ZMQ_BLOCK_PORT = int(config.ZMQ_PORT_MAINNET_BLOCK)
 
     logger.info(f"ZMQ configured for {config.ZMQ_HOST}:{config.ZMQ_TX_PORT} (tx) and {config.ZMQ_BLOCK_PORT} (blocks)")
 
