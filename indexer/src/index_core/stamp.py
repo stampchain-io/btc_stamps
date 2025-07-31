@@ -168,23 +168,9 @@ def get_src_or_img_from_data(stamp, block_index):
         else:
             raise ValueError("invalid p")
     else:
-        # If description exists, check if it's a valid stamp description (contains "stamp:")
-        # or if this is an SRC protocol with a metadata description field
         stamp_description = stamp.get("description")
         if stamp_description is None:
             return None, None, None, None
-
-        # Check if this is an SRC protocol with a non-stamp description
-        if ("p" in stamp or "P" in stamp) and not stamp_description.startswith("stamp:"):
-            protocol = stamp.get("p", stamp.get("P", "")).upper()
-            if protocol == "SRC-20":
-                return stamp, None, None, 1
-            elif protocol == "SRC-721":
-                return stamp, None, None, 1
-            elif protocol == "SRC-101":
-                return stamp, None, None, 1
-
-        # Otherwise, treat as base64 stamp description
         base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
         decoded_base64, is_valid_base64 = decode_base64(base64_string, block_index)
         return decoded_base64, base64_string, stamp_mimetype, is_valid_base64
