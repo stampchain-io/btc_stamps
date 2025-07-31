@@ -403,17 +403,19 @@ def run_rust_checks():
         suppress_stderr=True,
     )
 
-    # These commands must run sequentially
+    # These commands must run sequentially to avoid rustup race conditions
     sequential_commands = [
         # First ensure maturin is installed
         "poetry run pip install maturin --quiet",
+        # Initialize rustup and ensure all components are available before parallel execution
+        # This prevents race conditions when multiple commands try to download components simultaneously
+        "cd src/rust_parser && rustup show",
+        "cd src/rust_parser && cargo fmt --version",
     ]
 
-    # These commands can run in parallel
+    # These commands can run in parallel after rustup initialization
     parallel_commands = [
-        "cd src/rust_parser && cargo fmt --version",
         "cd src/rust_parser && cargo fmt -- --check",
-        "cd src/rust_parser && rustup show",
         "cd src/rust_parser && cargo clippy -- -D warnings",
         "cd src/rust_parser && cargo test",
     ]
@@ -427,9 +429,9 @@ def run_rust_checks():
             rust_failures.append(cmd)
             all_passed = False
 
-    # Run parallel Rust checks
-    logger.info(colored("Running Rust checks in parallel...", "cyan"))
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    # Run remaining Rust checks in parallel (after rustup initialization)
+    logger.info(colored("Running remaining Rust checks in parallel...", "cyan"))
+    with ThreadPoolExecutor(max_workers=3) as executor:
         future_to_cmd = {executor.submit(run_rust_command_task, cmd): cmd for cmd in parallel_commands}
 
         for future in as_completed(future_to_cmd):
