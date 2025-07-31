@@ -1363,6 +1363,8 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
 
             return True
 
+        config.FORCE = was_force_enabled
+
         if api_ledger_validation is None:
             logger.error(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
             raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
