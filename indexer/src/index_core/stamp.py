@@ -173,7 +173,7 @@ def get_src_or_img_from_data(stamp, block_index):
         stamp_description = stamp.get("description")
         if stamp_description is None:
             return None, None, None, None
-        
+
         # Check if this is an SRC protocol with a non-stamp description
         if ("p" in stamp or "P" in stamp) and not stamp_description.startswith("stamp:"):
             protocol = stamp.get("p", stamp.get("P", "")).upper()
@@ -183,7 +183,7 @@ def get_src_or_img_from_data(stamp, block_index):
                 return stamp, None, None, 1
             elif protocol == "SRC-101":
                 return stamp, None, None, 1
-        
+
         # Otherwise, treat as base64 stamp description
         base64_string, stamp_mimetype = parse_base64_from_description(stamp_description)
         decoded_base64, is_valid_base64 = decode_base64(base64_string, block_index)
