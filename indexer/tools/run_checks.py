@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from colorlog import ColoredFormatter
 from termcolor import colored
@@ -138,6 +139,70 @@ integration_failures = []
 rust_failures = []
 
 
+def run_linter_task(linter_name, command, auto_fix=False):
+    """Run a single linter task and return results"""
+    try:
+        if linter_name == "flake8" and auto_fix:
+            # Run autopep8 before flake8 if auto-fix is enabled
+            run_autopep8()
+
+        logger.info(f"Running {linter_name}...")
+        logger.info(colored(f"H4XOR_RUN: {command}", "magenta"))
+
+        # Run the command and capture result
+        success = run_command(command, ignore_errors=True)
+
+        if success:
+            logger.info(colored(f"💣 PASS: {linter_name}", "green"))
+            return linter_name, True, None
+        else:
+            logger.error(colored(f"💀 FAIL: {linter_name}", "red"))
+            return linter_name, False, linter_name
+    except Exception as e:
+        logger.error(f"Error running {linter_name}: {e}")
+        return linter_name, False, linter_name
+
+
+def run_linters_parallel(auto_fix=False):
+    """Run all linters in parallel for faster execution"""
+    logger.info(colored("Running linters in parallel...", "cyan"))
+
+    # Define linter commands
+    linter_tasks = [
+        ("isort", "poetry run isort ." if auto_fix else "poetry run isort . --check-only"),
+        (
+            "black",
+            "poetry run black . --config=pyproject.toml" if auto_fix else "poetry run black --check . --config=pyproject.toml",
+        ),
+        ("flake8", "poetry run flake8 src/ --count --statistics"),
+        ("mypy", "poetry run mypy src/ --explicit-package-bases"),
+        ("bandit", "poetry run task bandit"),
+    ]
+
+    all_passed = True
+    failures = []
+
+    # Run linters in parallel
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit all tasks
+        future_to_linter = {executor.submit(run_linter_task, name, cmd, auto_fix): name for name, cmd in linter_tasks}
+
+        # Collect results as they complete
+        for future in as_completed(future_to_linter):
+            linter_name = future_to_linter[future]
+            try:
+                name, success, failure = future.result()
+                if not success:
+                    all_passed = False
+                    failures.append(failure)
+            except Exception as e:
+                logger.error(f"Exception running {linter_name}: {e}")
+                all_passed = False
+                failures.append(linter_name)
+
+    return all_passed, failures
+
+
 def run_code_quality_checks(auto_fix=False):
     """Run code quality checks with improved output"""
     global code_quality_failures
@@ -164,61 +229,12 @@ def run_code_quality_checks(auto_fix=False):
         for key, value in test_env.items():
             logger.info(f"  {colored(key, 'yellow')} = {colored(value, 'white')}")
 
-        # Run linting checks first - they're quick and can catch issues early
-        logger.info(colored("Running code quality tools...", "cyan"))
+        # Run linting checks in parallel for faster execution
+        logger.info(colored("Running code quality tools in parallel...", "cyan"))
+        linters_passed, linter_failures = run_linters_parallel(auto_fix)
 
-        # isort check
-        logger.info("Running isort...")
-        cmd = "poetry run isort ." if auto_fix else "poetry run isort . --check-only"
-        logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
-        if run_command(cmd, ignore_errors=True):
-            logger.info(colored("💣 PASS: isort", "green"))
-        else:
-            code_quality_failures.append("isort")
-            logger.error(colored("💀 FAIL: isort", "red"))
-            all_passed = False
-
-        # black check
-        logger.info("Running black...")
-        cmd = (
-            "poetry run black . --config=pyproject.toml" if auto_fix else "poetry run black --check . --config=pyproject.toml"
-        )
-        logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
-        if run_command(cmd, ignore_errors=True):
-            logger.info(colored("💣 PASS: black", "green"))
-        else:
-            code_quality_failures.append("black")
-            logger.error(colored("💀 FAIL: black", "red"))
-            all_passed = False
-
-        # flake8 check with optional autopep8 auto-fix
-        logger.info("Running flake8...")
-        if auto_fix:
-            run_autopep8()
-
-        if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
-            logger.info(colored("PASS: flake8 check", "green"))
-        else:
-            code_quality_failures.append("flake8")
-            logger.error(colored("FAIL: flake8 check", "red"))
-            all_passed = False
-
-        # mypy check
-        logger.info("Running mypy...")
-        if run_command("poetry run mypy src/ --explicit-package-bases", ignore_errors=True):
-            logger.info(colored("PASS: mypy check", "green"))
-        else:
-            code_quality_failures.append("mypy")
-            logger.error(colored("FAIL: mypy check", "red"))
-            all_passed = False
-
-        # bandit check
-        logger.info("Running bandit...")
-        if run_command("poetry run task bandit", ignore_errors=True):
-            logger.info(colored("PASS: bandit check", "green"))
-        else:
-            code_quality_failures.append("bandit")
-            logger.error(colored("FAIL: bandit check", "red"))
+        if not linters_passed:
+            code_quality_failures.extend(linter_failures)
             all_passed = False
 
         # Build Rust parser after linting checks
@@ -237,6 +253,8 @@ def run_code_quality_checks(auto_fix=False):
             "poetry",
             "run",
             "pytest",
+            "-n",
+            "auto",  # Run tests in parallel using all available cores
             "-m",
             "not requires_bitcoin_node and not integration",
             "-v",
@@ -360,6 +378,17 @@ def run_code_quality_checks(auto_fix=False):
         return False
 
 
+def run_rust_command_task(command):
+    """Run a single Rust command and return results"""
+    try:
+        logger.info(f"Running: {colored(command, 'yellow')}")
+        success = run_command(command, ignore_errors=True)
+        return command, success, None if success else command
+    except Exception as e:
+        logger.error(f"Error running {command}: {e}")
+        return command, False, command
+
+
 def run_rust_checks():
     """Run Rust-specific checks and build the parser with improved output"""
     global rust_failures
@@ -367,10 +396,6 @@ def run_rust_checks():
     print_header("rust")
 
     # First check if the parser is already working
-    # We suppress stderr here because in CI environments, the parser won't exist on first run,
-    # which creates expected but noisy error output. We handle the missing parser case below
-    # by building it if needed. The error is not useful for debugging since it's an expected
-    # condition in fresh environments.
     logger.info("Checking if Rust parser is already available...")
     parser_available = run_command(
         'poetry run python -c "from btc_stamps_parser import FastTransactionParser; parser = FastTransactionParser()"',
@@ -378,58 +403,75 @@ def run_rust_checks():
         suppress_stderr=True,
     )
 
-    commands = [
+    # These commands must run sequentially
+    sequential_commands = [
         # First ensure maturin is installed
         "poetry run pip install maturin --quiet",
-        # Run Rust checks
+    ]
+
+    # These commands can run in parallel
+    parallel_commands = [
         "cd src/rust_parser && cargo fmt --version",
         "cd src/rust_parser && cargo fmt -- --check",
         "cd src/rust_parser && rustup show",
         "cd src/rust_parser && cargo clippy -- -D warnings",
-        # Run Rust tests
         "cd src/rust_parser && cargo test",
     ]
 
-    # Only try to build if parser is not available, or always verify it works
+    all_passed = True
+
+    # Run sequential commands first
+    for cmd in sequential_commands:
+        logger.info(f"Running setup: {colored(cmd, 'yellow')}")
+        if not run_command(cmd, ignore_errors=True):
+            rust_failures.append(cmd)
+            all_passed = False
+
+    # Run parallel Rust checks
+    logger.info(colored("Running Rust checks in parallel...", "cyan"))
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_cmd = {executor.submit(run_rust_command_task, cmd): cmd for cmd in parallel_commands}
+
+        for future in as_completed(future_to_cmd):
+            cmd = future_to_cmd[future]
+            try:
+                command, success, failure = future.result()
+                if not success:
+                    all_passed = False
+                    rust_failures.append(failure)
+            except Exception as e:
+                logger.error(f"Exception running {cmd}: {e}")
+                all_passed = False
+                rust_failures.append(cmd)
+
+    # Build parser if needed (sequential)
     if not parser_available:
-        commands.extend(
-            [
-                # Build the parser
-                "cd src/rust_parser && poetry run maturin develop --release",
-            ]
-        )
+        build_cmd = "cd src/rust_parser && poetry run maturin develop --release"
+        logger.info(f"Building Rust parser: {colored(build_cmd, 'yellow')}")
+        if not run_command(build_cmd, ignore_errors=True):
+            # Special handling for maturin build
+            logger.warning(colored("⚠️  Maturin build failed, checking if parser still works...", "yellow"))
+            verify_result = run_command(
+                """poetry run python -c \"from btc_stamps_parser import FastTransactionParser; parser = FastTransactionParser()\" """,
+                ignore_errors=True,
+            )
+            if verify_result:
+                logger.info(colored("✅ Parser verification passed despite maturin failure", "green"))
+            else:
+                logger.error(colored("❌ Parser verification failed after maturin failure", "red"))
+                rust_failures.append(build_cmd)
+                all_passed = False
     else:
         logger.info(colored("✅ Rust parser already built and available, skipping maturin develop", "green"))
 
     # Always verify the parser works
-    commands.append(
+    verify_cmd = (
         """poetry run python -c \"from btc_stamps_parser import FastTransactionParser; parser = FastTransactionParser()\" """
     )
-
-    all_passed = True
-    for i, cmd in enumerate(commands):
-        progress = f"[{i + 1}/{len(commands)}]"
-        logger.info(f"{progress} {colored('Running Rust check:', 'cyan')} {colored(cmd, 'yellow')}")
-        cmd_result = run_command(cmd, ignore_errors=True)
-        if not cmd_result:
-            # Special handling for maturin build - if parser verification still works, don't fail
-            if "maturin develop" in cmd:
-                logger.warning(colored("⚠️  Maturin build failed, but checking if parser still works...", "yellow"))
-                verify_result = run_command(
-                    """poetry run python -c \"from btc_stamps_parser import FastTransactionParser; parser = FastTransactionParser()\" """,
-                    ignore_errors=True,
-                )
-                if verify_result:
-                    logger.info(colored("✅ Parser verification passed despite maturin failure", "green"))
-                    continue
-                else:
-                    logger.error(colored("❌ Parser verification failed after maturin failure", "red"))
-                    rust_failures.append(cmd)
-                    all_passed = False
-            else:
-                rust_failures.append(cmd)
-                all_passed = False
-        # continue to run next commands
+    logger.info("Verifying Rust parser...")
+    if not run_command(verify_cmd, ignore_errors=True):
+        rust_failures.append(verify_cmd)
+        all_passed = False
 
     if all_passed:
         logger.info(colored("All Rust checks passed!", "green", attrs=["bold"]))
@@ -464,6 +506,8 @@ def run_integration_tests():
         "poetry",
         "run",
         "pytest",
+        "-n",
+        "auto",  # Run tests in parallel
         "-m",
         "integration or requires_db or requires_network or requires_bitcoin_node",
         "-v",
@@ -747,60 +791,8 @@ def run_linters_only(auto_fix=False, with_coverage=False):
     if with_coverage:
         logger.info(colored("📊 Coverage validation enabled", "magenta"))
 
-    all_passed = True
-    linter_failures = []
-
-    # isort check
-    logger.info("Running isort...")
-    cmd = "poetry run isort ." if auto_fix else "poetry run isort . --check-only"
-    logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
-    if run_command(cmd, ignore_errors=True):
-        logger.info(colored("💣 PASS: isort", "green"))
-    else:
-        linter_failures.append("isort")
-        logger.error(colored("💀 FAIL: isort", "red"))
-        all_passed = False
-
-    # black check
-    logger.info("Running black...")
-    cmd = "poetry run black . --config=pyproject.toml" if auto_fix else "poetry run black --check . --config=pyproject.toml"
-    logger.info(colored(f"H4XOR_RUN: {cmd}", "magenta"))
-    if run_command(cmd, ignore_errors=True):
-        logger.info(colored("💣 PASS: black", "green"))
-    else:
-        linter_failures.append("black")
-        logger.error(colored("💀 FAIL: black", "red"))
-        all_passed = False
-
-    # flake8 check with optional autopep8 auto-fix
-    logger.info("Running flake8...")
-    if auto_fix:
-        run_autopep8()
-
-    if run_command("poetry run flake8 src/ --count --statistics", ignore_errors=True):
-        logger.info(colored("PASS: flake8 check", "green"))
-    else:
-        linter_failures.append("flake8")
-        logger.error(colored("FAIL: flake8 check", "red"))
-        all_passed = False
-
-    # mypy check
-    logger.info("Running mypy...")
-    if run_command("poetry run mypy src/ --explicit-package-bases", ignore_errors=True):
-        logger.info(colored("PASS: mypy check", "green"))
-    else:
-        linter_failures.append("mypy")
-        logger.error(colored("FAIL: mypy check", "red"))
-        all_passed = False
-
-    # bandit check
-    logger.info("Running bandit...")
-    if run_command("poetry run task bandit", ignore_errors=True):
-        logger.info(colored("PASS: bandit check", "green"))
-    else:
-        linter_failures.append("bandit")
-        logger.error(colored("FAIL: bandit check", "red"))
-        all_passed = False
+    # Use the parallel linter execution
+    all_passed, linter_failures = run_linters_parallel(auto_fix)
 
     # Optional: pylint for additional code quality checks
     # Uncomment if you want to add pylint
