@@ -820,7 +820,31 @@ def follow(
 
                     if block_data:
                         logger.debug(f"Got block {block_index} from CP pipeline")
-                        stamp_issuances = block_data["issuances"]
+                        
+                        # Check if this is a fallback block (CP nodes were down)
+                        if block_data.get("fallback_mode"):
+                            logger.warning(f"Block {block_index} is in fallback mode - processing without CP data")
+                            stamp_issuances = []  # Empty issuances, but still process the block
+                            # Track for later reprocessing when CP is available
+                            if block_data.get("needs_cp_reprocessing"):
+                                logger.info(f"Block {block_index} marked for CP reprocessing when nodes recover")
+                                # Add to reprocessing queue for later when CP nodes are available
+                                try:
+                                    from index_core.reprocessing_queue import ReprocessingQueue
+                                    reprocess_queue = ReprocessingQueue.get_instance()
+                                    # Get the fallback session start block from pipeline
+                                    fallback_start = cp_pipeline_instance.fallback_started_at if cp_pipeline_instance else block_index
+                                    # Save this block as needing reprocessing
+                                    if hasattr(reprocess_queue, 'save_fallback_state'):
+                                        current_state = reprocess_queue.load_fallback_state(fallback_start) or {}
+                                        current_state[block_index] = True  # Mark as needs reprocessing
+                                        reprocess_queue.save_fallback_state(fallback_start, current_state)
+                                        logger.info(f"Saved block {block_index} to reprocessing queue for fallback session starting at {fallback_start}")
+                                except Exception as e:
+                                    logger.error(f"Failed to save block {block_index} to reprocessing queue: {e}")
+                        else:
+                            stamp_issuances = block_data["issuances"]
+                        
                         stamp_issuances_list = {block_index: block_data}
                     else:
                         # Check if we're at or near the chain tip - expected behavior
@@ -993,7 +1017,21 @@ def follow(
                                 logger.info("Shutdown flag detected after CP fetch, breaking...")
                                 break
 
-                            stamp_issuances = stamp_issuances_list[block_index]["issuances"]
+                            # Check if the block data is None (API failure)
+                            if stamp_issuances_list.get(block_index) is None:
+                                logger.error(f"Block {block_index} data is None - API fetch failed")
+                                db.rollback()
+                                # Don't skip the block - retry
+                                time.sleep(10)
+                                continue
+                            
+                            # Now safe to access the issuances
+                            block_data = stamp_issuances_list[block_index]
+                            if not isinstance(block_data, dict) or "issuances" not in block_data:
+                                logger.error(f"Block {block_index} has invalid format: {type(block_data)}")
+                                db.rollback()
+                                continue
+                            stamp_issuances = block_data["issuances"]
                         except KeyboardInterrupt:
                             logger.info("Received keyboard interrupt during CP fetch.")
                             server.shutdown_flag.set()
@@ -1011,12 +1049,18 @@ def follow(
                             logger.error(f"Error during CP fetch: {e}")
                             if not config.FORCE:
                                 raise
+                            # With FORCE=True, retry instead of skip
+                            logger.warning(f"FORCE mode: Retrying block {block_index} after error: {e}")
                             db.rollback()
+                            time.sleep(10)  # Wait before retry
+                            # continue here goes back to the while loop, retrying same block
                             continue
 
                     # Check for critical block error marker
                     if (
                         block_index in stamp_issuances_list
+                        and stamp_issuances_list[block_index] is not None
+                        and isinstance(stamp_issuances_list[block_index], dict)
                         and "error" in stamp_issuances_list[block_index]
                         and stamp_issuances_list[block_index]["error"] == "Critical block missing from XCP API"
                     ):
@@ -1106,7 +1150,10 @@ def follow(
                     # Log transaction counts for debugging
                     bitcoin_tx_count = len(txhash_list_full)
                     cp_tx_count = 0
-                    if block_index in stamp_issuances_list and "transactions" in stamp_issuances_list[block_index]:
+                    if (block_index in stamp_issuances_list and 
+                        stamp_issuances_list[block_index] is not None and
+                        isinstance(stamp_issuances_list[block_index], dict) and 
+                        "transactions" in stamp_issuances_list[block_index]):
                         cp_tx_count = len(stamp_issuances_list[block_index]["transactions"])
 
                     # It's normal for Counterparty to have fewer transactions than Bitcoin
@@ -1124,7 +1171,12 @@ def follow(
 
                     try:
                         # Try to get xcp_block_hash, fall back to block_hash if needed
-                        if "xcp_block_hash" in stamp_issuances_list[block_index]:
+                        if (block_index not in stamp_issuances_list or 
+                            stamp_issuances_list[block_index] is None or
+                            not isinstance(stamp_issuances_list[block_index], dict)):
+                            logger.debug(f"No valid block data for {block_index} to get hash")
+                            xcp_hash = ""
+                        elif "xcp_block_hash" in stamp_issuances_list[block_index]:
                             xcp_hash = stamp_issuances_list[block_index]["xcp_block_hash"]
                         elif "block_hash" in stamp_issuances_list[block_index]:
                             xcp_hash = stamp_issuances_list[block_index]["block_hash"]
