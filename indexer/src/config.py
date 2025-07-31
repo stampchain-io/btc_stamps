@@ -107,8 +107,8 @@ ZMQ_PORT_REGTEST_TX = os.environ.get("ZMQ_PORT_REGTEST_TX", "29332")
 ZMQ_PORT_REGTEST_BLOCK = os.environ.get("ZMQ_PORT_REGTEST_BLOCK", "29333")
 
 # These will be set based on network type
-ZMQ_TX_PORT: int = ZMQ_PORT_MAINNET_TX
-ZMQ_BLOCK_PORT: int = ZMQ_PORT_MAINNET_BLOCK
+ZMQ_TX_PORT: int = int(ZMQ_PORT_MAINNET_TX)
+ZMQ_BLOCK_PORT: int = int(ZMQ_PORT_MAINNET_BLOCK)
 ZMQ_NOTIFICATION_DELAY = float(os.environ.get("ZMQ_NOTIFICATION_DELAY", "5.0"))  # Delay in seconds after ZMQ notification
 
 # CP RPC Configuration
