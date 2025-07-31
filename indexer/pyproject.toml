@@ -79,6 +79,7 @@ types-toml = "^0.10.8"
 maturin = "^1.4.0"
 patchelf = "^0.17.2.2"
 pytest-asyncio = "^1.0.0"
+pytest-xdist = "^3.8.0"
 
 [tool.poetry.scripts]
 indexer = "start:main"
