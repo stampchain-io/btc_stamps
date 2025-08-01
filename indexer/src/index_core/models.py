@@ -738,12 +738,43 @@ class StampData:
         valid_stamps_in_block,
     ):
         self.db = db
+
+        # DEBUG: Log critical transaction
+        if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: process_and_store_stamp_data() called in models.py")
+            logger.error(f"🔍 DEBUG TX 95dca4dc: self.data = {self.data[:100] if self.data else 'None'}...")
+
         self.validate_data_exists()
         stamp = convert_to_dict_or_string(self.data, output_format="dict")
 
+        # DEBUG: Log stamp dict conversion
+        if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: convert_to_dict_or_string returned: {type(stamp)}")
+            if isinstance(stamp, dict):
+                logger.error(f"🔍 DEBUG TX 95dca4dc: stamp dict keys: {list(stamp.keys())}")
+                logger.error(f"🔍 DEBUG TX 95dca4dc: stamp['cpid'] = {stamp.get('cpid', 'NOT FOUND')}")
+                logger.error(
+                    f"🔍 DEBUG TX 95dca4dc: stamp['description'] = {stamp.get('description', 'NOT FOUND')[:100] if stamp.get('description') else 'NOT FOUND'}..."
+                )
+
         self.get_base_64_data_from_trx(get_src_or_img_from_data, stamp)
+
+        # DEBUG: Log after get_base_64_data_from_trx
+        if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: After get_base_64_data_from_trx:")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   self.is_btc_stamp = {self.is_btc_stamp}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   self.is_cursed = {self.is_cursed}")
+            logger.error(
+                f"🔍 DEBUG TX 95dca4dc:   self.decoded_base64 = {self.decoded_base64[:50] if self.decoded_base64 else 'None'}..."
+            )
+
         if stamp is not None:
             self.update_stamp_data_rows_from_cp_asset(stamp)
+            # DEBUG: Log after update_stamp_data_rows_from_cp_asset
+            if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                logger.error(f"🔍 DEBUG TX 95dca4dc: After update_stamp_data_rows_from_cp_asset:")
+                logger.error(f"🔍 DEBUG TX 95dca4dc:   self.cpid = {self.cpid}")
+
         self.update_stamp_hash_and_block_time()
 
         self.is_reissue(check_reissue, db, valid_stamps_in_block)

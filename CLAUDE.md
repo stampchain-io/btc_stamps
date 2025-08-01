@@ -57,6 +57,12 @@
 5. **bandit** - Security vulnerability detection
 6. **pytest-cov** - Test coverage reporting (optional with --with-coverage)
 
+## Configuration Notes
+- **Async Holder Updates**: Set `ENABLE_ASYNC_HOLDER_UPDATES=false` during initial sync to prevent deadlocks
+  - Enable with `ENABLE_ASYNC_HOLDER_UPDATES=true` when near blockchain tip (within ~100 blocks)
+  - Deadlocks occur because async holder updates compete for database locks during bulk processing
+  - This is now the default in `.env.sample` to help new users
+
 ## Development Notes
 - Python 3.10+ required
 - Use poetry for dependency management
