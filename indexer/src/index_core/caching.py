@@ -125,9 +125,14 @@ class CacheManager:
         )
 
     def clear_all(self) -> None:
-        """Clear all registered caches and backend caches."""
+        """Clear all registered caches and backend caches including stamp counters.
+
+        Stamp counters will be recalculated from database when needed,
+        preventing cache corruption from failed transactions.
+        """
         with self._lock:
             logger.debug("Starting cache clear operation")
+
             # Clear registered LRU caches
             for name, cache in self._caches.items():
                 logger.debug(f"Clearing cache '{name}' (current_size={len(cache)}, hits={cache.hits}, misses={cache.misses})")
@@ -142,7 +147,8 @@ class CacheManager:
                 )
                 self._backend_instance.raw_transactions_cache.clear()
                 self._backend_instance.deserialized_tx_cache.clear()
-            logger.debug("Completed cache clear operation")
+
+            logger.debug("Completed cache clear operation including stamp counters (will be recalculated from database)")
 
     def get_stats(self) -> CacheStats:
         """Get detailed statistics about registered caches."""
