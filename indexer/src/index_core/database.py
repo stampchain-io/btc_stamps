@@ -543,6 +543,9 @@ def insert_into_stamp_table(db, parsed_stamps: List):
     Insert multiple stamps into the database.
     Does not commit - transaction boundaries are handled by the caller.
 
+    CRITICAL: After successful insertion, updates stamp counters in cache
+    to prevent cache corruption on transaction rollbacks.
+
     Args:
         db (DatabaseConnection): The database connection object
         parsed_stamps (List): List of parsed stamp objects to insert
@@ -594,6 +597,24 @@ def insert_into_stamp_table(db, parsed_stamps: List):
             ]
 
             cursor.executemany(insert_query, data)
+
+            # CRITICAL: Update stamp counters only after successful database insertion
+            # This prevents cache corruption if transaction gets rolled back
+            max_stamp = None
+            min_cursed = None
+
+            for parsed in parsed_stamps:
+                if parsed.is_btc_stamp and parsed.stamp > 0:
+                    max_stamp = max(max_stamp or 0, parsed.stamp)
+                elif hasattr(parsed, "is_cursed") and parsed.is_cursed and parsed.stamp < 0:
+                    min_cursed = min(min_cursed or 0, parsed.stamp)
+
+            # Update cache with the highest stamp numbers from this batch
+            if max_stamp is not None:
+                update_stamp_counter("stamp", max_stamp)
+            if min_cursed is not None:
+                update_stamp_counter("cursed", min_cursed)
+
     except Exception as e:
         # Don't rollback here - let the caller handle it
         raise ValueError(f"Error occurred while inserting to StampTable: {e}")
@@ -1598,6 +1619,10 @@ def get_next_stamp_number(db, identifier):
     """
     Return the index of the next transaction.
 
+    CRITICAL: This function only returns the next stamp number but does NOT increment
+    the counter cache. The counter is only incremented when update_stamp_counter()
+    is called after successful database commit.
+
     Parameters:
     - db (database connection): The database connection object.
     - identifier (str): Either 'stamp' or 'cursed' to determine the type of transaction.
@@ -1614,7 +1639,8 @@ def get_next_stamp_number(db, identifier):
             next_number = cached_result - 1
         else:
             next_number = cached_result + 1
-        cache_manager.set_cache_value("stamp", identifier, next_number)
+        # CRITICAL: Do NOT update cache here - only return the next number
+        # Cache will be updated by update_stamp_counter() after successful commit
         return next_number
 
     with db.cursor() as cursor:
@@ -1635,8 +1661,30 @@ def get_next_stamp_number(db, identifier):
         transactions = cursor.fetchone()
         next_number = transactions[0] + increment if transactions[0] is not None else default_value
 
-    cache_manager.set_cache_value("stamp", identifier, next_number)
+        # Initialize cache with current database state, but don't increment yet
+        cache_manager.set_cache_value(
+            "stamp", identifier, transactions[0] if transactions[0] is not None else (default_value - increment)
+        )
+
     return next_number
+
+
+def update_stamp_counter(identifier, stamp_number):
+    """
+    Update the stamp counter cache after successful database commit.
+
+    This function should only be called after a stamp has been successfully
+    committed to the database to prevent cache corruption on rollbacks.
+
+    Parameters:
+    - identifier (str): Either 'stamp' or 'cursed' to determine the type of transaction.
+    - stamp_number (int): The stamp number that was just committed.
+    """
+    if identifier not in ["stamp", "cursed"]:
+        raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
+
+    # Update cache with the highest committed stamp number
+    cache_manager.set_cache_value("stamp", identifier, stamp_number)
 
 
 def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[str, Any]]) -> bool:

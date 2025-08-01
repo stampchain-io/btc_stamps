@@ -83,10 +83,16 @@ class MemoryManager:
             logger.info(f"Memory usage after clearing caches: {new_usage:.1%}")
 
     def clear_all(self) -> None:
-        """Clear all registered caches."""
+        """Clear all registered caches including stamp counters.
+
+        Stamp counters will be recalculated from database when needed,
+        preventing cache corruption from failed transactions.
+        """
         for name, cache in self._registered_caches.items():
             logger.info(f"Clearing cache: {name} (size={len(cache)})")
             cache.clear()
+
+        logger.debug("Cleared all caches including stamp counters (will be recalculated from database)")
 
     def get_cache_stats(self) -> Dict[str, int]:
         """Get statistics about registered caches."""

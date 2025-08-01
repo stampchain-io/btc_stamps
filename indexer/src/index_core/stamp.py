@@ -29,6 +29,12 @@ class StampProcessor:
     def process_stamp(self, stamp_data: StampData):
         stamp_results = src_dict = prevalidated_src = None
         valid_stamp: Optional[ValidStamp] = None
+
+        # DEBUG: Log critical transaction
+        if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: process_stamp() called in stamp.py")
+            logger.error(f"🔍 DEBUG TX 95dca4dc: stamp_data.data = {stamp_data.data[:100] if stamp_data.data else 'None'}...")
+
         try:
             stamp_data._lock = self._lock  # Pass the lock to StampData
             stamp_data.process_and_store_stamp_data(
@@ -42,7 +48,17 @@ class StampProcessor:
             )
         except (DataConversionError, InvalidInputDataError, ValueError) as e:
             logger.debug(f"INVALID STAMP DATA: {e}")
+            # DEBUG: Log if our transaction fails
+            if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                logger.error(f"🔍 DEBUG TX 95dca4dc: FAILED with exception: {e}")
             return (None,) * 4
+
+        # DEBUG: Log after process_and_store_stamp_data
+        if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: After process_and_store_stamp_data:")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   cpid = {getattr(stamp_data, 'cpid', 'NOT SET')}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   is_btc_stamp = {getattr(stamp_data, 'is_btc_stamp', 'NOT SET')}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   is_cursed = {getattr(stamp_data, 'is_cursed', 'NOT SET')}")
 
         if stamp_data.is_btc_stamp:
             stamp_data.stamp = get_next_stamp_number(self.db, "stamp")
@@ -53,9 +69,32 @@ class StampProcessor:
 
         stamp_data.stamp = cast(int, stamp_data.stamp)
 
+        # DEBUG: Log the stamp number assignment
+        if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: Stamp number assigned = {stamp_data.stamp}")
+
+        # DEBUG: Log the condition check
+        if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: Checking valid stamp conditions:")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.cpid = {stamp_data.cpid}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.is_btc_stamp = {stamp_data.is_btc_stamp}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.is_cursed = {stamp_data.is_cursed}")
+            logger.error(
+                f"🔍 DEBUG TX 95dca4dc:   Condition 1 (cpid and is_btc_stamp): {bool(stamp_data.cpid and stamp_data.is_btc_stamp)}"
+            )
+            logger.error(
+                f"🔍 DEBUG TX 95dca4dc:   Condition 2 (cursed and cpid and not A): {bool(stamp_data.is_cursed and stamp_data.cpid and not stamp_data.cpid.startswith('A'))}"
+            )
+            logger.error(
+                f"🔍 DEBUG TX 95dca4dc:   Will create valid_stamp: {bool((stamp_data.cpid and stamp_data.is_btc_stamp) or (stamp_data.is_cursed and stamp_data.cpid and not stamp_data.cpid.startswith('A')))}"
+            )
+
         if (stamp_data.cpid and stamp_data.is_btc_stamp) or (
             stamp_data.is_cursed and stamp_data.cpid and not stamp_data.cpid.startswith("A")
         ):
+            # DEBUG: Log valid stamp creation
+            if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                logger.error(f"🔍 DEBUG TX 95dca4dc: Creating valid_stamp dict")
             valid_stamp = create_valid_stamp_dict(
                 stamp_data.stamp,
                 stamp_data.tx_hash,
@@ -76,6 +115,16 @@ class StampProcessor:
             prevalidated_src = append_stamp_data_to_src101_dict(stamp_data, src_dict)
 
         stamp_results = True
+
+        # DEBUG: Log what we're returning
+        if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: About to return from process_stamp:")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_results = {stamp_results}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data type = {type(stamp_data)}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.tx_hash = {stamp_data.tx_hash}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   valid_stamp = {valid_stamp}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   prevalidated_src = {prevalidated_src}")
+
         return stamp_results, stamp_data, valid_stamp, prevalidated_src
 
 
