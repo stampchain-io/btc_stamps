@@ -325,7 +325,9 @@ def start_all(db: Connection) -> None:
         #     logger.error(f"Failed to start async holder updater: {e}")
         #     # Continue without async holder updates
         # Check if async holder updates are enabled
-        if os.getenv("ENABLE_ASYNC_HOLDER_UPDATES", "true").lower() == "true":
+        # Default is now "false" to prevent deadlocks during initial sync
+        # Enable this when near blockchain tip for real-time holder count updates
+        if os.getenv("ENABLE_ASYNC_HOLDER_UPDATES", "false").lower() == "true":
             try:
                 from index_core.async_holder_updater import start_worker as start_holder_worker
 

@@ -15,6 +15,7 @@ Functions:
     calculate_total_inputs(): Calculate total input value for fee calculation
 """
 
+import json
 import logging
 from collections import namedtuple
 
@@ -621,7 +622,8 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
     if stamp_issuance is not None:
         source = str(stamp_issuance["source"])
         destination = str(stamp_issuance["issuer"])
-        data = str(stamp_issuance)
+        # Use JSON serialization to preserve dict structure for later parsing
+        data = json.dumps(stamp_issuance)
 
     if source and (data or destination):
         logger.debug(
@@ -650,6 +652,11 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
     """Process a single transaction and return its parsed information."""
 
+    # DEBUG: Log critical transaction
+    if tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+        logger.error(f"🔍 DEBUG TX 95dca4dc: Starting process_tx in block {block_index}")
+        logger.error(f"🔍 DEBUG TX 95dca4dc: stamp_issuances count = {len(stamp_issuances) if stamp_issuances else 0}")
+
     # Ensure stamp_issuances is a list before filtering
     if stamp_issuances is None:
         stamp_issuances = []
@@ -658,6 +665,14 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
         stamp_issuances = []
 
     stamp_issuance = find_issuance_by_tx_hash(stamp_issuances, tx_hash)
+
+    # DEBUG: Log issuance lookup result
+    if tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+        if stamp_issuance:
+            logger.error(f"🔍 DEBUG TX 95dca4dc: Found issuance! CPID = {stamp_issuance.get('cpid')}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc: Description = {stamp_issuance.get('description', '')[:100]}...")
+        else:
+            logger.error(f"🔍 DEBUG TX 95dca4dc: NO ISSUANCE FOUND!")
 
     tx_hex = raw_transactions[tx_hash]
     try:

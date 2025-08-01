@@ -193,11 +193,24 @@ class BlockProcessor:
                     else:
                         logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data is not a StampData object!")
 
-                if stamp_data:
+                # DEBUG: Check stamp_data condition
+                if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error(f"🔍 DEBUG TX 95dca4dc: Checking if stamp_data for append:")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data = {stamp_data}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   bool(stamp_data) = {bool(stamp_data)}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data == True = {stamp_data == True}")
+                
+                if stamp_data and stamp_data is not True:  # Ensure it's not the boolean True
                     with self._lock:
                         self.parsed_stamps.append(stamp_data)
                         self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
                     logger.debug(f"Added stamp data for tx: {result.tx_hash}")
+                    if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                        logger.error(f"🔍 DEBUG TX 95dca4dc: ✓ ADDED to parsed_stamps!")
+                elif stamp_data is True:
+                    logger.error(f"ERROR: stamp_data is boolean True for tx {result.tx_hash}, not adding to parsed_stamps!")
+                elif result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error(f"🔍 DEBUG TX 95dca4dc: ✗ NOT ADDED to parsed_stamps (stamp_data is falsy)")
                 if valid_stamp:
                     with self._lock:
                         self.valid_stamps_in_block.append(valid_stamp)
