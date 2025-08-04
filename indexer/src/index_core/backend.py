@@ -166,7 +166,20 @@ class Backend:
 
         # Configure SSL verification
         session.verify = not config.BACKEND_SSL_NO_VERIFY
-        if not config.BACKEND_SSL_NO_VERIFY:
+        if config.BACKEND_SSL_NO_VERIFY:
+            logger.warning("WARNING: SSL certificate verification is DISABLED for Bitcoin RPC connections!")
+            logger.warning("This exposes the application to man-in-the-middle attacks.")
+            logger.warning("Only disable SSL verification in secure development environments.")
+
+            # Additional security check for production-like environments
+            rpc_url = getattr(config, "RPC_URL", "")
+            if "localhost" not in rpc_url and "127.0.0.1" not in rpc_url and not getattr(config, "DEBUG", False):
+                logger.error("SECURITY RISK: SSL verification disabled for remote Bitcoin RPC endpoint!")
+                logger.error(f"Remote endpoint detected: {rpc_url.split('@')[-1] if '@' in rpc_url else rpc_url}")
+                logger.error("This configuration is strongly discouraged for production deployments.")
+
+            session.ssl_context = None
+        else:
             session.ssl_context = ssl_context
 
         # Configure session-wide timeout
@@ -212,6 +225,8 @@ class Backend:
                     # logger.debug(f"Response text: {response.text}")
                     if i < TRIES - 1:  # Don't sleep on the last attempt
                         time.sleep(5)
+                        continue  # Retry on non-200 status codes
+                    # Last attempt failed, will exit loop and handle error below
             except (Timeout, ConnectionError) as e:
                 logger.debug(
                     f"Could not connect to backend at `{util.clean_url_for_log(url)}`. Error: {str(e)} (Try {i + 1}/{TRIES})"
