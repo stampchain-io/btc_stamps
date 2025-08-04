@@ -30,7 +30,7 @@ from index_core.block_validation import (
     filter_block_transactions,
     validate_block_against_production,
 )
-from index_core.caching import cache_manager
+from index_core.caching import cache_manager, clear_all_caches
 from index_core.check import ConsensusError
 from index_core.database import (  # update_src20_token_stats,  # Now handled by async holder updater
     check_db_connection,
@@ -1482,8 +1482,6 @@ def follow(
                         # Clear all caches to ensure clean state on retry
                         # Do NOT preserve stamp counters - they may have been incorrectly incremented
                         # during failed transaction processing. Let them be recalculated from database.
-                        from index_core.caching import clear_all_caches
-
                         clear_all_caches()
 
                         logger.debug("Cleared all caches (including stamp counters) after consensus error rollback")
@@ -1516,8 +1514,6 @@ def follow(
                         # Clear caches to prevent inconsistent state on retry
                         # This is critical to prevent consensus mismatches when the general
                         # exception handler catches errors like deadlocks at line 1384
-                        from index_core.caching import clear_all_caches
-
                         clear_all_caches()
                         logger.debug("Cleared all caches after general exception rollback")
 
@@ -1787,8 +1783,6 @@ def follow(
                     # Clear all caches to ensure clean state on retry
                     # Do NOT preserve stamp counters - they may have been incorrectly incremented
                     # during failed transaction processing. Let them be recalculated from database.
-                    from index_core.caching import clear_all_caches
-
                     clear_all_caches()
 
                     logger.debug("Cleared all caches (including stamp counters) after deadlock rollback")
