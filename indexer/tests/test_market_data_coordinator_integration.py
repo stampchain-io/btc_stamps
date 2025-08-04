@@ -89,6 +89,7 @@ class TestMarketDataCoordinatorIntegration:
         # All should have run but not simultaneously
         assert len(results) == 3
 
+    @patch("index_core.market_data_jobs.config.FORCE", False)
     def test_coordinator_releases_on_exception(self):
         """Test that coordinator properly releases locks on exceptions"""
         # Mock to force an exception
