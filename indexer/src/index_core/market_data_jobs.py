@@ -424,6 +424,10 @@ class MarketDataJobScheduler:
                     # Convert to uppercase
                     return normalized.upper()
 
+                # Create case-insensitive mappings for database tokens early
+                # This ensures database_tokens_normalized is always initialized
+                database_tokens_normalized = {normalize_token(token): token for token in database_tokens}
+
                 # Fetch ALL market data from OpenStamp in ONE call
                 openstamp_tokens = src20_worker.fetch_all_openstamp_data()
 
@@ -439,7 +443,6 @@ class MarketDataJobScheduler:
                     logger.debug(f"OpenStamp: Retrieved {len(openstamp_token_set)} tokens")
 
                     # Create case-insensitive mappings for matching (with Unicode normalization)
-                    database_tokens_normalized = {normalize_token(token): token for token in database_tokens}
                     openstamp_tokens_normalized = {normalize_token(token): token for token in openstamp_lookup.keys()}
 
                     # Find intersection using normalized matching

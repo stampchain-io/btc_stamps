@@ -672,7 +672,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
             logger.error(f"🔍 DEBUG TX 95dca4dc: Found issuance! CPID = {stamp_issuance.get('cpid')}")
             logger.error(f"🔍 DEBUG TX 95dca4dc: Description = {stamp_issuance.get('description', '')[:100]}...")
         else:
-            logger.error(f"🔍 DEBUG TX 95dca4dc: NO ISSUANCE FOUND!")
+            logger.error("🔍 DEBUG TX 95dca4dc: NO ISSUANCE FOUND!")
 
     tx_hex = raw_transactions[tx_hash]
     try:

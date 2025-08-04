@@ -741,7 +741,7 @@ class StampData:
 
         # DEBUG: Log critical transaction
         if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
-            logger.error(f"🔍 DEBUG TX 95dca4dc: process_and_store_stamp_data() called in models.py")
+            logger.error("🔍 DEBUG TX 95dca4dc: process_and_store_stamp_data() called in models.py")
             logger.error(f"🔍 DEBUG TX 95dca4dc: self.data = {self.data[:100] if self.data else 'None'}...")
 
         self.validate_data_exists()
@@ -761,7 +761,7 @@ class StampData:
 
         # DEBUG: Log after get_base_64_data_from_trx
         if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
-            logger.error(f"🔍 DEBUG TX 95dca4dc: After get_base_64_data_from_trx:")
+            logger.error("🔍 DEBUG TX 95dca4dc: After get_base_64_data_from_trx:")
             logger.error(f"🔍 DEBUG TX 95dca4dc:   self.is_btc_stamp = {self.is_btc_stamp}")
             logger.error(f"🔍 DEBUG TX 95dca4dc:   self.is_cursed = {self.is_cursed}")
             logger.error(
@@ -772,7 +772,7 @@ class StampData:
             self.update_stamp_data_rows_from_cp_asset(stamp)
             # DEBUG: Log after update_stamp_data_rows_from_cp_asset
             if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
-                logger.error(f"🔍 DEBUG TX 95dca4dc: After update_stamp_data_rows_from_cp_asset:")
+                logger.error("🔍 DEBUG TX 95dca4dc: After update_stamp_data_rows_from_cp_asset:")
                 logger.error(f"🔍 DEBUG TX 95dca4dc:   self.cpid = {self.cpid}")
 
         self.update_stamp_hash_and_block_time()
