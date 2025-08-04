@@ -173,23 +173,40 @@ def stop_upload_worker() -> None:
     global _upload_worker_running
 
     if not _upload_worker_running:
-        logger.debug("Upload worker thread is not running, but will proceed to shutdown executor")
+        try:
+            logger.debug("Upload worker thread is not running, but will proceed to shutdown executor")
+        except (ValueError, OSError):
+            pass
     else:
-        logger.info("Stopping async upload worker thread...")
+        try:
+            logger.info("Stopping async upload worker thread...")
+        except (ValueError, OSError):
+            pass
         _upload_worker_running = False
 
         if _upload_worker_thread and _upload_worker_thread.is_alive():
             _upload_worker_thread.join(timeout=5.0)
 
-        logger.info("Async upload worker thread stopped")
+        try:
+            logger.info("Async upload worker thread stopped")
+        except (ValueError, OSError):
+            pass
 
     # Shutdown upload executor to prevent hanging threads
     try:
         # Attempt to cancel futures that haven't started and wait for running ones
         upload_executor.shutdown(wait=True, cancel_futures=True)
-        logger.info("Upload executor shutdown initiated (with future cancellation)")
+        try:
+            logger.info("Upload executor shutdown initiated (with future cancellation)")
+        except (ValueError, OSError):
+            # Ignore logging errors during shutdown (e.g., closed file streams in tests)
+            pass
     except Exception as e:
-        logger.error(f"Error shutting down upload executor: {e}", exc_info=True)
+        try:
+            logger.error(f"Error shutting down upload executor: {e}", exc_info=True)
+        except (ValueError, OSError):
+            # Ignore logging errors during shutdown
+            pass
 
 
 def queue_file_upload(filename: str, mime_type: str, file_obj: BytesIO, file_obj_md5: str) -> None:
