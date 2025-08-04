@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 
 # Define a Protocol for database connection
 class DBConnection(Protocol):
-    def cursor(self, *args: Any, **kwargs: Any) -> Any: ...
+    def cursor(self, *args: Any, **kwargs: Any) -> Any:
+        ...
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        ...
 
 
 class SnapshotManager:
