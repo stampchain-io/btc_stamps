@@ -1512,6 +1512,15 @@ def follow(
                             continue
 
                         db.rollback()
+
+                        # Clear caches to prevent inconsistent state on retry
+                        # This is critical to prevent consensus mismatches when the general
+                        # exception handler catches errors like deadlocks at line 1384
+                        from index_core.caching import clear_all_caches
+
+                        clear_all_caches()
+                        logger.debug("Cleared all caches after general exception rollback")
+
                         # Short sleep before retry
                         if not server.shutdown_flag.is_set():
                             time.sleep(5)
