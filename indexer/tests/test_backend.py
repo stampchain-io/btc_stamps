@@ -230,6 +230,69 @@ class TestBackend(unittest.TestCase):
                 mock_batch.assert_called_once_with([tx_hash], verbose=True, skip_missing=False, current_block=None)
                 self.assertEqual(result, tx_data)
 
+    @patch("index_core.backend.config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", 100)
+    @patch("index_core.backend.config.DESERIALIZED_TX_CACHE_SIZE", 100)
+    @patch("index_core.backend.config.BACKEND_SSL_NO_VERIFY", True)
+    @patch("index_core.backend.config.RPC_URL", "https://127.0.0.1:8332")
+    @patch("index_core.backend.config.DEBUG", False)
+    @patch("index_core.backend.logger")
+    def test_ssl_verification_disabled_localhost_warning(self, mock_logger):
+        """Test SSL verification disabled for localhost shows warning but not error."""
+        # Create mock session to avoid SSL setup issues
+        mock_session = Mock()
+        with patch("index_core.backend.requests.Session", return_value=mock_session):
+            backend = Backend()
+
+            # Should have warning but no error for localhost
+            warning_calls = [
+                call for call in mock_logger.warning.call_args_list if "SSL certificate verification is DISABLED" in str(call)
+            ]
+            self.assertTrue(len(warning_calls) > 0, "Expected SSL warning for disabled verification")
+
+            # Should not have error for localhost
+            error_calls = [call for call in mock_logger.error.call_args_list if "SECURITY RISK" in str(call)]
+            self.assertEqual(len(error_calls), 0, "Should not have security error for localhost")
+
+    @patch("index_core.backend.config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", 100)
+    @patch("index_core.backend.config.DESERIALIZED_TX_CACHE_SIZE", 100)
+    @patch("index_core.backend.config.BACKEND_SSL_NO_VERIFY", True)
+    @patch("index_core.backend.config.RPC_URL", "https://api.example.com:8332")
+    @patch("index_core.backend.config.DEBUG", False)
+    @patch("index_core.backend.logger")
+    def test_ssl_verification_disabled_remote_error(self, mock_logger):
+        """Test SSL verification disabled for remote endpoint shows security error."""
+        # Create mock session to avoid SSL setup issues
+        mock_session = Mock()
+        with patch("index_core.backend.requests.Session", return_value=mock_session):
+            backend = Backend()
+
+            # Should have warning
+            warning_calls = [
+                call for call in mock_logger.warning.call_args_list if "SSL certificate verification is DISABLED" in str(call)
+            ]
+            self.assertTrue(len(warning_calls) > 0, "Expected SSL warning for disabled verification")
+
+            # Should have error for remote endpoint
+            error_calls = [call for call in mock_logger.error.call_args_list if "SECURITY RISK" in str(call)]
+            self.assertTrue(len(error_calls) > 0, "Expected security error for remote endpoint")
+
+    @patch("index_core.backend.config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", 100)
+    @patch("index_core.backend.config.DESERIALIZED_TX_CACHE_SIZE", 100)
+    @patch("index_core.backend.config.BACKEND_SSL_NO_VERIFY", False)
+    @patch("index_core.backend.logger")
+    def test_ssl_verification_enabled_no_warnings(self, mock_logger):
+        """Test SSL verification enabled shows no warnings."""
+        # Create mock session to avoid SSL setup issues
+        mock_session = Mock()
+        with patch("index_core.backend.requests.Session", return_value=mock_session):
+            backend = Backend()
+
+            # Should have no SSL-related warnings
+            warning_calls = [
+                call for call in mock_logger.warning.call_args_list if "SSL certificate verification is DISABLED" in str(call)
+            ]
+            self.assertEqual(len(warning_calls), 0, "Should not have SSL warnings when verification enabled")
+
 
 if __name__ == "__main__":
     unittest.main()
