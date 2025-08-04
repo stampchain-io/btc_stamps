@@ -496,6 +496,24 @@ def calculate_rollback_depth(block_index: int, reason: str) -> int:
         return 3
 
 
+def rollback_and_clear_caches(db: Connection, error_type: str = "general") -> None:
+    """
+    Perform database rollback and clear all caches to ensure clean state on retry.
+    
+    Args:
+        db: Database connection to rollback
+        error_type: Type of error for logging (e.g., "consensus", "deadlock", "general")
+    """
+    db.rollback()
+    
+    # Clear all caches to ensure clean state on retry
+    # Do NOT preserve stamp counters - they may have been incorrectly incremented
+    # during failed transaction processing. Let them be recalculated from database.
+    clear_all_caches()
+    
+    logger.debug(f"Cleared all caches after {error_type} error rollback")
+
+
 def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
     """Roll back the database to a specific block index with full cleanup."""
     # Calculate rollback depth based on error type
@@ -1412,23 +1430,33 @@ def follow(
                         #     holder_updater.clear()
 
                         # Schedule async holder updates if enabled
-                        holder_updater = get_holder_updater()
+                        try:
+                            holder_updater = get_holder_updater()
 
-                        if should_update_market_data and holder_updater.get_affected_token_count() > 0:
-                            # Get affected tokens before clearing
-                            affected_tokens = set()
-                            if hasattr(holder_updater, "affected_tokens"):
-                                affected_tokens = holder_updater.affected_tokens.copy()
+                            if should_update_market_data and holder_updater.get_affected_token_count() > 0:
+                                # Get affected tokens before clearing
+                                affected_tokens = set()
+                                if hasattr(holder_updater, "affected_tokens"):
+                                    affected_tokens = holder_updater.affected_tokens.copy()
 
-                            # Schedule async update
-                            if affected_tokens:
-                                logger.debug(
-                                    f"Scheduling holder update for {len(affected_tokens)} tokens at block {block_index}"
-                                )
-                                schedule_holder_update(block_index - 1, affected_tokens)
+                                # Schedule async update
+                                if affected_tokens:
+                                    logger.debug(
+                                        f"Scheduling holder update for {len(affected_tokens)} tokens at block {block_index}"
+                                    )
+                                    schedule_holder_update(block_index - 1, affected_tokens)
 
-                        # Clear tracked tokens
-                        holder_updater.clear()
+                            # Clear tracked tokens
+                            holder_updater.clear()
+                        except Exception as e:
+                            logger.error(f"Error scheduling holder updates at block {block_index}: {e}")
+                            # Clear tracked tokens even if scheduling failed
+                            try:
+                                holder_updater = get_holder_updater()
+                                holder_updater.clear()
+                            except Exception as clear_error:
+                                logger.error(f"Error clearing holder updater: {clear_error}")
+                            # Don't fail block processing for holder update scheduling errors
 
                         # Confirm that the previous block was successfully processed by the pipeline
                         if cp_pipeline_instance:
@@ -1476,15 +1504,8 @@ def follow(
                         logger.warning(
                             f"Consensus error at block {block_index}, attempt {consensus_error_count}/{max_consensus_retries}"
                         )
-                        db.rollback()
-                        # Clear caches to prevent inconsistent state on retry
-
-                        # Clear all caches to ensure clean state on retry
-                        # Do NOT preserve stamp counters - they may have been incorrectly incremented
-                        # during failed transaction processing. Let them be recalculated from database.
-                        clear_all_caches()
-
-                        logger.debug("Cleared all caches (including stamp counters) after consensus error rollback")
+                        # Rollback and clear all caches to ensure clean state on retry
+                        rollback_and_clear_caches(db, "consensus")
                         # Exponential backoff for retries
                         if not server.shutdown_flag.is_set():
                             time.sleep(min(5 * consensus_error_count, 30))
@@ -1509,13 +1530,8 @@ def follow(
                             stamp_issuances_list = None
                             continue
 
-                        db.rollback()
-
-                        # Clear caches to prevent inconsistent state on retry
-                        # This is critical to prevent consensus mismatches when the general
-                        # exception handler catches errors like deadlocks at line 1384
-                        clear_all_caches()
-                        logger.debug("Cleared all caches after general exception rollback")
+                        # Rollback and clear all caches to ensure clean state on retry
+                        rollback_and_clear_caches(db, "general")
 
                         # Short sleep before retry
                         if not server.shutdown_flag.is_set():
@@ -1777,15 +1793,8 @@ def follow(
 
                 if is_deadlock:
                     logger.warning(f"Database deadlock detected at block {block_index}, will retry")
-                    db.rollback()
-                    # Clear caches to prevent inconsistent state on retry
-
-                    # Clear all caches to ensure clean state on retry
-                    # Do NOT preserve stamp counters - they may have been incorrectly incremented
-                    # during failed transaction processing. Let them be recalculated from database.
-                    clear_all_caches()
-
-                    logger.debug("Cleared all caches (including stamp counters) after deadlock rollback")
+                    # Rollback and clear all caches to ensure clean state on retry
+                    rollback_and_clear_caches(db, "deadlock")
                     # Short sleep with jitter to avoid thundering herd
                     time.sleep(1 + random.uniform(0, 2))
                     continue
