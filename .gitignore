@@ -48,11 +48,13 @@ claude/*
 .trae/*
 .windsurf/*
 .claude/commands/*
+.claude/agents/*
 .github/instructions/*
 .roomodes
 .windsurfrules
 
 reprocess_queue.db
 reprocess_queue.*
+reprocess_queue*
 .taskmaster/*
 indexer/validation_queue.*
