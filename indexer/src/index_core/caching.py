@@ -3,7 +3,7 @@
 import logging
 import time
 from decimal import Decimal
-from threading import RLock
+from threading import Lock
 from typing import Any, Dict, List, Optional, TypeVar, Union
 
 from config import (
@@ -41,7 +41,7 @@ class CacheManager:
         self._backend_instance: Optional[Any] = None
         self._last_stats_log: float = 0.0
         self._stats_log_interval: float = 300.0  # Log stats every 5 minutes
-        self._lock = RLock()  # Use RLock instead of Lock for reentrant locking
+        self._lock = Lock()  # Regular lock - no reentrancy needed
 
         # Initialize default caches without holding the main lock
         self._init_default_caches()
@@ -211,41 +211,37 @@ class CacheManager:
 
     def set_cache_value(self, cache_name: str, key: str, value: Any) -> None:
         """Set a value in a specific cache."""
-        with self._lock:
-            cache = self.get_cache(cache_name)
-            if cache is not None:
-                try:
-                    self.check_memory_pressure()
-                    cache.set(key, value)
-                    logger.debug(
-                        f"Set value in cache '{cache_name}' for key '{key}' (cache_size={len(cache)}, hits={cache.hits}, misses={cache.misses})"
-                    )
-                except Exception as e:
-                    logger.error(f"Error setting cache value: {e}")
-            else:
-                logger.error(
-                    f"Failed to set value: cache '{cache_name}' not found. Available caches: {list(self._caches.keys())}"
+        # Get cache without lock first for performance
+        cache = self.get_cache(cache_name)
+        if cache is not None:
+            try:
+                self.check_memory_pressure()
+                cache.set(key, value)  # LRUCache has its own thread safety
+                logger.debug(
+                    f"Set value in cache '{cache_name}' for key '{key}' (cache_size={len(cache)}, hits={cache.hits}, misses={cache.misses})"
                 )
+            except Exception as e:
+                logger.error(f"Error setting cache value: {e}")
+        else:
+            logger.error(f"Failed to set value: cache '{cache_name}' not found. Available caches: {list(self._caches.keys())}")
 
     def get_cache_value(self, cache_name: str, key: str) -> Optional[Any]:
         """Get a value from a specific cache."""
-        with self._lock:
-            cache = self.get_cache(cache_name)
-            if cache is not None:
-                try:
-                    value = cache.get(key)
-                    if value is not None:
-                        logger.debug(f"Cache hit in '{cache_name}' for key '{key}' (hits={cache.hits}, misses={cache.misses})")
-                    else:
-                        logger.debug(
-                            f"Cache miss in '{cache_name}' for key '{key}' (hits={cache.hits}, misses={cache.misses})"
-                        )
-                    return value
-                except Exception as e:
-                    logger.error(f"Error getting cache value: {e}")
-                    return None
-            logger.error(f"Failed to get value: cache '{cache_name}' not found. Available caches: {list(self._caches.keys())}")
-            return None
+        # Get cache without lock first for performance
+        cache = self.get_cache(cache_name)
+        if cache is not None:
+            try:
+                value = cache.get(key)  # LRUCache has its own thread safety
+                if value is not None:
+                    logger.debug(f"Cache hit in '{cache_name}' for key '{key}' (hits={cache.hits}, misses={cache.misses})")
+                else:
+                    logger.debug(f"Cache miss in '{cache_name}' for key '{key}' (hits={cache.hits}, misses={cache.misses})")
+                return value
+            except Exception as e:
+                logger.error(f"Error getting cache value: {e}")
+                return None
+        logger.error(f"Failed to get value: cache '{cache_name}' not found. Available caches: {list(self._caches.keys())}")
+        return None
 
     def invalidate_cache_entry(self, cache_name: str, key: str) -> None:
         """Invalidate a specific cache entry."""
@@ -264,13 +260,13 @@ class CacheManager:
             cache_name: Name of the cache to invalidate entries from
             keys: List of cache keys to invalidate
         """
-        with self._lock:
-            cache = self.get_cache(cache_name)
-            if cache:
-                for key in keys:
-                    if key in cache:
-                        logger.debug(f"Invalidating entry in cache '{cache_name}' for key '{key}'")
-                        cache.invalidate(key)
+        # Get cache without lock first for performance
+        cache = self.get_cache(cache_name)
+        if cache:
+            for key in keys:
+                if key in cache:  # LRUCache has its own thread safety
+                    logger.debug(f"Invalidating entry in cache '{cache_name}' for key '{key}'")
+                    cache.invalidate(key)  # LRUCache has its own thread safety
 
 
 # Global instance
