@@ -104,6 +104,10 @@ def run_command(command, ignore_errors=False, suppress_stderr=False):
             print(f"{error_msg}", file=sys.stderr)
             if result.stderr:
                 print(colored(result.stderr, "red"), file=sys.stderr)
+            # Also print stdout if it contains error info and stderr is empty
+            elif result.stdout and ("error" in result.stdout.lower() or "fail" in result.stdout.lower()):
+                print(colored("Error output in stdout:", "red"), file=sys.stderr)
+                print(colored(result.stdout, "red"), file=sys.stderr)
         print(colored(f"Duration: {duration:.2f}s", "yellow"))
         logger.error(f"Command failed with return code: {result.returncode}")
         if not ignore_errors:
@@ -149,15 +153,32 @@ def run_linter_task(linter_name, command, auto_fix=False):
         logger.info(f"Running {linter_name}...")
         logger.info(colored(f"H4XOR_RUN: {command}", "magenta"))
 
-        # Run the command and capture result
-        success = run_command(command, ignore_errors=True)
-
-        if success:
-            logger.info(colored(f"💣 PASS: {linter_name}", "green"))
-            return linter_name, True, None
+        # For flake8, we need to capture output to show detailed errors
+        if linter_name == "flake8":
+            result = subprocess.run(command, shell=True, text=True, capture_output=True)  # nosec
+            if result.returncode != 0:
+                logger.error(colored(f"💀 FAIL: {linter_name}", "red"))
+                # Show flake8 output for debugging
+                if result.stdout:
+                    logger.error(colored("Flake8 errors:", "red"))
+                    print(colored(result.stdout, "red"), file=sys.stderr)
+                if result.stderr:
+                    logger.error(colored("Flake8 stderr:", "red"))
+                    print(colored(result.stderr, "red"), file=sys.stderr)
+                return linter_name, False, linter_name
+            else:
+                logger.info(colored(f"💣 PASS: {linter_name}", "green"))
+                return linter_name, True, None
         else:
-            logger.error(colored(f"💀 FAIL: {linter_name}", "red"))
-            return linter_name, False, linter_name
+            # Run the command and capture result
+            success = run_command(command, ignore_errors=True)
+
+            if success:
+                logger.info(colored(f"💣 PASS: {linter_name}", "green"))
+                return linter_name, True, None
+            else:
+                logger.error(colored(f"💀 FAIL: {linter_name}", "red"))
+                return linter_name, False, linter_name
     except Exception as e:
         logger.error(f"Error running {linter_name}: {e}")
         return linter_name, False, linter_name
