@@ -111,7 +111,7 @@ def _upload_worker():
 
             # Wait for completion with timeout
             try:
-                future.result(timeout=30.0)  # 30 second timeout for DB operations
+                future.result(timeout=120.0)  # Increased timeout for complex queries
             except Exception as e:
                 logger.error(f"Failed to process holder update task: {e}")
 
@@ -119,7 +119,7 @@ def _upload_worker():
 
         except Exception as e:
             logger.error(f"Error in holder update worker thread: {e}")
-            time.sleep(1)  # Brief pause on error
+            time.sleep(5)  # Longer pause on error to reduce contention
 
     logger.info("Async holder update worker thread stopped")
 

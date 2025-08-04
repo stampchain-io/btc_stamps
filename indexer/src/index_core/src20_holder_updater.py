@@ -81,6 +81,12 @@ class SRC20HolderCountUpdater:
             own_connection = db_connection is None
             db = self.db_manager.connect() if own_connection else db_connection
             updated_count = 0
+
+            # Set optimized connection parameters for tip processing
+            cursor = db.cursor()
+            cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            cursor.execute("SET SESSION innodb_lock_wait_timeout = 120")
+
             if force:
                 # Force mode: update all tokens that need it
                 logger.info("Force updating all SRC-20 holder counts and progress data")
@@ -142,8 +148,8 @@ class SRC20HolderCountUpdater:
             else:
                 # Normal mode: update only affected tokens
                 # Split into batches for better performance
-                batch_size = 50
                 cursor = db.cursor()
+                batch_size = 10 if len(tokens_to_update) < 50 else 25  # Smaller batches at tip
                 for i in range(0, len(tokens_to_update), batch_size):
                     batch = tokens_to_update[i : i + batch_size]
                     placeholders = ",".join(["%s"] * len(batch))
@@ -184,7 +190,7 @@ class SRC20HolderCountUpdater:
                         except Exception as e:
                             if "Lock wait timeout" in str(e) and attempt < max_retries - 1:
                                 logger.warning(f"Lock wait timeout on batch update, retrying in {retry_delay}s...")
-                                time.sleep(retry_delay)
+                                time.sleep(retry_delay * 2)  # More aggressive backoff
                                 retry_delay *= 2  # Exponential backoff
                             else:
                                 raise  # Re-raise if not a lock timeout or out of retries
@@ -223,7 +229,7 @@ class SRC20HolderCountUpdater:
                         except Exception as e:
                             if "Lock wait timeout" in str(e) and attempt < max_retries - 1:
                                 logger.warning("Lock wait timeout on zero balance update, retrying...")
-                                time.sleep(retry_delay)
+                                time.sleep(retry_delay * 2)  # More aggressive backoff
                                 retry_delay *= 2
                             else:
                                 raise

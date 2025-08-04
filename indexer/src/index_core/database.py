@@ -602,7 +602,6 @@ def insert_into_stamp_table(db, parsed_stamps: List):
             # We do NOT update it here to avoid double-incrementing
             # The cache stores the NEXT number to use, and is updated when that number is consumed
 
-
     except Exception as e:
         # Don't rollback here - let the caller handle it
         raise ValueError(f"Error occurred while inserting to StampTable: {e}")
@@ -1606,11 +1605,11 @@ def get_src101_price_in_db(db: Connection, deploy_hash: str) -> Dict[int, Any]:
 def get_next_stamp_number(db, identifier):
     """
     Return the index of the next transaction.
-    
-    IMPORTANT: This function does NOT update the cache when called. The cache is only 
+
+    IMPORTANT: This function does NOT update the cache when called. The cache is only
     updated after successful database insertion in insert_into_stamp_table() to prevent
     stamp number gaps during transaction rollbacks.
-    
+
     The cache stores the NEXT stamp number to be used, not the highest used.
 
     Parameters:
@@ -1633,7 +1632,9 @@ def get_next_stamp_number(db, identifier):
             next_number = cached_result + 1
         # Update cache to the number we're about to use (which becomes the new "last used")
         cache_manager.set_cache_value("stamp", identifier, next_number)
-        logger.debug(f"get_next_stamp_number({identifier}): cached last used = {cached_result}, returning next = {next_number}, cache updated to {next_number}")
+        logger.debug(
+            f"get_next_stamp_number({identifier}): cached last used = {cached_result}, returning next = {next_number}, cache updated to {next_number}"
+        )
         return next_number
 
     # If not in cache, query the database and calculate next number
@@ -1654,17 +1655,20 @@ def get_next_stamp_number(db, identifier):
         cursor.execute(query)
         transactions = cursor.fetchone()
         next_number = transactions[0] + increment if transactions[0] is not None else default_value
-        
+
         # Cache the NEXT number to use (original behavior)
         cache_manager.set_cache_value("stamp", identifier, next_number)
-        
+
         if transactions[0] is not None:
-            logger.debug(f"get_next_stamp_number({identifier}): DB MAX/MIN = {transactions[0]}, returning and caching next = {next_number}")
+            logger.debug(
+                f"get_next_stamp_number({identifier}): DB MAX/MIN = {transactions[0]}, returning and caching next = {next_number}"
+            )
         else:
-            logger.debug(f"get_next_stamp_number({identifier}): No stamps in DB, returning and caching default = {next_number}")
+            logger.debug(
+                f"get_next_stamp_number({identifier}): No stamps in DB, returning and caching default = {next_number}"
+            )
 
     return next_number
-
 
 
 def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[str, Any]]) -> bool:
