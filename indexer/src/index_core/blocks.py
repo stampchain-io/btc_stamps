@@ -499,19 +499,22 @@ def calculate_rollback_depth(block_index: int, reason: str) -> int:
 def rollback_and_clear_caches(db: Connection, error_type: str = "general") -> None:
     """
     Perform database rollback and clear all caches to ensure clean state on retry.
-    
+
     Args:
         db: Database connection to rollback
         error_type: Type of error for logging (e.g., "consensus", "deadlock", "general")
     """
     db.rollback()
-    
+
     # Clear all caches to ensure clean state on retry
     # Do NOT preserve stamp counters - they may have been incorrectly incremented
     # during failed transaction processing. Let them be recalculated from database.
-    clear_all_caches()
-    
-    logger.debug(f"Cleared all caches after {error_type} error rollback")
+    try:
+        clear_all_caches()
+        logger.debug(f"Cleared all caches after {error_type} error rollback")
+    except Exception as e:
+        logger.error(f"Failed to clear caches after {error_type} error: {e}")
+        # Continue anyway - rollback is more important than cache clearing
 
 
 def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
