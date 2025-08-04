@@ -498,7 +498,11 @@ class StampData:
         if not self.data:
             raise ValueError("Input data is empty or None")
 
-    def update_stamp_data_rows_from_cp_asset(self, stamp: dict):
+    def update_stamp_data_rows_from_cp_asset(self, stamp):
+        # Handle case where stamp might be a list (JSON array) instead of dict
+        if not isinstance(stamp, dict):
+            return
+
         self.cpid = stamp.get("cpid", None)
         self.asset_longname = stamp.get("asset_longname")
         self.supply = stamp.get("quantity")

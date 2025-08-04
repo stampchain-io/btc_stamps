@@ -121,7 +121,19 @@ class StampProcessor:
             src_dict = stamp_data.src101_dict
             prevalidated_src = append_stamp_data_to_src101_dict(stamp_data, src_dict)
 
-        stamp_results = True
+        # Determine if stamp creation was successful based on content validation
+        # A stamp is considered valid if it has:
+        # 1. Valid SRC protocol data (pval_src20, pval_src101), OR
+        # 2. Valid base64 image data, OR
+        # 3. Valid CPID from Counterparty issuance
+        #
+        # JSON without "p" field and without "description" field should be invalid
+        stamp_results = bool(
+            stamp_data.pval_src20
+            or stamp_data.pval_src101
+            or (stamp_data.decoded_base64 is not None and stamp_data.is_valid_base64)
+            or (stamp_data.cpid and stamp_data.ident != "UNKNOWN")
+        )
 
         # DEBUG: Log what we're returning
         if stamp_data.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
