@@ -198,7 +198,7 @@ class BlockProcessor:
                     logger.error("🔍 DEBUG TX 95dca4dc: Checking if stamp_data for append:")
                     logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data = {stamp_data}")
                     logger.error(f"🔍 DEBUG TX 95dca4dc:   bool(stamp_data) = {bool(stamp_data)}")
-                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data == True = {stamp_data == True}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data is True = {stamp_data is True}")
 
                 if stamp_data and stamp_data is not True:  # Ensure it's not the boolean True
                     with self._lock:
