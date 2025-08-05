@@ -21,6 +21,7 @@ from index_core.async_upload import start_upload_worker, stop_upload_worker, wai
 from index_core.aws import get_s3_objects
 from index_core.backend import Backend
 from index_core.check import cp_version, software_version
+from index_core.critical_failure_handler import emergency_db_rollback, register_cleanup_callback, set_db_connection
 from index_core.database import initialize_db
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,37 @@ shutdown_flag = threading.Event()
 
 # Global backend instance - use the singleton
 backend_instance = Backend()
+
+
+def cleanup_for_critical_failure():
+    """Cleanup function for critical failures - called before process termination."""
+    logger.info("Performing critical failure cleanup...")
+
+    # Emergency database rollback first (most critical)
+    emergency_db_rollback()
+
+    # Set shutdown flag for other components
+    shutdown_flag.set()
+
+    # Stop async uploads with reduced timeout (critical failure, don't wait too long)
+    if config.USE_ASYNC_UPLOADS and config.STORE_FILES:
+        logger.info("Stopping async uploads due to critical failure...")
+        if wait_for_uploads(timeout=5.0):  # Shorter timeout for critical failures
+            logger.info("Async uploads stopped successfully.")
+        else:
+            logger.warning("Timeout stopping async uploads - some uploads may be lost.")
+        stop_upload_worker()
+
+    # Stop any other background workers
+    try:
+        from index_core.node_health import set_shutdown_flag
+
+        set_shutdown_flag()
+        logger.info("Set shutdown flag for node health monitoring.")
+    except Exception as e:
+        logger.warning(f"Error setting node health shutdown flag: {e}")
+
+    logger.info("Critical failure cleanup completed.")
 
 
 def sigterm_handler(_signo, _stack_frame):
@@ -297,6 +329,11 @@ def start_all(db: Connection) -> None:
     executor = None  # Initialize executor to None
     validator = None  # Initialize validator to None
     try:
+        # Register cleanup callback for critical failures
+        register_cleanup_callback(cleanup_for_critical_failure)
+        set_db_connection(db)  # Register database connection for emergency rollback
+        logger.info("Registered critical failure cleanup callback and database connection")
+
         # Initialize the executor
         executor = concurrent.futures.ThreadPoolExecutor()
 

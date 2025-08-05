@@ -32,6 +32,7 @@ from index_core.block_validation import (
 )
 from index_core.caching import cache_manager, clear_all_caches
 from index_core.check import ConsensusError
+from index_core.critical_failure_handler import handle_consensus_mismatch_failure, handle_rollback_loop_failure
 from index_core.database import (  # update_src20_token_stats,  # Now handled by async holder updater
     check_db_connection,
     get_unlocked_cpids,
@@ -788,7 +789,9 @@ def follow(
             """Handle ledger hash mismatches based on configuration."""
             if not config.FORCE:  # If not in force mode, exit on mismatch
                 logger.error(f"Ledger hash mismatch at block {block_index}. Exiting...")
-                sys.exit(f"Ledger hash mismatch detected at block {block_index}")
+                handle_consensus_mismatch_failure(
+                    error_message=f"Ledger hash mismatch detected at block {block_index}", block_index=block_index
+                )
             else:
                 logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
                 return True  # Continue processing
@@ -1200,7 +1203,9 @@ def follow(
 
                             if check_rollback_loop(block_index):
                                 logger.error("Exiting due to rollback loop detection")
-                                sys.exit(f"Detected rollback loop at block {block_index}")
+                                handle_rollback_loop_failure(
+                                    error_message=f"Detected rollback loop at block {block_index}", block_index=block_index
+                                )
 
                             block_index = rollback_to_block(db, block_index, "Chain reorganization detected")
                             if cp_pipeline_instance:

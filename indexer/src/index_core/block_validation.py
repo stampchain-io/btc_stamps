@@ -19,6 +19,7 @@ from typing import List
 import config
 import index_core.check as check
 import index_core.util as util
+from index_core.critical_failure_handler import handle_database_corruption_failure
 from index_core.database import update_block_hashes
 from index_core.exceptions import BlockUpdateError
 from index_core.models import ValidStamp
@@ -76,7 +77,10 @@ def create_check_hashes(
     try:
         update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
     except BlockUpdateError as e:
-        sys.exit(f"Exiting due to a critical update error: {e}")
+        # Critical database error - terminate with proper cleanup
+        handle_database_corruption_failure(
+            error_message=f"Failed to update block hashes for block {block_index}", exception=e, block_index=block_index
+        )
 
     return new_ledger_hash, new_txlist_hash, new_messages_hash
 
