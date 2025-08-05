@@ -23,37 +23,29 @@ jobs:
       !contains(github.event.head_commit.message, 'canary.')
     
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write  # Needed to post review comments
       issues: read
-      id-token: write
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # For large PRs, we need sufficient depth to see the base branch
-          fetch-depth: 1000
-          # Fetch both head and base refs for proper PR analysis  
+          # Use default behavior - Claude action handles PR context internally
+          fetch-depth: 0
+          # Checkout PR head for analysis
           ref: ${{ github.event.pull_request.head.sha }}
-      
-      - name: Fetch base branch for comparison
-        run: |
-          git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
       
       - name: Debug git state for Claude review
         run: |
-          echo "=== Git Debug Info for Claude Code Review ==="
-          echo "Current HEAD: $(git rev-parse HEAD)"
-          echo "Current commit: $(git log --oneline -1)"
-          echo "PR head SHA: ${{ github.event.pull_request.head.sha }}"
-          echo "PR base SHA: ${{ github.event.pull_request.base.sha }}"
-          echo "Files changed in this PR: $(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} | wc -l)"
-          echo "Recent commits:"
-          git log --oneline -5
-          echo "Checking for our security fixes:"
-          git log --oneline --grep="SSL" --grep="retry" --grep="RLock" --grep="critical failure" -i | head -5
+          echo "=== Git Debug Info ==="
+          echo "HEAD: $(git rev-parse HEAD)"
+          echo "Latest commit: $(git log --oneline -1)"
+          echo "PR head: ${{ github.event.pull_request.head.sha }}"
+          echo "Security fixes present:"
+          git log --oneline --grep="SSL\|retry\|RLock\|critical failure" -i | head -3 || echo "None found"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -86,49 +78,27 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Force fresh analysis with explicit model specification
+          # Use stable model version
           model: "claude-sonnet-4-20250514"
           
-          # Direct prompt for automated review (no @claude mention needed)
+          # Standard review prompt
           direct_prompt: |
-            IMPORTANT: This is a fresh review request. Previous reviews may be outdated.
-            
-            Please analyze the CURRENT state of this pull request and provide feedback on:
+            Please review this pull request and provide feedback on:
             - Code quality and best practices
-            - Potential bugs or issues  
+            - Potential bugs or issues
             - Performance considerations
             - Security concerns
             - Test coverage
             
-            Focus on the actual code in the latest commits, not cached analysis.
             Be constructive and helpful in your feedback.
 
-          # Disable sticky comments to force fresh reviews on each push
+          # Allow fresh reviews on each push
           use_sticky_comment: false
           
-          # Optional: Customize review based on file types
-          # direct_prompt: |
-          #   Review this PR focusing on:
-          #   - For TypeScript files: Type safety and proper interface usage
-          #   - For API endpoints: Security, input validation, and error handling
-          #   - For React components: Performance, accessibility, and best practices
-          #   - For tests: Coverage, edge cases, and test quality
-          
-          # Optional: Different prompts for different authors
-          # direct_prompt: |
-          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' && 
-          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
-          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
-          
-          # Optional: Add specific tools for running tests or linting
+          # Provide access to project tools for comprehensive review
           allowed_tools: |
             Bash(cd indexer && poetry run pytest)
             Bash(cd indexer && poetry run lint)
             Bash(cd indexer && poetry run check-code)
             Bash(cd indexer && poetry run coverage-quick)
-          
-          # Optional: Skip review for certain conditions
-          # if: |
-          #   !contains(github.event.pull_request.title, '[skip-review]') &&
-          #   !contains(github.event.pull_request.title, '[WIP]')
 
