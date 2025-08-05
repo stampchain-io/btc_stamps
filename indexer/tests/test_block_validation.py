@@ -103,7 +103,9 @@ class TestBlockValidation:
 
         with patch("index_core.check.consensus_hash") as mock_consensus_hash, patch(
             "index_core.block_validation.update_block_hashes"
-        ) as mock_update_hashes:
+        ) as mock_update_hashes, patch(
+            "index_core.critical_failure_handler.sys.exit"
+        ) as mock_sys_exit:
 
             mock_consensus_hash.side_effect = [
                 ("hash2", "found_txlist"),
@@ -112,9 +114,11 @@ class TestBlockValidation:
             ]
             mock_update_hashes.side_effect = BlockUpdateError("Database update failed")
 
-            # Should raise SystemExit with string message
-            with pytest.raises(SystemExit, match="Exiting due to a critical update error"):
-                create_check_hashes(mock_db, 900001, [], [], [])
+            # The critical failure handler will call sys.exit
+            create_check_hashes(mock_db, 900001, [], [], [])
+            
+            # Verify sys.exit was called with the correct exit code (2 for database corruption)
+            mock_sys_exit.assert_called_once_with(2)
 
     def test_create_check_hashes_stamp_sorting(self):
         """Test create_check_hashes properly sorts stamps by stamp_number"""
