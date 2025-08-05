@@ -33,7 +33,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch full history for comprehensive PR review
+          # For large PRs, we need sufficient depth to see the base branch
+          fetch-depth: 1000
+          # Fetch both head and base refs for proper PR analysis  
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      - name: Fetch base branch for comparison
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
