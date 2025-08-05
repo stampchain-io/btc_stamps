@@ -9,6 +9,13 @@ on:
       - "indexer/**/*.rs"
       - "indexer/**/*.toml"
       - "indexer/**/*.lock"
+  # Allow manual trigger for debugging
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: false
+        type: string
 
 jobs:
   claude-review:
@@ -24,6 +31,9 @@ jobs:
     
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Force fresh analysis by including timestamp
+      CLAUDE_REVIEW_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       pull-requests: write  # Needed to post review comments
@@ -51,16 +61,24 @@ jobs:
           # Use stable model version
           model: "claude-sonnet-4-20250514"
           
-          # Standard review prompt
+          # Force fresh analysis with specific context
           direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
+            IMPORTANT: Analyze the CURRENT code state as of commit ${{ github.event.pull_request.head.sha }}.
+            
+            DO NOT use any cached analysis. Several security issues have been FIXED in recent commits:
+            - SSL verification warnings were ADDED in commit 6bf7c0e7
+            - Retry logic was FIXED in commit 73c11004  
+            - RLock was replaced with Lock in commit 4eaf1fc3
+            - sys.exit was replaced with CriticalFailureHandler in commit 66355430
+            
+            Please provide a FRESH review focusing on:
+            - Current code quality (not historical issues)
+            - Any NEW bugs or issues (not previously fixed ones)
             - Performance considerations
-            - Security concerns
+            - Security concerns that CURRENTLY exist
             - Test coverage
             
-            Be constructive and helpful in your feedback.
+            If you mention SSL warnings, retry logic, RLock, or sys.exit issues, verify they still exist in the current code.
 
           # Allow fresh reviews on each push
           use_sticky_comment: false
