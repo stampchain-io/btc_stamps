@@ -39,39 +39,8 @@ jobs:
           # Checkout PR head for analysis
           ref: ${{ github.event.pull_request.head.sha }}
       
-      - name: Debug git state for Claude review
-        run: |
-          echo "=== Git Debug Info ==="
-          echo "HEAD: $(git rev-parse HEAD)"
-          echo "Latest commit: $(git log --oneline -1)"
-          echo "PR head: ${{ github.event.pull_request.head.sha }}"
-          echo "Security fixes present:"
-          git log --oneline --grep="SSL\|retry\|RLock\|critical failure" -i | head -3 || echo "None found"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry install
-        working-directory: ./indexer
-
-      - name: Setup Rust and build parser
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build Rust parser
-        working-directory: ./indexer
-        run: |
-          pip install maturin
-          maturin develop --release
+      # Debug step removed - no longer needed with stable version
+      # Build steps removed - Claude only needs source code for review, not built artifacts
 
       - name: Run Claude Code Review
         id: claude-review
@@ -96,10 +65,5 @@ jobs:
           # Allow fresh reviews on each push
           use_sticky_comment: false
           
-          # Provide access to project tools for comprehensive review
-          allowed_tools: |
-            Bash(cd indexer && poetry run pytest)
-            Bash(cd indexer && poetry run lint)
-            Bash(cd indexer && poetry run check-code)
-            Bash(cd indexer && poetry run coverage-quick)
+          # No tools needed - Claude performs static code analysis only
 
