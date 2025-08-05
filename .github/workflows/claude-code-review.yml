@@ -26,8 +26,9 @@ jobs:
       github.actor != 'github-actions[bot]' &&
       github.actor != 'github-actions' &&
       github.actor != 'dependabot[bot]' &&
-      !contains(github.event.head_commit.message, 'Bump version') &&
-      !contains(github.event.head_commit.message, 'canary.')
+      !startsWith(github.event.pull_request.head.ref, 'bump-version-') &&
+      !contains(github.event.pull_request.title, 'Bump version') &&
+      !contains(github.event.pull_request.body || '', 'Bump version')
     
     runs-on: ubuntu-latest
     timeout-minutes: 30
