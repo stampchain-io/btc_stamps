@@ -41,10 +41,8 @@ REDIS_DB = int(os.environ.get("REDIS_DB", 0))  # Redis database number
 CACHE_BLOCK_HASH_TTL = int(os.environ.get("CACHE_BLOCK_HASH_TTL", 3600))  # Block hash cache TTL (1 hour)
 CACHE_API_RESPONSE_TTL = int(os.environ.get("CACHE_API_RESPONSE_TTL", 300))  # API response cache TTL (5 min)
 
-# Fallback and Degradation
-FALLBACK_MODE_THRESHOLD = int(os.environ.get("FALLBACK_MODE_THRESHOLD", 3))  # Primary failures before fallback
+# Graceful Degradation
 GRACEFUL_DEGRADATION = os.environ.get("GRACEFUL_DEGRADATION", "true").lower() == "true"  # Enable degraded mode
-FALLBACK_RETRY_DELAY = int(os.environ.get("FALLBACK_RETRY_DELAY", 60))  # Seconds between fallback retries
 
 # Rate Limiting Optimizations
 DYNAMIC_RATE_LIMITING = os.environ.get("DYNAMIC_RATE_LIMITING", "true").lower() == "true"  # Adaptive rate limits
