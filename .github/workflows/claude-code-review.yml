@@ -28,6 +28,7 @@ jobs:
       contents: read
       pull-requests: write  # Needed to post review comments
       issues: read
+      id-token: write  # Required for OIDC authentication
     
     steps:
       - name: Checkout repository
