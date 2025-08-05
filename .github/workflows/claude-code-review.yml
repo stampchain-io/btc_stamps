@@ -12,10 +12,15 @@ on:
 
 jobs:
   claude-review:
-    # Skip if PR title contains [skip-review] or if it's from GitHub Actions
+    # Skip if PR title contains [skip-review], if it's from automated bots, or for version bumps
     if: |
       !contains(github.event.pull_request.title, '[skip-review]') &&
-      github.event.pull_request.user.login != 'github-actions[bot]'
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.actor != 'github-actions[bot]' &&
+      github.actor != 'github-actions' &&
+      github.actor != 'dependabot[bot]' &&
+      !contains(github.event.head_commit.message, 'Bump version') &&
+      !contains(github.event.head_commit.message, 'canary.')
     
     runs-on: ubuntu-latest
     permissions:
