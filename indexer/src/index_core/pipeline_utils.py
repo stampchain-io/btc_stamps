@@ -583,9 +583,31 @@ class CPBlocksPipeline:
     def _enter_fallback_mode(self):
         """
         Enter fallback mode when CP nodes become unavailable during runtime.
+        Only activates when near the chain tip - no point using fallback during initial sync.
         """
         if self.fallback_started_at is not None:
             # Already in fallback mode
+            return
+
+        # Check if we're near the chain tip before entering fallback mode
+        try:
+            from .backend import backend_instance
+            block_tip = backend_instance.getblockcount()
+            blocks_behind = block_tip - self.current_block
+            
+            # Only enter fallback if we're within configured blocks of the tip
+            # This prevents fallback during initial sync where it would be pointless
+            fallback_tip_threshold = int(os.environ.get("CP_FALLBACK_TIP_THRESHOLD", "100"))
+            if blocks_behind > fallback_tip_threshold:
+                logger.warning(
+                    f"Not entering fallback mode - too far from chain tip "
+                    f"(current: {self.current_block}, tip: {block_tip}, behind: {blocks_behind} blocks)"
+                )
+                logger.warning("Fallback mode is only useful when near the chain tip")
+                return
+        except Exception as e:
+            logger.warning(f"Could not check distance from chain tip: {e}")
+            # If we can't check, don't enter fallback mode during initial sync
             return
 
         # Mark the current block as the start of fallback mode
