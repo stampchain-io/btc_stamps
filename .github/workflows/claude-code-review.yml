@@ -33,7 +33,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0  # Fetch full history for comprehensive PR review
 
       - name: Set up Python
         uses: actions/setup-python@v5
