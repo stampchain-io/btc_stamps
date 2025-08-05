@@ -803,15 +803,31 @@ class CPBlocksPipeline:
                     blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
                     
                     # Add failed blocks that need retry (up to 3 attempts)
-                    for failed_block, attempts in list(self.failed_fetch_blocks.items()):
-                        if attempts < 3 and failed_block not in blocks_already_present:
-                            if failed_block >= processor_position and failed_block <= end_block:
-                                blocks_to_fetch_now.append(failed_block)
-                                logger.debug(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
-                        elif attempts >= 3:
-                            # Max retries exceeded - log and remove from retry list
-                            logger.error(f"Block {failed_block} failed {attempts} times - giving up")
-                            del self.failed_fetch_blocks[failed_block]
+                    # Skip retry logic if we're already in fallback mode
+                    if self.fallback_started_at is None:
+                        for failed_block, attempts in list(self.failed_fetch_blocks.items()):
+                            if attempts < 3 and failed_block not in blocks_already_present:
+                                if failed_block >= processor_position and failed_block <= end_block:
+                                    blocks_to_fetch_now.append(failed_block)
+                                    logger.debug(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
+                            elif attempts >= 3:
+                                # Max retries exceeded
+                                logger.error(f"Block {failed_block} failed {attempts} times - max retries exceeded")
+                                
+                                # Check if we should trigger fallback mode
+                                if self.fallback_mode and self.fallback_started_at is None:
+                                    if attempts >= self.fallback_failure_threshold:
+                                        logger.warning(
+                                            f"Block {failed_block} exceeded failure threshold ({self.fallback_failure_threshold}) - triggering fallback mode"
+                                        )
+                                        self._enter_fallback_mode()
+                                        # Don't delete from failed_fetch_blocks yet - let fallback handle it
+                                    else:
+                                        # Not at threshold yet, remove from retry list
+                                        del self.failed_fetch_blocks[failed_block]
+                                else:
+                                    # No fallback mode or already in fallback - just remove
+                                    del self.failed_fetch_blocks[failed_block]
 
                 # CRITICAL: Always prioritize the current processor block if it's missing
                 # This prevents gaps where queue has future blocks but processor is stuck
