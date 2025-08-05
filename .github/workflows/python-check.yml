@@ -87,7 +87,7 @@ jobs:
 
   # Integration tests that don't require Bitcoin node
   integration:
-    name: Integration Tests (No Bitcoin Node)
+    name: Integration Tests
     runs-on: ubuntu-latest
     needs: rust
     if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
