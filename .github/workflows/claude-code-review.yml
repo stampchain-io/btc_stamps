@@ -41,6 +41,19 @@ jobs:
       - name: Fetch base branch for comparison
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
+      
+      - name: Debug git state for Claude review
+        run: |
+          echo "=== Git Debug Info for Claude Code Review ==="
+          echo "Current HEAD: $(git rev-parse HEAD)"
+          echo "Current commit: $(git log --oneline -1)"
+          echo "PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          echo "PR base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Files changed in this PR: $(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} | wc -l)"
+          echo "Recent commits:"
+          git log --oneline -5
+          echo "Checking for our security fixes:"
+          git log --oneline --grep="SSL" --grep="retry" --grep="RLock" --grep="critical failure" -i | head -5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,22 +86,25 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
+          # Force fresh analysis with explicit model specification
+          model: "claude-sonnet-4-20250514"
           
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
+            IMPORTANT: This is a fresh review request. Previous reviews may be outdated.
+            
+            Please analyze the CURRENT state of this pull request and provide feedback on:
             - Code quality and best practices
-            - Potential bugs or issues
+            - Potential bugs or issues  
             - Performance considerations
             - Security concerns
             - Test coverage
             
+            Focus on the actual code in the latest commits, not cached analysis.
             Be constructive and helpful in your feedback.
 
-          # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
-          # use_sticky_comment: true
+          # Disable sticky comments to force fresh reviews on each push
+          use_sticky_comment: false
           
           # Optional: Customize review based on file types
           # direct_prompt: |
