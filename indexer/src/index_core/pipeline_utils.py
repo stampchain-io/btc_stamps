@@ -297,10 +297,14 @@ class CPBlocksPipeline:
             for block in blocks_to_clean:
                 self.blocks_being_fetched.discard(block)
                 self.blocks_fetch_timestamps.pop(block, None)
+                # Track as failed so they will be retried
+                self.failed_fetch_blocks[block] = self.failed_fetch_blocks.get(block, 0) + 1
+                logger.debug(f"Block {block} marked as failed (attempt #{self.failed_fetch_blocks[block]})")
 
             if blocks_to_clean:
                 logger.info(f"✅ Cleaned up {len(blocks_to_clean)} stuck blocks from blocks_being_fetched")
                 logger.info(f"Remaining blocks in blocks_being_fetched: {len(self.blocks_being_fetched)}")
+                logger.info(f"Blocks will be retried on next fetch cycle")
 
     def stop(self):
         """Stop the background worker thread"""
@@ -797,6 +801,17 @@ class CPBlocksPipeline:
 
                     blocks_already_present = self.blocks_being_fetched.union(existing_in_queue)
                     blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
+                    
+                    # Add failed blocks that need retry (up to 3 attempts)
+                    for failed_block, attempts in list(self.failed_fetch_blocks.items()):
+                        if attempts < 3 and failed_block not in blocks_already_present:
+                            if failed_block >= processor_position and failed_block <= end_block:
+                                blocks_to_fetch_now.append(failed_block)
+                                logger.debug(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
+                        elif attempts >= 3:
+                            # Max retries exceeded - log and remove from retry list
+                            logger.error(f"Block {failed_block} failed {attempts} times - giving up")
+                            del self.failed_fetch_blocks[failed_block]
 
                 # CRITICAL: Always prioritize the current processor block if it's missing
                 # This prevents gaps where queue has future blocks but processor is stuck
