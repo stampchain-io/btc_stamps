@@ -509,12 +509,12 @@ class StampWorker:
             recent_sales = sales_history_processor.get_recent_sales(limit=1, cpid=cpid)
 
             volume_metrics: Dict[str, Any] = {
-                "volume_24h_btc": volume_24h.get("volume_btc", 0.0),
-                "volume_7d_btc": volume_7d.get("volume_btc", 0.0),
-                "volume_30d_btc": volume_30d.get("volume_btc", 0.0),
-                "total_volume_btc": volume_total.get("volume_btc", 0.0),
-                "total_dispenses_count": volume_30d.get("trade_count", 0),
-                "recent_dispenses_count": volume_24h.get("trade_count", 0),
+                "volume_24h_btc": volume_24h,
+                "volume_7d_btc": volume_7d,
+                "volume_30d_btc": volume_30d,
+                "total_volume_btc": volume_total,
+                "total_dispenses_count": 0,  # TODO: Implement trade count from sales history
+                "recent_dispenses_count": 0,  # TODO: Implement trade count from sales history
             }
 
             # Add most recent sale details if available

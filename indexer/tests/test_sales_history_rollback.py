@@ -7,6 +7,7 @@ Ensures data consistency and proper cleanup when blocks are rolled back.
 Run with: poetry run pytest tests/test_sales_history_rollback.py -v
 """
 
+from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -38,12 +39,13 @@ class TestSalesHistoryRollback:
             sales_history_processor.last_cache_update = 0
         if hasattr(sales_history_processor, "progress"):
             sales_history_processor.progress = {
+                "total_blocks": 0,
                 "total_cpids": 0,
                 "processed_cpids": 0,
                 "total_sales": 0,
-                "last_block_processed": 0,
+                "api_requests": 0,
+                "db_inserts": 0,
                 "catchup_start_time": 0,
-                "errors": 0,
             }
 
     @pytest.fixture
@@ -53,18 +55,23 @@ class TestSalesHistoryRollback:
         mock_cursor.fetchall.return_value = []
         mock_cursor.fetchone.return_value = None
 
-        processor = SalesHistoryProcessor(db_manager=mock_db_manager)
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
+            "index_core.sales_history_processor.Backend"
+        ), patch("index_core.sales_history_processor.OpenStampClient"):
+            processor = SalesHistoryProcessor()
+            processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
         processor.catchup_executor = None
         processor.cpid_cache = set()
         processor.last_cache_update = 0
         processor.progress = {
+            "total_blocks": 0,
             "total_cpids": 0,
             "processed_cpids": 0,
             "total_sales": 0,
-            "last_block_processed": 0,
+            "api_requests": 0,
+            "db_inserts": 0,
             "catchup_start_time": 0,
-            "errors": 0,
         }
 
         yield processor
@@ -94,34 +101,35 @@ class TestSalesHistoryRollback:
         sales_history_purged = any("stamp_sales_history" in str(call) for call in delete_calls)
         assert sales_history_purged, "stamp_sales_history table should be purged during rollback"
 
-    def test_sales_data_purged_on_rollback(self, processor, mock_cursor):
+    def test_sales_data_purged_on_rollback(self, processor, mock_cursor, mock_db_manager):
         """Test that sales data from rolled back blocks is removed"""
         # This test verifies that the purge_block_db function includes stamp_sales_history
         # The actual purge functionality is tested in test_database_purge_includes_sales_history
 
-        # Setup: Insert some sales data
-        test_sales = [
-            {
-                "tx_hash": "tx_block_850000_1",
-                "block_index": 850000,
-                "block_time": 1700000000,
-                "asset": "A1111111111111111111",
-                "source": "buyer1",
-                "destination": "seller1",
-                "dispense_quantity": 1,
-                "btc_amount": 100000,
-                "dispenser": {"satoshirate": 100000},
-            }
-        ]
+        # Setup: Insert some sales data using the actual _insert_sale method
+        test_sale = {
+            "tx_hash": "tx_block_850000_1",
+            "block_index": 850000,
+            "block_time": 1700000000,
+            "cpid": "A1111111111111111111",
+            "stamp": 1111,
+            "buyer_address": "buyer1",
+            "seller_address": "seller1",
+            "btc_amount": 0.001,  # Already in BTC
+            "sale_type": "DISPENSER",
+            "market": "BITCOIN",
+        }
+
+        # Mock the database connection from processor
+        mock_db_connection = mock_db_manager.connect()
 
         # Store the test sales data
-        processor._store_dispenser_sales(test_sales)
+        processor._insert_sale(mock_db_connection, test_sale)
 
         # Verify data was inserted
-        mock_cursor.executemany.assert_called()
-        insert_call = mock_cursor.executemany.call_args
+        mock_cursor.execute.assert_called()
+        insert_call = mock_cursor.execute.call_args
         assert "INSERT INTO stamp_sales_history" in insert_call[0][0]
-        assert len(insert_call[0][1]) == 1  # One record inserted
 
         # The actual rollback functionality is tested by verifying the purge function
         # includes stamp_sales_history table (done in other tests)
@@ -144,6 +152,44 @@ class TestSalesHistoryRollback:
             ("btc_amount",),
         ]
 
+        # Mock the processor's get_sales_history to return formatted sales data
+        # The method expects a cursor with proper row format
+        mock_cursor.fetchall.return_value = [
+            # Return only the fields that get_sales_history expects
+            (
+                "tx_block_849998",
+                849998,
+                1699999980,
+                "A1111111111111111111",
+                1111,
+                "buyer1",
+                "seller1",
+                0.001,
+                "DISPENSER",
+                "BITCOIN",
+                datetime.now(),
+                None,
+                None,
+                None,
+            ),
+            (
+                "tx_block_849999",
+                849999,
+                1699999990,
+                "A2222222222222222222",
+                2222,
+                "buyer2",
+                "seller2",
+                0.0015,
+                "DISPENSER",
+                "BITCOIN",
+                datetime.now(),
+                None,
+                None,
+                None,
+            ),
+        ]
+
         # Get recent sales after rollback (should only show pre-rollback data)
         recent_sales = processor.get_recent_sales(limit=10)
 
@@ -156,21 +202,13 @@ class TestSalesHistoryRollback:
     def test_volume_calculations_after_rollback(self, processor, mock_cursor):
         """Test that volume calculations are correct after rollback"""
         # Mock database to return volume data that excludes rolled back blocks
-        mock_cursor.fetchone.return_value = (
-            1000000,  # total_volume_sats (0.01 BTC) - reduced after rollback
-            5,  # trade_count - reduced after rollback
-            200000,  # high_price
-            100000,  # low_price
-            1699999990,  # last_sale_time - from before rollback
-        )
+        mock_cursor.fetchone.return_value = (0.01,)  # 0.01 BTC volume
 
         # Calculate volume after rollback
-        volume_data = processor.calculate_volume_from_history("A1111111111111111111", hours=24)
+        volume_btc = processor.calculate_volume_from_history("A1111111111111111111", hours=24)
 
-        # Verify calculations reflect the rollback
-        assert volume_data["volume_btc"] == 0.01  # Reduced from pre-rollback
-        assert volume_data["trade_count"] == 5  # Reduced count
-        assert volume_data["last_sale_time"] == 1699999990  # From before rollback
+        # Verify calculations reflect the rollback - returns float not dict
+        assert volume_btc == 0.01  # Reduced from pre-rollback
 
         # Verify the query includes block_index constraint
         sql_call = mock_cursor.execute.call_args[0][0]
@@ -185,17 +223,13 @@ class TestSalesHistoryRollback:
             ("A2222222222222222222",),
         ]
 
-        # Simulate getting CPIDs that need catchup from current tip (849999)
-        cpids = processor._get_cpids_needing_catchup(
-            processor.db_manager.get_long_running_connection(),
-            start_block=779652,
-            end_block=849999,  # Current tip after rollback
-        )
+        # Update CPID cache which is what catchup actually uses
+        processor.update_cpid_cache(processor.db_manager.connect())
 
-        # Verify that the query was made with the correct end_block
-        assert len(cpids) == 2
-        assert "A1111111111111111111" in cpids
-        assert "A2222222222222222222" in cpids
+        # Verify that the cache was updated correctly
+        assert len(processor.cpid_cache) == 2
+        assert "A1111111111111111111" in processor.cpid_cache
+        assert "A2222222222222222222" in processor.cpid_cache
 
     def test_real_time_processing_after_rollback(self, processor):
         """Test that real-time processing works correctly after rollback"""
@@ -250,7 +284,7 @@ class TestSalesHistoryRollback:
         """Test that progress tracking handles rollback scenarios correctly"""
         # Set initial progress
         processor.progress["total_sales"] = 100
-        processor.progress["last_block_processed"] = 850001
+        processor.progress["db_inserts"] = 100
 
         # After rollback, progress should reflect the new state
         # Note: In practice, this would be handled by the indexer restarting
@@ -258,14 +292,13 @@ class TestSalesHistoryRollback:
 
         # Simulate progress recalculation after rollback
         processor.progress["total_sales"] = 80  # Reduced due to rolled back sales
-        processor.progress["last_block_processed"] = 849999  # Rolled back to this block
+        processor.progress["db_inserts"] = 80  # Reduced due to rolled back sales
 
-        # Verify progress reflects rollback
-        progress = processor.get_progress()
-        assert progress["total_sales"] == 80
-        assert progress["last_block_processed"] == 849999
+        # Verify progress reflects rollback - access dict directly
+        assert processor.progress["total_sales"] == 80
+        assert processor.progress["db_inserts"] == 80
 
-    def test_cpid_cache_unaffected_by_rollback(self, processor, mock_cursor):
+    def test_cpid_cache_unaffected_by_rollback(self, processor, mock_cursor, mock_db_manager):
         """Test that CPID cache remains valid after rollback"""
         # Setup initial cache
         processor.cpid_cache = {"A1111111111111111111", "A2222222222222222222"}
@@ -280,7 +313,7 @@ class TestSalesHistoryRollback:
 
         # Force cache update (would happen naturally over time)
         processor.last_cache_update = 0  # Force refresh
-        processor.update_cpid_cache()
+        processor.update_cpid_cache(mock_db_manager.connect())
 
         # Verify cache includes all CPIDs (rollback doesn't affect stamp existence)
         assert len(processor.cpid_cache) == 3
@@ -307,7 +340,11 @@ class TestRollbackIntegration:
 
     def test_rollback_preserves_data_integrity(self, mock_db_manager, mock_cursor):
         """Test that rollback maintains data integrity constraints"""
-        processor = SalesHistoryProcessor(db_manager=mock_db_manager)
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
+            "index_core.sales_history_processor.Backend"
+        ), patch("index_core.sales_history_processor.OpenStampClient"):
+            processor = SalesHistoryProcessor()
+            processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
         # Ensure clean state
         processor.catchup_running = False
@@ -316,29 +353,31 @@ class TestRollbackIntegration:
         processor.last_cache_update = 0
 
         # Mock sales data that would be affected by rollback
-        test_sales = [
-            {
-                "tx_hash": "tx1",
-                "block_index": 850000,
-                "block_time": 1700000000,
-                "asset": "A1111111111111111111",
-                "source": "buyer1",
-                "destination": "seller1",
-                "dispense_quantity": 1,
-                "btc_amount": 100000,
-                "dispenser": {"satoshirate": 100000},
-            }
-        ]
+        test_sale = {
+            "tx_hash": "tx1",
+            "block_index": 850000,
+            "block_time": 1700000000,
+            "cpid": "A1111111111111111111",
+            "stamp": 1111,
+            "buyer_address": "buyer1",
+            "seller_address": "seller1",
+            "btc_amount": 0.001,  # Already in BTC
+            "sale_type": "DISPENSER",
+            "market": "BITCOIN",
+        }
 
-        # Store sales data
-        processor._store_dispenser_sales(test_sales)
+        # Mock the database connection
+        mock_db_connection = mock_db_manager.connect()
 
-        # Verify the INSERT statement includes ON DUPLICATE KEY UPDATE
+        # Process multiple sales in a batch (which uses INSERT IGNORE)
+        processor._process_sale_batch([test_sale], mock_db_connection)
+
+        # Verify the INSERT statement uses INSERT IGNORE
         # This ensures data integrity during potential race conditions
         insert_call = mock_cursor.executemany.call_args[0][0]
-        assert "ON DUPLICATE KEY UPDATE" in insert_call
-        assert "INSERT INTO stamp_sales_history" in insert_call
+        assert "INSERT IGNORE" in insert_call
+        assert "INSERT IGNORE INTO stamp_sales_history" in insert_call
 
-        # The presence of ON DUPLICATE KEY UPDATE ensures that if the same
-        # transaction appears in a replacement block, it will be updated rather
-        # than causing a constraint violation
+        # The presence of INSERT IGNORE ensures that if the same
+        # transaction appears in a replacement block, it won't cause
+        # a constraint violation

@@ -1,23 +1,10 @@
 """
-Sales History Processor for Bitcoin Stamps
-
-This module handles fetching and processing all types of stamp sales data:
-- Dispenser sales (from Counterparty)
-- Atomic swaps (future)
-- OTC/Private sales (future)
-
-Provides two modes:
-1. Full Catchup Mode: Fetches ALL dispenses once via paginated /dispenses endpoint
-   - Used when >50 blocks behind tip
-   - Filters locally for stamp CPIDs
-   - Checks for new CPIDs every 100 blocks
-2. Real-time Mode: Fetches sales by block (for new blocks at tip)
-   - Used when ≤50 blocks from tip
-   - One API call per block
-
-Stores all sales in stamp_sales_history table for charting, recent sales, and analytics.
+Sales History Processor - handles all stamp sales tracking
 """
 
+import csv
+import gc
+import gzip
 import logging
 import os
 import queue
@@ -30,31 +17,35 @@ from typing import Any, Dict, List, Optional, Set
 
 from index_core.backend import Backend
 from index_core.database_manager import DatabaseManager
-from index_core.fetch_utils import RateLimiter, fetch_xcp, is_valid_counterparty_asset
+from index_core.openstamp_client import OpenStampClient
 
+# Configure logging
 logger = logging.getLogger(__name__)
 
-# Constants
-STAMPS_GENESIS_BLOCK = 779652
+# Constants for chunk processing
+CHUNK_SIZE = int(os.environ.get("SALES_HISTORY_CHUNK_SIZE", "25"))  # Commit chunk size
+BUFFER_SIZE = int(os.environ.get("SALES_HISTORY_BUFFER_SIZE", "50"))  # Buffer flush threshold
+BATCH_SIZE = int(os.environ.get("SALES_HISTORY_BATCH_SIZE", "50"))  # Database batch size
+PAGE_SIZE = int(os.environ.get("SALES_HISTORY_PAGE_SIZE", "500"))  # API page size
+PAGES_PER_BATCH = int(os.environ.get("SALES_HISTORY_PAGES_PER_BATCH", "5"))  # Pages before commit
+MAX_WORKERS = int(os.environ.get("SALES_HISTORY_MAX_WORKERS", "3"))  # Concurrent workers
+MAX_PAGES = 30  # Stop after 30 pages for memory management
+RATE_LIMIT = float(os.environ.get("SALES_HISTORY_RATE_LIMIT", "1.0"))  # API requests per second
 
-# Configuration from environment with defaults
-MAX_WORKERS = int(os.getenv("SALES_HISTORY_MAX_WORKERS", "3"))
-RATE_LIMIT = float(os.getenv("SALES_HISTORY_RATE_LIMIT", "1.0"))
-INSERT_BATCH_SIZE = int(os.getenv("SALES_HISTORY_BATCH_SIZE", "50"))
-BUFFER_FLUSH_SIZE = int(os.getenv("SALES_HISTORY_BUFFER_SIZE", "50"))
-CHUNK_COMMIT_SIZE = int(os.getenv("SALES_HISTORY_CHUNK_SIZE", "25"))
-API_PAGE_SIZE = int(os.getenv("SALES_HISTORY_PAGE_SIZE", "500"))
-PAGES_PER_BATCH = int(os.getenv("SALES_HISTORY_PAGES_PER_BATCH", "5"))
+# Enable/disable catchup process
+ENABLE_SALES_HISTORY_CATCHUP = os.environ.get("ENABLE_SALES_HISTORY_CATCHUP", "false").lower() == "true"
 
-# Rate limiter for API calls
-rate_limiter = RateLimiter(calls_per_second=RATE_LIMIT)
+# Force rebuild from genesis
+FORCE_SALES_HISTORY_REBUILD = os.environ.get("FORCE_SALES_HISTORY_REBUILD", "false").lower() == "true"
 
 
 class SalesHistoryProcessor:
     """Unified processor for all stamp sales types."""
 
-    def __init__(self, db_manager: Optional[DatabaseManager] = None):
-        self.db_manager = db_manager or DatabaseManager()
+    def __init__(self):
+        self.db_manager = DatabaseManager()
+        self.backend = Backend()
+        self.openstamp_client = OpenStampClient()
         self.cpid_cache: Set[str] = set()
         self.last_cache_update = 0
         self.cache_update_interval = 300  # 5 minutes
@@ -66,216 +57,202 @@ class SalesHistoryProcessor:
             "total_cpids": 0,  # For CPID mode
             "processed_cpids": 0,  # For CPID mode
             "total_sales": 0,
-            "last_block_processed": 0,
+            "api_requests": 0,
+            "db_inserts": 0,
             "catchup_start_time": 0,
-            "errors": 0,
         }
-        # Buffer for batched writes during catchup
-        self.catchup_buffer: List[tuple] = []
-        self.catchup_buffer_lock = threading.Lock()
-        self.buffer_flush_interval = 100  # Flush every 100 blocks
-        self.last_buffer_flush_block = 0
+        self.mode = "REALTIME"  # REALTIME or FULL_CATCHUP
 
-        # New: Dispense cache for Full Catchup Mode
-        self.dispense_cache: Dict[str, Any] = {
-            "data": [],
-            "highest_block": 0,
-            "fetched_at_tip": 0,
-            "last_cpid_check_block": 0,
-        }
-        self.mode = "REALTIME"  # Current processing mode
-        self.mode_threshold = 200  # Blocks behind threshold for mode switching
+    def update_cpid_cache(self, db=None):
+        """Update the CPID cache from the database."""
+        current_time = time.time()
+        if current_time - self.last_cache_update < self.cache_update_interval:
+            return
 
-    def determine_processing_mode(self, db=None) -> str:
-        """
-        Determine which processing mode to use based on current state.
-
-        Returns:
-            "FULL_CATCHUP" if >50 blocks behind
-            "REALTIME" if <=50 blocks from tip
-        """
+        close_db = False
         if db is None:
             db = self.db_manager.connect()
             close_db = True
-        else:
-            close_db = False
 
         try:
-            # Get highest block in sales history
             with db.cursor() as cursor:
-                cursor.execute("SELECT MAX(block_index) FROM stamp_sales_history")
-                result = cursor.fetchone()
-                highest_sales_block = result[0] if result and result[0] else 0
-
-            # Get current Bitcoin tip from the backend (actual chain tip)
-            try:
-                backend = Backend()
-                current_tip = backend.getblockcount()
-            except Exception as e:
-                logger.warning(f"Failed to get Bitcoin tip from backend: {e}. Falling back to local blocks table.")
-                with db.cursor() as cursor:
-                    cursor.execute("SELECT MAX(block_index) FROM blocks")
-                    result = cursor.fetchone()
-                    current_tip = result[0] if result and result[0] else 0
-
-            blocks_behind = current_tip - highest_sales_block
-
-            logger.debug(
-                f"Mode determination: sales at block {highest_sales_block}, "
-                f"tip at {current_tip}, {blocks_behind} blocks behind"
-            )
-
-            if blocks_behind > self.mode_threshold:
-                logger.debug(
-                    f"Determined mode: FULL_CATCHUP (blocks behind: {blocks_behind} > threshold: {self.mode_threshold})"
-                )
-                return "FULL_CATCHUP"
-            else:
-                logger.debug(f"Determined mode: REALTIME (blocks behind: {blocks_behind} <= threshold: {self.mode_threshold})")
-                return "REALTIME"
-
+                cursor.execute("SELECT DISTINCT cpid FROM StampTableV4 WHERE stamp IS NOT NULL")
+                self.cpid_cache = {row[0] for row in cursor.fetchall()}
+                self.last_cache_update = current_time
+                logger.info(f"Updated CPID cache with {len(self.cpid_cache)} entries")
         finally:
             if close_db:
                 db.close()
 
-    def update_cpid_cache(self, db=None):
-        """Update the in-memory CPID cache from database."""
-        current_time = time.time()
-        if current_time - self.last_cache_update < self.cache_update_interval:
-            return  # Cache still fresh
+    def get_checkpoint(self, checkpoint_type: str) -> int:
+        """Get a checkpoint value from the database."""
+        db = self.db_manager.connect()
+        try:
+            with db.cursor() as cursor:
+                cursor.execute(
+                    "SELECT checkpoint_value FROM sales_history_checkpoints WHERE checkpoint_type = %s", (checkpoint_type,)
+                )
+                result = cursor.fetchone()
+                return int(result[0]) if result else 0
+        finally:
+            db.close()
 
+    def update_checkpoint(self, checkpoint_type: str, value: int, db=None):
+        """Update a checkpoint value in the database."""
+        close_db = False
         if db is None:
             db = self.db_manager.connect()
             close_db = True
-        else:
-            close_db = False
 
         try:
             with db.cursor() as cursor:
-                # Get all stamp CPIDs
                 cursor.execute(
                     """
-                    SELECT DISTINCT cpid
-                    FROM StampTableV4
-                    WHERE ident IN ('STAMP', 'SRC-721')
-                    AND cpid IS NOT NULL
-                """
+                    INSERT INTO sales_history_checkpoints (checkpoint_type, checkpoint_value, last_updated)
+                    VALUES (%s, %s, NOW())
+                    ON DUPLICATE KEY UPDATE checkpoint_value = VALUES(checkpoint_value), last_updated = NOW()
+                """,
+                    (checkpoint_type, value),
                 )
-
-                raw_cpids = {row[0] for row in cursor.fetchall() if row[0]}
-
-                # Filter out invalid CPIDs (e.g., SRC-20 hash tokens)
-                valid_cpids = {cpid for cpid in raw_cpids if is_valid_counterparty_asset(cpid)}
-                invalid_count = len(raw_cpids) - len(valid_cpids)
-
-                with self._lock:
-                    self.cpid_cache = valid_cpids
-                    self.last_cache_update = current_time
-
-                logger.debug(
-                    f"Updated CPID cache with {len(valid_cpids)} valid stamps (filtered out {invalid_count} invalid CPIDs)"
-                )
-                logger.debug(f"CPID cache update took {time.time() - current_time:.2f} seconds")
-
+                db.commit()
         finally:
             if close_db:
                 db.close()
 
     def process_block_dispenses(self, block_index: int, db=None) -> int:
-        """
-        Process all dispenses in a specific block (real-time mode).
-
-        Args:
-            block_index: The block to process
-            db: Optional database connection
-
-        Returns:
-            Number of stamp dispenses processed
-        """
-        logger.debug(
-            f"process_block_dispenses called for block {block_index}, mode={self.mode}, catchup_running={self.catchup_running}"
-        )
-
-        if block_index < STAMPS_GENESIS_BLOCK:
+        """Process dispenses from a specific block in real-time."""
+        if self.catchup_running:
+            # Skip real-time processing during catchup
             return 0
 
-        # In Full Catchup Mode, we should skip individual block processing entirely
-        # The background thread is handling all dispenses in bulk
-        if self.mode == "FULL_CATCHUP" and self.catchup_running:
-            # Check for new CPIDs periodically (this doesn't make API calls)
-            self.check_and_process_new_cpids(block_index)
+        close_db = False
+        if db is None:
+            db = self.db_manager.connect()
+            close_db = True
 
-            # Skip individual block processing completely during Full Catchup
-            # Don't even log "Processing block X" to avoid confusion
-            cached_highest = self.dispense_cache.get("highest_block", 0)
-            if cached_highest > 0:  # We have cached data
-                logger.debug(
-                    f"Skipping block {block_index} in FULL_CATCHUP mode "
-                    f"(background thread is processing bulk data up to block {cached_highest})"
-                )
-            return 0
-
-        # Log in both info and debug for better visibility
-        logger.debug(f"Processing block {block_index} for stamp dispenses (mode: {self.mode})")
-
-        # Ensure cache is updated
-        self.update_cpid_cache(db)
-
-        # Rate limiting
-        rate_limiter.acquire()
-
+        dispense_count = 0
         try:
-            # Fetch all dispenses in the block with verbose data
-            response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+            # Check for stamp dispenses
+            with db.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        d.tx_hash,
+                        d.block_index,
+                        d.source as dispenser_address,
+                        d.destination as buyer_address,
+                        d.asset,
+                        d.dispense_quantity,
+                        d.dispenser_tx_hash,
+                        t.block_time,
+                        s.cpid,
+                        s.stamp
+                    FROM dispensers_dispenses d
+                    INNER JOIN transactions t ON d.tx_hash = t.tx_hash
+                    LEFT JOIN StampTableV4 s ON d.asset = s.cpid
+                    WHERE d.block_index = %s
+                """,
+                    (block_index,),
+                )
 
-            if not response or "result" not in response:
-                logger.info(f"No dispenses found in block {block_index}")
-                return 0
+                dispenses = cursor.fetchall()
 
-            dispenses = response["result"]
-            logger.debug(f"Found {len(dispenses)} total dispenses in block {block_index}")
-
-            # Filter for stamp CPIDs
-            stamp_dispenses = []
-            invalid_assets = set()
-            with self._lock:
                 for dispense in dispenses:
-                    asset = dispense.get("asset")
-                    if asset in self.cpid_cache:
-                        stamp_dispenses.append(dispense)
-                    elif asset and not is_valid_counterparty_asset(asset):
-                        invalid_assets.add(asset)
+                    (
+                        tx_hash,
+                        block_index,
+                        dispenser_address,
+                        buyer_address,
+                        asset,
+                        quantity,
+                        dispenser_tx_hash,
+                        block_time,
+                        cpid,
+                        stamp_num,
+                    ) = dispense
 
-            if invalid_assets:
-                logger.debug(
-                    f"Filtered out {len(invalid_assets)} invalid assets (likely SRC-20): {list(invalid_assets)[:5]}..."
-                )
+                    # Only process if it's a stamp
+                    if cpid and stamp_num is not None:
+                        # Get BTC amount from dispenser
+                        cursor.execute(
+                            """
+                            SELECT satoshirate, status
+                            FROM dispensers_dispensers
+                            WHERE tx_hash = %s
+                        """,
+                            (dispenser_tx_hash,),
+                        )
 
-            if stamp_dispenses:
-                logger.info(f"Found {len(stamp_dispenses)} stamp dispenses in block {block_index}")
-                # Use buffering if we're in catchup mode
-                self._store_dispenser_sales(stamp_dispenses, db, use_buffer=self.catchup_running)
-                logger.info(
-                    f"Successfully processed and stored {len(stamp_dispenses)} stamp dispenses from block {block_index}"
-                )
-            else:
-                logger.debug(f"No stamp dispenses found in block {block_index}")
+                        dispenser_info = cursor.fetchone()
+                        if dispenser_info and dispenser_info[1] == 0:  # Active dispenser
+                            satoshi_rate = dispenser_info[0]
+                            btc_amount = (satoshi_rate * quantity) / 1e8
 
-            logger.debug(
-                f"process_block_dispenses completed for block {block_index}, returning {len(stamp_dispenses)} dispenses"
-            )
-            return len(stamp_dispenses)
+                            # Insert into sales history
+                            self._insert_sale(
+                                db,
+                                {
+                                    "tx_hash": tx_hash,
+                                    "block_index": block_index,
+                                    "block_time": block_time,
+                                    "cpid": cpid,
+                                    "stamp": stamp_num,
+                                    "buyer_address": buyer_address,
+                                    "seller_address": dispenser_address,
+                                    "btc_amount": btc_amount,
+                                    "sale_type": "DISPENSER",
+                                    "market": "BITCOIN",
+                                },
+                            )
+                            dispense_count += 1
+
+            db.commit()
 
         except Exception as e:
-            logger.error(f"Error processing block {block_index} dispenses: {e}", exc_info=True)
-            self.progress["errors"] = self.progress["errors"] + 1
-            return 0
+            logger.error(f"Error processing block {block_index} dispenses: {e}")
+            db.rollback()
+        finally:
+            if close_db:
+                db.close()
+
+        return dispense_count
+
+    def determine_processing_mode(self) -> str:
+        """Determine if we should run in FULL_CATCHUP or REALTIME mode."""
+        if FORCE_SALES_HISTORY_REBUILD:
+            logger.info("FORCE_SALES_HISTORY_REBUILD is set - using FULL_CATCHUP mode")
+            return "FULL_CATCHUP"
+
+        db = self.db_manager.connect()
+        try:
+            # Get our last processed checkpoint
+            last_checkpoint = self.get_checkpoint("last_catchup_completion")
+
+            # Get the current block
+            current_block = self.backend.getblockcount()
+
+            # If we've never run catchup or are more than 200 blocks behind, do full catchup
+            if last_checkpoint == 0 or (current_block - last_checkpoint) > 200:
+                logger.info(f"Need FULL_CATCHUP mode (last: {last_checkpoint}, current: {current_block})")
+                return "FULL_CATCHUP"
+            else:
+                logger.info(f"Using REALTIME mode (last: {last_checkpoint}, current: {current_block})")
+                return "REALTIME"
+
+        finally:
+            db.close()
 
     def start_catchup_mode(self):
-        """
-        Start catchup mode to backfill historical sales.
-        Mode is automatically determined based on how far behind we are.
-        """
+        """Start the catchup mode in a background thread."""
+        # Check if we're in a testing environment
+        if os.environ.get("TESTING") == "1":
+            logger.debug("Skipping sales history catchup in test environment")
+            return
+
+        if not ENABLE_SALES_HISTORY_CATCHUP:
+            logger.debug("Sales history catchup is disabled")
+            return
+
         if self.catchup_running:
             logger.warning("Catchup mode already running")
             return
@@ -312,331 +289,284 @@ class SalesHistoryProcessor:
 
         logger.info("Sales history catchup mode stopped")
 
-    def get_progress(self) -> Dict:
-        """Get current catchup progress."""
-        with self._lock:
-            return self.progress.copy()
-
-    def _get_cpids_needing_catchup(self, db, start_block: Optional[int], end_block: Optional[int]) -> List[str]:
-        """Get list of CPIDs that need sales history catchup."""
-        with db.cursor() as cursor:
-            # Get all stamp CPIDs with their earliest block (to maintain some ordering)
-            query = """
-                SELECT cpid, MIN(block_index) as first_block
-                FROM StampTableV4
-                WHERE ident IN ('STAMP', 'SRC-721')
-                AND cpid IS NOT NULL
-                AND block_index >= %s
-                GROUP BY cpid
-                ORDER BY first_block
-            """
-            cursor.execute(query, (start_block or STAMPS_GENESIS_BLOCK,))
-            all_cpids = [row[0] for row in cursor.fetchall() if row[0]]
-
-            # Filter out invalid CPIDs
-            valid_cpids = [cpid for cpid in all_cpids if is_valid_counterparty_asset(cpid)]
-            invalid_count = len(all_cpids) - len(valid_cpids)
-
-            if invalid_count > 0:
-                logger.info(f"Filtered out {invalid_count} invalid CPIDs from catchup list")
-
-            return valid_cpids
-
-    def _fetch_all_dispenses(self) -> bool:
-        """
-        Fetch ALL dispenses from Counterparty API using paginated requests.
-        Process in batches to be memory-friendly.
-
-        Returns:
-            True if successful, False otherwise
-        """
-        logger.info("Starting Full Catchup Mode - fetching all dispenses from Counterparty API")
-
-        # Configuration
-        MAX_PAGES = 10000  # Safety limit to prevent infinite loops
-
-        cursor = None
-        highest_block = 0
-        page = 0
-        total_processed = 0
-        batch_dispenses = []
-
-        # Get current tip for reference
-        db = self.db_manager.get_long_running_connection()
+    def _insert_sale(self, db, sale_data: Dict[str, Any]):
+        """Insert a single sale into the database."""
         try:
-            with db.cursor() as db_cursor:
-                db_cursor.execute("SELECT MAX(block_index) FROM blocks")
-                result = db_cursor.fetchone()
-                current_tip = result[0] if result and result[0] else 0
-        except Exception as e:
-            logger.error(f"Error getting current tip: {e}")
-            current_tip = 0
+            with db.cursor() as cursor:
+                # Check if already exists
+                cursor.execute("SELECT id FROM stamp_sales_history WHERE tx_hash = %s", (sale_data["tx_hash"],))
+                if cursor.fetchone():
+                    return  # Already processed
 
-        try:
-            while page < MAX_PAGES:
-                # Check if we should stop
-                if hasattr(self, "shutdown_event") and self.shutdown_event.is_set():
-                    logger.info("Shutdown requested, stopping dispense fetch")
-                    break
-
-                # Rate limiting
-                rate_limiter.acquire()
-
-                # Build params
-                params = {"verbose": "true", "limit": API_PAGE_SIZE}
-                if cursor:
-                    params["cursor"] = cursor
-
-                # Log progress periodically
-                if page == 0 or (page + 1) % 10 == 0:
-                    logger.info(f"Fetching dispenses page {page + 1} (cursor: {cursor})")
-                else:
-                    logger.debug(f"Fetching dispenses page {page + 1} (cursor: {cursor})")
-
-                # Fetch page
-                response = fetch_xcp("/dispenses", params)
-
-                if not response or "result" not in response:
-                    logger.error("Failed to fetch dispenses")
-                    return False
-
-                page_dispenses = response["result"]
-                batch_dispenses.extend(page_dispenses)
-
-                # Track highest block
-                for dispense in page_dispenses:
-                    block_index = dispense.get("block_index", 0)
-                    if block_index > highest_block:
-                        highest_block = block_index
-
-                logger.info(f"Fetched page {page + 1}: {len(page_dispenses)} dispenses, batch size: {len(batch_dispenses)}")
-
-                # Process batch every PAGES_PER_BATCH pages or when done
-                page += 1
-                cursor = response.get("next_cursor")
-
-                if page % PAGES_PER_BATCH == 0 or not cursor:
-                    # Process and store this batch
-                    if batch_dispenses:
-                        logger.info(f"Processing batch of {len(batch_dispenses)} dispenses")
-                        logger.debug(f"CPID cache size: {len(self.cpid_cache)}")
-                        logger.debug("Starting batch processing...")
-
-                        try:
-                            # Filter for our CPIDs and process
-                            processed = self._process_dispense_batch(batch_dispenses, db)
-                            total_processed += processed
-
-                            logger.info(f"Processed {processed} stamp dispenses from batch, total so far: {total_processed}")
-                        except Exception as e:
-                            logger.error(f"Error processing batch: {e}")
-                            import traceback
-
-                            logger.error(f"Traceback: {traceback.format_exc()}")
-                            raise
-
-                        # Clear batch to free memory
-                        logger.debug("Clearing batch to free memory...")
-                        batch_dispenses = []
-
-                        # Force garbage collection after large batches
-                        import gc
-
-                        logger.debug("Running garbage collection...")
-                        gc.collect()
-                        logger.debug("Batch processing complete")
-
-                        # Add small delay to prevent overwhelming the database
-                        time.sleep(0.5)
-
-                if not cursor:
-                    break
-
-                # Small delay between pages to be nice to the API
-                time.sleep(0.5)
-
-            # Update cache metadata (but not the full data)
-            with self._lock:
-                self.dispense_cache = {
-                    "data": [],  # Don't keep all data in memory
-                    "highest_block": highest_block,
-                    "fetched_at_tip": current_tip,
-                    "last_cpid_check_block": 0,
-                }
-
-            logger.info(
-                f"Full Catchup Mode complete: processed {total_processed} stamp dispenses, "
-                f"highest block: {highest_block}, fetched at tip: {current_tip}"
-            )
-
-            # Update progress
-            self.progress["total_sales"] = total_processed
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error fetching all dispenses: {e}")
-            return False
-        finally:
-            if db:
-                db.close()
-
-    def _process_dispense_batch(self, dispenses: List[Dict], db=None) -> int:
-        """
-        Process a batch of dispenses, filtering for our CPIDs and storing in database.
-
-        Args:
-            dispenses: List of dispense records to process
-            db: Optional database connection
-
-        Returns:
-            Number of dispenses processed
-        """
-        if not dispenses:
-            return 0
-
-        logger.debug(f"Starting to filter {len(dispenses)} dispenses...")
-        start_time = time.time()
-
-        # Get the process_from_block filter if we're in full catchup
-        process_from_block = getattr(self, "_process_from_block", 0)
-
-        # Filter for our CPIDs and block range
-        relevant_dispenses: List[Dict[str, Any]] = []
-        checked_count = 0
-        skipped_blocks = 0
-        for i, dispense in enumerate(dispenses):
-            if i % 1000 == 0 and i > 0:
-                logger.info(
-                    f"Checked {i}/{len(dispenses)} dispenses, found {len(relevant_dispenses)} stamp dispenses so far..."
+                cursor.execute(
+                    """
+                    INSERT INTO stamp_sales_history
+                    (tx_hash, block_index, block_time, cpid, stamp, buyer_address,
+                     seller_address, btc_amount, sale_type, market, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                """,
+                    (
+                        sale_data["tx_hash"],
+                        sale_data["block_index"],
+                        sale_data["block_time"],
+                        sale_data["cpid"],
+                        sale_data["stamp"],
+                        sale_data["buyer_address"],
+                        sale_data["seller_address"],
+                        sale_data["btc_amount"],
+                        sale_data["sale_type"],
+                        sale_data["market"],
+                    ),
                 )
+                self.progress["db_inserts"] += 1
 
-            asset = dispense.get("asset")
-            block_index = dispense.get("block_index", 0)
+        except Exception as e:
+            logger.error(f"Error inserting sale {sale_data['tx_hash']}: {e}")
+            raise
 
-            # Skip if before our cutoff block
-            if block_index <= process_from_block:
-                skipped_blocks += 1
-                continue
-
-            if asset and asset in self.cpid_cache:
-                relevant_dispenses.append(dispense)
-            checked_count += 1
-
-        filter_time = time.time() - start_time
-        logger.info(
-            f"Filtering complete: {len(relevant_dispenses)} stamp dispenses found out of {len(dispenses)} total "
-            f"(skipped {skipped_blocks} before block {process_from_block}, took {filter_time:.2f}s)"
-        )
-
-        if not relevant_dispenses:
-            logger.debug("No relevant stamp dispenses found in this batch")
-            return 0
-
-        # Store the filtered dispenses
-        logger.debug(f"Storing {len(relevant_dispenses)} stamp dispenses...")
-        store_start = time.time()
-        self._store_dispenser_sales(relevant_dispenses, db=db, use_buffer=True)
-        logger.debug(f"Storage complete (took {time.time() - store_start:.2f}s)")
-
-        # Flush buffer periodically
-        with self.catchup_buffer_lock:
-            buffer_size = len(self.catchup_buffer)
-            logger.debug(f"Current buffer size: {buffer_size}")
-            if buffer_size >= BUFFER_FLUSH_SIZE:
-                logger.debug(f"Buffer size {buffer_size} >= 100, flushing...")
-                self._flush_catchup_buffer(db)
-                logger.debug("Buffer flush complete")
-
-        return len(relevant_dispenses)
-
-    def _process_cached_dispenses(self, cpids: Optional[Set[str]] = None, after_block: int = 0) -> int:
-        """
-        Process dispenses from cache, filtering for our CPIDs.
-
-        Args:
-            cpids: Set of CPIDs to filter for. If None, uses current cache.
-            after_block: Only process dispenses after this block
-
-        Returns:
-            Number of dispenses processed
-        """
-        if not self.dispense_cache["data"]:
-            logger.warning("No cached dispenses to process")
-            return 0
-
-        # Use provided CPIDs or current cache
-        if cpids is None:
-            cpids = self.cpid_cache
-
-        if not cpids:
-            logger.warning("No CPIDs to filter for")
-            return 0
-
-        # Filter dispenses
-        relevant_dispenses = []
-        skipped_cpids = 0
-        skipped_blocks = 0
-        skipped_invalid = 0
-
-        for dispense in self.dispense_cache["data"]:
-            asset = dispense.get("asset")
-            block_index = dispense.get("block_index", 0)
-
-            # Skip if not our CPID or before cutoff block
-            if asset not in cpids:
-                skipped_cpids += 1
-                continue
-            if block_index <= after_block:
-                skipped_blocks += 1
-                continue
-
-            # Skip if not a valid stamp CPID
-            if not is_valid_counterparty_asset(asset):
-                skipped_invalid += 1
-                continue
-
-            relevant_dispenses.append(dispense)
-
-        logger.debug(
-            f"Filtered {len(self.dispense_cache['data'])} cached dispenses: "
-            f"{len(relevant_dispenses)} relevant, {skipped_cpids} not our CPIDs, "
-            f"{skipped_blocks} before cutoff, {skipped_invalid} invalid assets"
-        )
-
-        if not relevant_dispenses:
-            logger.info("No relevant dispenses found in cache")
-            return 0
-
-        # Process in batches
-        logger.info(f"Processing {len(relevant_dispenses)} relevant dispenses from cache")
-
-        batch_size = 1000
-        for i in range(0, len(relevant_dispenses), batch_size):
-            batch = relevant_dispenses[i : i + batch_size]
-            self._store_dispenser_sales(batch)
-
-        return len(relevant_dispenses)
-
-    def _run_catchup(self):
-        """Run the catchup process with improved error handling and retry logic."""
-        # Use coordinator to prevent conflicts with other heavy operations
-        from index_core.background_coordinator import BackgroundCoordinator
-
-        coordinator = BackgroundCoordinator.get_instance()
-
-        if not coordinator.start_task("sales_history", is_heavy=True):
-            logger.warning("Sales history catchup skipped - another heavy operation is running")
-            self.catchup_running = False
+    def _process_sale_batch(self, sales: List[Dict[str, Any]], db):
+        """Process a batch of sales."""
+        if not sales:
             return
 
         try:
-            max_retries = 3
-            retry_count = 0
-            db = None
+            # Build batch insert
+            values = []
+            for sale in sales:
+                values.append(
+                    (
+                        sale["tx_hash"],
+                        sale["block_index"],
+                        sale["block_time"],
+                        sale["cpid"],
+                        sale["stamp"],
+                        sale["buyer_address"],
+                        sale["seller_address"],
+                        sale["btc_amount"],
+                        sale["sale_type"],
+                        sale["market"],
+                    )
+                )
 
-            while retry_count < max_retries:
+            with db.cursor() as cursor:
+                # Use INSERT IGNORE to skip duplicates
+                cursor.executemany(
+                    """
+                    INSERT IGNORE INTO stamp_sales_history
+                    (tx_hash, block_index, block_time, cpid, stamp, buyer_address,
+                     seller_address, btc_amount, sale_type, market, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                """,
+                    values,
+                )
+
+                inserted = cursor.rowcount
+                self.progress["db_inserts"] += inserted
+                self.progress["total_sales"] += inserted
+
+                if inserted > 0:
+                    logger.debug(f"Inserted {inserted} sales")
+
+        except Exception as e:
+            logger.error(f"Error processing sale batch: {e}")
+            raise
+
+    def _fetch_all_dispenses(self) -> bool:
+        """Fetch all dispenses from the API and store them."""
+        logger.info("Fetching all stamp dispenses from API...")
+
+        all_dispenses = []
+        page = 0
+        total_fetched = 0
+
+        try:
+            while True:
+                # Rate limiting
+                time.sleep(1.0 / RATE_LIMIT)
+
+                # Fetch page
+                dispenses = self.openstamp_client.get_stamp_dispenses(page=page)
+                self.progress["api_requests"] += 1
+
+                if not dispenses:
+                    logger.info(f"No more dispenses at page {page}")
+                    break
+
+                page_dispenses = []
+                for d in dispenses:
+                    # Validate required fields
+                    if not all(key in d for key in ["tx_hash", "block_index", "cpid"]):
+                        continue
+
+                    # Convert to our format
+                    sale_data = {
+                        "tx_hash": d["tx_hash"],
+                        "block_index": d["block_index"],
+                        "block_time": d.get("timestamp", 0),
+                        "cpid": d["cpid"],
+                        "stamp": d.get("stamp"),
+                        "buyer_address": d.get("destination", ""),
+                        "seller_address": d.get("source", ""),
+                        "btc_amount": float(d.get("btc_amount", 0)),
+                        "sale_type": "DISPENSER",
+                        "market": "BITCOIN",
+                    }
+                    page_dispenses.append(sale_data)
+
+                all_dispenses.extend(page_dispenses)
+                total_fetched += len(page_dispenses)
+
+                # Process in batches to manage memory
+                batch_dispenses = all_dispenses[-BATCH_SIZE * PAGES_PER_BATCH :]
+                logger.info(f"Fetched page {page + 1}: {len(page_dispenses)} dispenses, batch size: {len(batch_dispenses)}")
+
+                # Check if we should process this batch
+                if len(batch_dispenses) >= BATCH_SIZE * PAGES_PER_BATCH or page >= MAX_PAGES:
+                    logger.info(f"Processing batch of {len(batch_dispenses)} dispenses...")
+                    db = self.db_manager.connect()
+                    try:
+                        # Process in chunks
+                        for i in range(0, len(batch_dispenses), CHUNK_SIZE):
+                            chunk = batch_dispenses[i : i + CHUNK_SIZE]
+                            self._process_sale_batch(chunk, db)
+                            db.commit()
+                    finally:
+                        db.close()
+
+                    # Clear processed items from memory
+                    all_dispenses = []
+                    gc.collect()
+
+                    if page >= MAX_PAGES:
+                        logger.info(f"Reached maximum pages ({MAX_PAGES}), stopping")
+                        break
+
+                page += 1
+
+            # Process any remaining
+            if all_dispenses:
+                logger.info(f"Processing final batch of {len(all_dispenses)} dispenses...")
+                db = self.db_manager.connect()
                 try:
+                    for i in range(0, len(all_dispenses), CHUNK_SIZE):
+                        chunk = all_dispenses[i : i + CHUNK_SIZE]
+                        self._process_sale_batch(chunk, db)
+                        db.commit()
+                finally:
+                    db.close()
+
+            logger.info(f"✅ Fetched total of {total_fetched} dispenses")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error fetching dispenses: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+    def _fetch_all_orders(self) -> bool:
+        """Fetch all orders from the API and store them."""
+        logger.info("Fetching all stamp orders from API...")
+
+        all_orders = []
+        page = 0
+        total_fetched = 0
+
+        try:
+            while True:
+                # Rate limiting
+                time.sleep(1.0 / RATE_LIMIT)
+
+                # Fetch page
+                orders = self.openstamp_client.get_stamp_orders(page=page)
+                self.progress["api_requests"] += 1
+
+                if not orders:
+                    logger.info(f"No more orders at page {page}")
+                    break
+
+                page_orders = []
+                for o in orders:
+                    # Skip if not filled
+                    if o.get("status") != "filled":
+                        continue
+
+                    # Validate required fields
+                    if not all(key in o for key in ["tx_hash", "block_index", "cpid"]):
+                        continue
+
+                    # Convert to our format
+                    sale_data = {
+                        "tx_hash": o["tx_hash"],
+                        "block_index": o["block_index"],
+                        "block_time": o.get("timestamp", 0),
+                        "cpid": o["cpid"],
+                        "stamp": o.get("stamp"),
+                        "buyer_address": o.get("source", ""),
+                        "seller_address": "",  # Orders don't have explicit seller
+                        "btc_amount": float(o.get("give_quantity", 0)) / 1e8 if o.get("give_asset") == "BTC" else 0,
+                        "sale_type": "ORDER",
+                        "market": "DEX",
+                    }
+                    page_orders.append(sale_data)
+
+                all_orders.extend(page_orders)
+                total_fetched += len(page_orders)
+
+                # Process in batches to manage memory
+                batch_orders = all_orders[-BATCH_SIZE * PAGES_PER_BATCH :]
+                logger.info(f"Fetched page {page + 1}: {len(page_orders)} orders, batch size: {len(batch_orders)}")
+
+                # Check if we should process this batch
+                if len(batch_orders) >= BATCH_SIZE * PAGES_PER_BATCH or page >= MAX_PAGES:
+                    logger.info(f"Processing batch of {len(batch_orders)} orders...")
+                    db = self.db_manager.connect()
+                    try:
+                        # Process in chunks
+                        for i in range(0, len(batch_orders), CHUNK_SIZE):
+                            chunk = batch_orders[i : i + CHUNK_SIZE]
+                            self._process_sale_batch(chunk, db)
+                            db.commit()
+                    finally:
+                        db.close()
+
+                    # Clear processed items from memory
+                    all_orders = []
+                    gc.collect()
+
+                    if page >= MAX_PAGES:
+                        logger.info(f"Reached maximum pages ({MAX_PAGES}), stopping")
+                        break
+
+                page += 1
+
+            # Process any remaining
+            if all_orders:
+                logger.info(f"Processing final batch of {len(all_orders)} orders...")
+                db = self.db_manager.connect()
+                try:
+                    for i in range(0, len(all_orders), CHUNK_SIZE):
+                        chunk = all_orders[i : i + CHUNK_SIZE]
+                        self._process_sale_batch(chunk, db)
+                        db.commit()
+                finally:
+                    db.close()
+
+            logger.info(f"✅ Fetched total of {total_fetched} orders")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error fetching orders: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+    def _run_catchup(self):
+        """Run the catchup process in background."""
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries and self.catchup_running:
+            try:
+                with self._lock:
                     logger.info(f"Starting sales history catchup (attempt {retry_count + 1}/{max_retries})")
 
                     # Lower thread priority to reduce impact on main indexer
@@ -681,634 +611,251 @@ class SalesHistoryProcessor:
                         logger.info("In REALTIME mode - no bulk catchup needed")
                         return
 
-                except queue.Empty:
-                    logger.error("Connection pool exhausted")
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        wait_time = retry_count * 30
-                        logger.info(f"Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                    else:
-                        self.progress["errors"] = self.progress.get("errors", 0) + 1
+            except queue.Empty:
+                logger.error("Connection pool exhausted")
+                retry_count += 1
+                if retry_count < max_retries:
+                    wait_time = retry_count * 30
+                    logger.info(f"Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Failed after {max_retries} attempts - connection pool issues")
 
-                except Exception as e:
-                    logger.error(f"Error in sales history catchup: {e}")
-                    logger.error(f"Traceback: {traceback.format_exc()}")
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        wait_time = retry_count * 30
-                        logger.info(f"Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                    else:
-                        self.progress["errors"] = self.progress.get("errors", 0) + 1
+            except Exception as e:
+                logger.error(f"Catchup error: {e}")
+                logger.error(traceback.format_exc())
+                retry_count += 1
+                if retry_count < max_retries:
+                    wait_time = retry_count * 10
+                    logger.info(f"Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Failed after {max_retries} attempts")
 
-        finally:
-            # Flush any remaining buffered data
-            if self.catchup_buffer:
-                logger.info(f"Flushing final catchup buffer with {len(self.catchup_buffer)} sales")
-                logger.debug(f"Final buffer contains blocks {self.last_buffer_flush_block} to latest")
-                try:
-                    self._flush_catchup_buffer(db if db else None)
-                except Exception as e:
-                    logger.error(f"Error flushing final buffer: {e}")
-
-            if db:
-                try:
-                    db.close()
-                    logger.debug("Closed database connection")
-                except Exception as e:
-                    logger.error(f"Error closing connection: {e}")
-
-            # If we get here and still in catchup, all retries failed
-            if self.catchup_running:
-                self.catchup_running = False
-                logger.error("Sales history catchup failed after all retries")
-            else:
-                logger.info(f"Sales history catchup completed: {self.progress['total_sales']} sales processed")
-
-            # End coordinator task
-            coordinator.end_task("sales_history", is_heavy=True)
-
-    def _run_full_catchup(self, db):
-        """
-        Run Full Catchup Mode - fetch all dispenses once and filter locally.
-        This replaces the old CPID-based approach with a much more efficient method.
-        """
-        logger.info("Starting Full Catchup Mode")
-
-        # Get highest block we've already processed
-        with db.cursor() as cursor:
-            cursor.execute("SELECT MAX(block_index) FROM stamp_sales_history")
-            result = cursor.fetchone()
-            highest_processed_block = result[0] if result and result[0] else 0
-
-        logger.info(f"Highest processed block in sales history: {highest_processed_block}")
-
-        # Determine if we need to process from genesis or just continue from where we left off
-        # Since sales history is a complete log, we should only process from genesis if:
-        # 1. The table is empty (highest_processed_block == 0)
-        # 2. We're explicitly forcing a rebuild via environment variable
-
-        # Check for environment variable to force full rebuild
-        if os.getenv("FORCE_SALES_HISTORY_REBUILD", "").lower() == "true":
-            logger.warning("FORCE_SALES_HISTORY_REBUILD=true - will process ALL dispenses from genesis")
-            process_from_block = 0  # Process everything
-        elif highest_processed_block == 0:
-            logger.info("No sales history found - will process from genesis")
-            process_from_block = 0  # Start from beginning
-        else:
-            # Continue from where we left off
-            logger.info(f"Sales history exists up to block {highest_processed_block} - will continue from there")
-            process_from_block = highest_processed_block
-
-        # Store the process_from_block in the instance for use in _fetch_all_dispenses
-        self._process_from_block = process_from_block
-
-        # Fetch all dispenses from API
-        # Note: _fetch_all_dispenses now processes data in batches and doesn't keep it in memory
-        if not self._fetch_all_dispenses():
-            logger.error("Failed to fetch dispenses, aborting catchup")
-            return False
-
-        # The data has already been processed during _fetch_all_dispenses batch processing
-        # No need to call _process_cached_dispenses since dispense_cache["data"] is empty
-        logger.info(f"Full catchup complete. Total sales processed: {self.progress['total_sales']}")
-
-        # Mark where we started checking for new CPIDs
-        self.dispense_cache["last_cpid_check_block"] = process_from_block
-
-        return True
-
-    def check_and_process_new_cpids(self, current_block: int):
-        """
-        Check for new CPIDs since last check and process their cached dispenses.
-        Called periodically during main loop processing in Full Catchup Mode.
-
-        Args:
-            current_block: Current block being processed by main loop
-        """
-        if self.mode != "FULL_CATCHUP" or not self.dispense_cache["data"]:
-            return
-
-        # Only check every 100 blocks
-        if current_block - self.dispense_cache["last_cpid_check_block"] < 100:
-            return
-
-        logger.info(f"Checking for new CPIDs at block {current_block}")
-
-        # Get current CPID set
-        old_cpids = self.cpid_cache.copy()
-
-        # Update cache to get any new CPIDs
-        self.update_cpid_cache()
-
-        # Find new CPIDs
-        new_cpids = self.cpid_cache - old_cpids
-
-        if new_cpids:
-            logger.info(f"Found {len(new_cpids)} new CPIDs to process")
-            logger.debug(f"New CPIDs: {list(new_cpids)[:5]}..." if len(new_cpids) > 5 else f"New CPIDs: {list(new_cpids)}")
-
-            # Process cached dispenses for new CPIDs only
-            processed = self._process_cached_dispenses(
-                cpids=new_cpids, after_block=self.dispense_cache["last_cpid_check_block"]
-            )
-
-            self.progress["total_sales"] += processed
-            logger.info(f"Processed {processed} dispenses for new CPIDs")
-
-        # Update last check block
-        self.dispense_cache["last_cpid_check_block"] = current_block
-
-        # Check if we should switch to real-time mode
-        if current_block >= self.dispense_cache["highest_block"]:
-            # Get current tip
-            db = self.db_manager.connect()
-            try:
-                with db.cursor() as cursor:
-                    cursor.execute("SELECT MAX(block_index) FROM blocks")
-                    result = cursor.fetchone()
-                    current_tip = result[0] if result and result[0] else 0
             finally:
-                db.close()
-
-            blocks_to_tip = current_tip - current_block
-
-            if blocks_to_tip <= self.mode_threshold:
-                logger.info(
-                    f"Reached cached highest block {self.dispense_cache['highest_block']} "
-                    f"and within {blocks_to_tip} blocks of tip - switching to REALTIME mode"
-                )
-                previous_mode = self.mode
-                self.mode = "REALTIME"
-                # Clear cache to free memory
-                cache_size = len(self.dispense_cache["data"])
-                self.dispense_cache["data"] = []
-                logger.debug(
-                    f"Mode switch: {previous_mode} -> {self.mode}, " f"cleared {cache_size} cached dispenses to free memory"
-                )
-
-    def _get_earliest_processed_block(self, db=None) -> Optional[int]:
-        """Get the earliest block we've processed sales for."""
-        if db is None:
-            db = self.db_manager.connect()
-            close_db = True
-        else:
-            close_db = False
-
-        try:
-            with db.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT MIN(block_index)
-                    FROM stamp_sales_history
-                """
-                )
-                result = cursor.fetchone()
-                return result[0] if result and result[0] else None
-
-        finally:
-            if close_db:
-                db.close()
-
-    def _has_historical_data(self, db=None) -> bool:
-        """
-        Check if we have any historical sales data.
-        Used to determine if catchup has been run.
-        """
-        if db is None:
-            db = self.db_manager.connect()
-            close_db = True
-        else:
-            close_db = False
-
-        try:
-            with db.cursor() as cursor:
-                # Check if we have sales data from near the genesis block
-                cursor.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM stamp_sales_history
-                    WHERE block_index < %s
-                    LIMIT 1
-                """,
-                    (STAMPS_GENESIS_BLOCK + 1000,),
-                )  # Check first 1000 blocks after genesis
-
-                count = cursor.fetchone()[0]
-                return count > 0
-
-        finally:
-            if close_db:
-                db.close()
-
-    def _store_dispenser_sales(self, dispenses: List[Dict], db=None, use_buffer=False):
-        """
-        Store dispenser sales in the sales history table.
-
-        Args:
-            dispenses: List of dispense records
-            db: Optional database connection
-            use_buffer: If True and in catchup mode, buffer writes for batch processing
-        """
-        if not dispenses:
-            return
-
-        logger.debug(f"_store_dispenser_sales called with {len(dispenses)} dispenses, use_buffer={use_buffer}")
-
-        # If we're in catchup mode and buffering is requested, accumulate data
-        if use_buffer and self.catchup_running:
-            logger.debug(f"Using buffer mode (catchup_running={self.catchup_running})")
-            with self.catchup_buffer_lock:
-                logger.debug(f"Acquired buffer lock, current buffer size: {len(self.catchup_buffer)}")
-                for i, dispense in enumerate(dispenses):
-                    if i % 100 == 0:
-                        logger.debug(f"Processing dispense {i}/{len(dispenses)} into buffer...")
-                    # Extract data from verbose dispense response
-                    tx_hash = dispense.get("tx_hash")
-                    block_index = dispense.get("block_index")
-                    block_time = dispense.get("block_time")
-                    cpid = dispense.get("asset")
-
-                    # source = buyer (who received assets)
-                    # destination = dispenser address
-                    buyer_address = dispense.get("source")
-                    seller_address = dispense.get("destination")
-
-                    quantity = int(dispense.get("dispense_quantity", 0))
-                    btc_amount = int(dispense.get("btc_amount", 0))
-                    dispenser_tx = dispense.get("dispenser_tx_hash")
-
-                    # Calculate unit price from dispenser data
-                    unit_price_sats = 0
-                    if "dispenser" in dispense and isinstance(dispense["dispenser"], dict):
-                        satoshirate = int(dispense["dispenser"].get("satoshirate", 0))
-                        unit_price_sats = satoshirate
-                    elif quantity > 0:
-                        # Fallback: calculate from total/quantity
-                        unit_price_sats = btc_amount // quantity
-
-                    self.catchup_buffer.append(
-                        (
-                            tx_hash,
-                            block_index,
-                            block_time,
-                            cpid,
-                            "dispenser",
-                            buyer_address,
-                            seller_address,
-                            quantity,
-                            btc_amount,
-                            unit_price_sats,
-                            dispenser_tx,
-                            None,  # swap_contract_id
-                            "counterparty",  # platform
-                            None,  # external_id
-                            "counterparty",  # data_source
-                            None,  # notes
-                        )
-                    )
-
-                # Check if we should flush based on block interval
-                logger.debug("Finished adding to buffer, checking flush conditions...")
-                if dispenses:
-                    max_block = max(d.get("block_index", 0) for d in dispenses)
-                    logger.debug(f"Max block in batch: {max_block}, last flush block: {self.last_buffer_flush_block}")
-                    if self.last_buffer_flush_block == 0:
-                        self.last_buffer_flush_block = max_block
-                        logger.debug(f"Set initial flush block to {max_block}")
-                    elif max_block - self.last_buffer_flush_block >= self.buffer_flush_interval:
-                        logger.info(
-                            f"Buffer flush triggered: {len(self.catchup_buffer)} items, "
-                            f"blocks {self.last_buffer_flush_block} -> {max_block}"
-                        )
-                        self._flush_catchup_buffer(db)
-                        self.last_buffer_flush_block = max_block
-                    else:
-                        logger.info(
-                            f"No flush needed yet, interval: {max_block - self.last_buffer_flush_block} < {self.buffer_flush_interval}"
-                        )
-                logger.debug(f"Exiting buffered store mode, buffer size: {len(self.catchup_buffer)}")
-            return
-
-        logger.info(f"Storing {len(dispenses)} dispenser sales to database")
-
-        if db is None:
-            db = self.db_manager.connect()
-            close_db = True
-        else:
-            close_db = False
-
-        try:
-            with db.cursor() as cursor:
-                # Prepare batch insert data
-                insert_data = []
-
-                for dispense in dispenses:
-                    # Extract data from verbose dispense response
-                    tx_hash = dispense.get("tx_hash")
-                    block_index = dispense.get("block_index")
-                    block_time = dispense.get("block_time")
-                    cpid = dispense.get("asset")
-
-                    # source = buyer (who received assets)
-                    # destination = dispenser address
-                    buyer_address = dispense.get("source")
-                    seller_address = dispense.get("destination")
-
-                    quantity = int(dispense.get("dispense_quantity", 0))
-                    btc_amount = int(dispense.get("btc_amount", 0))
-                    dispenser_tx = dispense.get("dispenser_tx_hash")
-
-                    # Calculate unit price from dispenser data
-                    unit_price_sats = 0
-                    if "dispenser" in dispense and isinstance(dispense["dispenser"], dict):
-                        satoshirate = int(dispense["dispenser"].get("satoshirate", 0))
-                        unit_price_sats = satoshirate
-                    elif quantity > 0:
-                        # Fallback: calculate from total/quantity
-                        unit_price_sats = btc_amount // quantity
-
-                    insert_data.append(
-                        (
-                            tx_hash,
-                            block_index,
-                            block_time,
-                            cpid,
-                            "dispenser",
-                            buyer_address,
-                            seller_address,
-                            quantity,
-                            btc_amount,
-                            unit_price_sats,
-                            dispenser_tx,
-                            None,  # swap_contract_id
-                            "counterparty",  # platform
-                            None,  # external_id
-                            "counterparty",  # data_source
-                            None,  # notes
-                        )
-                    )
-
-                # Batch insert with ON DUPLICATE KEY UPDATE
-                # Process in smaller batches to avoid long-running transactions
-                if insert_data:
-                    total_inserted = 0
-                    for i in range(0, len(insert_data), INSERT_BATCH_SIZE):
-                        batch = insert_data[i : i + INSERT_BATCH_SIZE]
-                        cursor.executemany(
-                            """
-                            INSERT INTO stamp_sales_history
-                            (tx_hash, block_index, block_time, cpid, sale_type,
-                             buyer_address, seller_address, quantity, btc_amount,
-                             unit_price_sats, dispenser_tx_hash, swap_contract_id,
-                             platform, external_id, data_source, notes)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON DUPLICATE KEY UPDATE
-                            btc_amount = VALUES(btc_amount),
-                            unit_price_sats = VALUES(unit_price_sats),
-                            processed_at = CURRENT_TIMESTAMP
-                        """,
-                            batch,
-                        )
-                        db.commit()
-                        total_inserted += len(batch)
-
-                        # Small delay between batches to reduce contention
-                        if i + INSERT_BATCH_SIZE < len(insert_data):
-                            time.sleep(0.1)
-
-                    logger.info(
-                        f"Successfully stored {total_inserted} dispenser sales in {(len(insert_data) + INSERT_BATCH_SIZE - 1) // INSERT_BATCH_SIZE} batches"
-                    )
-                    logger.debug(f"Stored sales for CPIDs: {set(d[3] for d in insert_data)}")
-
-                    # Update activity levels for stamps that had sales (mark as HOT)
+                self.catchup_running = False
+                if self.catchup_executor:
                     try:
-                        from index_core.activity_calculator import StampActivityCalculator
+                        self.catchup_executor.shutdown(wait=False)
+                    except BaseException:
+                        pass
+                self.catchup_executor = None
 
-                        unique_cpids = set(d[3] for d in insert_data)  # Extract CPIDs from insert data
-                        logger.info(f"Updating activity levels for {len(unique_cpids)} stamps with sales...")
+                # Clean up any db connection
+                try:
+                    if "db" in locals() and db:
+                        db.close()
+                except BaseException:
+                    pass
 
-                        success_count = 0
-                        for cpid in unique_cpids:
-                            try:
-                                StampActivityCalculator.update_activity_on_sale(cpid, db)
-                                success_count += 1
-                                logger.debug(f"✅ Updated activity for CPID: {cpid}")
-                            except Exception as cpid_error:
-                                logger.error(f"❌ Failed to update activity for CPID {cpid}: {cpid_error}")
+                # Log final progress
+                logger.info(f"Final catchup progress: {self.progress}")
 
-                        logger.info(f"Activity updates complete: {success_count}/{len(unique_cpids)} successful")
+        logger.info("Catchup thread exiting")
 
-                    except Exception as activity_error:
-                        # Don't fail the sales storage if activity update fails
-                        logger.error(f"Failed to update activity levels after sales: {activity_error}", exc_info=True)
+    def _run_full_catchup(self, db) -> bool:
+        """Run full catchup from beginning."""
+        try:
+            logger.info("=" * 60)
+            logger.info("STARTING FULL SALES HISTORY CATCHUP")
+            logger.info("=" * 60)
+
+            # Clear existing data if forced
+            if FORCE_SALES_HISTORY_REBUILD:
+                logger.warning("FORCE_SALES_HISTORY_REBUILD is set - clearing existing sales data")
+                with db.cursor() as cursor:
+                    cursor.execute("DELETE FROM stamp_sales_history")
+                    deleted = cursor.rowcount
+                    db.commit()
+                    logger.info(f"Cleared {deleted} existing sales records")
+
+            # Fetch all dispenses
+            logger.info("\n📦 PHASE 1: Fetching dispenser sales...")
+            if not self._fetch_all_dispenses():
+                logger.error("Failed to fetch dispenses")
+                return False
+
+            # Fetch all orders
+            logger.info("\n📊 PHASE 2: Fetching order sales...")
+            if not self._fetch_all_orders():
+                logger.error("Failed to fetch orders")
+                return False
+
+            # Update checkpoint
+            current_block = self.backend.getblockcount()
+            self.update_checkpoint("last_catchup_completion", current_block, db)
+
+            logger.info("\n✅ FULL CATCHUP COMPLETED SUCCESSFULLY")
+            logger.info(f"Total API requests: {self.progress['api_requests']}")
+            logger.info(f"Total DB inserts: {self.progress['db_inserts']}")
+            logger.info(f"Total sales: {self.progress['total_sales']}")
+
+            return True
 
         except Exception as e:
-            logger.error(f"Error storing dispenser sales: {e}")
-            if "db" in locals():
-                db.rollback()
-        finally:
-            if close_db:
-                db.close()
+            logger.error(f"Full catchup failed: {e}")
+            logger.error(traceback.format_exc())
+            return False
 
-    def get_recent_sales(self, limit: int = 100, cpid: Optional[str] = None) -> List[Dict]:
-        """
-        Get recent sales from the history table.
-
-        Args:
-            limit: Maximum number of sales to return
-            cpid: Optional CPID to filter by
-
-        Returns:
-            List of recent sales
-        """
+    def get_sales_history(
+        self, cpid: Optional[str] = None, stamp: Optional[int] = None, limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Get sales history for a specific stamp or all stamps."""
         db = self.db_manager.connect()
         try:
             with db.cursor() as cursor:
-                if cpid:
-                    query = """
-                        SELECT ssh.*, s.stamp, s.stamp_url, s.stamp_mimetype
-                        FROM stamp_sales_history ssh
-                        JOIN StampTableV4 s ON ssh.cpid = s.cpid
-                        WHERE ssh.cpid = %s
-                        ORDER BY ssh.block_time DESC
-                        LIMIT %s
-                    """
-                    cursor.execute(query, (cpid, limit))
-                else:
-                    query = """
-                        SELECT ssh.*, s.stamp, s.stamp_url, s.stamp_mimetype
-                        FROM stamp_sales_history ssh
-                        JOIN StampTableV4 s ON ssh.cpid = s.cpid
-                        ORDER BY ssh.block_time DESC
-                        LIMIT %s
-                    """
-                    cursor.execute(query, (limit,))
+                base_query = """
+                    SELECT
+                        ssh.tx_hash,
+                        ssh.block_index,
+                        ssh.block_time,
+                        ssh.cpid,
+                        ssh.stamp,
+                        ssh.buyer_address,
+                        ssh.seller_address,
+                        ssh.btc_amount,
+                        ssh.sale_type,
+                        ssh.market,
+                        ssh.created_at,
+                        s.stamp_base64,
+                        s.stamp_url,
+                        s.stamp_mimetype
+                    FROM stamp_sales_history ssh
+                    LEFT JOIN StampTableV4 s ON ssh.cpid = s.cpid
+                    WHERE 1=1
+                """
 
-                columns = [desc[0] for desc in cursor.description]
-                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+                params: List[Any] = []
+                if cpid:
+                    base_query += " AND ssh.cpid = %s"
+                    params.append(cpid)
+                elif stamp is not None:
+                    base_query += " AND ssh.stamp = %s"
+                    params.append(stamp)
+
+                base_query += " ORDER BY ssh.block_time DESC LIMIT %s OFFSET %s"
+                params.extend([limit, offset])
+
+                cursor.execute(base_query, params)
+
+                sales = []
+                for row in cursor.fetchall():
+                    sale = {
+                        "tx_hash": row[0],
+                        "block_index": row[1],
+                        "block_time": row[2],
+                        "cpid": row[3],
+                        "stamp": row[4],
+                        "buyer_address": row[5],
+                        "seller_address": row[6],
+                        "btc_amount": float(row[7]) if row[7] else 0,
+                        "sale_type": row[8],
+                        "market": row[9],
+                        "created_at": row[10].isoformat() if row[10] else None,
+                        "stamp_base64": row[11],
+                        "stamp_url": row[12],
+                        "stamp_mimetype": row[13],
+                    }
+                    sales.append(sale)
+
+                return sales
 
         finally:
             db.close()
 
-    def calculate_volume_from_history(self, cpid: str, hours: int = 24) -> Dict[str, float]:
-        """
-        Calculate volume metrics from sales history.
+    def get_recent_sales(self, limit: int = 20, cpid: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get recent sales across all stamps or for a specific stamp."""
+        return self.get_sales_history(cpid=cpid, limit=limit)
 
-        Args:
-            cpid: The CPID to calculate volume for
-            hours: Number of hours to look back
+    def calculate_volume_from_history(self, cpid: str, hours: int = 24) -> float:
+        """Calculate volume for a stamp from sales history."""
+        db = self.db_manager.connect()
+        try:
+            with db.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COALESCE(SUM(btc_amount), 0) as volume
+                    FROM stamp_sales_history
+                    WHERE cpid = %s
+                    AND block_time >= UNIX_TIMESTAMP(NOW() - INTERVAL %s HOUR)
+                """,
+                    (cpid, hours),
+                )
 
-        Returns:
-            Dictionary with volume metrics
-        """
+                result = cursor.fetchone()
+                return float(result[0]) if result and result[0] else 0.0
+
+        finally:
+            db.close()
+
+    def export_sales_csv(self, output_path: str, cpid: Optional[str] = None):
+        """Export sales history to CSV."""
         db = self.db_manager.connect()
         try:
             with db.cursor() as cursor:
                 query = """
                     SELECT
-                        SUM(btc_amount) as total_volume_sats,
-                        COUNT(*) as trade_count,
-                        MAX(unit_price_sats) as high_price,
-                        MIN(unit_price_sats) as low_price,
-                        MAX(block_time) as last_sale_time
+                        tx_hash,
+                        block_index,
+                        block_time,
+                        cpid,
+                        stamp,
+                        buyer_address,
+                        seller_address,
+                        btc_amount,
+                        sale_type,
+                        market
                     FROM stamp_sales_history
-                    WHERE cpid = %s
-                    AND block_time > UNIX_TIMESTAMP() - (%s * 3600)
                 """
 
-                logger.debug(f"Calculating volume for CPID {cpid} for last {hours} hours")
-                cursor.execute(query, (cpid, hours))
-                result = cursor.fetchone()
-
-                logger.debug(f"Raw query result for {cpid}: {result}")
-
-                if result and result[0] is not None:
-                    volume_data = {
-                        "volume_btc": float(result[0]) / 100000000,
-                        "trade_count": result[1] or 0,
-                        "high_sats": result[2] or 0,
-                        "low_sats": result[3] or 0,
-                        "last_sale_time": result[4],
-                    }
-                    logger.debug(f"Calculated volume data for {cpid}: {volume_data}")
-                    return volume_data
+                if cpid:
+                    query += " WHERE cpid = %s"
+                    cursor.execute(query, (cpid,))
                 else:
-                    logger.debug(f"No sales found for {cpid} in last {hours} hours")
-                    return {"volume_btc": 0.0, "trade_count": 0, "high_sats": 0, "low_sats": 0, "last_sale_time": 0}
+                    cursor.execute(query)
 
-        except Exception as e:
-            logger.error(f"Error calculating volume for {cpid}: {e}")
-            return {"volume_btc": 0.0, "trade_count": 0, "high_sats": 0, "low_sats": 0, "last_sale_time": 0}
+                # Use gzip if output path ends with .gz
+                if output_path.endswith(".gz"):
+                    with gzip.open(output_path, "wt", encoding="utf-8") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(
+                            [
+                                "tx_hash",
+                                "block_index",
+                                "block_time",
+                                "cpid",
+                                "stamp",
+                                "buyer_address",
+                                "seller_address",
+                                "btc_amount",
+                                "sale_type",
+                                "market",
+                            ]
+                        )
+                        writer.writerows(cursor.fetchall())
+                else:
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(
+                            [
+                                "tx_hash",
+                                "block_index",
+                                "block_time",
+                                "cpid",
+                                "stamp",
+                                "buyer_address",
+                                "seller_address",
+                                "btc_amount",
+                                "sale_type",
+                                "market",
+                            ]
+                        )
+                        writer.writerows(cursor.fetchall())
+
+                logger.info(f"Exported sales history to {output_path}")
+
         finally:
             db.close()
-
-    def _flush_catchup_buffer(self, db=None):
-        """Flush the catchup buffer to database in batches."""
-        logger.debug(f"_flush_catchup_buffer called, initial buffer size: {len(self.catchup_buffer)}")
-        if not self.catchup_buffer:
-            logger.debug("Buffer is empty, returning")
-            return
-
-        with self.catchup_buffer_lock:
-            logger.debug(f"Acquired flush lock, buffer size: {len(self.catchup_buffer)}")
-            if not self.catchup_buffer:
-                logger.debug("Buffer became empty after acquiring lock")
-                return
-
-            logger.info(f"Flushing catchup buffer with {len(self.catchup_buffer)} sales to database")
-
-            if db is None:
-                db = self.db_manager.connect()
-                close_db = True
-            else:
-                close_db = False
-
-            try:
-                logger.debug("Starting database operations...")
-                with db.cursor() as cursor:
-                    # Process in batches to avoid long transactions
-                    total_batches = (len(self.catchup_buffer) + INSERT_BATCH_SIZE - 1) // INSERT_BATCH_SIZE
-                    logger.debug(f"Processing {total_batches} batches of max {INSERT_BATCH_SIZE} records each")
-
-                    for i in range(0, len(self.catchup_buffer), INSERT_BATCH_SIZE):
-                        batch = self.catchup_buffer[i : i + INSERT_BATCH_SIZE]
-                        batch_num = i // INSERT_BATCH_SIZE + 1
-                        logger.debug(f"Processing batch {batch_num}/{total_batches} with {len(batch)} records...")
-
-                        # Process batch in smaller chunks for commits
-                        for j in range(0, len(batch), CHUNK_COMMIT_SIZE):
-                            chunk = batch[j : j + CHUNK_COMMIT_SIZE]
-                            cursor.executemany(
-                                """
-                                INSERT INTO stamp_sales_history
-                                (tx_hash, block_index, block_time, cpid, sale_type,
-                                 buyer_address, seller_address, quantity, btc_amount,
-                                 unit_price_sats, dispenser_tx_hash, swap_contract_id,
-                                 platform, external_id, data_source, notes)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON DUPLICATE KEY UPDATE
-                                btc_amount = VALUES(btc_amount),
-                                unit_price_sats = VALUES(unit_price_sats),
-                                processed_at = CURRENT_TIMESTAMP
-                            """,
-                                chunk,
-                            )
-                            db.commit()
-                            logger.debug(f"Committed chunk of {len(chunk)} records")
-
-                        logger.debug(f"Batch {batch_num}/{total_batches} completed")
-
-                        # Small delay between batches
-                        if i + INSERT_BATCH_SIZE < len(self.catchup_buffer):
-                            logger.debug("Sleeping 0.1s between batches...")
-                            time.sleep(0.1)
-
-                    logger.info(
-                        f"Successfully flushed {len(self.catchup_buffer)} sales in {(len(self.catchup_buffer) + INSERT_BATCH_SIZE - 1) // INSERT_BATCH_SIZE} batches"
-                    )
-                    logger.debug(f"Buffer memory freed: ~{len(str(self.catchup_buffer)) / 1024:.2f} KB")
-
-                    # Update activity levels for stamps that had sales during catchup (mark as HOT)
-                    try:
-                        from index_core.activity_calculator import StampActivityCalculator
-
-                        # Extract unique CPIDs from the buffer (CPID is at index 3)
-                        unique_cpids = set(item[3] for item in self.catchup_buffer if len(item) > 3)
-                        logger.info(f"Updating activity levels for {len(unique_cpids)} stamps from catchup buffer...")
-
-                        success_count = 0
-                        for cpid in unique_cpids:
-                            try:
-                                StampActivityCalculator.update_activity_on_sale(cpid, db)
-                                success_count += 1
-                                logger.debug(f"✅ Updated catchup activity for CPID: {cpid}")
-                            except Exception as cpid_error:
-                                logger.error(f"❌ Failed to update catchup activity for CPID {cpid}: {cpid_error}")
-
-                        logger.info(f"Catchup activity updates complete: {success_count}/{len(unique_cpids)} successful")
-
-                    except Exception as activity_error:
-                        # Don't fail the buffer flush if activity update fails
-                        logger.error(f"Failed to update activity levels after catchup sales: {activity_error}", exc_info=True)
-
-                    # Clear the buffer
-                    logger.debug("Clearing buffer...")
-                    self.catchup_buffer.clear()
-                    logger.debug(f"Buffer cleared, new size: {len(self.catchup_buffer)}")
-
-            except Exception as e:
-                logger.error(f"Error flushing catchup buffer: {e}", exc_info=True)
-                if db:
-                    db.rollback()
-                    logger.debug("Transaction rolled back")
-                raise
-            finally:
-                if close_db:
-                    db.close()
-                    logger.debug("Database connection closed")
 
 
 # Global instance for easy access
