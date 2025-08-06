@@ -97,12 +97,16 @@ def update_s3_db_objects(db, filename, file_obj_md5):
 
         # Insert the new object
         cursor.execute(
-            "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)",
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE md5 = VALUES(md5)",
             (id, s3_file_path, file_obj_md5),
         )
 
         cursor.close()
         db.commit()  # IMPORTANT: Commit the transaction to release locks
+        
+        # Update the in-memory cache
+        config.S3_OBJECTS[s3_file_path] = {"md5": file_obj_md5}
     except Exception as e:
         db.rollback()  # Rollback on error
         logger.warning(f"ERROR: Unable to update the s3objects table. Error: {e}")
@@ -125,7 +129,7 @@ def add_s3_objects_to_db(db, s3_objects):
     try:
         cursor = db.cursor()
 
-        query = "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
+        query = "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE md5 = VALUES(md5)"
         values = [(key + obj["md5"], key, obj["md5"]) for key, obj in s3_objects.items()]
 
         # Execute the multi-insert operation
