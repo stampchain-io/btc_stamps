@@ -193,7 +193,7 @@ def test_fallback_state_no_persistence_when_no_state_manager(mock_backend, mock_
     # Mock backend to simulate being near chain tip
     with patch("src.index_core.blocks.backend_instance") as mock_backend_instance:
         mock_backend_instance.getblockcount.return_value = 12400  # 50 blocks ahead
-        
+
         # Simulate entering fallback mode (should not crash)
         pipeline.current_block = 12350
         pipeline._enter_fallback_mode()
@@ -232,7 +232,7 @@ async def test_fallback_state_thread_safety(temp_db, mock_backend, mock_node_hea
         # Mock backend to simulate being near chain tip
         with patch("src.index_core.blocks.backend_instance") as mock_backend_instance:
             mock_backend_instance.getblockcount.return_value = 12400  # 50 blocks ahead
-            
+
             # Function to simulate concurrent fallback state operations
             def save_fallback_state(block_num):
                 pipeline.current_block = block_num

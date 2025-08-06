@@ -304,7 +304,7 @@ class CPBlocksPipeline:
             if blocks_to_clean:
                 logger.info(f"✅ Cleaned up {len(blocks_to_clean)} stuck blocks from blocks_being_fetched")
                 logger.info(f"Remaining blocks in blocks_being_fetched: {len(self.blocks_being_fetched)}")
-                logger.info(f"Blocks will be retried on next fetch cycle")
+                logger.info("Blocks will be retried on next fetch cycle")
 
     def stop(self):
         """Stop the background worker thread"""
@@ -592,6 +592,7 @@ class CPBlocksPipeline:
         # Check if we're near the chain tip before entering fallback mode
         try:
             from .blocks import backend_instance
+
             block_tip = backend_instance.getblockcount()
             blocks_behind = block_tip - self.current_block
 
@@ -829,7 +830,7 @@ class CPBlocksPipeline:
                     if self.fallback_started_at is None:
                         for failed_block, attempts in list(self.failed_fetch_blocks.items()):
                             if attempts < 3 and failed_block not in blocks_already_present:
-                                if failed_block >= processor_position and failed_block <= end_block:
+                                if failed_block >= processor_position and failed_block <= fetch_end_block:
                                     blocks_to_fetch_now.append(failed_block)
                                     logger.debug(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
                             elif attempts >= 3:
