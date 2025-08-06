@@ -135,7 +135,8 @@ class TestAWSIntegration:
         # Verify database operations
         cursor.execute.assert_any_call("SELECT id FROM s3objects WHERE path_key = %s", (expected_path,))
         cursor.execute.assert_any_call(
-            "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)", (expected_id, expected_path, "xyz789")
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE md5 = VALUES(md5)",
+            (expected_id, expected_path, "xyz789")
         )
         cursor.close.assert_called_once()
 
@@ -155,7 +156,7 @@ class TestAWSIntegration:
         # Verify new entry was inserted
         expected_path = "stamps/existingfile.png"
         cursor.execute.assert_any_call(
-            "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)",
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE md5 = VALUES(md5)",
             (f"{expected_path}_newhash", expected_path, "newhash"),
         )
 
@@ -194,7 +195,7 @@ class TestAWSIntegration:
 
         cursor.executemany.assert_called_once()
         query, values = cursor.executemany.call_args[0]
-        assert query == "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
+        assert query == "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE md5 = VALUES(md5)"
         # Sort values for comparison since dict ordering might vary
         assert sorted(values) == sorted(expected_values)
 

@@ -591,10 +591,10 @@ class CPBlocksPipeline:
 
         # Check if we're near the chain tip before entering fallback mode
         try:
-            from .backend import backend_instance
+            from .blocks import backend_instance
             block_tip = backend_instance.getblockcount()
             blocks_behind = block_tip - self.current_block
-            
+
             # Only enter fallback if we're within configured blocks of the tip
             # This prevents fallback during initial sync where it would be pointless
             fallback_tip_threshold = int(os.environ.get("CP_FALLBACK_TIP_THRESHOLD", "100"))
@@ -823,7 +823,7 @@ class CPBlocksPipeline:
 
                     blocks_already_present = self.blocks_being_fetched.union(existing_in_queue)
                     blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
-                    
+
                     # Add failed blocks that need retry (up to 3 attempts)
                     # Skip retry logic if we're already in fallback mode
                     if self.fallback_started_at is None:
@@ -835,7 +835,7 @@ class CPBlocksPipeline:
                             elif attempts >= 3:
                                 # Max retries exceeded
                                 logger.error(f"Block {failed_block} failed {attempts} times - max retries exceeded")
-                                
+
                                 # Check if we should trigger fallback mode
                                 if self.fallback_mode and self.fallback_started_at is None:
                                     if attempts >= self.fallback_failure_threshold:

@@ -17,7 +17,7 @@ if response.status_code == 200:
     print(f"S3 file MD5: {hashlib.md5(response.content).hexdigest()}")
     print(f"\nS3 file content preview:")
     print(response.text[:500])
-    
+
     # Save for inspection
     with open("/home/ubuntu/stampsdev/btc_stamps/indexer/kevin_s3_current.svg", "wb") as f:
         f.write(response.content)
@@ -26,16 +26,16 @@ else:
     print(f"Failed to download S3 file: {response.status_code}")
 
 # Let's check what the S3 file looks like
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("Analysis:")
-print("="*50)
+print("=" * 50)
 
 # Check if it has background
 if "background-image" in response.text:
     print("✓ File contains background-image style")
 else:
     print("✗ File does NOT contain background-image style")
-    
+
 if "linear-gradient" in response.text:
     print("✓ File contains linear-gradient (default background)")
 else:
@@ -43,7 +43,8 @@ else:
 
 # Check the JSON content
 import re
-json_match = re.search(r'<pre>({.*?})</pre>', response.text, re.DOTALL)
+
+json_match = re.search(r"<pre>({.*?})</pre>", response.text, re.DOTALL)
 if json_match:
     print(f"\nJSON content in SVG:")
     print(json_match.group(1))

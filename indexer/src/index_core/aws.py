@@ -97,14 +97,13 @@ def update_s3_db_objects(db, filename, file_obj_md5):
 
         # Insert the new object
         cursor.execute(
-            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) "
-            "ON DUPLICATE KEY UPDATE md5 = VALUES(md5)",
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) " "ON DUPLICATE KEY UPDATE md5 = VALUES(md5)",
             (id, s3_file_path, file_obj_md5),
         )
 
         cursor.close()
         db.commit()  # IMPORTANT: Commit the transaction to release locks
-        
+
         # Update the in-memory cache
         config.S3_OBJECTS[s3_file_path] = {"md5": file_obj_md5}
     except Exception as e:

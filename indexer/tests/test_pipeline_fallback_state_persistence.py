@@ -121,12 +121,16 @@ def test_fallback_state_save_on_enter_fallback_mode(temp_db, mock_backend, mock_
         # Verify clean start (no previous state loaded)
         assert pipeline.fallback_started_at is None
 
-        # Simulate entering fallback mode
-        pipeline.current_block = 12350
-        pipeline._enter_fallback_mode()
+        # Mock backend to simulate being near chain tip
+        with patch("src.index_core.blocks.backend_instance") as mock_backend_instance:
+            mock_backend_instance.getblockcount.return_value = 12400  # 50 blocks ahead
 
-        # Verify state was saved
-        assert pipeline.fallback_started_at == 12350
+            # Simulate entering fallback mode
+            pipeline.current_block = 12350
+            pipeline._enter_fallback_mode()
+
+            # Verify state was saved
+            assert pipeline.fallback_started_at == 12350
 
         # Verify state was persisted to SQLite
         queue = ReprocessingQueue.get_instance()
@@ -186,13 +190,17 @@ def test_fallback_state_no_persistence_when_no_state_manager(mock_backend, mock_
     # Verify state manager is None
     assert pipeline.state_manager is None
 
-    # Simulate entering fallback mode (should not crash)
-    pipeline.current_block = 12350
-    pipeline._enter_fallback_mode()
+    # Mock backend to simulate being near chain tip
+    with patch("src.index_core.blocks.backend_instance") as mock_backend_instance:
+        mock_backend_instance.getblockcount.return_value = 12400  # 50 blocks ahead
+        
+        # Simulate entering fallback mode (should not crash)
+        pipeline.current_block = 12350
+        pipeline._enter_fallback_mode()
 
-    # Verify fallback mode was activated but no persistence occurred
-    assert pipeline.fallback_started_at == 12350
-    assert pipeline.fallback_mode is True  # Should be enabled during runtime
+        # Verify fallback mode was activated but no persistence occurred
+        assert pipeline.fallback_started_at == 12350
+        assert pipeline.fallback_mode is True  # Should be enabled during runtime
 
 
 def test_fallback_state_empty_database_initialization(temp_db, mock_backend, mock_node_health):
@@ -221,29 +229,33 @@ async def test_fallback_state_thread_safety(temp_db, mock_backend, mock_node_hea
     with patch("src.index_core.config.REPROCESS_DB_PATH", temp_db):
         pipeline = CPBlocksPipeline(max_queue_size=10, target_queue_size=5, fallback_mode=True)
 
-        # Function to simulate concurrent fallback state operations
-        def save_fallback_state(block_num):
-            pipeline.current_block = block_num
-            pipeline._enter_fallback_mode()
-            time.sleep(0.01)  # Small delay to increase chance of race conditions
+        # Mock backend to simulate being near chain tip
+        with patch("src.index_core.blocks.backend_instance") as mock_backend_instance:
+            mock_backend_instance.getblockcount.return_value = 12400  # 50 blocks ahead
+            
+            # Function to simulate concurrent fallback state operations
+            def save_fallback_state(block_num):
+                pipeline.current_block = block_num
+                pipeline._enter_fallback_mode()
+                time.sleep(0.01)  # Small delay to increase chance of race conditions
 
-        # Create multiple threads that try to save fallback state
-        threads = []
-        for i in range(5):
-            thread = threading.Thread(target=save_fallback_state, args=(12350 + i,))
-            threads.append(thread)
+            # Create multiple threads that try to save fallback state
+            threads = []
+            for i in range(5):
+                thread = threading.Thread(target=save_fallback_state, args=(12350 + i,))
+                threads.append(thread)
 
-        # Start all threads
-        for thread in threads:
-            thread.start()
+            # Start all threads
+            for thread in threads:
+                thread.start()
 
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
+            # Wait for all threads to complete
+            for thread in threads:
+                thread.join()
 
-        # Verify that at least one fallback state was saved successfully
-        # (Due to the nature of the test, only one should succeed due to the check for existing fallback_started_at)
-        assert pipeline.fallback_started_at is not None
+            # Verify that at least one fallback state was saved successfully
+            # (Due to the nature of the test, only one should succeed due to the check for existing fallback_started_at)
+            assert pipeline.fallback_started_at is not None
 
         # Verify state was persisted to SQLite
         queue = ReprocessingQueue.get_instance()
