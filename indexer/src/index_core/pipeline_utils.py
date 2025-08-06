@@ -299,7 +299,15 @@ class CPBlocksPipeline:
                 self.blocks_fetch_timestamps.pop(block, None)
                 # Track as failed so they will be retried
                 self.failed_fetch_blocks[block] = self.failed_fetch_blocks.get(block, 0) + 1
-                logger.debug(f"Block {block} marked as failed (attempt #{self.failed_fetch_blocks[block]})")
+                failure_count = self.failed_fetch_blocks[block]
+                logger.info(f"Block {block} marked as failed (attempt #{failure_count})")
+                
+                # Check if we should trigger fallback mode after timeout failures
+                if self.fallback_mode and self.fallback_started_at is None and failure_count >= self.fallback_failure_threshold:
+                    logger.warning(
+                        f"Block {block} failed {failure_count} times via timeout (threshold: {self.fallback_failure_threshold}) - triggering fallback mode"
+                    )
+                    self._enter_fallback_mode()
 
             if blocks_to_clean:
                 logger.info(f"✅ Cleaned up {len(blocks_to_clean)} stuck blocks from blocks_being_fetched")
@@ -828,11 +836,17 @@ class CPBlocksPipeline:
                     # Add failed blocks that need retry (up to 3 attempts)
                     # Skip retry logic if we're already in fallback mode
                     if self.fallback_started_at is None:
+                        # Log summary of failed blocks
+                        if self.failed_fetch_blocks:
+                            failed_summary = {attempts: len([b for b, a in self.failed_fetch_blocks.items() if a == attempts]) 
+                                            for attempts in set(self.failed_fetch_blocks.values())}
+                            logger.info(f"Failed blocks summary: {failed_summary} (total: {len(self.failed_fetch_blocks)})")
+                        
                         for failed_block, attempts in list(self.failed_fetch_blocks.items()):
                             if attempts < 3 and failed_block not in blocks_already_present:
                                 if failed_block >= processor_position and failed_block <= fetch_end_block:
                                     blocks_to_fetch_now.append(failed_block)
-                                    logger.debug(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
+                                    logger.info(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
                             elif attempts >= 3:
                                 # Max retries exceeded
                                 logger.error(f"Block {failed_block} failed {attempts} times - max retries exceeded")
@@ -881,9 +895,13 @@ class CPBlocksPipeline:
                 # 5. Submit the fetch task.
                 nodes = get_healthy_nodes()
                 if not nodes:
-                    logger.warning("No healthy nodes available for fetching.")
+                    logger.warning("❌ No healthy nodes available for fetching blocks")
+                    logger.info(f"Currently tracking {len(self.blocks_being_fetched)} blocks in flight")
+                    logger.info(f"Failed blocks awaiting retry: {len(self.failed_fetch_blocks)}")
+                    
                     # Trigger fallback mode if enabled
                     if self.fallback_mode and self.fallback_started_at is None:
+                        logger.warning("Triggering fallback mode due to no healthy nodes")
                         self._enter_fallback_mode()
 
                     # If we're in fallback mode, create fallback blocks instead of waiting
