@@ -2809,6 +2809,33 @@ def apply_schema_updates(db, cursor):
         logger.info("Schema is up to date, no updates needed")
 
 
+def import_bootstrap_data(cursor, filename, url, insert_query):
+    """Import bootstrap data, trying local file first, then URL as fallback."""
+    import os
+
+    # Try local file first
+    local_path = os.path.join(os.path.dirname(__file__), "..", "..", "bootstrap", filename)
+    if os.path.exists(local_path):
+        logger.info(f"Using local bootstrap file: {local_path}")
+        try:
+            import_csv_data(cursor, local_path, insert_query, is_url=False)
+            logger.info(f"Successfully imported {filename} from local file")
+            return
+        except Exception as e:
+            logger.warning(f"Failed to import from local file {local_path}: {e}")
+            logger.info(f"Falling back to URL: {url}")
+    else:
+        logger.info(f"Local bootstrap file not found: {local_path}, using URL: {url}")
+
+    # Fallback to URL
+    try:
+        import_csv_data(cursor, url, insert_query, is_url=True)
+        logger.info(f"Successfully imported {filename} from URL")
+    except Exception as e:
+        logger.error(f"Failed to import {filename} from both local file and URL: {e}")
+        raise
+
+
 def import_csv_data(cursor, csv_url, insert_query, is_url=False):
     """Import CSV data from URL or local file with ETag caching."""
     max_int = sys.maxsize
@@ -3023,18 +3050,20 @@ def initialize_tables(db):
             # Apply schema updates after creating tables
             apply_schema_updates(db, cursor)
 
-        import_csv_data(
+        # Import bootstrap data - try local files first, then URLs as fallback
+        import_bootstrap_data(
             cursor,
+            "creator.csv",
             config.BOOTSTRAP_CREATOR_CSV_URL,
             """
             INSERT INTO creator (address, creator)
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE creator = VALUES(creator)
             """,
-            is_url=True,
         )
-        import_csv_data(
+        import_bootstrap_data(
             cursor,
+            "srcbackground.csv",
             config.BOOTSTRAP_SRCBACKGROUND_CSV_URL,
             """INSERT INTO srcbackground
             (tick, tick_hash, base64, font_size, text_color, unicode, p)
@@ -3045,7 +3074,6 @@ def initialize_tables(db):
             text_color = VALUES(text_color),
             unicode = VALUES(unicode),
             p = VALUES(p)""",
-            is_url=True,
         )
         db.commit()
         cursor.close()

@@ -151,13 +151,21 @@ class Backend:
         ssl_context.post_handshake_auth = True
 
         # Enhanced connection pooling configuration
+        # Default to 1.5x multiplier for better performance with single indexer
+        pool_multiplier = float(os.environ.get("RPC_POOL_MULTIPLIER", 1.5))
+        pool_max_size = int(os.environ.get("RPC_POOL_MAX_SIZE", 75))
+
         adapter = HTTPAdapter(
             max_retries=Retry(
-                total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(["GET", "POST"])
+                total=2,
+                backoff_factor=1.0,
+                status_forcelist=[500, 502, 504],
+                allowed_methods=frozenset(["GET", "POST"]),
+                # Removed 503 from auto-retry list - handled manually in rpc_call
             ),
-            pool_connections=config.BACKEND_RPC_BATCH_NUM_WORKERS * 2,
-            pool_maxsize=100,
-            pool_block=False,
+            pool_connections=int(config.BACKEND_RPC_BATCH_NUM_WORKERS * pool_multiplier),
+            pool_maxsize=pool_max_size,
+            pool_block=True,  # Wait for connections instead of failing
         )
 
         # Mount adapters for both HTTP and HTTPS
@@ -192,7 +200,7 @@ class Backend:
         """Calls to bitcoin core and returns the response"""
         url = config.RPC_URL
         response = None
-        TRIES = 12
+        TRIES = int(os.environ.get("RPC_MAX_RETRIES", 6))  # Configurable retry attempts
 
         # Add validation and debug logging for Quicknode
         if config.QUICKNODE_ENDPOINT and config.QUICKNODE_API_KEY:
@@ -220,18 +228,33 @@ class Backend:
                     if i > 0:
                         logger.debug("Successfully connected.")
                     break
+                elif response.status_code == 503:
+                    # 503 Service Unavailable - node is overloaded, need longer delay
+                    logger.warning(f"Bitcoin node temporarily unavailable (503), waiting before retry {i + 1}/{TRIES}")
+                    if i < TRIES - 1:
+                        # Exponential backoff with configurable initial delay for 503
+                        initial_delay = int(os.environ.get("RPC_503_INITIAL_DELAY", 10))
+                        max_delay = int(os.environ.get("RPC_MAX_RETRY_DELAY", 60))
+                        wait_time = min(initial_delay * (2**i), max_delay)
+                        logger.info(f"Waiting {wait_time}s before retry due to node overload")
+                        time.sleep(wait_time)
+                        continue
                 else:
                     logger.debug(f"Response status code: {response.status_code}")
                     # logger.debug(f"Response text: {response.text}")
                     if i < TRIES - 1:  # Don't sleep on the last attempt
-                        time.sleep(5)
+                        # Exponential backoff for other errors
+                        wait_time = min(2 * (2**i), 30)  # Start at 2s, cap at 30s
+                        time.sleep(wait_time)
                         continue  # Retry on non-200 status codes
                     # Last attempt failed, will exit loop and handle error below
             except (Timeout, ConnectionError) as e:
                 logger.debug(
                     f"Could not connect to backend at `{util.clean_url_for_log(url)}`. Error: {str(e)} (Try {i + 1}/{TRIES})"
                 )
-                time.sleep(5)
+                # Exponential backoff for connection errors
+                wait_time = min(3 * (2**i), 30)  # Start at 3s, cap at 30s
+                time.sleep(wait_time)
             except requests.exceptions.InvalidURL as e:
                 logger.error(f"Invalid URL format: {str(e)}")
                 logger.error(f"URL being used: {util.clean_url_for_log(url)}")

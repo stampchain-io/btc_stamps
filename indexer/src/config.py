@@ -292,7 +292,8 @@ else:
 
 logger.info(f"Final RPC URL format: {masked_url}")
 
-RPC_BATCH_SIZE = 75  # Optimized batch size for better throughput
+# RPC Tuning - can be overridden via environment variables to handle node overload
+RPC_BATCH_SIZE = int(os.environ.get("RPC_BATCH_SIZE", 75))  # Batch size for RPC calls (reduce if getting 503s)
 
 # Add new constants for the V2 CP API endpoints
 # Build XCP_V2_NODES from the parsed node configuration
@@ -566,7 +567,8 @@ BLOCK_FIRST_REGTEST = 0
 
 DEFAULT_REQUESTS_TIMEOUT = 20  # 20 seconds
 
-BACKEND_RPC_BATCH_NUM_WORKERS = 6
+# Number of concurrent workers for RPC batch processing (reduce if getting 503s)
+BACKEND_RPC_BATCH_NUM_WORKERS = int(os.environ.get("BACKEND_RPC_BATCH_NUM_WORKERS", 6))
 
 LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[bool]]]] = [
     {
