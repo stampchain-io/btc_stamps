@@ -2,9 +2,7 @@
 Sales History Processor - handles all stamp sales tracking
 """
 
-import csv
 import gc
-import gzip
 import logging
 import os
 import queue
@@ -710,8 +708,7 @@ class SalesHistoryProcessor:
                         ssh.seller_address,
                         ssh.btc_amount,
                         ssh.sale_type,
-                        ssh.market,
-                        ssh.created_at,
+                        ssh.processed_at,
                         s.stamp_base64,
                         s.stamp_url,
                         s.stamp_mimetype
@@ -745,11 +742,10 @@ class SalesHistoryProcessor:
                         "seller_address": row[6],
                         "btc_amount": float(row[7]) if row[7] else 0,
                         "sale_type": row[8],
-                        "market": row[9],
-                        "created_at": row[10].isoformat() if row[10] else None,
-                        "stamp_base64": row[11],
-                        "stamp_url": row[12],
-                        "stamp_mimetype": row[13],
+                        "processed_at": row[9].isoformat() if row[9] else None,
+                        "stamp_base64": row[10],
+                        "stamp_url": row[11],
+                        "stamp_mimetype": row[12],
                     }
                     sales.append(sale)
 
@@ -779,73 +775,6 @@ class SalesHistoryProcessor:
 
                 result = cursor.fetchone()
                 return float(result[0]) if result and result[0] else 0.0
-
-        finally:
-            db.close()
-
-    def export_sales_csv(self, output_path: str, cpid: Optional[str] = None):
-        """Export sales history to CSV."""
-        db = self.db_manager.connect()
-        try:
-            with db.cursor() as cursor:
-                query = """
-                    SELECT
-                        tx_hash,
-                        block_index,
-                        block_time,
-                        cpid,
-                        stamp,
-                        buyer_address,
-                        seller_address,
-                        btc_amount,
-                        sale_type,
-                        market
-                    FROM stamp_sales_history
-                """
-
-                if cpid:
-                    query += " WHERE cpid = %s"
-                    cursor.execute(query, (cpid,))
-                else:
-                    cursor.execute(query)
-
-                # Use gzip if output path ends with .gz
-                if output_path.endswith(".gz"):
-                    with gzip.open(output_path, "wt", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(
-                            [
-                                "tx_hash",
-                                "block_index",
-                                "block_time",
-                                "cpid",
-                                "buyer_address",
-                                "seller_address",
-                                "btc_amount",
-                                "sale_type",
-                                "market",
-                            ]
-                        )
-                        writer.writerows(cursor.fetchall())
-                else:
-                    with open(output_path, "w", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(
-                            [
-                                "tx_hash",
-                                "block_index",
-                                "block_time",
-                                "cpid",
-                                "buyer_address",
-                                "seller_address",
-                                "btc_amount",
-                                "sale_type",
-                                "market",
-                            ]
-                        )
-                        writer.writerows(cursor.fetchall())
-
-                logger.info(f"Exported sales history to {output_path}")
 
         finally:
             db.close()
