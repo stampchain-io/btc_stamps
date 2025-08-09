@@ -185,8 +185,7 @@ class SalesHistoryProcessor:
                                 "buyer_address": source,  # source is the buyer
                                 "seller_address": destination,  # destination is the dispenser
                                 "btc_amount": btc_amount_btc,
-                                "sale_type": "DISPENSER",
-                                "market": "BITCOIN",
+                                "sale_type": "dispenser",  # lowercase to match ENUM
                                 "dispenser_tx_hash": dispenser_tx_hash,
                                 "quantity": quantity,
                                 "unit_price_sats": satoshirate,
@@ -293,8 +292,9 @@ class SalesHistoryProcessor:
                     """
                     INSERT INTO stamp_sales_history
                     (tx_hash, block_index, block_time, cpid, buyer_address,
-                     seller_address, btc_amount, sale_type, market, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     seller_address, btc_amount, sale_type, quantity, unit_price_sats,
+                     dispenser_tx_hash, processed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """,
                     (
                         sale_data["tx_hash"],
@@ -305,7 +305,9 @@ class SalesHistoryProcessor:
                         sale_data["seller_address"],
                         sale_data["btc_amount"],
                         sale_data["sale_type"],
-                        sale_data["market"],
+                        sale_data.get("quantity", 1),
+                        sale_data.get("unit_price_sats", 0),
+                        sale_data.get("dispenser_tx_hash"),
                     ),
                 )
                 self.progress["db_inserts"] += 1
@@ -333,7 +335,9 @@ class SalesHistoryProcessor:
                         sale["seller_address"],
                         sale["btc_amount"],
                         sale["sale_type"],
-                        sale["market"],
+                        sale.get("quantity", 1),
+                        sale.get("unit_price_sats", 0),
+                        sale.get("dispenser_tx_hash"),
                     )
                 )
 
@@ -343,8 +347,9 @@ class SalesHistoryProcessor:
                     """
                     INSERT IGNORE INTO stamp_sales_history
                     (tx_hash, block_index, block_time, cpid, buyer_address,
-                     seller_address, btc_amount, sale_type, market, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     seller_address, btc_amount, sale_type, quantity, unit_price_sats,
+                     dispenser_tx_hash, processed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """,
                     values,
                 )
@@ -396,8 +401,10 @@ class SalesHistoryProcessor:
                         "buyer_address": d.get("destination", ""),
                         "seller_address": d.get("source", ""),
                         "btc_amount": float(d.get("btc_amount", 0)),
-                        "sale_type": "DISPENSER",
-                        "market": "BITCOIN",
+                        "sale_type": "dispenser",  # lowercase to match ENUM
+                        "quantity": d.get("dispense_quantity", 1),
+                        "unit_price_sats": d.get("satoshirate", 0),
+                        "dispenser_tx_hash": d.get("dispenser_tx_hash"),
                     }
                     page_dispenses.append(sale_data)
 
@@ -491,8 +498,9 @@ class SalesHistoryProcessor:
                         "buyer_address": o.get("source", ""),
                         "seller_address": "",  # Orders don't have explicit seller
                         "btc_amount": float(o.get("give_quantity", 0)) / 1e8 if o.get("give_asset") == "BTC" else 0,
-                        "sale_type": "ORDER",
-                        "market": "DEX",
+                        "sale_type": "dex",  # lowercase to match ENUM
+                        "quantity": o.get("get_quantity", 1),
+                        "unit_price_sats": 0,  # Would need to calculate from btc_amount/quantity
                     }
                     page_orders.append(sale_data)
 
