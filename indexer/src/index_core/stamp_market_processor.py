@@ -31,7 +31,8 @@ MAX_FLOOR_PRICE = D("21000000")  # Max possible BTC
 MIN_HOLDER_COUNT = 0
 MAX_HOLDER_COUNT = 1000000
 MIN_VOLUME = D("0")
-MAX_VOLUME = D("21000000")
+MAX_VOLUME = D("21000000")  # For individual periods (24h, 7d, 30d)
+MAX_TOTAL_VOLUME = D("210000000")  # 10x Bitcoin supply for total lifetime volume
 MIN_QUALITY_SCORE = D("0.0")
 MAX_QUALITY_SCORE = D("10.0")
 
@@ -150,11 +151,17 @@ class StampMarketDataProcessor:
                     validated_data["holder_distribution_score"] = score
 
             # Validate volume fields (optional)
-            for field in ["volume_24h_btc", "volume_7d_btc", "volume_30d_btc", "total_volume_btc"]:
+            for field in ["volume_24h_btc", "volume_7d_btc", "volume_30d_btc"]:
                 if field in data:
                     volume = self._validate_decimal_field(data[field], field, MIN_VOLUME, MAX_VOLUME)
                     if volume is not None:
                         validated_data[field] = volume
+            
+            # Validate total volume with higher limit
+            if "total_volume_btc" in data:
+                total_volume = self._validate_decimal_field(data["total_volume_btc"], "total_volume_btc", MIN_VOLUME, MAX_TOTAL_VOLUME)
+                if total_volume is not None:
+                    validated_data["total_volume_btc"] = total_volume
 
             # Validate price_source (string field)
             if "price_source" in data and data["price_source"] is not None:
