@@ -110,6 +110,12 @@ class CPBlocksPipeline:
             self.fallback_started_at = None  # Flag for when CP nodes become available again
 
         self.cp_nodes_healthy_again = False  # Timestamp of last health check
+
+        # Rate limiting for log messages when nodes are down
+        self.last_no_nodes_warning = 0
+        self.no_nodes_warning_count = 0
+        self.no_nodes_backoff_seconds = 10  # Start with 10s backoff
+        self.max_no_nodes_backoff = 300  # Cap at 5 minutes
         self.last_health_check = 0  # Check every 30 seconds when in fallback
         self.health_check_interval = 30
 
@@ -279,19 +285,28 @@ class CPBlocksPipeline:
                     f"Cleanup check: {len(self.blocks_being_fetched)} blocks in blocks_being_fetched, oldest: {oldest_age:.1f}s old"
                 )
 
+            # First pass - identify timeout blocks without logging each one
+            timeout_blocks = []
             for block in list(self.blocks_being_fetched):
                 if block in self.blocks_fetch_timestamps:
                     fetch_time = self.blocks_fetch_timestamps[block]
                     age = current_time - fetch_time
                     if age > self.fetch_timeout:
-                        logger.warning(
-                            f"Block {block} has been fetching for {age:.1f}s (timeout: {self.fetch_timeout}s), removing from blocks_being_fetched"
-                        )
+                        timeout_blocks.append((block, age))
                         blocks_to_clean.append(block)
                 else:
                     # Block in set but no timestamp - shouldn't happen but clean it up
                     logger.warning(f"Block {block} in blocks_being_fetched but no timestamp, cleaning up")
                     blocks_to_clean.append(block)
+
+            # Log timeout summary instead of individual messages
+            if timeout_blocks:
+                block_ranges = self._summarize_block_ranges([b[0] for b in timeout_blocks])
+                avg_timeout = sum(b[1] for b in timeout_blocks) / len(timeout_blocks)
+                logger.warning(
+                    f"⏱️ {len(timeout_blocks)} blocks timed out after {avg_timeout:.1f}s average "
+                    f"(timeout: {self.fetch_timeout}s). Blocks: {block_ranges}"
+                )
 
             # Clean up stuck blocks
             for block in blocks_to_clean:
@@ -301,9 +316,13 @@ class CPBlocksPipeline:
                 self.failed_fetch_blocks[block] = self.failed_fetch_blocks.get(block, 0) + 1
                 failure_count = self.failed_fetch_blocks[block]
                 logger.info(f"Block {block} marked as failed (attempt #{failure_count})")
-                
+
                 # Check if we should trigger fallback mode after timeout failures
-                if self.fallback_mode and self.fallback_started_at is None and failure_count >= self.fallback_failure_threshold:
+                if (
+                    self.fallback_mode
+                    and self.fallback_started_at is None
+                    and failure_count >= self.fallback_failure_threshold
+                ):
                     logger.warning(
                         f"Block {block} failed {failure_count} times via timeout (threshold: {self.fallback_failure_threshold}) - triggering fallback mode"
                     )
@@ -313,6 +332,39 @@ class CPBlocksPipeline:
                 logger.info(f"✅ Cleaned up {len(blocks_to_clean)} stuck blocks from blocks_being_fetched")
                 logger.info(f"Remaining blocks in blocks_being_fetched: {len(self.blocks_being_fetched)}")
                 logger.info("Blocks will be retried on next fetch cycle")
+
+    def _summarize_block_ranges(self, blocks):
+        """Summarize a list of block numbers into ranges for concise logging."""
+        if not blocks:
+            return ""
+
+        blocks = sorted(set(blocks))
+        ranges = []
+        start = blocks[0]
+        end = blocks[0]
+
+        for block in blocks[1:]:
+            if block == end + 1:
+                end = block
+            else:
+                if start == end:
+                    ranges.append(str(start))
+                else:
+                    ranges.append(f"{start}-{end}")
+                start = block
+                end = block
+
+        # Add the last range
+        if start == end:
+            ranges.append(str(start))
+        else:
+            ranges.append(f"{start}-{end}")
+
+        # Limit output to prevent overly long messages
+        if len(ranges) > 10:
+            ranges = ranges[:5] + ["..."] + ranges[-5:]
+
+        return ", ".join(ranges)
 
     def stop(self):
         """Stop the background worker thread"""
@@ -473,6 +525,21 @@ class CPBlocksPipeline:
                         f"Gap detected: processor needs {block_index} but pipeline is at {self.current_block}. Adjusting pipeline to fill gap."
                     )
                     self.current_block = block_index
+
+                # CRITICAL FIX: If we're in fallback mode and the block isn't available,
+                # create a fallback block immediately for the processor to continue
+                if self.fallback_mode and self.fallback_started_at is not None:
+                    logger.info(f"Creating fallback block {block_index} on-demand for processor continuation")
+                    fallback_block = self.create_fallback_block(block_index)
+                    self.queue[block_index] = fallback_block
+                    self.failed_cp_blocks.add(block_index)
+
+                    # Advance current_block if needed to ensure pipeline progression
+                    if block_index >= self.current_block:
+                        self.current_block = block_index + 1
+                        logger.debug(f"Advanced pipeline to block {self.current_block} after creating fallback block")
+
+                    return fallback_block
 
                 return None
 
@@ -825,6 +892,35 @@ class CPBlocksPipeline:
                     time.sleep(1)
                     continue
 
+                # CRITICAL: If we're in active fallback mode, proactively create fallback blocks
+                # This ensures the processor never gets stuck waiting for blocks
+                if self.fallback_mode and self.fallback_started_at is not None:
+                    with self._lock:
+                        created_count = 0
+                        for block_idx in potential_blocks:
+                            if block_idx not in self.queue:
+                                self.queue[block_idx] = self.create_fallback_block(block_idx)
+                                self.failed_cp_blocks.add(block_idx)
+                                created_count += 1
+
+                        if created_count > 0:
+                            logger.info(
+                                f"📦 Created {created_count} fallback blocks ({potential_blocks[0]}-{potential_blocks[-1]}) to maintain queue"
+                            )
+
+                            # Signal ready if initial fetch
+                            if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
+                                logger.debug(f"Initial fallback fetch has {len(self.queue)} blocks, setting ready flag.")
+                                self.initial_blocks_ready.set()
+
+                    # Mark initial fetch as complete
+                    if not initial_fetch_complete:
+                        initial_fetch_complete = True
+
+                    # Skip the normal fetch process since we've created fallback blocks
+                    time.sleep(self.fetch_interval)
+                    continue
+
                 # Figure out which blocks we need from the potential list
                 with self._blocks_fetch_lock:
                     with self._lock:  # Need lock for self.queue
@@ -838,10 +934,12 @@ class CPBlocksPipeline:
                     if self.fallback_started_at is None:
                         # Log summary of failed blocks
                         if self.failed_fetch_blocks:
-                            failed_summary = {attempts: len([b for b, a in self.failed_fetch_blocks.items() if a == attempts]) 
-                                            for attempts in set(self.failed_fetch_blocks.values())}
+                            failed_summary = {
+                                attempts: len([b for b, a in self.failed_fetch_blocks.items() if a == attempts])
+                                for attempts in set(self.failed_fetch_blocks.values())
+                            }
                             logger.info(f"Failed blocks summary: {failed_summary} (total: {len(self.failed_fetch_blocks)})")
-                        
+
                         for failed_block, attempts in list(self.failed_fetch_blocks.items()):
                             if attempts < 3 and failed_block not in blocks_already_present:
                                 if failed_block >= processor_position and failed_block <= fetch_end_block:
@@ -895,10 +993,31 @@ class CPBlocksPipeline:
                 # 5. Submit the fetch task.
                 nodes = get_healthy_nodes()
                 if not nodes:
-                    logger.warning("❌ No healthy nodes available for fetching blocks")
-                    logger.info(f"Currently tracking {len(self.blocks_being_fetched)} blocks in flight")
-                    logger.info(f"Failed blocks awaiting retry: {len(self.failed_fetch_blocks)}")
-                    
+                    current_time = time.time()
+                    time_since_last_warning = current_time - self.last_no_nodes_warning
+
+                    # Rate limit the warning messages
+                    if time_since_last_warning >= self.no_nodes_backoff_seconds:
+                        self.no_nodes_warning_count += 1
+                        self.last_no_nodes_warning = current_time
+
+                        # Log with decreasing verbosity
+                        if self.no_nodes_warning_count <= 3:
+                            logger.warning("❌ No healthy nodes available for fetching blocks")
+                            logger.info(f"Currently tracking {len(self.blocks_being_fetched)} blocks in flight")
+                            logger.info(f"Failed blocks awaiting retry: {len(self.failed_fetch_blocks)}")
+                        else:
+                            # After 3 warnings, just log a summary
+                            logger.warning(
+                                f"❌ Still no healthy nodes (occurrence #{self.no_nodes_warning_count}). "
+                                f"Blocks in flight: {len(self.blocks_being_fetched)}, "
+                                f"Failed blocks: {len(self.failed_fetch_blocks)}"
+                            )
+
+                        # Exponential backoff for log messages (but cap it)
+                        self.no_nodes_backoff_seconds = min(self.no_nodes_backoff_seconds * 2, self.max_no_nodes_backoff)
+                        logger.debug(f"Next no-nodes warning in {self.no_nodes_backoff_seconds}s")
+
                     # Trigger fallback mode if enabled
                     if self.fallback_mode and self.fallback_started_at is None:
                         logger.warning("Triggering fallback mode due to no healthy nodes")
@@ -923,8 +1042,18 @@ class CPBlocksPipeline:
                         if not initial_fetch_complete:
                             initial_fetch_complete = True
                     else:
-                        time.sleep(10)
+                        # When no fallback mode and no nodes, use exponential backoff sleep
+                        # This prevents busy-waiting and reduces resource usage
+                        sleep_time = min(self.no_nodes_backoff_seconds, 60)  # Cap at 60s
+                        logger.debug(f"No healthy nodes and fallback disabled, sleeping {sleep_time}s")
+                        time.sleep(sleep_time)
                     continue
+
+                # Nodes are healthy - reset warning counters if they were elevated
+                if self.no_nodes_warning_count > 0:
+                    logger.info("✅ Healthy nodes available again - resetting warning counters")
+                    self.no_nodes_warning_count = 0
+                    self.no_nodes_backoff_seconds = 10  # Reset to initial backoff
 
                 with self._blocks_fetch_lock:
                     current_timestamp = time.time()
