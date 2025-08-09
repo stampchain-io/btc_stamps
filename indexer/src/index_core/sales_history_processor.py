@@ -134,15 +134,15 @@ class SalesHistoryProcessor:
         try:
             # Fetch dispenses from Counterparty API
             from index_core.fetch_utils import fetch_xcp
-            
+
             response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
-            
+
             if not response or "result" not in response:
                 logger.debug(f"No dispenses found in block {block_index}")
                 return 0
-            
+
             dispenses = response["result"]
-            
+
             with db.cursor() as cursor:
                 for dispense in dispenses:
                     # Extract dispense data from API response
@@ -154,18 +154,15 @@ class SalesHistoryProcessor:
                     btc_amount = dispense.get("btc_amount", 0)
                     dispenser_tx_hash = dispense.get("dispenser_tx_hash")
                     block_time = dispense.get("block_time")
-                    
+
                     # Check if this asset is a stamp
-                    cursor.execute(
-                        "SELECT cpid, stamp FROM StampTableV4 WHERE cpid = %s",
-                        (asset,)
-                    )
+                    cursor.execute("SELECT cpid, stamp FROM StampTableV4 WHERE cpid = %s", (asset,))
                     stamp_data = cursor.fetchone()
-                    
+
                     # Only process if it's a stamp
                     if stamp_data:
                         cpid, stamp_num = stamp_data
-                        
+
                         # Get satoshirate from dispenser data if available
                         satoshirate = 0
                         if "dispenser" in dispense and isinstance(dispense["dispenser"], dict):
@@ -173,10 +170,10 @@ class SalesHistoryProcessor:
                         elif btc_amount and quantity:
                             # Calculate satoshirate from btc_amount if not provided
                             satoshirate = btc_amount // quantity if quantity > 0 else 0
-                        
+
                         # Convert btc_amount from satoshis to BTC for storage
                         btc_amount_btc = btc_amount / 1e8 if btc_amount else 0
-                        
+
                         # Insert into sales history
                         self._insert_sale(
                             db,
@@ -185,7 +182,6 @@ class SalesHistoryProcessor:
                                 "block_index": block_index,
                                 "block_time": block_time,
                                 "cpid": cpid,
-                                "stamp": stamp_num,
                                 "buyer_address": source,  # source is the buyer
                                 "seller_address": destination,  # destination is the dispenser
                                 "btc_amount": btc_amount_btc,
@@ -199,7 +195,7 @@ class SalesHistoryProcessor:
                         dispense_count += 1
 
             db.commit()
-            
+
             if dispense_count > 0:
                 logger.info(f"Stored {dispense_count} dispenser sales in block {block_index}")
 
@@ -296,16 +292,15 @@ class SalesHistoryProcessor:
                 cursor.execute(
                     """
                     INSERT INTO stamp_sales_history
-                    (tx_hash, block_index, block_time, cpid, stamp, buyer_address,
+                    (tx_hash, block_index, block_time, cpid, buyer_address,
                      seller_address, btc_amount, sale_type, market, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """,
                     (
                         sale_data["tx_hash"],
                         sale_data["block_index"],
                         sale_data["block_time"],
                         sale_data["cpid"],
-                        sale_data["stamp"],
                         sale_data["buyer_address"],
                         sale_data["seller_address"],
                         sale_data["btc_amount"],
@@ -334,7 +329,6 @@ class SalesHistoryProcessor:
                         sale["block_index"],
                         sale["block_time"],
                         sale["cpid"],
-                        sale["stamp"],
                         sale["buyer_address"],
                         sale["seller_address"],
                         sale["btc_amount"],
@@ -348,9 +342,9 @@ class SalesHistoryProcessor:
                 cursor.executemany(
                     """
                     INSERT IGNORE INTO stamp_sales_history
-                    (tx_hash, block_index, block_time, cpid, stamp, buyer_address,
+                    (tx_hash, block_index, block_time, cpid, buyer_address,
                      seller_address, btc_amount, sale_type, market, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """,
                     values,
                 )
@@ -399,7 +393,6 @@ class SalesHistoryProcessor:
                         "block_index": d["block_index"],
                         "block_time": d.get("timestamp", 0),
                         "cpid": d["cpid"],
-                        "stamp": d.get("stamp"),
                         "buyer_address": d.get("destination", ""),
                         "seller_address": d.get("source", ""),
                         "btc_amount": float(d.get("btc_amount", 0)),
@@ -495,7 +488,6 @@ class SalesHistoryProcessor:
                         "block_index": o["block_index"],
                         "block_time": o.get("timestamp", 0),
                         "cpid": o["cpid"],
-                        "stamp": o.get("stamp"),
                         "buyer_address": o.get("source", ""),
                         "seller_address": "",  # Orders don't have explicit seller
                         "btc_amount": float(o.get("give_quantity", 0)) / 1e8 if o.get("give_asset") == "BTC" else 0,
@@ -705,7 +697,7 @@ class SalesHistoryProcessor:
                         ssh.block_index,
                         ssh.block_time,
                         ssh.cpid,
-                        ssh.stamp,
+                        s.stamp,
                         ssh.buyer_address,
                         ssh.seller_address,
                         ssh.btc_amount,
@@ -725,7 +717,7 @@ class SalesHistoryProcessor:
                     base_query += " AND ssh.cpid = %s"
                     params.append(cpid)
                 elif stamp is not None:
-                    base_query += " AND ssh.stamp = %s"
+                    base_query += " AND s.stamp = %s"
                     params.append(stamp)
 
                 base_query += " ORDER BY ssh.block_time DESC LIMIT %s OFFSET %s"
@@ -819,7 +811,6 @@ class SalesHistoryProcessor:
                                 "block_index",
                                 "block_time",
                                 "cpid",
-                                "stamp",
                                 "buyer_address",
                                 "seller_address",
                                 "btc_amount",
@@ -837,7 +828,6 @@ class SalesHistoryProcessor:
                                 "block_index",
                                 "block_time",
                                 "cpid",
-                                "stamp",
                                 "buyer_address",
                                 "seller_address",
                                 "btc_amount",
