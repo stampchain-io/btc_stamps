@@ -533,12 +533,12 @@ class StampWorker:
                     "last_sale_btc_amount": most_recent.get("btc_amount"),
                     "last_sale_dispenser_tx_hash": most_recent.get("dispenser_tx_hash"),
                 }
-                
+
                 # Only add recent_sale_price_btc if we have a valid non-zero price
                 unit_price_sats = most_recent.get("unit_price_sats", 0)
                 if unit_price_sats and unit_price_sats > 0:
                     sale_updates["recent_sale_price_btc"] = float(unit_price_sats) / 100000000
-                
+
                 volume_metrics.update(sale_updates)
 
                 # Log when we successfully capture recent sale data

@@ -210,12 +210,13 @@ class TestSalesHistoryProcessor:
             "block_index": 800000,
             "block_time": 1234567890,
             "cpid": "A1111111111111111111",
-            "stamp": 123,
             "buyer_address": "buyer1",
             "seller_address": "seller1",
             "btc_amount": 0.005,  # Already converted to BTC
-            "sale_type": "DISPENSER",
-            "market": "BITCOIN",
+            "sale_type": "dispenser",
+            "quantity": 1,
+            "unit_price_sats": 500000,
+            "dispenser_tx_hash": "dispenser_tx1",
         }
 
         # Mock the SELECT to indicate sale doesn't exist
@@ -240,21 +241,23 @@ class TestSalesHistoryProcessor:
 
         # Check SQL structure
         assert "INSERT INTO stamp_sales_history" in sql
-        assert "tx_hash, block_index, block_time, cpid, stamp, buyer_address" in sql
-        assert "seller_address, btc_amount, sale_type, market, created_at" in sql
-        assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())" in sql
+        assert "tx_hash, block_index, block_time, cpid, buyer_address" in sql
+        assert "seller_address, btc_amount, sale_type, quantity, unit_price_sats" in sql
+        assert "dispenser_tx_hash, processed_at" in sql
+        assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())" in sql
 
         # Check parameters match our test data
         assert params[0] == "tx1"  # tx_hash
         assert params[1] == 800000  # block_index
         assert params[2] == 1234567890  # block_time
         assert params[3] == "A1111111111111111111"  # cpid
-        assert params[4] == 123  # stamp
-        assert params[5] == "buyer1"  # buyer_address
-        assert params[6] == "seller1"  # seller_address
-        assert params[7] == 0.005  # btc_amount
-        assert params[8] == "DISPENSER"  # sale_type
-        assert params[9] == "BITCOIN"  # market
+        assert params[4] == "buyer1"  # buyer_address
+        assert params[5] == "seller1"  # seller_address
+        assert params[6] == 0.005  # btc_amount
+        assert params[7] == "dispenser"  # sale_type
+        assert params[8] == 1  # quantity
+        assert params[9] == 500000  # unit_price_sats
+        assert params[10] == "dispenser_tx1"  # dispenser_tx_hash
 
     @pytest.mark.skip(reason="Method _calculate_unit_price does not exist in current implementation")
     def test_calculate_unit_price_fallback(self, processor, mock_db_manager):

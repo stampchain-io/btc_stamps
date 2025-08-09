@@ -83,7 +83,14 @@ def _process_update_task(task: HolderUpdateTask) -> None:
             logger.info(f"Async update completed: {updated_count} tokens updated at block {task.block_index}")
 
     except Exception as e:
+        import traceback
+
         logger.error(f"Error in async holder update for block {task.block_index}: {e}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.error(f"Exception details: {repr(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        # Re-raise so the outer exception handler can also catch it
+        raise
     finally:
         # Always release the coordinator lock
         coordinator.end_task("holder_update", is_heavy=True)
@@ -113,7 +120,12 @@ def _upload_worker():
             try:
                 future.result(timeout=120.0)  # Increased timeout for complex queries
             except Exception as e:
+                import traceback
+
                 logger.error(f"Failed to process holder update task: {e}")
+                logger.error(f"Exception type: {type(e).__name__}")
+                logger.error(f"Exception details: {repr(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
 
             update_queue.task_done()
 
