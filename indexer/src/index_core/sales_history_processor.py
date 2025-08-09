@@ -120,7 +120,7 @@ class SalesHistoryProcessor:
                 db.close()
 
     def process_block_dispenses(self, block_index: int, db=None) -> int:
-        """Process dispenses from a specific block in real-time."""
+        """Process dispenses from a specific block in real-time by fetching from Counterparty API."""
         if self.catchup_running:
             # Skip real-time processing during catchup
             return 0
@@ -132,81 +132,76 @@ class SalesHistoryProcessor:
 
         dispense_count = 0
         try:
-            # Check for stamp dispenses
+            # Fetch dispenses from Counterparty API
+            from index_core.fetch_utils import fetch_xcp
+            
+            response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+            
+            if not response or "result" not in response:
+                logger.debug(f"No dispenses found in block {block_index}")
+                return 0
+            
+            dispenses = response["result"]
+            
             with db.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        d.tx_hash,
-                        d.block_index,
-                        d.source as dispenser_address,
-                        d.destination as buyer_address,
-                        d.asset,
-                        d.dispense_quantity,
-                        d.dispenser_tx_hash,
-                        t.block_time,
-                        s.cpid,
-                        s.stamp
-                    FROM dispensers_dispenses d
-                    INNER JOIN transactions t ON d.tx_hash = t.tx_hash
-                    LEFT JOIN StampTableV4 s ON d.asset = s.cpid
-                    WHERE d.block_index = %s
-                """,
-                    (block_index,),
-                )
-
-                dispenses = cursor.fetchall()
-
                 for dispense in dispenses:
-                    (
-                        tx_hash,
-                        block_index,
-                        dispenser_address,
-                        buyer_address,
-                        asset,
-                        quantity,
-                        dispenser_tx_hash,
-                        block_time,
-                        cpid,
-                        stamp_num,
-                    ) = dispense
-
+                    # Extract dispense data from API response
+                    tx_hash = dispense.get("tx_hash")
+                    asset = dispense.get("asset")
+                    source = dispense.get("source")  # This is the buyer
+                    destination = dispense.get("destination")  # This is the dispenser address
+                    quantity = dispense.get("dispense_quantity", 0)
+                    btc_amount = dispense.get("btc_amount", 0)
+                    dispenser_tx_hash = dispense.get("dispenser_tx_hash")
+                    block_time = dispense.get("block_time")
+                    
+                    # Check if this asset is a stamp
+                    cursor.execute(
+                        "SELECT cpid, stamp FROM StampTableV4 WHERE cpid = %s",
+                        (asset,)
+                    )
+                    stamp_data = cursor.fetchone()
+                    
                     # Only process if it's a stamp
-                    if cpid and stamp_num is not None:
-                        # Get BTC amount from dispenser
-                        cursor.execute(
-                            """
-                            SELECT satoshirate, status
-                            FROM dispensers_dispensers
-                            WHERE tx_hash = %s
-                        """,
-                            (dispenser_tx_hash,),
+                    if stamp_data:
+                        cpid, stamp_num = stamp_data
+                        
+                        # Get satoshirate from dispenser data if available
+                        satoshirate = 0
+                        if "dispenser" in dispense and isinstance(dispense["dispenser"], dict):
+                            satoshirate = dispense["dispenser"].get("satoshirate", 0)
+                        elif btc_amount and quantity:
+                            # Calculate satoshirate from btc_amount if not provided
+                            satoshirate = btc_amount // quantity if quantity > 0 else 0
+                        
+                        # Convert btc_amount from satoshis to BTC for storage
+                        btc_amount_btc = btc_amount / 1e8 if btc_amount else 0
+                        
+                        # Insert into sales history
+                        self._insert_sale(
+                            db,
+                            {
+                                "tx_hash": tx_hash,
+                                "block_index": block_index,
+                                "block_time": block_time,
+                                "cpid": cpid,
+                                "stamp": stamp_num,
+                                "buyer_address": source,  # source is the buyer
+                                "seller_address": destination,  # destination is the dispenser
+                                "btc_amount": btc_amount_btc,
+                                "sale_type": "DISPENSER",
+                                "market": "BITCOIN",
+                                "dispenser_tx_hash": dispenser_tx_hash,
+                                "quantity": quantity,
+                                "unit_price_sats": satoshirate,
+                            },
                         )
-
-                        dispenser_info = cursor.fetchone()
-                        if dispenser_info and dispenser_info[1] == 0:  # Active dispenser
-                            satoshi_rate = dispenser_info[0]
-                            btc_amount = (satoshi_rate * quantity) / 1e8
-
-                            # Insert into sales history
-                            self._insert_sale(
-                                db,
-                                {
-                                    "tx_hash": tx_hash,
-                                    "block_index": block_index,
-                                    "block_time": block_time,
-                                    "cpid": cpid,
-                                    "stamp": stamp_num,
-                                    "buyer_address": buyer_address,
-                                    "seller_address": dispenser_address,
-                                    "btc_amount": btc_amount,
-                                    "sale_type": "DISPENSER",
-                                    "market": "BITCOIN",
-                                },
-                            )
-                            dispense_count += 1
+                        dispense_count += 1
 
             db.commit()
+            
+            if dispense_count > 0:
+                logger.info(f"Stored {dispense_count} dispenser sales in block {block_index}")
 
         except Exception as e:
             logger.error(f"Error processing block {block_index} dispenses: {e}")
