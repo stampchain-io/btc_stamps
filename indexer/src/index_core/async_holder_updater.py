@@ -118,7 +118,7 @@ def _upload_worker():
 
             # Wait for completion with timeout
             try:
-                future.result(timeout=120.0)  # Increased timeout for complex queries
+                future.result(timeout=300.0)  # 5 minutes timeout for complex holder queries
             except Exception as e:
                 import traceback
 
