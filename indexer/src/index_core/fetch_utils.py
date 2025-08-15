@@ -25,6 +25,24 @@ from .circuit_breaker import endpoint_circuit_breakers
 
 logger = logging.getLogger(__name__)
 
+# Global fallback mode state - accessed by pipeline_utils to inform fetch functions
+_global_fallback_enabled = False
+_fallback_mode_lock = threading.Lock()
+
+
+def set_global_fallback_mode(enabled: bool):
+    """Set the global fallback mode state."""
+    global _global_fallback_enabled
+    with _fallback_mode_lock:
+        _global_fallback_enabled = enabled
+        logger.debug(f"Global fallback mode set to: {enabled}")
+
+
+def is_global_fallback_enabled() -> bool:
+    """Check if global fallback mode is enabled."""
+    with _fallback_mode_lock:
+        return _global_fallback_enabled
+
 
 #########################################################################
 # RATE LIMITING
@@ -1419,11 +1437,19 @@ async def _fetch_blocks_range_async(
                 logger.error(f"Unhandled exception fetching block {block_idx} (attempt {attempt + 1}): {e}", exc_info=True)
                 await asyncio.sleep(1 * (attempt + 1))
 
-        logger.error(
-            f"❌ PERMANENTLY FAILED to fetch block {block_idx} after {max_retries_per_block} attempts - block will be stuck in queue"
-        )
-        logger.error(f"Block {block_idx} will need manual intervention or cleanup mechanism to retry")
-        return block_idx, None  # Final failure
+        # Check if fallback mode is enabled globally
+        if is_global_fallback_enabled():
+            logger.warning(
+                f"Block {block_idx} failed {max_retries_per_block} attempts but fallback mode is enabled - returning fallback indicator"
+            )
+            # Return a special indicator that tells the pipeline to use fallback
+            return block_idx, {"fallback": True, "block_index": block_idx}
+        else:
+            logger.error(
+                f"❌ PERMANENTLY FAILED to fetch block {block_idx} after {max_retries_per_block} attempts - block will be stuck in queue"
+            )
+            logger.error(f"Block {block_idx} will need manual intervention or cleanup mechanism to retry")
+            return block_idx, None  # Final failure
 
     tasks = [fetch_block_with_retry(i) for i in range(start_block, end_block + 1)]
 

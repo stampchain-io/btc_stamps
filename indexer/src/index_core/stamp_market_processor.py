@@ -156,10 +156,12 @@ class StampMarketDataProcessor:
                     volume = self._validate_decimal_field(data[field], field, MIN_VOLUME, MAX_VOLUME)
                     if volume is not None:
                         validated_data[field] = volume
-            
+
             # Validate total volume with higher limit
             if "total_volume_btc" in data:
-                total_volume = self._validate_decimal_field(data["total_volume_btc"], "total_volume_btc", MIN_VOLUME, MAX_TOTAL_VOLUME)
+                total_volume = self._validate_decimal_field(
+                    data["total_volume_btc"], "total_volume_btc", MIN_VOLUME, MAX_TOTAL_VOLUME
+                )
                 if total_volume is not None:
                     validated_data["total_volume_btc"] = total_volume
 

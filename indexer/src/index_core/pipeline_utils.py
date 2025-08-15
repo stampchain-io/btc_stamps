@@ -99,6 +99,11 @@ class CPBlocksPipeline:
                     self.fallback_started_at = oldest_failed_block
                     logger.warning(f"🔄 Detected previous fallback mode state - started at block {self.fallback_started_at}")
                     logger.warning(f"📦 {len(self.failed_cp_blocks)} blocks previously processed in fallback mode")
+
+                    # Set global fallback mode flag since we're resuming in fallback
+                    from index_core.fetch_utils import set_global_fallback_mode
+
+                    set_global_fallback_mode(True)
                 else:
                     self.failed_cp_blocks = set()
                     self.fallback_started_at = None
@@ -140,6 +145,12 @@ class CPBlocksPipeline:
                 # Also clear local state
                 self.failed_cp_blocks.clear()
                 self.fallback_started_at = None
+
+                # Clear global fallback mode flag for fetch_utils
+                from index_core.fetch_utils import set_global_fallback_mode
+
+                set_global_fallback_mode(False)
+
                 logger.info("✅ Fallback state cleared - proceeding with normal operation")
                 # Update start_block to the rollback point
                 start_block = rollback_block
@@ -221,6 +232,11 @@ class CPBlocksPipeline:
                             f"Fallback started at block {start_block} - use rollback tool later to reprocess with CP data"
                         )
                         self.fallback_started_at = start_block
+
+                        # Set global fallback mode flag for fetch_utils
+                        from index_core.fetch_utils import set_global_fallback_mode
+
+                        set_global_fallback_mode(True)
 
                         # Persist fallback state to survive restarts
                         if self.state_manager:
@@ -664,6 +680,11 @@ class CPBlocksPipeline:
             # Already in fallback mode
             return
 
+        # Set global fallback mode flag for fetch_utils
+        from index_core.fetch_utils import set_global_fallback_mode
+
+        set_global_fallback_mode(True)
+
         # Check if we're near the chain tip before entering fallback mode
         try:
             from .blocks import backend_instance
@@ -756,6 +777,11 @@ class CPBlocksPipeline:
             # Clear fallback state since we've rolled back
             self.failed_cp_blocks.clear()
             self.fallback_started_at = None
+
+            # Clear global fallback mode flag for fetch_utils
+            from index_core.fetch_utils import set_global_fallback_mode
+
+            set_global_fallback_mode(False)
 
             # Clear the pipeline's state manager instance (for tests and consistency)
             if self.state_manager:
@@ -1231,6 +1257,30 @@ class CPBlocksPipeline:
                         logger.warning(f"DEBUG 781141: {json.dumps(blocks_data[781141], indent=2)}")
                     else:
                         logger.warning("DEBUG 781141: not in blocks_data")
+
+                # Check if any blocks have the fallback indicator
+                fallback_blocks = {}
+                normal_blocks = {}
+                if blocks_data:
+                    for block_idx, block_data in blocks_data.items():
+                        if isinstance(block_data, dict) and block_data.get("fallback"):
+                            fallback_blocks[block_idx] = block_data
+                        else:
+                            normal_blocks[block_idx] = block_data
+
+                # If we have fallback blocks, handle them specially
+                if fallback_blocks:
+                    logger.warning(f"Received {len(fallback_blocks)} blocks with fallback indicator")
+                    # Create fallback blocks for these
+                    for block_idx in fallback_blocks:
+                        if self.fallback_mode and self.fallback_started_at is None:
+                            # Enter fallback mode if not already in it
+                            self._enter_fallback_mode()
+                        # Return empty to let the main loop handle fallback block creation
+                        # The main loop will detect no healthy nodes and create fallback blocks
+                    return {}
+
+                blocks_data = normal_blocks
 
                 if not blocks_data:
                     if attempt < max_retries:

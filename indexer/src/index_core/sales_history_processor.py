@@ -742,7 +742,9 @@ class SalesHistoryProcessor:
                         "seller_address": row[6],
                         "btc_amount": float(row[7]) if row[7] else 0,
                         "sale_type": row[8],
-                        "processed_at": row[9].isoformat() if row[9] and hasattr(row[9], 'isoformat') else str(row[9]) if row[9] else None,
+                        "processed_at": (
+                            row[9].isoformat() if row[9] and hasattr(row[9], "isoformat") else str(row[9]) if row[9] else None
+                        ),
                         "stamp_base64": row[10],
                         "stamp_url": row[11],
                         "stamp_mimetype": row[12],
