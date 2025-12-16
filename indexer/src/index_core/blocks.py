@@ -10,13 +10,16 @@ import http
 import logging
 import os
 import random
+import socket
 import sys
 import threading
 import time
+import urllib.parse
 from collections import namedtuple
 from typing import List
 
 import pymysql as mysql
+import requests
 from pymysql.connections import Connection
 
 import config
@@ -503,6 +506,67 @@ def calculate_rollback_depth(block_index: int, reason: str) -> int:
         return 3
 
 
+# Webhook configuration
+WEBHOOK_TIMEOUT = 5  # Standardized timeout for all webhook calls (seconds)
+
+
+def is_safe_webhook_url(url: str) -> bool:
+    """
+    Validate webhook URL to prevent SSRF attacks.
+
+    Only allows HTTPS URLs to public hosts. Blocks:
+    - Private IP ranges (127.x, 10.x, 192.168.x, 172.16-31.x)
+    - Localhost and local hostnames
+    - Non-HTTPS schemes (except for explicit local development)
+
+    Args:
+        url: The webhook URL to validate
+
+    Returns:
+        True if the URL is safe to use, False otherwise
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+
+        # Require HTTPS for production (allow HTTP only for localhost in dev)
+        if parsed.scheme not in ("https", "http"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Block localhost and common local hostnames
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            # Allow localhost only if explicitly configured (for development)
+            return os.getenv("ALLOW_LOCAL_WEBHOOKS", "false").lower() == "true"
+
+        # Try to resolve hostname and check for private IPs
+        try:
+            ip_addresses = socket.getaddrinfo(hostname, None)
+            for addr_info in ip_addresses:
+                ip = str(addr_info[4][0])  # Ensure IP is always a string for type safety
+                # Check for private/reserved IP ranges
+                if ip.startswith(("127.", "10.", "192.168.", "0.")):
+                    return False
+                # Check 172.16.0.0 - 172.31.255.255 range
+                if ip.startswith("172."):
+                    second_octet = int(ip.split(".")[1])
+                    if 16 <= second_octet <= 31:
+                        return False
+                # IPv6 loopback
+                if ip == "::1" or ip.startswith("fe80:"):
+                    return False
+        except socket.gaierror:
+            # DNS resolution failed - allow if it looks like a valid domain
+            # (DNS might not be available in all environments)
+            pass
+
+        return True
+    except Exception:
+        return False
+
+
 def notify_api_cache_invalidation(block_height: int, block_hash: str) -> None:
     """
     Notify stampchain.io API to invalidate caches on block reorg.
@@ -521,23 +585,20 @@ def notify_api_cache_invalidation(block_height: int, block_hash: str) -> None:
         logger.warning("INTERNAL_API_KEY not set - skipping API cache invalidation webhook")
         return
 
-    try:
-        import requests
+    # SSRF protection: validate webhook URL
+    if not is_safe_webhook_url(webhook_url):
+        logger.warning(f"Unsafe webhook URL detected, skipping cache invalidation: {webhook_url}")
+        return
 
+    try:
         logger.info(f"Notifying API to invalidate cache for block reorg at height {block_height}")
 
         response = requests.post(
             webhook_url,
-            json={
-                "type": "block_reorg",
-                "blockHeight": block_height,
-                "blockHash": block_hash
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-API-Key": api_key
-            },
-            timeout=5
+            json={"type": "block_reorg", "blockHeight": block_height, "blockHash": block_hash},
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            timeout=WEBHOOK_TIMEOUT,
+            verify=True,  # Explicit SSL verification
         )
 
         if response.status_code == 200:
@@ -546,6 +607,8 @@ def notify_api_cache_invalidation(block_height: int, block_hash: str) -> None:
             logger.warning(f"API cache invalidation returned status {response.status_code}: {response.text}")
     except requests.exceptions.Timeout:
         logger.warning(f"API cache invalidation webhook timed out for block {block_height}")
+    except requests.exceptions.SSLError as e:
+        logger.error(f"API cache invalidation webhook SSL error: {e}")
     except Exception as e:
         logger.error(f"API cache invalidation webhook error: {e}")
         # Don't fail the rollback if webhook fails - cache will expire naturally
@@ -572,34 +635,32 @@ def notify_api_new_block(block_height: int, block_hash: str, src20_count: int = 
         logger.debug("INTERNAL_API_KEY not set - skipping new block webhook")
         return
 
-    try:
-        import requests
+    # SSRF protection: validate webhook URL
+    if not is_safe_webhook_url(webhook_url):
+        logger.warning(f"Unsafe webhook URL detected, skipping new block notification: {webhook_url}")
+        return
 
+    try:
         logger.debug(f"Notifying API of new block {block_height} (SRC20 txs: {src20_count})")
 
         response = requests.post(
             webhook_url,
-            json={
-                "type": "new_block",
-                "blockHeight": block_height,
-                "blockHash": block_hash,
-                "src20Count": src20_count
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-API-Key": api_key
-            },
-            timeout=3  # Shorter timeout for new blocks - don't slow down indexing
+            json={"type": "new_block", "blockHeight": block_height, "blockHash": block_hash, "src20Count": src20_count},
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            timeout=WEBHOOK_TIMEOUT,
+            verify=True,  # Explicit SSL verification
         )
 
         if response.status_code == 200:
             logger.debug(f"API notified of new block {block_height}")
         else:
-            logger.debug(f"API new block notification returned status {response.status_code}")
+            logger.warning(f"API new block notification returned status {response.status_code}")
     except requests.exceptions.Timeout:
-        logger.debug(f"API new block webhook timed out for block {block_height}")
+        logger.warning(f"API new block webhook timed out for block {block_height}")
+    except requests.exceptions.SSLError as e:
+        logger.warning(f"API new block webhook SSL error: {e}")
     except Exception as e:
-        logger.debug(f"API new block webhook error: {e}")
+        logger.warning(f"API new block webhook error: {e}")
         # Don't fail indexing if webhook fails - this is non-critical
 
 

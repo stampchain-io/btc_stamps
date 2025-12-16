@@ -2,7 +2,6 @@
 Sales History Processor - handles all stamp sales tracking
 """
 
-import gc
 import logging
 import os
 import queue
@@ -389,7 +388,9 @@ class SalesHistoryProcessor:
             blocks_to_process = current_block - last_block
             if blocks_to_process > 100000:  # More than 100k blocks
                 logger.warning(f"Would need to process {blocks_to_process:,} blocks for dispenser catchup")
-                logger.warning("This will take a very long time. Consider manually setting the checkpoint to a more recent block.")
+                logger.warning(
+                    "This will take a very long time. Consider manually setting the checkpoint to a more recent block."
+                )
                 logger.warning("Proceeding anyway... (press Ctrl+C to cancel)")
 
             # Get a database connection for bulk processing
@@ -432,102 +433,16 @@ class SalesHistoryProcessor:
             return False
 
     def _fetch_all_orders(self) -> bool:
-        """Fetch all orders from the API and store them."""
-        logger.info("Fetching all stamp orders from API...")
+        """Fetch all orders from the API and store them.
 
-        all_orders = []
-        page = 0
-        total_fetched = 0
-
-        try:
-            while True:
-                # Rate limiting
-                time.sleep(1.0 / RATE_LIMIT)
-
-                # For catchup mode, we should fetch orders/matches from Counterparty API
-                # This would involve fetching order matches for stamp assets
-                # For now, we'll skip bulk order catchup
-                logger.info("Skipping bulk order catchup - orders/swaps need proper implementation")
-                break  # Exit the loop since we're not doing bulk catchup
-
-                if not orders:
-                    logger.info(f"No more orders at page {page}")
-                    break
-
-                page_orders = []
-                for o in orders:
-                    # Skip if not filled
-                    if o.get("status") != "filled":
-                        continue
-
-                    # Validate required fields
-                    if not all(key in o for key in ["tx_hash", "block_index", "cpid"]):
-                        continue
-
-                    # Convert to our format
-                    sale_data = {
-                        "tx_hash": o["tx_hash"],
-                        "block_index": o["block_index"],
-                        "block_time": o.get("timestamp", 0),
-                        "cpid": o["cpid"],
-                        "buyer_address": o.get("source", ""),
-                        "seller_address": "",  # Orders don't have explicit seller
-                        "btc_amount": float(o.get("give_quantity", 0)) / 1e8 if o.get("give_asset") == "BTC" else 0,
-                        "sale_type": "dex",  # lowercase to match ENUM
-                        "quantity": o.get("get_quantity", 1),
-                        "unit_price_sats": 0,  # Would need to calculate from btc_amount/quantity
-                    }
-                    page_orders.append(sale_data)
-
-                all_orders.extend(page_orders)
-                total_fetched += len(page_orders)
-
-                # Process in batches to manage memory
-                batch_orders = all_orders[-BATCH_SIZE * PAGES_PER_BATCH :]
-                logger.info(f"Fetched page {page + 1}: {len(page_orders)} orders, batch size: {len(batch_orders)}")
-
-                # Check if we should process this batch
-                if len(batch_orders) >= BATCH_SIZE * PAGES_PER_BATCH or page >= MAX_PAGES:
-                    logger.info(f"Processing batch of {len(batch_orders)} orders...")
-                    db = self.db_manager.connect()
-                    try:
-                        # Process in chunks
-                        for i in range(0, len(batch_orders), CHUNK_SIZE):
-                            chunk = batch_orders[i : i + CHUNK_SIZE]
-                            self._process_sale_batch(chunk, db)
-                            db.commit()
-                    finally:
-                        db.close()
-
-                    # Clear processed items from memory
-                    all_orders = []
-                    gc.collect()
-
-                    if page >= MAX_PAGES:
-                        logger.info(f"Reached maximum pages ({MAX_PAGES}), stopping")
-                        break
-
-                page += 1
-
-            # Process any remaining
-            if all_orders:
-                logger.info(f"Processing final batch of {len(all_orders)} orders...")
-                db = self.db_manager.connect()
-                try:
-                    for i in range(0, len(all_orders), CHUNK_SIZE):
-                        chunk = all_orders[i : i + CHUNK_SIZE]
-                        self._process_sale_batch(chunk, db)
-                        db.commit()
-                finally:
-                    db.close()
-
-            logger.info(f"✅ Fetched total of {total_fetched} orders")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error fetching orders: {e}")
-            logger.error(traceback.format_exc())
-            return False
+        Note: Bulk order/swap catchup is not yet implemented.
+        This would require fetching order matches from Counterparty API for stamp assets.
+        """
+        # For catchup mode, we should fetch orders/matches from Counterparty API
+        # This would involve fetching order matches for stamp assets
+        # For now, we'll skip bulk order catchup
+        logger.info("Skipping bulk order catchup - orders/swaps need proper implementation")
+        return True
 
     def _run_catchup(self):
         """Run the catchup process in background."""
