@@ -63,9 +63,7 @@ class TestSalesHistoryProcessor:
         mock_connection._cursor = mock_cursor
 
         # Create a new instance instead of using the global one
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
@@ -658,9 +656,7 @@ class TestSalesHistoryProcessorEdgeCases:
         mock_connection._cursor = mock_cursor
 
         # Create a new instance instead of using the global one
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 

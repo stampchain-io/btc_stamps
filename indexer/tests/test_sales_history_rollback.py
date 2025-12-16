@@ -55,9 +55,7 @@ class TestSalesHistoryRollback:
         mock_cursor.fetchall.return_value = []
         mock_cursor.fetchone.return_value = None
 
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
@@ -340,9 +338,7 @@ class TestRollbackIntegration:
 
     def test_rollback_preserves_data_integrity(self, mock_db_manager, mock_cursor):
         """Test that rollback maintains data integrity constraints"""
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 

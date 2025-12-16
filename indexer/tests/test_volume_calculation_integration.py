@@ -85,9 +85,7 @@ class TestVolumeCalculationIntegration:
         ]
 
         # Create processor instance
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
@@ -177,9 +175,7 @@ class TestVolumeCalculationIntegration:
         # Setup mock for no sales
         mock_cursor.fetchone.return_value = (None, 0, None, None, None)
 
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
