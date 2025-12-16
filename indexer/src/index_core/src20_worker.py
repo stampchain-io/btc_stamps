@@ -99,7 +99,7 @@ class SRC20Worker:
                 token_config = SRC20_EXCHANGE_MAPPINGS[tick.upper()]
                 logger.debug(f"Found KuCoin mapping for {tick} using uppercase: {tick.upper()}")
 
-            if token_config and "kucoin" in token_config:
+            if token_config and "kucoin" in token_config and config.ENABLE_KUCOIN_API:
                 logger.debug(f"Fetching KuCoin data for {tick} (symbol: {token_config['kucoin']})")
                 kucoin_data = self._fetch_kucoin_data(tick, token_config)
                 if kucoin_data:
@@ -107,6 +107,8 @@ class SRC20Worker:
                     logger.debug(f"Successfully fetched KuCoin data for {tick}")
                 else:
                     logger.warning(f"Failed to fetch KuCoin data for {tick}")
+            elif token_config and "kucoin" in token_config and not config.ENABLE_KUCOIN_API:
+                logger.debug(f"Skipping KuCoin data fetch for {tick} - ENABLE_KUCOIN_API is disabled")
 
             # Always try OpenStamp API for all SRC-20 tokens
             logger.debug(f"Fetching OpenStamp data for {tick}")

@@ -2676,6 +2676,18 @@ def apply_schema_updates(db, cursor):
                 ("idx_fee_rate", ["fee_rate_sat_vb"]),  # For fee rate analysis and sorting
             ],
         },
+        "balances": {
+            "columns": [],
+            "indexes": [
+                ("idx_holder_calc", ["tick", "amt", "address"]),  # Optimized for holder count calculations
+            ],
+        },
+        "SRC20Valid": {
+            "columns": [],
+            "indexes": [
+                ("idx_mint_count", ["tick", "op", "block_index"]),  # Optimized for mint count calculations in holder updates
+            ],
+        },
         "stamp_market_data": {
             "columns": [
                 ("last_sale_block_index", "INTEGER", "Block index of the most recent sale"),
@@ -3001,8 +3013,9 @@ def initialize_tables(db):
                     "market_data_sources",
                     "src20_market_data",
                     "collection_market_data",
-                    # Sales History Table
+                    # Sales History Tables
                     "stamp_sales_history",
+                    "sales_history_checkpoints",
                 ]
             )
 

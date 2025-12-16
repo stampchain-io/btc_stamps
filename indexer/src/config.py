@@ -195,6 +195,9 @@ except Exception:
 # StampScan API configuration
 STAMPSCAN_BASE_URL = os.environ.get("STAMPSCAN_BASE_URL", "https://api.stampscan.xyz")
 
+# Kucoin API configuration
+ENABLE_KUCOIN_API = os.getenv("ENABLE_KUCOIN_API", "true").lower() == "true"
+
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID", None)
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)

@@ -603,8 +603,11 @@ class CPBlocksPipeline:
         """
         current_time = time.time()
 
+        # Use a shorter interval during fallback mode for faster recovery (10 seconds instead of 30)
+        recovery_check_interval = 10 if self.fallback_mode else self.health_check_interval
+
         # Only check periodically to avoid excessive overhead
-        if current_time - self.last_health_check < self.health_check_interval:
+        if current_time - self.last_health_check < recovery_check_interval:
             return self.cp_nodes_healthy_again
 
         self.last_health_check = current_time

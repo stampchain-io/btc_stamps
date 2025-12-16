@@ -91,6 +91,7 @@ class SRC20HolderCountUpdater:
                 # Force mode: update all tokens that need it
                 logger.info("Force updating all SRC-20 holder counts and progress data")
                 cursor = db.cursor()
+                # Optimized query - split mint count into separate join
                 cursor.execute(
                     """
                     UPDATE src20_market_data smd
@@ -101,11 +102,17 @@ class SRC20HolderCountUpdater:
                             COALESCE(SUM(b.amt), 0) as total_minted,
                             ROUND(COALESCE(SUM(b.amt), 0) / NULLIF(d.max, 0) * 100, 2) as progress_percentage,
                             d.max as max_supply,
-                            (SELECT COUNT(*) FROM SRC20Valid WHERE tick = b.tick AND op = 'MINT') as mint_count
+                            COALESCE(m.mint_count, 0) as mint_count
                         FROM balances b
                         LEFT JOIN SRC20Valid d ON d.tick = b.tick AND d.op = 'DEPLOY'
+                        LEFT JOIN (
+                            SELECT tick, COUNT(*) as mint_count
+                            FROM SRC20Valid
+                            WHERE op = 'MINT'
+                            GROUP BY tick
+                        ) m ON m.tick = b.tick
                         WHERE b.amt > 0
-                        GROUP BY b.tick, d.max
+                        GROUP BY b.tick, d.max, m.mint_count
                     ) counts ON smd.tick = counts.tick
                     SET
                         smd.holder_count = counts.holder_count,
@@ -160,6 +167,7 @@ class SRC20HolderCountUpdater:
 
                     for attempt in range(max_retries):
                         try:
+                            # Optimized query - split mint count into separate join
                             cursor.execute(
                                 f"""
                                 UPDATE src20_market_data smd
@@ -169,12 +177,18 @@ class SRC20HolderCountUpdater:
                                         COUNT(DISTINCT b.address) as holder_count,
                                         COALESCE(SUM(b.amt), 0) as total_minted,
                                         ROUND(COALESCE(SUM(b.amt), 0) / NULLIF(d.max, 0) * 100, 2) as progress_percentage,
-                                        (SELECT COUNT(*) FROM SRC20Valid WHERE tick = b.tick AND op = 'MINT') as mint_count
+                                        COALESCE(m.mint_count, 0) as mint_count
                                     FROM balances b
                                     LEFT JOIN SRC20Valid d ON d.tick = b.tick AND d.op = 'DEPLOY'
+                                    LEFT JOIN (
+                                        SELECT tick, COUNT(*) as mint_count
+                                        FROM SRC20Valid
+                                        WHERE tick IN ({placeholders}) AND op = 'MINT'
+                                        GROUP BY tick
+                                    ) m ON m.tick = b.tick
                                     WHERE b.tick IN ({placeholders})
                                     AND b.amt > 0
-                                    GROUP BY b.tick, d.max
+                                    GROUP BY b.tick, d.max, m.mint_count
                                 ) counts ON smd.tick = counts.tick
                                 SET
                                     smd.holder_count = counts.holder_count,
@@ -184,7 +198,7 @@ class SRC20HolderCountUpdater:
                                     smd.last_updated = NOW()
                                 WHERE smd.tick IN ({placeholders})
                             """,
-                                batch + batch,
+                                batch + batch + batch,
                             )
                             break  # Success, exit retry loop
                         except Exception as e:
