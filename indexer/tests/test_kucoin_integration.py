@@ -17,6 +17,9 @@ pytestmark = pytest.mark.integration
 
 logger = logging.getLogger(__name__)
 
+# Skip reason for STAMP-USDT tests (pair not currently listed on KuCoin)
+SKIP_STAMP_USDT = "STAMP/USDT pair not currently listed on KuCoin - re-enable if listing returns"
+
 # KuCoin API Configuration
 KUCOIN_BASE_URL = "https://api.kucoin.com"
 KUCOIN_API_VERSION = "v1"
@@ -79,6 +82,7 @@ class KuCoinIntegrationTest(unittest.TestCase):
         except Exception as e:
             self.fail(f"BTC/USDT ticker test failed: {e}")
 
+    @unittest.skip(SKIP_STAMP_USDT)
     def test_stamp_usdt_ticker(self):
         """Test STAMP/USDT ticker data retrieval."""
         try:
@@ -110,6 +114,7 @@ class KuCoinIntegrationTest(unittest.TestCase):
         except Exception as e:
             self.fail(f"STAMP/USDT ticker test failed: {e}")
 
+    @unittest.skip(SKIP_STAMP_USDT)
     def test_stamp_usdt_orderbook(self):
         """Test STAMP/USDT orderbook data retrieval."""
         try:
@@ -139,6 +144,7 @@ class KuCoinIntegrationTest(unittest.TestCase):
         except Exception as e:
             self.fail(f"STAMP/USDT orderbook test failed: {e}")
 
+    @unittest.skip(SKIP_STAMP_USDT)
     def test_volume_conversion_calculation(self):
         """Test volume conversion from USDT to BTC calculation."""
         try:
@@ -226,6 +232,7 @@ class KuCoinIntegrationTest(unittest.TestCase):
             self.fail(f"Error handling test failed: {e}")
 
     @pytest.mark.integration
+    @unittest.skip(SKIP_STAMP_USDT)
     def test_complete_market_data_flow(self):
         """Test the complete market data retrieval flow."""
         try:
