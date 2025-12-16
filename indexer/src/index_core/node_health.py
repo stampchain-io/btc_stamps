@@ -639,14 +639,16 @@ def update_healthy_nodes():
                             data = response.json()
                             # Check if it looks like a valid V2 API response
                             if "result" in data and isinstance(data["result"], dict):
-                                # IMPORTANT: Also verify server_ready flag to avoid false positives
-                                server_ready = data.get("result", {}).get("server_ready", False)
-                                if server_ready:
-                                    is_healthy = True
-                                    logger.debug(f"Node {node_name} is healthy and ready via root V2 endpoint")
-                                else:
+                                # Check server_ready flag if present (backward compatible)
+                                # If flag is explicitly False, node is not ready
+                                # If flag is missing or True, assume node is ready
+                                server_ready = data.get("result", {}).get("server_ready")
+                                if server_ready is False:
                                     logger.debug(f"Node {node_name} responded but server_ready=False")
                                     is_healthy = False
+                                else:
+                                    is_healthy = True
+                                    logger.debug(f"Node {node_name} is healthy via root V2 endpoint")
                         except Exception as e:
                             logger.debug(f"Error parsing root V2 response from {node_name}: {e}")
                     elif response.status_code == 503:
