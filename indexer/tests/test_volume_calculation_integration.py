@@ -87,7 +87,7 @@ class TestVolumeCalculationIntegration:
         # Create processor instance
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
@@ -179,7 +179,7 @@ class TestVolumeCalculationIntegration:
 
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 

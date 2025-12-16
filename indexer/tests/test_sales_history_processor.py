@@ -65,7 +65,7 @@ class TestSalesHistoryProcessor:
         # Create a new instance instead of using the global one
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
@@ -660,7 +660,7 @@ class TestSalesHistoryProcessorEdgeCases:
         # Create a new instance instead of using the global one
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 

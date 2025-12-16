@@ -61,7 +61,7 @@ class TestSalesHistoryProcessorIntegration:
         # Create fresh instance with clean state
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
@@ -501,7 +501,7 @@ class TestAutomaticCatchupMode:
         # Create fresh instance with clean state
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
@@ -561,7 +561,7 @@ class TestPerformance:
         # Create fresh instance with clean state
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False

@@ -57,7 +57,7 @@ class TestSalesHistoryRollback:
 
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
@@ -342,7 +342,7 @@ class TestRollbackIntegration:
         """Test that rollback maintains data integrity constraints"""
         with patch("index_core.sales_history_processor.DatabaseManager"), patch(
             "index_core.sales_history_processor.Backend"
-        ), patch("index_core.sales_history_processor.OpenStampClient"):
+        ):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
 
