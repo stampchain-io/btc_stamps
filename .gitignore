@@ -52,6 +52,7 @@ claude/*
 .github/instructions/*
 .roomodes
 .windsurfrules
+indexer/.claude
 
 reprocess_queue.db
 reprocess_queue.*

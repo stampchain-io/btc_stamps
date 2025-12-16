@@ -123,6 +123,11 @@ class NodeHealth:
         Determine if an error should be counted as a severe failure.
         Some errors like 404 for recent blocks are expected and shouldn't trigger backoff.
         """
+        # 503 "Counterparty not ready" means node is catching up - treat as minor, not severe
+        # The node just needs time to parse blocks
+        if "503" in error_info or "Counterparty not ready" in error_info:
+            return False  # Minor failure - will retry normally
+
         # If the error is a 404 for a block at/near the chain tip, don't count it as severe
         if "404" in error_info and "Block not yet processed by XCP" in error_info:
             return False
@@ -589,6 +594,23 @@ def update_healthy_nodes():
                 logger.warning(f"Node {node_name} has no URL, skipping")
                 continue
 
+            # Check if this node should be tested (new or backoff expired)
+            node_health = node_health_tracker.get(node_name)
+            if not node_health:
+                # Initialize health tracker for new node
+                node_health_tracker[node_name] = NodeHealth(node_name, node_url)
+                node_health = node_health_tracker[node_name]
+
+            # IMPORTANT: Check if we should retry a failed node
+            if node_health.consecutive_failures > 0:
+                if not node_health.can_retry():
+                    # Still in backoff period, skip checking
+                    logger.debug(f"Node {node_name} still in backoff period, skipping health check")
+                    continue
+                else:
+                    # Backoff expired - retry this node
+                    logger.info(f"Node {node_name} backoff period expired, attempting recovery check")
+
             try:
                 # Try healthz endpoint first, fallback to root endpoint
                 health_url = f"{node_url.rstrip('/')}/healthz"
@@ -617,48 +639,41 @@ def update_healthy_nodes():
                             data = response.json()
                             # Check if it looks like a valid V2 API response
                             if "result" in data and isinstance(data["result"], dict):
-                                is_healthy = True
-                                logger.debug(f"Node {node_name} is healthy via root V2 endpoint")
+                                # IMPORTANT: Also verify server_ready flag to avoid false positives
+                                server_ready = data.get("result", {}).get("server_ready", False)
+                                if server_ready:
+                                    is_healthy = True
+                                    logger.debug(f"Node {node_name} is healthy and ready via root V2 endpoint")
+                                else:
+                                    logger.debug(f"Node {node_name} responded but server_ready=False")
+                                    is_healthy = False
                         except Exception as e:
                             logger.debug(f"Error parsing root V2 response from {node_name}: {e}")
+                    elif response.status_code == 503:
+                        # Explicit handling of 503 "not ready" responses
+                        logger.debug(f"Node {node_name} returned 503 Not Ready - marking as unhealthy")
+                        is_healthy = False
 
                 if is_healthy:
                     # Update the NodeHealth tracker FIRST if it exists
                     node_health = node_health_tracker.get(node_name)
                     if node_health:
-                        # Check for persistent failures before marking success
-                        with node_health._lock:
-                            consecutive_failures = node_health.consecutive_failures
-
-                        # Exclude nodes with multiple failures for reliability
-                        # Allow 1 minor failure for temporary issues, but exclude on consecutive failures
-                        if consecutive_failures > 0 or node_health.minor_failures >= 2:
-                            logger.debug(
-                                f"Node {node_name} has {consecutive_failures} consecutive failures or {node_health.minor_failures} minor failures, excluding despite health check success"
-                            )
-                            is_healthy = False
-                        else:
-                            try:
-                                # Mark success to reset failure counters
-                                node_health.mark_success()
-                                logger.debug(f"Reset failure counters for {node_name} after successful health check")
-                            except Exception as e:
-                                logger.debug(f"Error updating health tracker for {node_name}: {e}")
+                        # IMPORTANT: Always mark success when health check passes
+                        # This resets failure counters and allows recovery
+                        try:
+                            node_health.mark_success()
+                            logger.info(f"Node {node_name} health check succeeded - marked as healthy")
+                        except Exception as e:
+                            logger.debug(f"Error updating health tracker for {node_name}: {e}")
                     else:
                         # Initialize health tracker
                         node_health_tracker[node_name] = NodeHealth(node_name, node_url)
                         node_health = node_health_tracker[node_name]
 
-                    # Now check if we should still exclude it (backoff period or was marked unhealthy above)
-                    if is_healthy and node_health and not node_health.can_retry():
-                        logger.debug(f"Node {node_name} is in backoff period, excluding from healthy nodes")
-                        is_healthy = False
-
-                    if is_healthy:
-                        # Add to healthy nodes list
-                        healthy_nodes_local.append(node)
-                        nodes_healthy += 1
-                        logger.debug(f"Node {node_name} is healthy")
+                    # Add to healthy nodes list
+                    healthy_nodes_local.append(node)
+                    nodes_healthy += 1
+                    logger.debug(f"Node {node_name} is healthy")
                 else:
                     logger.debug(f"Node {node_name} failed both health checks")
             except requests.exceptions.Timeout:
@@ -719,15 +734,25 @@ def get_healthy_nodes():
                     node_health = node_health_tracker.get(node_name)
 
                     if node_health:
-                        # Skip nodes that are in backoff or have significant failures
+                        # Check if node can be retried (backoff period expired)
                         if not node_health.can_retry():
-                            logger.debug(f"Excluding {node_name}: in backoff period")
+                            logger.debug(f"Excluding {node_name}: still in backoff period")
                             continue
+
+                        # IMPORTANT: If backoff expired but node has failures,
+                        # it should be included to give it a chance to recover
+                        # Only exclude if it has very recent failures (within last minute)
                         if node_health.consecutive_failures > 0:
-                            logger.debug(f"Excluding {node_name}: has {node_health.consecutive_failures} consecutive failures")
-                            continue
-                        # Allow 1 minor failure for temporary network issues
-                        if node_health.minor_failures >= 2:
+                            # Check how recent the last failure was
+                            time_since_failure = time.time() - node_health.last_failure_time
+                            if time_since_failure < 60:  # Less than 1 minute
+                                logger.debug(f"Excluding {node_name}: recent failure {time_since_failure:.1f}s ago")
+                                continue
+                            else:
+                                logger.debug(f"Including {node_name}: failures are old enough to retry")
+
+                        # Allow minor failures as they might be transient
+                        if node_health.minor_failures >= 5:  # Increased threshold
                             logger.debug(f"Excluding {node_name}: has {node_health.minor_failures} minor failures")
                             continue
 
@@ -740,23 +765,11 @@ def get_healthy_nodes():
     except Exception as e:
         logger.error(f"Error accessing healthy_nodes: {e}")
 
-    # If no healthy nodes, try to update them (more aggressive approach)
+    # If no healthy nodes, try to update them (but respect backoff periods)
     if not result:
         logger.warning("No healthy nodes after filtering, forcing health update")
 
-        # Reset ALL failure counters for nodes to give them another chance
-        # This prevents nodes from getting permanently stuck in failed state
-        for node_health in node_health_tracker.values():
-            if node_health.consecutive_failures > 0 or node_health.minor_failures > 0:
-                logger.info(
-                    f"Resetting failure counters for {node_health.name} "
-                    f"(consecutive: {node_health.consecutive_failures}, minor: {node_health.minor_failures}) "
-                    f"to allow retry"
-                )
-                node_health.consecutive_failures = 0
-                node_health.minor_failures = 0
-                node_health.backoff_until = 0
-
+        # Only update, don't reset counters - let backoff periods expire naturally
         update_healthy_nodes()
         try:
             if healthy_nodes_lock.acquire(timeout=1):

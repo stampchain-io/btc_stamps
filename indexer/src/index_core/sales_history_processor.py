@@ -365,91 +365,66 @@ class SalesHistoryProcessor:
 
     def _fetch_all_dispenses(self) -> bool:
         """Fetch all dispenses from the API and store them."""
-        logger.info("Fetching all stamp dispenses from API...")
-
-        all_dispenses = []
-        page = 0
-        total_fetched = 0
+        logger.info("Starting bulk dispense catchup from Counterparty API...")
 
         try:
-            while True:
-                # Rate limiting
-                time.sleep(1.0 / RATE_LIMIT)
+            # Get the block range to process
+            last_block = self.get_checkpoint("dispenser_block")
+            current_block = self.backend.getblockcount()
 
-                # Fetch page
-                dispenses = self.openstamp_client.get_stamp_dispenses(page=page)
-                self.progress["api_requests"] += 1
+            # Start from stamps genesis if checkpoint is 0 (never processed)
+            # Dispensers didn't exist before stamps anyway
+            STAMPS_GENESIS = 779652
+            if last_block == 0:
+                last_block = STAMPS_GENESIS - 1
+                logger.info(f"Starting from stamps genesis block {STAMPS_GENESIS} instead of block 0")
 
-                if not dispenses:
-                    logger.info(f"No more dispenses at page {page}")
-                    break
+            if last_block >= current_block:
+                logger.info(f"Dispenses already up to date at block {last_block}")
+                return True
 
-                page_dispenses = []
-                for d in dispenses:
-                    # Validate required fields
-                    if not all(key in d for key in ["tx_hash", "block_index", "cpid"]):
-                        continue
+            logger.info(f"Processing dispenses from block {last_block + 1} to {current_block}")
 
-                    # Convert to our format
-                    sale_data = {
-                        "tx_hash": d["tx_hash"],
-                        "block_index": d["block_index"],
-                        "block_time": d.get("timestamp", 0),
-                        "cpid": d["cpid"],
-                        "buyer_address": d.get("destination", ""),
-                        "seller_address": d.get("source", ""),
-                        "btc_amount": float(d.get("btc_amount", 0)),
-                        "sale_type": "dispenser",  # lowercase to match ENUM
-                        "quantity": d.get("dispense_quantity", 1),
-                        "unit_price_sats": d.get("satoshirate", 0),
-                        "dispenser_tx_hash": d.get("dispenser_tx_hash"),
-                    }
-                    page_dispenses.append(sale_data)
+            # Check if the range is too large (optional safety check)
+            blocks_to_process = current_block - last_block
+            if blocks_to_process > 100000:  # More than 100k blocks
+                logger.warning(f"Would need to process {blocks_to_process:,} blocks for dispenser catchup")
+                logger.warning("This will take a very long time. Consider manually setting the checkpoint to a more recent block.")
+                logger.warning("Proceeding anyway... (press Ctrl+C to cancel)")
 
-                all_dispenses.extend(page_dispenses)
-                total_fetched += len(page_dispenses)
+            # Get a database connection for bulk processing
+            db = self.db_manager.connect()
+            try:
+                # Process blocks in chunks
+                blocks_processed = 0
+                dispense_total = 0
 
-                # Process in batches to manage memory
-                batch_dispenses = all_dispenses[-BATCH_SIZE * PAGES_PER_BATCH :]
-                logger.info(f"Fetched page {page + 1}: {len(page_dispenses)} dispenses, batch size: {len(batch_dispenses)}")
-
-                # Check if we should process this batch
-                if len(batch_dispenses) >= BATCH_SIZE * PAGES_PER_BATCH or page >= MAX_PAGES:
-                    logger.info(f"Processing batch of {len(batch_dispenses)} dispenses...")
-                    db = self.db_manager.connect()
-                    try:
-                        # Process in chunks
-                        for i in range(0, len(batch_dispenses), CHUNK_SIZE):
-                            chunk = batch_dispenses[i : i + CHUNK_SIZE]
-                            self._process_sale_batch(chunk, db)
-                            db.commit()
-                    finally:
-                        db.close()
-
-                    # Clear processed items from memory
-                    all_dispenses = []
-                    gc.collect()
-
-                    if page >= MAX_PAGES:
-                        logger.info(f"Reached maximum pages ({MAX_PAGES}), stopping")
+                for block_idx in range(last_block + 1, current_block + 1):
+                    if not self.catchup_running:
+                        logger.info("Catchup stopped")
                         break
 
-                page += 1
+                    # Use the existing process_block_dispenses method which fetches from CP API
+                    dispense_count = self.process_block_dispenses(block_idx, db)
+                    blocks_processed += 1
+                    dispense_total += dispense_count
 
-            # Process any remaining
-            if all_dispenses:
-                logger.info(f"Processing final batch of {len(all_dispenses)} dispenses...")
-                db = self.db_manager.connect()
-                try:
-                    for i in range(0, len(all_dispenses), CHUNK_SIZE):
-                        chunk = all_dispenses[i : i + CHUNK_SIZE]
-                        self._process_sale_batch(chunk, db)
-                        db.commit()
-                finally:
-                    db.close()
+                    # Update checkpoint every 100 blocks
+                    if blocks_processed % 100 == 0:
+                        self.update_checkpoint("dispenser_block", block_idx, db)
+                        logger.info(f"Processed {blocks_processed} blocks, {dispense_total} dispenses up to block {block_idx}")
 
-            logger.info(f"✅ Fetched total of {total_fetched} dispenses")
-            return True
+                    # Rate limiting
+                    if dispense_count > 0:
+                        time.sleep(1.0 / RATE_LIMIT)
+
+                # Final checkpoint update
+                self.update_checkpoint("dispenser_block", min(current_block, block_idx), db)
+                logger.info(f"✅ Completed dispense catchup - {dispense_total} dispenses in {blocks_processed} blocks")
+                return True
+
+            finally:
+                db.close()
 
         except Exception as e:
             logger.error(f"Error fetching dispenses: {e}")
@@ -469,9 +444,11 @@ class SalesHistoryProcessor:
                 # Rate limiting
                 time.sleep(1.0 / RATE_LIMIT)
 
-                # Fetch page
-                orders = self.openstamp_client.get_stamp_orders(page=page)
-                self.progress["api_requests"] += 1
+                # For catchup mode, we should fetch orders/matches from Counterparty API
+                # This would involve fetching order matches for stamp assets
+                # For now, we'll skip bulk order catchup
+                logger.info("Skipping bulk order catchup - orders/swaps need proper implementation")
+                break  # Exit the loop since we're not doing bulk catchup
 
                 if not orders:
                     logger.info(f"No more orders at page {page}")

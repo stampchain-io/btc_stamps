@@ -189,7 +189,8 @@ CREATE TABLE IF NOT EXISTS `SRC20Valid` (
     `lim`,
     `max`,
     `block_time`
-  )
+  ),
+  INDEX `idx_mint_count` (`tick`, `op`, `block_index`) COMMENT 'Optimized for mint count calculations in holder updates'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS `balances` (
@@ -206,7 +207,8 @@ CREATE TABLE IF NOT EXISTS `balances` (
   UNIQUE KEY `address_p_tick_unique` (`address`, `p`, `tick`, `tick_hash`),
   INDEX `tick_tick_hash` (`tick`, `tick_hash`),
   INDEX `idx_address_tick_amt_update` (`address`, `tick`, `amt`, `last_update`),
-  INDEX `idx_balance_stats` (`tick`, `amt`, `address`)
+  INDEX `idx_balance_stats` (`tick`, `amt`, `address`),
+  INDEX `idx_holder_calc` (`tick`, `amt`, `address`) COMMENT 'Optimized for holder count calculations'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
 
 CREATE TABLE IF NOT EXISTS s3objects (
@@ -871,4 +873,22 @@ GROUP BY endpoint;
 
 -- =====================================================================
 -- END MONITORING VIEWS
+-- =====================================================================
+
+-- =====================================================================
+-- SALES HISTORY TRACKING
+-- =====================================================================
+-- This table tracks the progress of sales history processing
+-- to enable efficient incremental updates and catchup processing
+
+CREATE TABLE IF NOT EXISTS `sales_history_checkpoints` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `checkpoint_type` VARCHAR(50) NOT NULL UNIQUE COMMENT 'Type of checkpoint (e.g., dispenser_block, swap_block, etc.)',
+  `checkpoint_value` BIGINT NOT NULL DEFAULT 0 COMMENT 'The checkpoint value (block number, timestamp, etc.)',
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last update time',
+  INDEX `idx_checkpoint_type` (`checkpoint_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tracks progress of sales history processing';
+
+-- =====================================================================
+-- END OF SCHEMA
 -- =====================================================================
