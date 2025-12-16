@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Set
 
 from index_core.backend import Backend
 from index_core.database_manager import DatabaseManager
-from index_core.openstamp_client import OpenStampClient
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -42,7 +41,6 @@ class SalesHistoryProcessor:
     def __init__(self):
         self.db_manager = DatabaseManager()
         self.backend = Backend()
-        self.openstamp_client = OpenStampClient()
         self.cpid_cache: Set[str] = set()
         self.last_cache_update = 0
         self.cache_update_interval = 300  # 5 minutes
