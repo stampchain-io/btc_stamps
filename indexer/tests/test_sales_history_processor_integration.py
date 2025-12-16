@@ -59,9 +59,7 @@ class TestSalesHistoryProcessorIntegration:
         mock_cursor.fetchone.return_value = None
 
         # Create fresh instance with clean state
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
@@ -499,9 +497,7 @@ class TestAutomaticCatchupMode:
     def processor(self, mock_db_manager, mock_cursor):
         """Create a fresh processor instance for testing"""
         # Create fresh instance with clean state
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
@@ -559,9 +555,7 @@ class TestPerformance:
     def processor(self, mock_db_manager):
         """Create a fresh processor instance for testing"""
         # Create fresh instance with clean state
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = SalesHistoryProcessor()
             processor.db_manager = mock_db_manager  # Replace with mocked db_manager
         processor.catchup_running = False
