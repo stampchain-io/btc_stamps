@@ -152,15 +152,20 @@ class TestEnhancedNodeFailover(unittest.TestCase):
         ],
     )
     @patch("requests.get")
-    def test_update_healthy_nodes_excludes_persistent_failures(self, mock_get):
-        """Test that update_healthy_nodes excludes nodes with persistent failures."""
+    def test_update_healthy_nodes_allows_recovery_after_health_check(self, mock_get):
+        """Test that update_healthy_nodes allows nodes to recover when they pass health checks.
 
-        # Create node with persistent failures (3+ to trigger exclusion)
+        This tests the recovery behavior: nodes with prior failures should be allowed
+        to rejoin the healthy pool if they pass a health check. This promotes resilience
+        and prevents nodes from being permanently excluded after temporary issues.
+        """
+
+        # Create node with persistent failures
         bad_node = NodeHealth("bad-node", "http://bad:4000/v2")
-        bad_node.consecutive_failures = 3  # Has enough consecutive failures to be excluded
+        bad_node.consecutive_failures = 3  # Has prior failures
         node_health_module.node_health_tracker["bad-node"] = bad_node
 
-        # Mock successful health checks for both
+        # Mock successful health checks for both nodes
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"result": {"status": "Healthy"}}
@@ -169,14 +174,19 @@ class TestEnhancedNodeFailover(unittest.TestCase):
         # Update health
         success = update_healthy_nodes()
 
-        # Should succeed but exclude the bad node
+        # Should succeed
         self.assertTrue(success)
         with healthy_nodes_lock:
             healthy_node_names = [node["name"] for node in node_health_module.healthy_nodes]
 
-        # Bad node should be excluded despite passing health check
+        # Both nodes should be included since both passed health check
+        # (recovery is allowed when health check passes)
         self.assertIn("good-node", healthy_node_names)
-        self.assertNotIn("bad-node", healthy_node_names)
+        self.assertIn("bad-node", healthy_node_names)
+
+        # Bad node's failures should be reset after passing health check
+        self.assertEqual(bad_node.consecutive_failures, 0)
+        self.assertTrue(bad_node.healthy)
 
     def test_node_recovery_after_success(self):
         """Test that nodes can recover after successful operations."""
