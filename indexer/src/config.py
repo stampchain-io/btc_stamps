@@ -358,9 +358,9 @@ BTC_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101
 BTC_SRC101_IMG_OPTIONAL_BLOCK: int = 872200
 BTC_SRC101_OLGA_BLOCK: int = 0
 
-CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
+CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - We IGNORE ALL SRC-20 on counterparty AFTER THIS BLOCK
 CP_BMN_FEAT_BLOCK_START: int = 815130  # BMN audio file support
-CP_P2WSH_FEAT_BLOCK_START: int = 833000  # OLGA / P2WSH transactions
+CP_P2WSH_FEAT_BLOCK_START: int = 833000  # OLGA / P2WSH transactions enabled on stamps
 CP_SUBASSET_FEAT_BLOCK_START: int = 866000  # Subasset no longer require XCP fees
 
 # Consensus changes

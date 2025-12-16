@@ -133,5 +133,13 @@
     // Format imports on save
     "editor.codeActionsOnSave": {
         "source.organizeImports": "explicit"
-    }
+    },
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.diagnosticSeverityOverrides": {
+        "reportMissingTypeStubs": "none"
+    },
+    "cursorpyright.analysis.extraPaths": [
+        "${workspaceFolder}/indexer/src"
+    ],
+    "cursorpyright.analysis.typeCheckingMode": "strict"
 }

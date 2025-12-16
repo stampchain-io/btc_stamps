@@ -324,7 +324,7 @@ class BlockProcessor:
         insert_transactions(self.db, tx_results)
 
 
-def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
+def commit_and_update_block(db, block_index, block_tip, src20_in_block=0, block_hash=None):
     """Commit transaction and update block with proper error handling."""
     max_retries = 3
     retry_delay = 2  # seconds
@@ -344,6 +344,12 @@ def commit_and_update_block(db, block_index, block_tip, src20_in_block=0):
 
             db.commit()
             update_parsed_block(db, block_index)
+
+            # Notify API of new block when near chain tip (reduces API cache staleness)
+            # Only notify for blocks near tip to avoid flooding during bulk sync
+            if block_tip is not None and (block_tip - block_index) < 10:
+                notify_api_new_block(block_index, block_hash or "", src20_in_block)
+
             block_index += 1
             return block_index
         except Exception as e:
@@ -497,6 +503,106 @@ def calculate_rollback_depth(block_index: int, reason: str) -> int:
         return 3
 
 
+def notify_api_cache_invalidation(block_height: int, block_hash: str) -> None:
+    """
+    Notify stampchain.io API to invalidate caches on block reorg.
+
+    This webhook integration ensures the API's Redis cache is invalidated when
+    the indexer rolls back blocks, preventing stale data from being served.
+
+    Args:
+        block_height: Block height being rolled back to
+        block_hash: Block hash at the rollback target height
+    """
+    webhook_url = os.getenv("API_WEBHOOK_URL", "https://stampchain.io/api/internal/bitcoinNotifications")
+    api_key = os.getenv("INTERNAL_API_KEY")
+
+    if not api_key:
+        logger.warning("INTERNAL_API_KEY not set - skipping API cache invalidation webhook")
+        return
+
+    try:
+        import requests
+
+        logger.info(f"Notifying API to invalidate cache for block reorg at height {block_height}")
+
+        response = requests.post(
+            webhook_url,
+            json={
+                "type": "block_reorg",
+                "blockHeight": block_height,
+                "blockHash": block_hash
+            },
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Key": api_key
+            },
+            timeout=5
+        )
+
+        if response.status_code == 200:
+            logger.info(f"✅ API cache invalidated for block {block_height}")
+        else:
+            logger.warning(f"API cache invalidation returned status {response.status_code}: {response.text}")
+    except requests.exceptions.Timeout:
+        logger.warning(f"API cache invalidation webhook timed out for block {block_height}")
+    except Exception as e:
+        logger.error(f"API cache invalidation webhook error: {e}")
+        # Don't fail the rollback if webhook fails - cache will expire naturally
+
+
+def notify_api_new_block(block_height: int, block_hash: str, src20_count: int = 0) -> None:
+    """
+    Notify stampchain.io API when a new block is successfully indexed.
+
+    This webhook integration ensures the API can invalidate relevant caches
+    when new blockchain data is available, reducing the delay for users
+    to see freshly indexed transactions.
+
+    Args:
+        block_height: Block height that was just indexed
+        block_hash: Block hash of the indexed block
+        src20_count: Number of SRC-20 transactions in the block (for prioritization)
+    """
+    webhook_url = os.getenv("API_WEBHOOK_URL", "https://stampchain.io/api/internal/bitcoinNotifications")
+    api_key = os.getenv("INTERNAL_API_KEY")
+
+    if not api_key:
+        # Only log at debug level for new blocks (not as critical as reorg notifications)
+        logger.debug("INTERNAL_API_KEY not set - skipping new block webhook")
+        return
+
+    try:
+        import requests
+
+        logger.debug(f"Notifying API of new block {block_height} (SRC20 txs: {src20_count})")
+
+        response = requests.post(
+            webhook_url,
+            json={
+                "type": "new_block",
+                "blockHeight": block_height,
+                "blockHash": block_hash,
+                "src20Count": src20_count
+            },
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Key": api_key
+            },
+            timeout=3  # Shorter timeout for new blocks - don't slow down indexing
+        )
+
+        if response.status_code == 200:
+            logger.debug(f"API notified of new block {block_height}")
+        else:
+            logger.debug(f"API new block notification returned status {response.status_code}")
+    except requests.exceptions.Timeout:
+        logger.debug(f"API new block webhook timed out for block {block_height}")
+    except Exception as e:
+        logger.debug(f"API new block webhook error: {e}")
+        # Don't fail indexing if webhook fails - this is non-critical
+
+
 def rollback_and_clear_caches(db: Connection, error_type: str = "general") -> None:
     """
     Perform database rollback and clear all caches to ensure clean state on retry.
@@ -546,6 +652,13 @@ def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
         rebuild_owners(db)
         # update_src20_token_stats(db)  # Now handled by async holder updater
         logger.info(f"Successfully rolled back to block {target_block}")
+
+        # Notify API to invalidate cache for this block reorg
+        try:
+            notify_api_cache_invalidation(target_block, current_bitcoin_hash)
+        except Exception as webhook_error:
+            # Log webhook errors but don't fail the rollback
+            logger.warning(f"Webhook notification failed (continuing rollback): {webhook_error}")
 
     except Exception as e:
         logger.critical(f"Critical error during rollback cleanup: {e}")
@@ -1336,7 +1449,7 @@ def follow(
                             0,
                             is_zmq_notification,
                         )
-                        block_index = commit_and_update_block(db, block_index, block_tip, 0)
+                        block_index = commit_and_update_block(db, block_index, block_tip, 0, block_hash)
                         profiler.end_block_profiling()  # End profiling for this block
                         if single_block:
                             break
@@ -1399,7 +1512,7 @@ def follow(
                             src101_in_block,
                             is_zmq_notification,
                         )
-                        block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                        block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block, block_hash)
                         logger.debug(f"After commit: block_index now {block_index}, continuing to next iteration")
 
                         # Update holder counts after commit to avoid long transactions
@@ -1480,7 +1593,7 @@ def follow(
                             break
                         else:
                             # If handle_ledger_mismatch returns True (FORCE mode), continue processing
-                            block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block)
+                            block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block, block_hash)
 
                             # Confirm that the previous block was successfully processed by the pipeline
                             if cp_pipeline_instance:
