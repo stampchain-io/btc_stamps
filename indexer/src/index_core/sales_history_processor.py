@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
+from config import CP_STAMP_GENESIS_BLOCK
 from index_core.backend import Backend
 from index_core.database_manager import DatabaseManager
 
@@ -371,10 +372,9 @@ class SalesHistoryProcessor:
 
             # Start from stamps genesis if checkpoint is 0 (never processed)
             # Dispensers didn't exist before stamps anyway
-            STAMPS_GENESIS = 779652
             if last_block == 0:
-                last_block = STAMPS_GENESIS - 1
-                logger.info(f"Starting from stamps genesis block {STAMPS_GENESIS} instead of block 0")
+                last_block = CP_STAMP_GENESIS_BLOCK - 1
+                logger.info(f"Starting from stamps genesis block {CP_STAMP_GENESIS_BLOCK} instead of block 0")
 
             if last_block >= current_block:
                 logger.info(f"Dispenses already up to date at block {last_block}")
