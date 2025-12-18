@@ -11,7 +11,7 @@ import time
 
 import config
 from index_core.backend import Backend
-from index_core.fetch_utils import fetch_xcp_blocks_concurrent
+from index_core.fetch_utils import fetch_xcp_blocks_concurrent, wait_for_cp_block_processed
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
 from index_core.reprocess_safety import (
     ReprocessSafetyError,
@@ -1083,6 +1083,48 @@ class CPBlocksPipeline:
                     logger.info("✅ Healthy nodes available again - resetting warning counters")
                     self.no_nodes_warning_count = 0
                     self.no_nodes_backoff_seconds = 10  # Reset to initial backoff
+
+                # 6. For blocks near the tip, verify CP has processed them before fetching.
+                # This prevents the race condition where we query CP before it has processed
+                # a new block, resulting in missing stamp issuances.
+                # CRITICAL: We must wait for CP to be ready - not skip blocks - to preserve
+                # stamp numbering order. If CP is truly unavailable, use fallback mode.
+                tip_threshold = 5  # Check CP readiness for blocks within 5 of the tip
+                blocks_near_tip = [b for b in blocks_to_fetch_now if block_tip - b < tip_threshold]
+
+                if blocks_near_tip:
+                    # Check if CP has processed the highest block we want to fetch near the tip
+                    # Use a generous wait time (3 minutes) since CP can be slow during:
+                    # - High load periods
+                    # - Complex blocks with many transactions
+                    # - Node restarts or maintenance
+                    # Only enter fallback mode after this extended wait to avoid unnecessary rollbacks
+                    max_tip_block = max(blocks_near_tip)
+                    cp_wait_timeout = 180.0  # 3 minutes - generous buffer for CP to catch up
+                    cp_ready = wait_for_cp_block_processed(max_tip_block, max_wait=cp_wait_timeout, check_interval=5.0)
+
+                    if not cp_ready:
+                        # CP hasn't caught up after 3 minutes - likely a real outage
+                        # Enter fallback mode which will trigger rollback when CP recovers
+                        if self.fallback_mode and self.fallback_started_at is None:
+                            logger.warning(
+                                f"⚠️ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}). "
+                                f"Entering fallback mode - will rollback and reindex when CP recovers."
+                            )
+                            self._enter_fallback_mode()
+                            # Fallback mode will create placeholder blocks and trigger rollback later
+                            continue
+                        elif not self.fallback_mode:
+                            # Fallback mode disabled - keep waiting (blocking behavior)
+                            logger.warning(
+                                f"⏳ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}). "
+                                f"Fallback mode disabled - continuing to wait..."
+                            )
+                            time.sleep(10)
+                            continue
+                        # If already in fallback mode, let the fallback block creation handle it
+                    else:
+                        logger.debug(f"✅ CP ready for tip blocks up to {max_tip_block}")
 
                 with self._blocks_fetch_lock:
                     current_timestamp = time.time()
