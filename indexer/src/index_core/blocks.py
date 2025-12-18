@@ -1043,6 +1043,16 @@ def follow(
                     if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                         break
 
+                    # Check if CP pipeline needs fallback rollback (CP nodes recovered)
+                    # This must be done from the main loop, not the worker thread
+                    if cp_pipeline_instance and cp_pipeline_instance.check_and_perform_rollback():
+                        logger.info("Fallback rollback completed - restarting from rollback target")
+                        # Update block_index to match the rollback target
+                        block_index = util.CURRENT_BLOCK_INDEX
+                        stamp_issuances_list = None
+                        time.sleep(5)  # Brief delay to let pipeline restart
+                        continue
+
                     # Check database connection before operations
                     db = check_db_connection(db)
 
