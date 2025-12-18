@@ -117,6 +117,7 @@ class CPBlocksPipeline:
         self.cp_nodes_healthy_again = False  # Flag for when CP nodes recover
         self.rollback_requested = False  # Flag to signal main loop should perform rollback
         self.rollback_target_block = None  # Target block for pending rollback
+        self._rollback_lock = threading.Lock()  # Thread-safe access to rollback flags
 
         # Rate limiting for log messages when nodes are down
         self.last_no_nodes_warning = 0
@@ -623,9 +624,10 @@ class CPBlocksPipeline:
         if not (self.fallback_mode and self.fallback_started_at and self.failed_cp_blocks):
             return False
 
-        # If rollback is already requested, don't request again
-        if self.rollback_requested:
-            return True
+        # If rollback is already requested, don't request again (thread-safe check)
+        with self._rollback_lock:
+            if self.rollback_requested:
+                return True
 
         try:
             # Try to update and get healthy nodes
@@ -633,16 +635,18 @@ class CPBlocksPipeline:
             healthy_nodes = get_healthy_nodes()
 
             if healthy_nodes:
-                # Nodes are available again!
-                if not self.cp_nodes_healthy_again and not self.rollback_requested:
-                    logger.warning("🔄 IMPORTANT: Counterparty nodes are healthy again!")
-                    logger.warning(f"📦 You have {len(self.failed_cp_blocks)} blocks that were processed in fallback mode")
-                    logger.warning(f"🚀 ROLLBACK REQUESTED: Main loop will rollback to block {self.fallback_started_at}")
+                # Nodes are available again! Use lock for atomic flag setting
+                with self._rollback_lock:
+                    if not self.cp_nodes_healthy_again and not self.rollback_requested:
+                        logger.warning("🔄 IMPORTANT: Counterparty nodes are healthy again!")
+                        logger.warning(f"📦 You have {len(self.failed_cp_blocks)} blocks that were processed in fallback mode")
+                        logger.warning(f"🚀 ROLLBACK REQUESTED: Main loop will rollback to block {self.fallback_started_at}")
 
-                    # Set flag for main loop to perform rollback
-                    # We can't call reset() from worker thread (would join itself)
-                    self.rollback_target_block = self.fallback_started_at
-                    self.rollback_requested = True
+                        # Set flag for main loop to perform rollback
+                        # We can't call reset() from worker thread (would join itself)
+                        # Set target BEFORE setting requested to ensure atomic visibility
+                        self.rollback_target_block = self.fallback_started_at
+                        self.rollback_requested = True
 
                 return True
             else:
@@ -665,10 +669,13 @@ class CPBlocksPipeline:
         Returns:
             bool: True if rollback was performed, False if no rollback needed
         """
-        if not self.rollback_requested or self.rollback_target_block is None:
-            return False
+        # Thread-safe check of rollback flags
+        with self._rollback_lock:
+            if not self.rollback_requested or self.rollback_target_block is None:
+                return False
+            # Capture target while holding lock
+            target_block = self.rollback_target_block
 
-        target_block = self.rollback_target_block
         logger.info(f"🔄 Main loop performing pending fallback rollback to block {target_block}")
 
         # Perform the database rollback (same as _perform_runtime_rollback but without reset)
@@ -677,13 +684,23 @@ class CPBlocksPipeline:
         if rollback_success:
             # Now reset the pipeline - same as Bitcoin reorg handling
             # This is safe because we're in the main loop, not the worker thread
-            logger.info(f"Resetting CP pipeline after fallback recovery to block {target_block}")
-            self.reset(target_block)
+            try:
+                logger.info(f"Resetting CP pipeline after fallback recovery to block {target_block}")
+                self.reset(target_block)
+            except Exception as reset_error:
+                # Database rollback succeeded but reset failed - clear flags to prevent infinite retry
+                # The indexer should restart cleanly on next run
+                logger.error(f"Pipeline reset failed after successful DB rollback: {reset_error}")
+                with self._rollback_lock:
+                    self.rollback_requested = False
+                    self.rollback_target_block = None
+                raise RuntimeError(f"Pipeline reset failed after rollback: {reset_error}")
 
-            # Clear flags
-            self.rollback_requested = False
-            self.rollback_target_block = None
-            self.cp_nodes_healthy_again = True
+            # Clear flags (thread-safe)
+            with self._rollback_lock:
+                self.rollback_requested = False
+                self.rollback_target_block = None
+                self.cp_nodes_healthy_again = True
 
             logger.info("✅ Rollback completed successfully - resuming normal operation")
             return True
@@ -918,6 +935,16 @@ class CPBlocksPipeline:
                     logger.info(f"STARTUP ROLLBACK: {line}")
 
             logger.info(f"✅ Startup rollback completed to block {target_block}")
+
+            # Notify API of the rollback to invalidate stale cache (same as runtime rollback)
+            try:
+                from index_core.blocks import notify_api_cache_invalidation
+
+                current_bitcoin_hash = backend_instance.getblockhash(target_block)
+                notify_api_cache_invalidation(target_block, current_bitcoin_hash)
+                logger.info(f"📢 API notified of startup rollback to block {target_block}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to notify API of startup rollback: {notify_error}")
 
         except Exception as e:
             logger.error(f"Error during startup rollback: {e}")

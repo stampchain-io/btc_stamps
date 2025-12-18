@@ -356,5 +356,87 @@ class TestCPHeightCheckRoundRobin:
                 assert result is True
 
 
+class TestCPHeightCheckEdgeCases:
+    """Tests for edge cases in CP height check."""
+
+    def test_missing_db_caught_up_defaults_to_ready(self):
+        """Test that missing db_caught_up field is treated as ready (older API versions)."""
+        from index_core.fetch_utils import wait_for_cp_block_processed
+
+        mock_node = {"name": "test-node", "url": "http://test:4000/v2"}
+
+        with patch("index_core.fetch_utils.get_healthy_nodes", return_value=[mock_node]):
+            with patch("index_core.fetch_utils.fetch_node_version_v2") as mock_fetch:
+                # Response WITHOUT db_caught_up field (older API version)
+                mock_fetch.return_value = (
+                    "10.0.0",
+                    {"last_block": 100},  # No db_caught_up key
+                )
+
+                result = wait_for_cp_block_processed(100, max_wait=5.0, check_interval=0.5)
+
+                # Should succeed since height matches and db_caught_up defaults to True
+                assert result is True
+
+    def test_explicit_false_db_caught_up_waits(self):
+        """Test that explicit db_caught_up=False causes waiting."""
+        from index_core.fetch_utils import wait_for_cp_block_processed
+
+        mock_node = {"name": "test-node", "url": "http://test:4000/v2"}
+
+        with patch("index_core.fetch_utils.get_healthy_nodes", return_value=[mock_node]):
+            with patch("index_core.fetch_utils.fetch_node_version_v2") as mock_fetch:
+                # Response with explicit db_caught_up=False
+                mock_fetch.return_value = (
+                    "10.0.0",
+                    {"last_block": 100, "db_caught_up": False},
+                )
+
+                result = wait_for_cp_block_processed(100, max_wait=1.0, check_interval=0.3)
+
+                # Should timeout because db_caught_up is explicitly False
+                assert result is False
+
+
+class TestRollbackFlagThreadSafety:
+    """Tests for thread-safe rollback flag handling."""
+
+    def test_rollback_flags_initialized(self):
+        """Test that rollback lock and flags are properly initialized."""
+        from index_core.pipeline_utils import CPBlocksPipeline
+
+        with patch("index_core.pipeline_utils.get_healthy_nodes", return_value=[]):
+            with patch("index_core.pipeline_utils.backend_instance") as mock_backend:
+                mock_backend.getblockcount.return_value = 100
+
+                pipeline = CPBlocksPipeline(fallback_mode=False)
+
+                # Verify lock exists
+                assert hasattr(pipeline, "_rollback_lock")
+                assert pipeline._rollback_lock is not None
+
+                # Verify flags initialized
+                assert pipeline.rollback_requested is False
+                assert pipeline.rollback_target_block is None
+
+                pipeline.shutdown_flag.set()
+
+    def test_check_and_perform_rollback_returns_false_when_no_rollback(self):
+        """Test that check_and_perform_rollback returns False when no rollback pending."""
+        from index_core.pipeline_utils import CPBlocksPipeline
+
+        with patch("index_core.pipeline_utils.get_healthy_nodes", return_value=[]):
+            with patch("index_core.pipeline_utils.backend_instance") as mock_backend:
+                mock_backend.getblockcount.return_value = 100
+
+                pipeline = CPBlocksPipeline(fallback_mode=False)
+
+                # No rollback requested
+                result = pipeline.check_and_perform_rollback()
+                assert result is False
+
+                pipeline.shutdown_flag.set()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
