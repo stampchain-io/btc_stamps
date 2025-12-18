@@ -1632,11 +1632,16 @@ def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_
 
             if version_info:
                 cp_height = version_info.get("last_block")  # counterparty_height
-                server_ready = version_info.get("db_caught_up")  # server_ready
+                # db_caught_up may be missing in older API versions - default to True if height is valid
+                # Use explicit None check since db_caught_up could be False
+                server_ready = version_info.get("db_caught_up")
+                if server_ready is None:
+                    # Key missing - older API version, assume ready if height is good
+                    server_ready = True
 
                 # Check if CP has processed our target block
                 if cp_height and cp_height >= block_index and server_ready:
-                    logger.debug(f"✅ CP ready for block {block_index} (cp_height={cp_height})")
+                    logger.debug(f"✅ CP ready for block {block_index} (cp_height={cp_height}, db_caught_up={server_ready})")
                     return True
 
                 if cp_height and block_index - cp_height > 0:
