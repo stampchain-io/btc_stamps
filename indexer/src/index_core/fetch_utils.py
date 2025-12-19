@@ -758,7 +758,7 @@ def fetch_xcp(
 
             # Type assertion for mypy - we've already checked primary_node is not None
             assert primary_node is not None
-            logger.info(f"🔄 Round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
+            logger.debug(f"🔄 Round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
 
             # Get all healthy nodes for fallback
             healthy_nodes = get_healthy_nodes()

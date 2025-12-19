@@ -175,8 +175,8 @@ def get_safe_reprocess_db_path() -> str:
 
 
 def log_safety_check(message: str) -> None:
-    """Log a safety check with appropriate severity."""
+    """Log a safety check status message."""
     if is_production_environment():
-        logger.warning(f"🛡️ PRODUCTION SAFETY CHECK: {message}")
+        logger.info(f"🛡️ Safety feature active: {message}")
     else:
         logger.debug(f"Safety check: {message}")
