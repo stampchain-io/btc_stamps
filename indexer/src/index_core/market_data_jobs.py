@@ -76,7 +76,7 @@ class MarketDataJobScheduler:
 
         logger.info(f"Starting market data job scheduler with {max_workers} workers")
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
-        logger.info(f"ThreadPoolExecutor created with max_workers={self.executor._max_workers}")
+        logger.debug(f"ThreadPoolExecutor created with max_workers={self.executor._max_workers}")
         self.running = True
         self.shutdown_event.clear()
 
@@ -145,9 +145,9 @@ class MarketDataJobScheduler:
                 # Start catchup mode - it will automatically determine the mode
                 if not sales_history_processor.catchup_running:
                     sales_history_processor.start_catchup_mode()
-                    logger.info("Sales history catchup mode started in background")
+                    logger.debug("Sales history catchup mode started in background")
                 else:
-                    logger.info("Sales history catchup already running")
+                    logger.debug("Sales history catchup already running")
             else:
                 logger.debug(f"Sales history in {mode} mode, no bulk catchup needed")
 
@@ -157,7 +157,7 @@ class MarketDataJobScheduler:
 
     def _schedule_loop(self):
         """Main scheduling loop that runs jobs at their specified intervals."""
-        logger.info("Market data job scheduler loop started")
+        logger.debug("Market data job scheduler loop started")
 
         while self.running and not self.shutdown_event.is_set():
             try:
@@ -198,7 +198,7 @@ class MarketDataJobScheduler:
                 if not self.shutdown_event.is_set():
                     time.sleep(60)  # Wait before retrying
 
-        logger.info("Market data job scheduler loop finished")
+        logger.debug("Market data job scheduler loop finished")
 
     def _is_job_due(self, job_name: str, interval: int, current_time: datetime) -> bool:
         """Check if a job is due to run based on its interval."""
@@ -634,7 +634,7 @@ class MarketDataJobScheduler:
                     collections_to_update = self._get_collections_needing_update(task_db)
 
                     if not collections_to_update:
-                        logger.info("No collections need market data updates")
+                        logger.debug("No collections need market data updates")
                         return
 
                     logger.debug(f"Updating market data for {len(collections_to_update)} collections")
@@ -1071,6 +1071,22 @@ class MarketDataJobScheduler:
 market_data_job_scheduler = MarketDataJobScheduler()
 
 
+def is_market_data_jobs_running() -> bool:
+    """Check if market data job scheduler is running."""
+    return market_data_job_scheduler.running
+
+
+def has_active_market_data_jobs() -> bool:
+    """Check if any market data jobs are actively processing."""
+    if not market_data_job_scheduler.running:
+        return False
+    with market_data_job_scheduler._lock:
+        for future in market_data_job_scheduler.job_futures.values():
+            if not future.done():
+                return True
+    return False
+
+
 def start_sales_history_catchup():
     """
     Start only the sales history catchup process.
@@ -1102,9 +1118,9 @@ def start_sales_history_catchup():
 
             # Start catchup mode - it will automatically determine the mode
             sales_history_processor.start_catchup_mode()
-            logger.info("Sales history catchup mode started in background")
+            logger.debug("Sales history catchup mode started in background")
         else:
-            logger.info(f"Sales history in {mode} mode, no bulk catchup needed")
+            logger.debug(f"Sales history in {mode} mode, no bulk catchup needed")
 
     except Exception as e:
         logger.error(f"Error starting sales history catchup: {e}")
@@ -1128,11 +1144,11 @@ def update_market_data_async(db):
     This function can be called from the main indexer loop similar to update_cpids_async.
     """
     try:
-        logger.info("Triggering market data updates")
+        logger.debug("Triggering market data updates")
 
         # Submit individual job updates if scheduler is not running
         if not market_data_job_scheduler.running:
-            logger.warning("Job scheduler not running, starting individual updates")
+            logger.debug("Job scheduler not running, starting individual updates")
 
             # Create executor for one-time updates
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
@@ -1147,7 +1163,7 @@ def update_market_data_async(db):
                 # Update collections after individual assets
                 market_data_job_scheduler._update_collection_market_data_job()
         else:
-            logger.info("Job scheduler is running, updates will be handled automatically")
+            logger.debug("Job scheduler is running, updates will be handled automatically")
 
     except Exception as e:
         logger.error(f"Error in update_market_data_async: {e}")
