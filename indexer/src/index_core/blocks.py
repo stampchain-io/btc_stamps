@@ -812,6 +812,7 @@ def follow(
 
     # Initialize scheduler flag early to avoid UnboundLocalError in cleanup
     market_data_scheduler_started = False
+    first_block_processed = False  # Track if we've processed at least one block
 
     def handle_shutdown():
         """Callback for shutdown notification"""
@@ -897,25 +898,17 @@ def follow(
 
         # Initialize market data job scheduler for time-based updates
         # Only start if enabled, not in single block mode or reparse mode, AND we're close to the tip
+        # NOTE: We defer starting until after the first block is processed to give block processing priority
         blocks_behind = block_tip - block_index if block_tip > block_index else 0
         market_data_threshold = 100  # Only start market data jobs when within 100 blocks of tip
 
         if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
             if blocks_behind <= market_data_threshold:
-                try:
-                    logger.info(
-                        f"Starting market data job scheduler (within {market_data_threshold} blocks of tip: {blocks_behind} behind)..."
-                    )
-                    # Use conservative worker count to leave connections for sales history
-                    # With DB_MAX_CONNECTIONS=20, use 6 workers to leave headroom
-                    max_workers = min(6, int(os.getenv("DB_MAX_CONNECTIONS", "20")) // 3)
-                    start_market_data_jobs(max_workers=max_workers)
-                    logger.info(f"Market data jobs started with {max_workers} workers")
-                    market_data_scheduler_started = True
-                    logger.info("Market data job scheduler started successfully")
-                except Exception as e:
-                    logger.warning(f"Failed to start market data scheduler: {e}")
-                    market_data_scheduler_started = False
+                # Defer starting until first block is processed to avoid overwhelming endpoints on startup
+                logger.info(
+                    f"Market data scheduler will start after first block (within {market_data_threshold} blocks of tip: {blocks_behind} behind)"
+                )
+                market_data_scheduler_started = False
             else:
                 logger.info(
                     f"Market data scheduler deferred - still {blocks_behind} blocks behind tip (threshold: {market_data_threshold})"
@@ -1027,9 +1020,11 @@ def follow(
                 if block_index == block_tip:
                     logger.debug(f"Processing the latest block {block_index} at the chain tip")
 
-                # Start market data scheduler if we're now caught up and haven't started it yet
+                # Start market data scheduler if we're now caught up, haven't started it yet,
+                # AND we've processed at least one block (to give block processing priority on startup)
                 if (
                     not market_data_scheduler_started
+                    and first_block_processed
                     and config.ENABLE_MARKET_DATA_SCHEDULER
                     and not single_block
                     and not reparse_mode
@@ -1040,13 +1035,14 @@ def follow(
                     if blocks_behind <= market_data_threshold:
                         try:
                             logger.info(
-                                f"🚀 Starting market data job scheduler now that we're caught up (only {blocks_behind} blocks behind tip)..."
+                                f"🚀 Starting market data job scheduler (first block processed, {blocks_behind} blocks behind tip)..."
                             )
-                            start_market_data_jobs(max_workers=10)
+                            max_workers = min(6, int(os.getenv("DB_MAX_CONNECTIONS", "20")) // 3)
+                            start_market_data_jobs(max_workers=max_workers)
                             market_data_scheduler_started = True
-                            logger.info("Market data job scheduler started successfully after catching up")
+                            logger.info(f"Market data job scheduler started with {max_workers} workers")
                         except Exception as e:
-                            logger.warning(f"Failed to start market data scheduler after catching up: {e}")
+                            logger.warning(f"Failed to start market data scheduler: {e}")
 
                 # If we're close to the tip, increase the sleep interval to reduce load
                 pause_interval = config.BACKEND_POLL_INTERVAL
@@ -1539,6 +1535,10 @@ def follow(
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, 0, block_hash)
                         profiler.end_block_profiling()  # End profiling for this block
+                        # Mark that we've successfully processed at least one block
+                        if not first_block_processed:
+                            first_block_processed = True
+                            logger.debug("First block processed successfully - market data scheduler can now start")
                         if single_block:
                             break
                         continue
@@ -1602,6 +1602,11 @@ def follow(
                         )
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block, block_hash)
                         logger.debug(f"After commit: block_index now {block_index}, continuing to next iteration")
+
+                        # Mark that we've successfully processed at least one block
+                        if not first_block_processed:
+                            first_block_processed = True
+                            logger.debug("First block processed successfully - market data scheduler can now start")
 
                         # Update holder counts after commit to avoid long transactions
                         # Only run this when we're near the chain tip or at specific intervals during bulk sync
