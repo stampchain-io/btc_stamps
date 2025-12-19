@@ -314,14 +314,14 @@ def log_enhanced_block_status(
     if display_mode == "compact":
         bg_suffix = f" {bg_jobs_indicator}" if bg_jobs_indicator else ""
         if at_tip:
-            log_format = "%s/%s │ %ss │ Avg: %s │ %s │ [S:%s|20:%s|101:%s]%s%s"
+            # At tip: skip progress since it's always 100%
+            log_format = "%s/%s │ %ss │ Avg: %s │ [S:%s|20:%s|101:%s]%s%s"
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
                 str(block_tip),
                 "{:.2f}".format(processing_time),
                 avg_time,
-                progress_str,
                 stamps_in_block,
                 src20_in_block,
                 src101_in_block,
@@ -349,13 +349,12 @@ def log_enhanced_block_status(
     elif display_mode == "enhanced":
         bg_suffix = f" {bg_jobs_indicator}" if bg_jobs_indicator else ""
         if at_tip:
-            log_format = f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) {activity_indicator} S:%s SRC20:%s SRC101:%s%s%s"
+            # At tip: skip progress bar since it's always full
+            log_format = f"🔗 Block %s/%s {speed_indicator} %ss (avg: %s) {activity_indicator} S:%s SRC20:%s SRC101:%s%s%s"
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
                 str(block_tip),
-                progress_bar,
-                progress_str,
                 "{:.2f}".format(processing_time),
                 avg_time,
                 stamps_in_block,
