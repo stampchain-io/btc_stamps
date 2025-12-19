@@ -542,7 +542,7 @@ async def fetch_xcp_async(
                 logger.error("Still no healthy nodes after update")
                 return None
 
-        logger.info(f"🔄 Async round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
+        logger.debug(f"🔄 Async round-robin selected node: {primary_node['name']} for endpoint {endpoint}")
 
         # Get all healthy nodes for fallback, starting with the selected one
         healthy_nodes = get_healthy_nodes()
