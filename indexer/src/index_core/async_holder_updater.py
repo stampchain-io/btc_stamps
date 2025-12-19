@@ -80,7 +80,7 @@ def _process_update_task(task: HolderUpdateTask) -> None:
         updated_count = holder_updater.update_holder_counts(task.block_index, force=task.force)
 
         if updated_count > 0:
-            logger.info(f"Async update completed: {updated_count} tokens updated at block {task.block_index}")
+            logger.debug(f"Async update completed: {updated_count} tokens updated at block {task.block_index}")
 
     except Exception as e:
         import traceback
@@ -103,7 +103,7 @@ def _upload_worker():
     This function runs in a separate thread and continuously processes
     holder update tasks from the queue.
     """
-    logger.info("Async holder update worker thread started")
+    logger.debug("Async holder update worker thread started")
 
     while _update_worker_running:
         try:
@@ -133,7 +133,7 @@ def _upload_worker():
             logger.error(f"Error in holder update worker thread: {e}")
             time.sleep(5)  # Longer pause on error to reduce contention
 
-    logger.info("Async holder update worker thread stopped")
+    logger.debug("Async holder update worker thread stopped")
 
 
 def schedule_holder_update(block_index: int, affected_tokens: Set[str], force: bool = False) -> bool:
@@ -184,7 +184,7 @@ def start_worker():
     _update_worker_running = True
     _update_worker_thread = threading.Thread(target=_upload_worker, name="HolderUpdateWorker", daemon=True)
     _update_worker_thread.start()
-    logger.info("Started async holder update worker")
+    logger.debug("Started async holder update worker")
 
 
 def stop_worker(timeout: float = 5.0):
@@ -199,12 +199,12 @@ def stop_worker(timeout: float = 5.0):
     if not _update_worker_running:
         return
 
-    logger.info("Stopping async holder update worker thread...")
+    logger.debug("Stopping async holder update worker thread...")
     _update_worker_running = False
 
     # Wait for pending tasks to complete
     if not update_queue.empty():
-        logger.info(f"Waiting for {update_queue.qsize()} pending holder updates to complete...")
+        logger.debug(f"Waiting for {update_queue.qsize()} pending holder updates to complete...")
         try:
             update_queue.join()
         except Exception as e:
@@ -218,7 +218,7 @@ def stop_worker(timeout: float = 5.0):
 
     # Shutdown the executor
     update_executor.shutdown(wait=True, cancel_futures=True)
-    logger.info("Async holder update worker stopped")
+    logger.debug("Async holder update worker stopped")
 
 
 def get_queue_size() -> int:

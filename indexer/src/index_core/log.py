@@ -224,6 +224,25 @@ def format_eta(seconds: float) -> str:
         return f"{hours}h {minutes:02d}m"
 
 
+def get_background_jobs_indicator(market_data_active: bool = False, holder_updates_active: bool = False) -> str:
+    """
+    Get indicator string for active background jobs.
+
+    Args:
+        market_data_active: Whether market data jobs are running
+        holder_updates_active: Whether holder update jobs are running
+
+    Returns:
+        String with indicator icons (e.g., "📈👥" or "📈" or "👥" or "")
+    """
+    indicators = []
+    if market_data_active:
+        indicators.append("📈")
+    if holder_updates_active:
+        indicators.append("👥")
+    return "".join(indicators)
+
+
 def log_enhanced_block_status(
     block_index: int,
     block_tip: int,
@@ -236,6 +255,8 @@ def log_enhanced_block_status(
     is_zmq: bool = False,
     display_mode: str = "enhanced",
     start_block: int = 0,
+    market_data_active: bool = False,
+    holder_updates_active: bool = False,
 ) -> None:
     """
     Log block status with enhanced formatting.
@@ -252,6 +273,8 @@ def log_enhanced_block_status(
         is_zmq: Whether this is from ZMQ feed
         display_mode: Display mode (compact, enhanced, detailed)
         start_block: Starting block for progress calculation (defaults to 0)
+        market_data_active: Whether market data jobs are running
+        holder_updates_active: Whether holder update jobs are running
     """
     # Calculate progress
     if block_tip > start_block and block_index >= start_block:
@@ -272,6 +295,7 @@ def log_enhanced_block_status(
     progress_bar = create_progress_bar(current_progress, 20)
     speed_indicator = get_speed_indicator(processing_time)
     activity_indicator = get_activity_indicator(stamps_in_block, src20_in_block, src101_in_block)
+    bg_jobs_indicator = get_background_jobs_indicator(market_data_active, holder_updates_active)
 
     # Format progress with appropriate precision
     blocks_remaining = block_tip - block_index
@@ -288,8 +312,9 @@ def log_enhanced_block_status(
     block_logger = logging.getLogger("index_core.blocks")
 
     if display_mode == "compact":
+        bg_suffix = f" {bg_jobs_indicator}" if bg_jobs_indicator else ""
         if at_tip:
-            log_format = "%s/%s │ %ss │ Avg: %s │ %s │ [S:%s|20:%s|101:%s]%s"
+            log_format = "%s/%s │ %ss │ Avg: %s │ %s │ [S:%s|20:%s|101:%s]%s%s"
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
@@ -301,10 +326,11 @@ def log_enhanced_block_status(
                 src20_in_block,
                 src101_in_block,
                 " (ZMQ)" if is_zmq else "",
+                bg_suffix,
             )
         else:
             eta_str = format_eta(eta_seconds)
-            log_format = "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s │ [S:%s|20:%s|101:%s]%s"
+            log_format = "%s/%s │ %ss │ Avg: %s │ ETA: %s │ %s │ [S:%s|20:%s|101:%s]%s%s"
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
@@ -317,11 +343,13 @@ def log_enhanced_block_status(
                 src20_in_block,
                 src101_in_block,
                 " (ZMQ)" if is_zmq else "",
+                bg_suffix,
             )
 
     elif display_mode == "enhanced":
+        bg_suffix = f" {bg_jobs_indicator}" if bg_jobs_indicator else ""
         if at_tip:
-            log_format = f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) {activity_indicator} S:%s SRC20:%s SRC101:%s%s"
+            log_format = f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) {activity_indicator} S:%s SRC20:%s SRC101:%s%s%s"
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
                 str(block_index),
@@ -334,11 +362,12 @@ def log_enhanced_block_status(
                 src20_in_block,
                 src101_in_block,
                 " 📡" if is_zmq else "",
+                bg_suffix,
             )
         else:
             eta_str = format_eta(eta_seconds)
             log_format = (
-                f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) ⏱️ %s {activity_indicator} S:%s SRC20:%s SRC101:%s%s"
+                f"🔗 Block %s/%s %s %s {speed_indicator} %ss (avg: %s) ⏱️ %s {activity_indicator} S:%s SRC20:%s SRC101:%s%s%s"
             )
             block_logger.block_status(  # type: ignore[attr-defined]
                 log_format,
@@ -353,22 +382,30 @@ def log_enhanced_block_status(
                 src20_in_block,
                 src101_in_block,
                 " 📡" if is_zmq else "",
+                bg_suffix,
             )
 
     elif display_mode == "detailed":
+        bg_suffix = f" {bg_jobs_indicator}" if bg_jobs_indicator else ""
         if at_tip:
             block_logger.block_status(  # type: ignore[attr-defined]
-                "┌─ BLOCK %s/%s (%s) ─ AT TIP%s", str(block_index), str(block_tip), progress_str, " [ZMQ]" if is_zmq else ""
+                "┌─ BLOCK %s/%s (%s) ─ AT TIP%s%s",
+                str(block_index),
+                str(block_tip),
+                progress_str,
+                " [ZMQ]" if is_zmq else "",
+                bg_suffix,
             )
         else:
             eta_str = format_eta(eta_seconds)
             block_logger.block_status(  # type: ignore[attr-defined]
-                "┌─ BLOCK %s/%s (%s) ─ ⏱️ %s%s",
+                "┌─ BLOCK %s/%s (%s) ─ ⏱️ %s%s%s",
                 str(block_index),
                 str(block_tip),
                 progress_str,
                 eta_str,
                 " [ZMQ]" if is_zmq else "",
+                bg_suffix,
             )
 
         block_logger.block_status(  # type: ignore[attr-defined]

@@ -419,6 +419,17 @@ def log_block_info(
         import config
         from index_core.log import log_enhanced_block_status
 
+        # Check background job status for indicators
+        try:
+            from index_core.async_holder_updater import is_worker_running as is_holder_worker_running
+            from index_core.market_data_jobs import has_active_market_data_jobs
+
+            market_data_active = has_active_market_data_jobs()
+            holder_updates_active = is_holder_worker_running()
+        except ImportError:
+            market_data_active = False
+            holder_updates_active = False
+
         # Get current tip of the blockchain
         block_tip: int = backend_instance.getblockcount()
         current_time = time.time() - start_time
@@ -478,6 +489,8 @@ def log_block_info(
             is_zmq=is_zmq,
             display_mode=display_mode,
             start_block=config.CP_STAMP_GENESIS_BLOCK,
+            market_data_active=market_data_active,
+            holder_updates_active=holder_updates_active,
         )
 
     except Exception as e:
@@ -843,6 +856,10 @@ def follow(
         else:
             blocks_behind = block_tip - block_index + 1
             logger.info(f"Resuming parsing from block {block_index}, current tip: {block_tip} ({blocks_behind} blocks behind)")
+
+        # Log legend for background job indicators shown in block status
+        logger.info("📊 Block status indicators: 📈 = market data jobs active, 👥 = holder updates active")
+
         tx_index = next_tx_index(db)
 
         # Initialize ZMQ if enabled
