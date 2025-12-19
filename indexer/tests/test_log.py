@@ -266,13 +266,14 @@ class TestLogEnhancedBlockStatus:
         mock_logger.block_status.assert_called_once()
         call_args = mock_logger.block_status.call_args[0]
         # Check individual arguments instead of formatted string
+        # Note: at tip, progress bar is hidden so indices are shifted
         assert call_args[1] == "1000"
         assert call_args[2] == "1002"
         assert call_args[3] == "0.50"
         assert call_args[4] == "0.6s"
-        assert call_args[6] == 5  # stamps
-        assert call_args[7] == 3  # src20
-        assert call_args[8] == 1  # src101
+        assert call_args[5] == 5  # stamps (shifted - no progress at tip)
+        assert call_args[6] == 3  # src20
+        assert call_args[7] == 1  # src101
 
     @patch("logging.getLogger")
     def test_compact_mode_with_eta(self, mock_get_logger):
