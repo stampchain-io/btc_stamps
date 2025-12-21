@@ -142,9 +142,9 @@ class MarketDataJobScheduler:
                 # Update CPID cache first
                 sales_history_processor.update_cpid_cache()
 
-                # Start catchup mode - it will automatically determine the mode
+                # Start catchup mode with the determined mode to avoid race conditions
                 if not sales_history_processor.catchup_running:
-                    sales_history_processor.start_catchup_mode()
+                    sales_history_processor.start_catchup_mode(mode=mode)
                     logger.debug("Sales history catchup mode started in background")
                 else:
                     logger.debug("Sales history catchup already running")
@@ -1116,8 +1116,8 @@ def start_sales_history_catchup():
             # Update CPID cache first
             sales_history_processor.update_cpid_cache()
 
-            # Start catchup mode - it will automatically determine the mode
-            sales_history_processor.start_catchup_mode()
+            # Start catchup mode with the determined mode to avoid race conditions
+            sales_history_processor.start_catchup_mode(mode=mode)
             logger.debug("Sales history catchup mode started in background")
         else:
             logger.debug(f"Sales history in {mode} mode, no bulk catchup needed")
