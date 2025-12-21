@@ -228,8 +228,14 @@ class SalesHistoryProcessor:
         finally:
             db.close()
 
-    def start_catchup_mode(self):
-        """Start the catchup mode in a background thread."""
+    def start_catchup_mode(self, mode: Optional[str] = None):
+        """Start the catchup mode in a background thread.
+
+        Args:
+            mode: Optional mode to use ("FULL_CATCHUP" or "REALTIME").
+                  If not provided, will determine automatically.
+                  Passing the mode avoids race conditions from re-determining.
+        """
         # Check if we're in a testing environment
         if os.environ.get("TESTING") == "1":
             logger.debug("Skipping sales history catchup in test environment")
@@ -247,12 +253,12 @@ class SalesHistoryProcessor:
         self.catchup_executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
         self.progress["catchup_start_time"] = int(datetime.now().timestamp())
 
-        # Determine mode
-        previous_mode = self.mode
-        self.mode = self.determine_processing_mode()
-
-        if previous_mode != self.mode:
-            logger.info(f"Mode switch: {previous_mode} -> {self.mode}")
+        # Use provided mode or determine it (but prefer provided to avoid race conditions)
+        if mode is not None:
+            self.mode = mode
+            logger.debug(f"Using provided mode: {self.mode}")
+        else:
+            self.mode = self.determine_processing_mode()
 
         logger.debug(f"Starting sales history catchup in {self.mode} mode")
 
@@ -492,6 +498,9 @@ class SalesHistoryProcessor:
                             raise Exception("Full catchup failed")
                     else:
                         logger.info("In REALTIME mode - no bulk catchup needed")
+                        # Update checkpoint to current block so future mode checks stay in REALTIME
+                        current_block = self.backend.getblockcount()
+                        self.update_checkpoint("last_catchup_completion", current_block, db)
                         return
 
             except queue.Empty:

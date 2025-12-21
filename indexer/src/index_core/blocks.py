@@ -422,9 +422,9 @@ def log_block_info(
         # Check background job status for indicators
         try:
             from index_core.async_holder_updater import is_worker_running as is_holder_worker_running
-            from index_core.market_data_jobs import has_active_market_data_jobs
+            from index_core.market_data_jobs import is_market_data_jobs_running
 
-            market_data_active = has_active_market_data_jobs()
+            market_data_active = is_market_data_jobs_running()
             holder_updates_active = is_holder_worker_running()
         except ImportError:
             market_data_active = False
