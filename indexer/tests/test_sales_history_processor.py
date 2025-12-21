@@ -7,6 +7,7 @@ They test the internal logic and data flow without actual API calls.
 Run with: poetry run pytest tests/test_sales_history_processor.py -v
 """
 
+import os
 import time
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, call, patch
@@ -531,6 +532,34 @@ class TestSalesHistoryProcessor:
 
         # Should not create new executor
         assert processor.catchup_executor is None
+
+    def test_catchup_mode_with_explicit_mode_parameter(self, processor, mock_cursor):
+        """Test that start_catchup_mode accepts explicit mode parameter to avoid race conditions"""
+        # Mock the database to return no CPIDs needing catchup
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.fetchone.return_value = (0,)
+
+        # Patch the module-level constants that cause early returns
+        with patch.dict(os.environ, {"TESTING": "0"}), patch(
+            "index_core.sales_history_processor.ENABLE_SALES_HISTORY_CATCHUP", True
+        ):
+            # Start catchup with explicit FULL_CATCHUP mode
+            processor.start_catchup_mode(mode="FULL_CATCHUP")
+
+            # Verify the mode was set directly without re-determining
+            assert processor.mode == "FULL_CATCHUP"
+            assert processor.progress["catchup_start_time"] is not None
+
+            # Stop catchup
+            processor.stop_catchup_mode()
+
+            # Reset and test with REALTIME mode
+            processor.catchup_running = False
+            processor.start_catchup_mode(mode="REALTIME")
+
+            assert processor.mode == "REALTIME"
+
+            processor.stop_catchup_mode()
 
     @pytest.mark.skip(reason="Method _get_cpids_needing_catchup does not exist")
     def test_get_cpids_needing_catchup(self, processor, mock_db_manager, mock_cursor):

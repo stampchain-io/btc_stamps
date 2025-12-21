@@ -75,7 +75,7 @@ class SalesHistoryProcessor:
                 cursor.execute("SELECT DISTINCT cpid FROM StampTableV4 WHERE stamp IS NOT NULL")
                 self.cpid_cache = {row[0] for row in cursor.fetchall()}
                 self.last_cache_update = current_time
-                logger.info(f"Updated CPID cache with {len(self.cpid_cache)} entries")
+                logger.debug(f"Updated CPID cache with {len(self.cpid_cache)} entries")
         finally:
             if close_db:
                 db.close()
@@ -219,10 +219,10 @@ class SalesHistoryProcessor:
 
             # If we've never run catchup or are more than 200 blocks behind, do full catchup
             if last_checkpoint == 0 or (current_block - last_checkpoint) > 200:
-                logger.info(f"Need FULL_CATCHUP mode (last: {last_checkpoint}, current: {current_block})")
+                logger.debug(f"Need FULL_CATCHUP mode (last: {last_checkpoint}, current: {current_block})")
                 return "FULL_CATCHUP"
             else:
-                logger.info(f"Using REALTIME mode (last: {last_checkpoint}, current: {current_block})")
+                logger.debug(f"Using REALTIME mode (last: {last_checkpoint}, current: {current_block})")
                 return "REALTIME"
 
         finally:
@@ -484,11 +484,11 @@ class SalesHistoryProcessor:
                         raise
 
                     # Update CPID cache
-                    logger.info("Updating CPID cache...")
+                    logger.debug("Updating CPID cache...")
                     self.update_cpid_cache(db)
 
                     if self.mode == "FULL_CATCHUP":
-                        logger.info("Starting FULL_CATCHUP mode")
+                        logger.debug("Starting FULL_CATCHUP mode")
                         success = self._run_full_catchup(db)
 
                         if success:
@@ -497,7 +497,7 @@ class SalesHistoryProcessor:
                         else:
                             raise Exception("Full catchup failed")
                     else:
-                        logger.info("In REALTIME mode - no bulk catchup needed")
+                        logger.debug("In REALTIME mode - no bulk catchup needed")
                         # Update checkpoint to current block so future mode checks stay in REALTIME
                         current_block = self.backend.getblockcount()
                         self.update_checkpoint("last_catchup_completion", current_block, db)
