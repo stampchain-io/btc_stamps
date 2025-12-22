@@ -417,7 +417,9 @@ class SalesHistoryProcessor:
                     # Update checkpoint every 100 blocks
                     if blocks_processed % 100 == 0:
                         self.update_checkpoint("dispenser_block", block_idx, db)
-                        logger.debug(f"Processed {blocks_processed} blocks, {dispense_total} dispenses up to block {block_idx}")
+                        logger.debug(
+                            f"Processed {blocks_processed} blocks, {dispense_total} dispenses up to block {block_idx}"
+                        )
 
                     # Rate limiting
                     if dispense_count > 0:
