@@ -192,7 +192,7 @@ class SalesHistoryProcessor:
             db.commit()
 
             if dispense_count > 0:
-                logger.info(f"Stored {dispense_count} dispenser sales in block {block_index}")
+                logger.debug(f"Stored {dispense_count} dispenser sales in block {block_index}")
 
         except Exception as e:
             logger.error(f"Error processing block {block_index} dispenses: {e}")
@@ -369,7 +369,7 @@ class SalesHistoryProcessor:
 
     def _fetch_all_dispenses(self) -> bool:
         """Fetch all dispenses from the API and store them."""
-        logger.info("Starting bulk dispense catchup from Counterparty API...")
+        logger.debug("Starting bulk dispense catchup from Counterparty API...")
 
         try:
             # Get the block range to process
@@ -380,13 +380,13 @@ class SalesHistoryProcessor:
             # Dispensers didn't exist before stamps anyway
             if last_block == 0:
                 last_block = CP_STAMP_GENESIS_BLOCK - 1
-                logger.info(f"Starting from stamps genesis block {CP_STAMP_GENESIS_BLOCK} instead of block 0")
+                logger.debug(f"Starting from stamps genesis block {CP_STAMP_GENESIS_BLOCK} instead of block 0")
 
             if last_block >= current_block:
-                logger.info(f"Dispenses already up to date at block {last_block}")
+                logger.debug(f"Dispenses already up to date at block {last_block}")
                 return True
 
-            logger.info(f"Processing dispenses from block {last_block + 1} to {current_block}")
+            logger.debug(f"Processing dispenses from block {last_block + 1} to {current_block}")
 
             # Check if the range is too large (optional safety check)
             blocks_to_process = current_block - last_block
@@ -406,7 +406,7 @@ class SalesHistoryProcessor:
 
                 for block_idx in range(last_block + 1, current_block + 1):
                     if not self.catchup_running:
-                        logger.info("Catchup stopped")
+                        logger.debug("Catchup stopped")
                         break
 
                     # Use the existing process_block_dispenses method which fetches from CP API
@@ -417,7 +417,7 @@ class SalesHistoryProcessor:
                     # Update checkpoint every 100 blocks
                     if blocks_processed % 100 == 0:
                         self.update_checkpoint("dispenser_block", block_idx, db)
-                        logger.info(f"Processed {blocks_processed} blocks, {dispense_total} dispenses up to block {block_idx}")
+                        logger.debug(f"Processed {blocks_processed} blocks, {dispense_total} dispenses up to block {block_idx}")
 
                     # Rate limiting
                     if dispense_count > 0:
@@ -425,7 +425,7 @@ class SalesHistoryProcessor:
 
                 # Final checkpoint update
                 self.update_checkpoint("dispenser_block", min(current_block, block_idx), db)
-                logger.info(f"✅ Completed dispense catchup - {dispense_total} dispenses in {blocks_processed} blocks")
+                logger.debug(f"✅ Completed dispense catchup - {dispense_total} dispenses in {blocks_processed} blocks")
                 return True
 
             finally:
@@ -445,7 +445,7 @@ class SalesHistoryProcessor:
         # For catchup mode, we should fetch orders/matches from Counterparty API
         # This would involve fetching order matches for stamp assets
         # For now, we'll skip bulk order catchup
-        logger.info("Skipping bulk order catchup - orders/swaps need proper implementation")
+        logger.debug("Skipping bulk order catchup - orders/swaps need proper implementation")
         return True
 
     def _run_catchup(self):
@@ -456,7 +456,7 @@ class SalesHistoryProcessor:
         while retry_count < max_retries and self.catchup_running:
             try:
                 with self._lock:
-                    logger.info(f"Starting sales history catchup (attempt {retry_count + 1}/{max_retries})")
+                    logger.debug(f"Starting sales history catchup (attempt {retry_count + 1}/{max_retries})")
 
                     # Lower thread priority to reduce impact on main indexer
                     import os
@@ -469,12 +469,12 @@ class SalesHistoryProcessor:
                             pass  # Not critical if it fails
 
                     # Try to get database connection with logging
-                    logger.info("Attempting to get database connection for catchup...")
+                    logger.debug("Attempting to get database connection for catchup...")
                     connection_start = time.time()
 
                     try:
                         db = self.db_manager.get_long_running_connection()
-                        logger.info(f"Got database connection in {time.time() - connection_start:.2f}s")
+                        logger.debug(f"Got database connection in {time.time() - connection_start:.2f}s")
                     except Exception as conn_error:
                         logger.error(f"Failed to get database connection: {conn_error}")
                         if "exhausted" in str(conn_error).lower() or "timeout" in str(conn_error).lower():
@@ -492,7 +492,7 @@ class SalesHistoryProcessor:
                         success = self._run_full_catchup(db)
 
                         if success:
-                            logger.info("✅ Full catchup completed successfully")
+                            logger.debug("✅ Full catchup completed successfully")
                             return  # Success, exit retry loop
                         else:
                             raise Exception("Full catchup failed")
@@ -508,7 +508,7 @@ class SalesHistoryProcessor:
                 retry_count += 1
                 if retry_count < max_retries:
                     wait_time = retry_count * 30
-                    logger.info(f"Waiting {wait_time}s before retry...")
+                    logger.debug(f"Waiting {wait_time}s before retry...")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"Failed after {max_retries} attempts - connection pool issues")
@@ -519,7 +519,7 @@ class SalesHistoryProcessor:
                 retry_count += 1
                 if retry_count < max_retries:
                     wait_time = retry_count * 10
-                    logger.info(f"Waiting {wait_time}s before retry...")
+                    logger.debug(f"Waiting {wait_time}s before retry...")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"Failed after {max_retries} attempts")
@@ -541,16 +541,16 @@ class SalesHistoryProcessor:
                     pass
 
                 # Log final progress
-                logger.info(f"Final catchup progress: {self.progress}")
+                logger.debug(f"Final catchup progress: {self.progress}")
 
-        logger.info("Catchup thread exiting")
+        logger.debug("Catchup thread exiting")
 
     def _run_full_catchup(self, db) -> bool:
         """Run full catchup from beginning."""
         try:
-            logger.info("=" * 60)
-            logger.info("STARTING FULL SALES HISTORY CATCHUP")
-            logger.info("=" * 60)
+            logger.debug("=" * 60)
+            logger.debug("STARTING FULL SALES HISTORY CATCHUP")
+            logger.debug("=" * 60)
 
             # Clear existing data if forced
             if FORCE_SALES_HISTORY_REBUILD:
@@ -559,16 +559,16 @@ class SalesHistoryProcessor:
                     cursor.execute("DELETE FROM stamp_sales_history")
                     deleted = cursor.rowcount
                     db.commit()
-                    logger.info(f"Cleared {deleted} existing sales records")
+                    logger.debug(f"Cleared {deleted} existing sales records")
 
             # Fetch all dispenses
-            logger.info("\n📦 PHASE 1: Fetching dispenser sales...")
+            logger.debug("\n📦 PHASE 1: Fetching dispenser sales...")
             if not self._fetch_all_dispenses():
                 logger.error("Failed to fetch dispenses")
                 return False
 
             # Fetch all orders
-            logger.info("\n📊 PHASE 2: Fetching order sales...")
+            logger.debug("\n📊 PHASE 2: Fetching order sales...")
             if not self._fetch_all_orders():
                 logger.error("Failed to fetch orders")
                 return False
@@ -577,10 +577,10 @@ class SalesHistoryProcessor:
             current_block = self.backend.getblockcount()
             self.update_checkpoint("last_catchup_completion", current_block, db)
 
-            logger.info("\n✅ FULL CATCHUP COMPLETED SUCCESSFULLY")
-            logger.info(f"Total API requests: {self.progress['api_requests']}")
-            logger.info(f"Total DB inserts: {self.progress['db_inserts']}")
-            logger.info(f"Total sales: {self.progress['total_sales']}")
+            logger.debug("\n✅ FULL CATCHUP COMPLETED SUCCESSFULLY")
+            logger.debug(f"Total API requests: {self.progress['api_requests']}")
+            logger.debug(f"Total DB inserts: {self.progress['db_inserts']}")
+            logger.debug(f"Total sales: {self.progress['total_sales']}")
 
             return True
 
