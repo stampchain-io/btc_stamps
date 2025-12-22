@@ -255,7 +255,7 @@ class SRC20HolderCountUpdater:
                 db.commit()
 
             if updated_count > 0:
-                logger.info(f"Updated holder counts for {updated_count} tokens at block {block_index}")
+                logger.debug(f"Updated holder counts for {updated_count} tokens at block {block_index}")
 
             self.last_update_block = block_index
 
