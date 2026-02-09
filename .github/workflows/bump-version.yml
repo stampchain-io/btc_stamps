@@ -133,9 +133,15 @@ jobs:
       - name: Handle PR merge to dev
         if: env.SKIP == 'false' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'dev'
         run: |
-          # If merging from main to dev, convert to canary
+          # If merging from main to dev, convert production version to canary format
           if [[ "${{ github.head_ref }}" == "main" ]]; then
-            bump2version release --new-version canary --verbose --allow-dirty
+            CURRENT_VERSION=$(cat VERSION)
+            if [[ "$CURRENT_VERSION" != *"+canary"* ]]; then
+              # Convert production version (e.g., 1.9.0) to canary (1.9.0+canary.1)
+              CANARY_VERSION="${CURRENT_VERSION}+canary.1"
+              echo "Converting ${CURRENT_VERSION} to canary: ${CANARY_VERSION}"
+              bump2version --new-version "${CANARY_VERSION}" --verbose --allow-dirty release
+            fi
             printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
           fi
 
