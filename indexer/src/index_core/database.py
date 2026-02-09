@@ -74,7 +74,8 @@ def initialize(db: Connection) -> None:
         FROM blocks
     """
     )
-    block_index = cursor.fetchone()[0]
+    row = cursor.fetchone()
+    block_index = row[0] if row else None
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
         raise exceptions.DatabaseError("First block in database is not block " "{}.".format(config.BLOCK_FIRST))
@@ -1543,7 +1544,7 @@ def get_total_src101_minted_from_db(db: Connection, deploy_hash: str, blocktimes
             (deploy_hash,),
         )  # nosec
         result = src101_cursor.fetchone()
-        total_minted = D(result[0] if result[0] is not None else 0)
+        total_minted = D(result[0] if result and result[0] is not None else 0)
         cache_manager.set_cache_value("total_minted", deploy_hash, total_minted)
         return total_minted
 
@@ -1739,7 +1740,8 @@ def next_tx_index(db: Connection) -> int:
     cursor = db.cursor()
 
     cursor.execute("""SELECT MAX(tx_index) FROM transactions""")
-    max_tx_index = cursor.fetchone()[0]
+    row = cursor.fetchone()
+    max_tx_index = row[0] if row else None
     if max_tx_index is not None:
         tx_index = max_tx_index + 1
     else:
