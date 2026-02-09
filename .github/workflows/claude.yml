@@ -57,40 +57,19 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # This is an optional setting that allows Claude to read CI results on PRs
+          # Allow Claude to read CI results on PRs
           additional_permissions: |
             actions: read
-          
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-          
-          # Optional: Customize the trigger phrase (default: @claude)
-          # trigger_phrase: "/claude"
-          
-          # Optional: Trigger when specific user is assigned to an issue
-          # assignee_trigger: "claude-bot"
-          
-          # Optional: Allow Claude to run specific commands
-          allowed_tools: |
-            Bash(cd indexer && poetry install)
-            Bash(cd indexer && poetry run pytest)
-            Bash(cd indexer && poetry run pytest tests/*)
-            Bash(cd indexer && poetry run lint)
-            Bash(cd indexer && poetry run lint --auto-fix)
-            Bash(cd indexer && poetry run check-code)
-            Bash(cd indexer && poetry run run_checks)
-            Bash(cd indexer && poetry run coverage)
-            Bash(cd indexer && poetry run coverage-quick)
-            Bash(cd indexer && poetry run indexer)
-            Bash(cd indexer && poetry run task build)
-            Bash(cd indexer && poetry run task build-dev)
-          
-          # Optional: Add custom instructions for Claude to customize its behavior for your project
-          custom_instructions: |
+
+          # Allow Claude to run project commands
+          claude_args: |
+            --allowedTools "Bash(cd indexer && poetry:*)" "Bash(cd indexer && maturin:*)"
+
+          prompt: |
             This is a Python project managed by Poetry. Always use Poetry commands from the indexer directory.
             Follow the CLAUDE.md file for development standards and commands.
             Use parameterized queries with %s placeholders for database operations.
@@ -98,8 +77,4 @@ jobs:
             Always run lint and type checks before completing tasks.
             IMPORTANT: Always include [skip-version] in commit messages to prevent triggering version bumps.
             When working on PRs, be aware that CI checks are already running - avoid duplicating test runs.
-          
-          # Optional: Custom environment variables for Claude
-          # claude_env: |
-          #   NODE_ENV: test
 
