@@ -167,7 +167,88 @@ class TestTransactionProcessing:
             mock_init_arc4.assert_called_once_with(mock_vin.prevout.hash[::-1])
             assert destination == "test_address"
             assert nvalue == 12345
-            assert data == test_data.rstrip(b"\x00")
+            assert data == test_data
+
+    def test_decode_checkmultisig_standard_two_output(self):
+        """Test decode_checkmultisig with standard 2-output multisig (trailing zeros).
+
+        Standard encryption: all outputs encrypted as one combined ARC4 stream.
+        After combined decryption, trailing bytes are zeros. Length-prefix-bounded
+        extraction produces same result as rstrip-based extraction.
+        """
+        from index_core.transaction_utils import decode_checkmultisig
+
+        mock_vin = Mock()
+        mock_vin.prevout.hash = b"\x12\x34" * 16
+        mock_vout = Mock()
+        mock_vout.scriptPubKey = b"test_script"
+        mock_vout.nValue = 546
+
+        mock_ctx = Mock()
+        mock_ctx.vin = [mock_vin]
+        mock_ctx.vout = [mock_vout]
+
+        # Simulate standard 2-output multisig: 124 bytes combined, trailing zeros
+        test_json = b'{"p":"src-20","op":"transfer","tick":"NEIRO","amt":"3"}'
+        chunk_length_int = len(config.PREFIX) + len(test_json)
+        chunk_length_bytes = chunk_length_int.to_bytes(2, "big")
+        # 124 bytes total: 2 (length) + 6 (prefix) + 55 (json) + 61 (zero padding)
+        decrypted_chunk = chunk_length_bytes + config.PREFIX + test_json + b"\x00" * 61
+
+        with patch("index_core.arc4.init_arc4") as mock_init_arc4, patch(
+            "index_core.arc4.arc4_decrypt_chunk"
+        ) as mock_decrypt, patch("index_core.util.decode_address") as mock_decode_addr:
+            mock_init_arc4.return_value = "test_key"
+            mock_decrypt.return_value = decrypted_chunk
+            mock_decode_addr.return_value = "test_address"
+
+            destination, nvalue, data = decode_checkmultisig(mock_ctx, b"encrypted_chunk")
+
+            assert destination == "test_address"
+            assert data == test_json
+
+    def test_decode_checkmultisig_nonstandard_two_output(self):
+        """Test decode_checkmultisig with non-standard 2-output multisig (trailing garbage).
+
+        Non-standard encryption: only the first output was ARC4-encrypted.
+        When the combined stream is decrypted, the second output's raw zero bytes
+        XOR with the ARC4 keystream, producing non-zero pseudo-random trailing bytes.
+        The length-prefix-bounded extraction correctly ignores these trailing bytes.
+
+        This is the fix for block 933171 tx daaf764d8caa1108.
+        """
+        from index_core.transaction_utils import decode_checkmultisig
+
+        mock_vin = Mock()
+        mock_vin.prevout.hash = b"\x12\x34" * 16
+        mock_vout = Mock()
+        mock_vout.scriptPubKey = b"test_script"
+        mock_vout.nValue = 546
+
+        mock_ctx = Mock()
+        mock_ctx.vin = [mock_vin]
+        mock_ctx.vout = [mock_vout]
+
+        # Simulate non-standard 2-output multisig: 124 bytes, trailing GARBAGE (not zeros)
+        test_json = b'{"p":"src-20","op":"transfer","tick":"NEIRO","amt":"3"}'
+        chunk_length_int = len(config.PREFIX) + len(test_json)
+        chunk_length_bytes = chunk_length_int.to_bytes(2, "big")
+        # Trailing bytes are pseudo-random (ARC4 keystream XOR raw zeros)
+        garbage_trailing = bytes(range(1, 62))  # 61 non-zero bytes
+        decrypted_chunk = chunk_length_bytes + config.PREFIX + test_json + garbage_trailing
+
+        with patch("index_core.arc4.init_arc4") as mock_init_arc4, patch(
+            "index_core.arc4.arc4_decrypt_chunk"
+        ) as mock_decrypt, patch("index_core.util.decode_address") as mock_decode_addr:
+            mock_init_arc4.return_value = "test_key"
+            mock_decrypt.return_value = decrypted_chunk
+            mock_decode_addr.return_value = "test_address"
+
+            # With the fix, this should succeed (length-prefix-bounded extraction)
+            destination, nvalue, data = decode_checkmultisig(mock_ctx, b"encrypted_chunk")
+
+            assert destination == "test_address"
+            assert data == test_json
 
     def test_decode_checkmultisig_invalid_prefix(self):
         """Test decode_checkmultisig with invalid prefix returns None"""
