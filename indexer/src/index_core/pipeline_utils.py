@@ -870,7 +870,7 @@ class CPBlocksPipeline:
 
             # Clear the state manager
             if self.state_manager:
-                self.state_manager.end_fallback_mode()
+                self.state_manager.clear_all_fallbacks()
 
             # Notify API of the rollback (same as block reorg)
             try:
