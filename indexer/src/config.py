@@ -1,3 +1,5 @@
+"""Bitcoin Stamps Indexer configuration module."""
+
 import logging
 import os
 import re
