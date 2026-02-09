@@ -580,11 +580,10 @@ def decode_checkmultisig(ctx, chunk):
     key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
     chunk = arc4.arc4_decrypt_chunk(chunk, key)
     if chunk[2 : 2 + len(config.PREFIX)] == config.PREFIX:
-        chunk_length = chunk[:2].hex()
-        data = chunk[len(config.PREFIX) + 2 :].rstrip(b"\x00")
-        data_length = len(chunk[2:].rstrip(b"\x00"))
-        if data_length != int(chunk_length, 16):
+        chunk_length_int = int(chunk[:2].hex(), 16)
+        if len(chunk) < 2 + chunk_length_int:
             raise DecodeError("invalid data length")
+        data = chunk[2 + len(config.PREFIX) : 2 + chunk_length_int]
 
         script_pubkey = ctx.vout[0].scriptPubKey
         destination = util.decode_address(script_pubkey)
