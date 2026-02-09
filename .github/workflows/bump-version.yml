@@ -27,6 +27,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      pull-requests: write
     env:
       GIT_USER_NAME: GitHub Action
       GIT_USER_EMAIL: action@github.com
@@ -176,6 +177,27 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/dev' }}
+
+      - name: Sync version back to dev
+        if: env.SKIP == 'false' && env.NEW_VERSION && github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          # Check if a PR from main to dev already exists
+          EXISTING_PR=$(gh pr list --base dev --head main --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "PR #${EXISTING_PR} from main to dev already exists, skipping creation"
+          else
+            echo "Creating PR to sync v${NEW_VERSION} back to dev"
+            PR_URL=$(gh pr create \
+              --base dev \
+              --head main \
+              --title "chore: sync v${NEW_VERSION} to dev" \
+              --body "Automated version sync after release v${NEW_VERSION}. When merged, the workflow converts the version to canary format (\`${NEW_VERSION}+canary.1\`) for continued development.")
+            echo "Created PR: $PR_URL"
+            # Enable auto-merge so it merges once required checks pass
+            gh pr merge "$PR_URL" --merge --auto 2>/dev/null || echo "Auto-merge not available — merge manually to restore canary versioning on dev"
+          fi
 
   manual-versioning:
     runs-on: ubuntu-latest
