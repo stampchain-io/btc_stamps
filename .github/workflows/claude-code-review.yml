@@ -32,9 +32,6 @@ jobs:
     
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # Force fresh analysis by including timestamp
-      CLAUDE_REVIEW_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       pull-requests: write  # Needed to post review comments
@@ -55,34 +52,18 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v0.0.52
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Use stable model version
-          model: "claude-sonnet-4-20250514"
-          
-          # Force fresh analysis with specific context
-          direct_prompt: |
-            IMPORTANT: Analyze the CURRENT code state as of commit ${{ github.event.pull_request.head.sha }}.
-            
-            DO NOT use any cached analysis. Several security issues have been FIXED in recent commits:
-            - SSL verification warnings were ADDED in commit 6bf7c0e7
-            - Retry logic was FIXED in commit 73c11004  
-            - RLock was replaced with Lock in commit 4eaf1fc3
-            - sys.exit was replaced with CriticalFailureHandler in commit 66355430
-            
-            Please provide a FRESH review focusing on:
-            - Current code quality (not historical issues)
-            - Any NEW bugs or issues (not previously fixed ones)
+          prompt: |
+            Review the PR changes focusing on:
+            - Code quality and correctness
+            - Bugs or logic errors
             - Performance considerations
-            - Security concerns that CURRENTLY exist
+            - Security concerns
             - Test coverage
-            
-            If you mention SSL warnings, retry logic, RLock, or sys.exit issues, verify they still exist in the current code.
 
           # Allow fresh reviews on each push
           use_sticky_comment: false
-          
-          # No tools needed - Claude performs static code analysis only
 
