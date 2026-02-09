@@ -48,7 +48,7 @@ toml = "^0.10.2"
 eth-account = "^0.13.3"
 psutil = ">=6.1.1"
 filelock = ">=3.16.1"
-aiohttp = "^3.12.14"
+aiohttp = "^3.13.3"
 ratelimit = "^2.2.1"
 redis = "^6.2.0"
 
