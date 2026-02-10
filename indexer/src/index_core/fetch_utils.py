@@ -613,7 +613,9 @@ async def fetch_xcp_async(
                                 error_text = await response.text()
 
                                 # Verbose logging for all non-200 responses to help with debugging
-                                if response.status == 503:
+                                if response.status == 429:
+                                    logger.warning(f"⏳ Node {node['name']} returned 429 (Too Many Requests) for {endpoint}")
+                                elif response.status == 503:
                                     logger.warning(
                                         f"⏳ Node {node['name']} returned 503 (Service Unavailable) for {endpoint}\n"
                                         f"   URL: {url}\n"
@@ -656,6 +658,12 @@ async def fetch_xcp_async(
                 health_tracker = node_health_tracker.get(node["name"])
                 if health_tracker:
                     health_tracker.mark_failure(f"ServerDisconnectedError: {sde}")
+                endpoint_circuit_breakers.record_failure(node["name"])
+            except aiohttp.ClientConnectorError as cce:
+                logger.warning(f"Connection failed to {node['name']} for {url}: {cce}")
+                health_tracker = node_health_tracker.get(node["name"])
+                if health_tracker:
+                    health_tracker.mark_failure(f"ClientConnectorError: {cce}")
                 endpoint_circuit_breakers.record_failure(node["name"])
             except Exception as inner_get_exc:
                 logger.error(
