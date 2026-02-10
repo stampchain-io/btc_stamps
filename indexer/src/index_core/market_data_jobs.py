@@ -483,7 +483,7 @@ class MarketDataJobScheduler:
 
                                 # Store source tracking data for effectiveness analysis
                                 source_data = {"openstamp": market_data}
-                                src20_worker._store_source_data(tick, source_data)
+                                src20_worker._store_source_data(tick, source_data, db=task_db)
 
                                 processed_count += 1
 
@@ -569,7 +569,7 @@ class MarketDataJobScheduler:
                                 market_data_service.update_src20_market_data(tick, aggregated_data, task_db)
 
                                 # Store source tracking data for effectiveness analysis
-                                src20_worker._store_source_data(tick, source_data)
+                                src20_worker._store_source_data(tick, source_data, db=task_db)
 
                                 processed_count += 1
 

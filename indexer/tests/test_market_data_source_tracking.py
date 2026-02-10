@@ -479,7 +479,7 @@ class TestSourceDataIntegration:
 
         with patch("index_core.database.insert_market_data_source") as mock_insert:
             # Mock database connection
-            with patch.object(worker.processor.db_manager, "get_long_running_connection") as mock_get_db:
+            with patch.object(worker.processor.db_manager, "connect") as mock_get_db:
                 mock_get_db.return_value = self.mock_db
 
                 worker._store_source_data("STAMP", source_data)

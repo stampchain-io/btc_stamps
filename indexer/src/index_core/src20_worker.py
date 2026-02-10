@@ -1308,19 +1308,21 @@ class SRC20Worker:
             logger.error(f"Error aggregating multi-source data for {tick}: {e}")
             return None
 
-    def _store_source_data(self, tick: str, source_data: Dict[str, Dict]) -> None:
+    def _store_source_data(self, tick: str, source_data: Dict[str, Dict], db=None) -> None:
         """
         Store individual source data in market_data_sources table for transparency.
 
         Args:
             tick: SRC-20 token ticker
             source_data: Dictionary mapping source names to their data
+            db: Optional database connection to reuse (avoids opening new connections)
         """
+        owns_connection = db is None
         try:
             from index_core.database import insert_market_data_source
 
-            # Get database connection
-            db = self.processor.db_manager.get_long_running_connection()
+            if owns_connection:
+                db = self.processor.db_manager.connect()
 
             for source, data in source_data.items():
                 # Calculate source confidence based on data quality
@@ -1350,10 +1352,14 @@ class SRC20Worker:
                 except Exception as e:
                     logger.warning(f"Failed to store source data for {tick} from {source}: {e}")
 
-            db.close()
-
         except Exception as e:
             logger.error(f"Error storing source data for {tick}: {e}")
+        finally:
+            if owns_connection and db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _calculate_source_confidence(self, source: str, data: Dict) -> float:
         """
