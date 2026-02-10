@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 _global_fallback_enabled = False
 _fallback_mode_lock = threading.Lock()
 
+# Rate-limit detection - signals market data to back off
+_rate_limit_until: float = 0.0
+_rate_limit_lock = threading.Lock()
+
 
 def set_global_fallback_mode(enabled: bool):
     """Set the global fallback mode state."""
@@ -42,6 +46,20 @@ def is_global_fallback_enabled() -> bool:
     """Check if global fallback mode is enabled."""
     with _fallback_mode_lock:
         return _global_fallback_enabled
+
+
+def set_rate_limit_backoff(duration_seconds: float = 60.0):
+    """Signal that rate limiting was detected on a CP node."""
+    global _rate_limit_until
+    with _rate_limit_lock:
+        _rate_limit_until = time.time() + duration_seconds
+        logger.info(f"Rate limit backoff set for {duration_seconds}s - market data paused")
+
+
+def is_rate_limited() -> bool:
+    """Check if we're in a rate-limit backoff period."""
+    with _rate_limit_lock:
+        return time.time() < _rate_limit_until
 
 
 #########################################################################
@@ -615,6 +633,7 @@ async def fetch_xcp_async(
                                 # Verbose logging for all non-200 responses to help with debugging
                                 if response.status == 429:
                                     logger.warning(f"⏳ Node {node['name']} returned 429 (Too Many Requests) for {endpoint}")
+                                    set_rate_limit_backoff(60.0)
                                 elif response.status == 503:
                                     logger.warning(
                                         f"⏳ Node {node['name']} returned 503 (Service Unavailable) for {endpoint}\n"

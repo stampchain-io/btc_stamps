@@ -2851,10 +2851,12 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
             max_int = int(max_int / 10)
 
     if not is_url:
-        # Handle local file case (unchanged)
+        # Handle local file case
         with open(csv_url, "r") as file:
             csv_reader = csv.reader(file)
             for row in csv_reader:
+                if not row:
+                    continue
                 cursor.execute(insert_query, tuple(row))
         return
 
