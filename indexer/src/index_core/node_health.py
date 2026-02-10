@@ -128,6 +128,11 @@ class NodeHealth:
         if "503" in error_info or "Counterparty not ready" in error_info:
             return False  # Minor failure - will retry normally
 
+        # 429 "Too Many Requests" means we're being rate limited - treat as minor
+        # The node is healthy, we just need to slow down
+        if "429" in error_info or "Too Many Requests" in error_info:
+            return False  # Minor failure - progressive backoff, not exponential
+
         # If the error is a 404 for a block at/near the chain tip, don't count it as severe
         if "404" in error_info and "Block not yet processed by XCP" in error_info:
             return False

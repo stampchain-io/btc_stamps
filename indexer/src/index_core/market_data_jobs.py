@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Set
 
 import config
 from index_core.database_manager import DatabaseManager
-from index_core.fetch_utils import RateLimiter
+from index_core.fetch_utils import RateLimiter, is_rate_limited
 from index_core.holder_count_catchup_job import holder_count_catchup_job
 from index_core.market_data_service import market_data_service
 from index_core.sales_history_processor import sales_history_processor
@@ -161,6 +161,13 @@ class MarketDataJobScheduler:
 
         while self.running and not self.shutdown_event.is_set():
             try:
+                # Skip market data cycle when CP nodes are rate-limited
+                # This preserves rate budget for critical per-block indexing queries
+                if is_rate_limited():
+                    logger.debug("Rate limiting active on CP nodes - skipping market data cycle")
+                    self.shutdown_event.wait(timeout=10)
+                    continue
+
                 current_time = datetime.now()
 
                 # Check if stamp market data update is due
