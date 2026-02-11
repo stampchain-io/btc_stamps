@@ -162,13 +162,7 @@ class SRC20Worker:
                 # Calculate derived metrics (market_cap_usd, activity scores, etc.)
                 aggregated_data = self.processor.calculate_derived_metrics(aggregated_data)
 
-                # Fallback: derive market_cap_usd from market_cap_btc if not already set
-                # (calculate_derived_metrics needs circulating_supply which sources may not provide)
-                market_cap_btc_val = aggregated_data.get("market_cap_btc")
-                if market_cap_btc_val and not aggregated_data.get("market_cap_usd"):
-                    btc_usdt_rate = self._get_btc_usdt_rate()
-                    if btc_usdt_rate:
-                        aggregated_data["market_cap_usd"] = float(market_cap_btc_val) * btc_usdt_rate
+                # market_cap_usd is now handled inside _aggregate_multi_source_data()
 
                 # Validate the aggregated data
                 validated_data = self.processor.validate_src20_market_data(aggregated_data)
@@ -1607,6 +1601,12 @@ class SRC20Worker:
             ]:
                 if field in best_data and best_data[field] is not None:
                     aggregated[field] = best_data[field]
+
+            # Derive market_cap_usd from market_cap_btc if not already set
+            if aggregated.get("market_cap_btc") and not aggregated.get("market_cap_usd"):
+                btc_usdt_rate = self._get_btc_usdt_rate()
+                if btc_usdt_rate:
+                    aggregated["market_cap_usd"] = float(aggregated["market_cap_btc"]) * btc_usdt_rate
 
             logger.debug(
                 f"Aggregated data for {tick}: price_btc={aggregated.get('price_btc')}, "
