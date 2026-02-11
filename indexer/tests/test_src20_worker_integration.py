@@ -149,7 +149,7 @@ class TestSRC20WorkerIntegration(unittest.TestCase):
 
         for quality_score, volume_btc, expected_confidence in test_cases:
             with self.subTest(quality=quality_score, volume=volume_btc):
-                market_data = {"quality_score": quality_score, "volume_24h_btc": volume_btc}
+                market_data = {"data_quality_score": quality_score, "volume_24h_btc": volume_btc}
 
                 confidence = self.worker._determine_kucoin_confidence_level(market_data)
 

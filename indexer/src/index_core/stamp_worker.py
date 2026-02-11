@@ -258,7 +258,7 @@ class StampWorker:
                 "total_dispensers_count": 0,
                 "liquidity_score": None,
                 "market_activity_score": None,
-                "quality_score": 0.0,
+                "data_quality_score": 0.0,
                 "confidence_level": 3.0,
                 "price_source": "counterparty",  # Always set default
                 "volume_sources": {"counterparty": 1.0},  # Always set default as JSON
@@ -308,7 +308,7 @@ class StampWorker:
             # Calculate derived metrics
             market_data["liquidity_score"] = self._calculate_liquidity_score(market_data)
             market_data["market_activity_score"] = self._calculate_activity_score(market_data)
-            market_data["quality_score"] = self._calculate_quality_score(market_data)
+            market_data["data_quality_score"] = self._calculate_quality_score(market_data)
             market_data["confidence_level"] = self._determine_confidence_level(market_data)
 
             return market_data
@@ -793,7 +793,7 @@ class StampWorker:
             Confidence level string
         """
         try:
-            quality_score = market_data.get("quality_score", 0)
+            quality_score = market_data.get("data_quality_score", 0)
 
             if quality_score >= 8.0:
                 return "high"
