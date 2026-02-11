@@ -346,6 +346,12 @@ class SRC20MarketDataProcessor:
                 market_cap_btc = D(str(price_btc)) * D(str(circulating_supply))
                 enhanced_data["market_cap_btc"] = market_cap_btc
 
+            # Calculate market_cap_usd if we have USD price and supply
+            price_usd = market_data.get("price_usd")
+            if price_usd and circulating_supply:
+                market_cap_usd = D(str(price_usd)) * D(str(circulating_supply))
+                enhanced_data["market_cap_usd"] = market_cap_usd
+
             # Calculate volume ratios and liquidity metrics
             volume_24h_val = market_data.get("volume_24h_btc", D("0"))
             volume_24h = D(str(volume_24h_val)) if volume_24h_val is not None else D("0")

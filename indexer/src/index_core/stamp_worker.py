@@ -491,12 +491,12 @@ class StampWorker:
         try:
             logger.debug(f"Starting volume calculation from sales history for {cpid}")
 
-            # Get volume data from sales history
-            volume_24h = sales_history_processor.calculate_volume_from_history(cpid, hours=24)
-            volume_7d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 7)
-            volume_30d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 30)
+            # Get volume data from sales history (returns satoshis) and convert to BTC
+            volume_24h = sales_history_processor.calculate_volume_from_history(cpid, hours=24) / 1e8
+            volume_7d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 7) / 1e8
+            volume_30d = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 30) / 1e8
             # Calculate total volume (all time) - using a large number of hours
-            volume_total = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 365 * 10)  # 10 years
+            volume_total = sales_history_processor.calculate_volume_from_history(cpid, hours=24 * 365 * 10) / 1e8
 
             # Debug logging
             logger.debug(f"Raw volume data from sales history for {cpid}:")

@@ -167,8 +167,8 @@ class SalesHistoryProcessor:
                             # Calculate satoshirate from btc_amount if not provided
                             satoshirate = btc_amount // quantity if quantity > 0 else 0
 
-                        # Convert btc_amount from satoshis to BTC for storage
-                        btc_amount_btc = btc_amount / 1e8 if btc_amount else 0
+                        # Store btc_amount as raw satoshis (BIGINT column)
+                        btc_amount_sats = btc_amount if btc_amount else 0
 
                         # Insert into sales history
                         self._insert_sale(
@@ -180,7 +180,7 @@ class SalesHistoryProcessor:
                                 "cpid": cpid,
                                 "buyer_address": source,  # source is the buyer
                                 "seller_address": destination,  # destination is the dispenser
-                                "btc_amount": btc_amount_btc,
+                                "btc_amount": btc_amount_sats,
                                 "sale_type": "dispenser",  # lowercase to match ENUM
                                 "dispenser_tx_hash": dispenser_tx_hash,
                                 "quantity": quantity,

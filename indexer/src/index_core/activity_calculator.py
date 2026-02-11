@@ -99,7 +99,12 @@ class StampActivityCalculator:
     @staticmethod
     def get_stamps_needing_update(db, limit: int = 1000) -> Dict[str, Tuple[str, ActivityLevel]]:
         """
-        Get stamps that need market data updates based on activity levels
+        Get stamps that need market data updates based on activity levels.
+
+        Uses a two-phase approach to prevent COLD/DORMANT stamps from being
+        starved by HOT stamps that fill the entire limit:
+        - Phase 1: Active stamps (HOT/WARM/COOL + never-updated) get 80% of limit
+        - Phase 2: Inactive stamps (DORMANT/COLD) get remaining capacity
 
         Args:
             db: Database connection
@@ -109,8 +114,12 @@ class StampActivityCalculator:
             Dict of cpid -> (stamp_id, activity_level)
         """
         try:
+            results = {}
+
             with db.cursor() as cursor:
-                query = """
+                # Phase 1: Active stamps (HOT/WARM/COOL) and never-updated — 80% of limit
+                active_limit = int(limit * 0.8)
+                query_active = """
                 SELECT
                     s.cpid,
                     s.stamp,
@@ -134,34 +143,53 @@ class StampActivityCalculator:
                     -- COOL: Update every 24 hours
                     (smd.activity_level = 'COOL' AND
                      smd.last_updated < DATE_SUB(NOW(), INTERVAL 1440 MINUTE))
-                    OR
-                    -- DORMANT: Update every 48 hours
-                    (smd.activity_level = 'DORMANT' AND
-                     smd.last_updated < DATE_SUB(NOW(), INTERVAL 2880 MINUTE))
-                    OR
-                    -- COLD: Update every 7 days
-                    (smd.activity_level = 'COLD' AND
-                     smd.last_updated < DATE_SUB(NOW(), INTERVAL 10080 MINUTE))
                 )
                 ORDER BY
-                    -- Prioritize by activity level
                     CASE smd.activity_level
                         WHEN 'HOT' THEN 1
                         WHEN 'WARM' THEN 2
                         WHEN 'COOL' THEN 3
-                        WHEN 'DORMANT' THEN 4
-                        WHEN 'COLD' THEN 5
-                        ELSE 6
+                        ELSE 4
                     END,
                     smd.last_updated ASC
                 LIMIT %s
                 """
 
-                cursor.execute(query, (limit,))
-                results = {}
+                cursor.execute(query_active, (active_limit,))
                 for cpid, stamp, level_str, _ in cursor.fetchall():
                     activity_level = ActivityLevel(level_str)
                     results[cpid] = (stamp, activity_level)
+
+                # Phase 2: Inactive stamps (DORMANT/COLD) — remaining capacity
+                inactive_limit = limit - len(results)
+                if inactive_limit > 0:
+                    query_inactive = """
+                    SELECT
+                        s.cpid,
+                        s.stamp,
+                        COALESCE(smd.activity_level, 'COLD') as activity_level,
+                        smd.last_updated
+                    FROM StampTableV4 s
+                    LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
+                    WHERE s.ident IN ('STAMP', 'SRC-721')
+                    AND (
+                        -- DORMANT: Update every 48 hours
+                        (smd.activity_level = 'DORMANT' AND
+                         smd.last_updated < DATE_SUB(NOW(), INTERVAL 2880 MINUTE))
+                        OR
+                        -- COLD: Update every 7 days
+                        (smd.activity_level = 'COLD' AND
+                         smd.last_updated < DATE_SUB(NOW(), INTERVAL 10080 MINUTE))
+                    )
+                    ORDER BY smd.last_updated ASC
+                    LIMIT %s
+                    """
+
+                    cursor.execute(query_inactive, (inactive_limit,))
+                    for cpid, stamp, level_str, _ in cursor.fetchall():
+                        if cpid not in results:
+                            activity_level = ActivityLevel(level_str)
+                            results[cpid] = (stamp, activity_level)
 
                 logger.debug(f"Found {len(results)} stamps needing updates")
 

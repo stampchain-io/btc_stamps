@@ -625,8 +625,8 @@ class MarketDataJobScheduler:
 
         coordinator = BackgroundCoordinator.get_instance()
 
-        if not coordinator.start_task("market_data_collections", is_heavy=True):
-            logger.debug("Skipping collection market data update - another heavy operation is running")
+        if not coordinator.start_task("market_data_collections", is_heavy=False):
+            logger.debug("Skipping collection market data update - another operation is running")
             return
 
         try:
@@ -642,7 +642,7 @@ class MarketDataJobScheduler:
                     collections_to_update = self._get_collections_needing_update(task_db)
 
                     if not collections_to_update:
-                        logger.debug("No collections need market data updates")
+                        logger.warning("No collections need market data updates - check collections table")
                         return
 
                     logger.debug(f"Updating market data for {len(collections_to_update)} collections")
@@ -671,7 +671,7 @@ class MarketDataJobScheduler:
             if not config.FORCE:
                 raise
         finally:
-            coordinator.end_task("market_data_collections", is_heavy=True)
+            coordinator.end_task("market_data_collections", is_heavy=False)
 
     def _update_holder_count_catchup_job(self):
         """

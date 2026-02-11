@@ -196,12 +196,18 @@ class TestStampActivityCalculator:
         assert "WHEN activity_level = 'DORMANT'" in sql_call
 
     def test_get_stamps_needing_update(self, mock_db_connection, mock_cursor):
-        """Test getting stamps that need updates"""
-        # Mock database results
-        mock_cursor.fetchall.return_value = [
-            ("A123456789", "12345", "HOT", None),
-            ("A987654321", "67890", "WARM", None),
-            ("A555444333", "11111", "COLD", None),
+        """Test getting stamps that need updates (two-phase: active + inactive)"""
+        # Mock database results for two phases:
+        # Phase 1 (active): HOT and WARM stamps
+        # Phase 2 (inactive): COLD stamps
+        mock_cursor.fetchall.side_effect = [
+            [
+                ("A123456789", "12345", "HOT", None),
+                ("A987654321", "67890", "WARM", None),
+            ],
+            [
+                ("A555444333", "11111", "COLD", None),
+            ],
         ]
 
         results = StampActivityCalculator.get_stamps_needing_update(mock_db_connection, limit=1000)
@@ -213,12 +219,17 @@ class TestStampActivityCalculator:
         assert results["A987654321"] == ("67890", ActivityLevel.WARM)
         assert results["A555444333"] == ("11111", ActivityLevel.COLD)
 
-        # Verify SQL was called
-        mock_cursor.execute.assert_called_once()
-        sql_call = mock_cursor.execute.call_args[0][0]
-        assert "SELECT" in sql_call
-        assert "activity_level" in sql_call
-        assert "ORDER BY" in sql_call
+        # Verify SQL was called twice (phase 1: active, phase 2: inactive)
+        assert mock_cursor.execute.call_count == 2
+        # Phase 1 query should select HOT/WARM/COOL
+        phase1_sql = mock_cursor.execute.call_args_list[0][0][0]
+        assert "SELECT" in phase1_sql
+        assert "activity_level" in phase1_sql
+        assert "HOT" in phase1_sql
+        # Phase 2 query should select DORMANT/COLD
+        phase2_sql = mock_cursor.execute.call_args_list[1][0][0]
+        assert "DORMANT" in phase2_sql
+        assert "COLD" in phase2_sql
 
     def test_get_stamps_needing_update_empty(self, mock_db_connection, mock_cursor):
         """Test getting stamps when none need updates"""

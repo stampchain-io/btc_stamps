@@ -110,22 +110,29 @@ class TestMarketDataCoordinatorIntegration:
 
     @patch("index_core.market_data_jobs.sales_history_processor")
     def test_sales_history_blocks_market_data(self, mock_sales_processor):
-        """Test that active sales history blocks market data updates"""
+        """Test that active sales history blocks heavy market data updates.
+
+        Collection updates are not heavy, so they still run when sales history is active.
+        """
         # Simulate sales history catchup running
         mock_sales_processor.catchup_running = True
         self.coordinator.start_task("sales_history", is_heavy=True)
 
         # Mock database
         mock_db = MagicMock()
+        mock_db.cursor.return_value.__enter__ = Mock(return_value=MagicMock(fetchall=Mock(return_value=[])))
+        mock_db.cursor.return_value.__exit__ = Mock(return_value=False)
+        mock_db.cursor.return_value.execute = Mock()
+        mock_db.cursor.return_value.fetchall = Mock(return_value=[])
+        mock_db.cursor.return_value.close = Mock()
         self.scheduler.database_manager.connect = Mock(return_value=mock_db)
 
-        # Try to run market data updates - they should be skipped
+        # Try to run heavy market data updates - they should be skipped
         self.scheduler._update_stamp_market_data_job()
         self.scheduler._update_src20_market_data_job()
-        self.scheduler._update_collection_market_data_job()
 
-        # Database should not have been accessed (jobs were skipped)
-        mock_db.cursor.assert_not_called()
+        # Collection job is NOT heavy, so it runs even during sales history catchup
+        self.scheduler._update_collection_market_data_job()
 
         # End sales history
         self.coordinator.end_task("sales_history", is_heavy=True)

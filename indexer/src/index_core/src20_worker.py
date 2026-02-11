@@ -1550,6 +1550,13 @@ class SRC20Worker:
                 )
                 aggregated["price_usd"] = weighted_price_usd
 
+            # If we have BTC price but no USD price, convert using BTC/USDT rate
+            price_btc_val = aggregated.get("price_btc")
+            if price_btc_val and not aggregated.get("price_usd"):
+                btc_usdt_rate = self._get_btc_usdt_rate()
+                if btc_usdt_rate:
+                    aggregated["price_usd"] = float(price_btc_val) * btc_usdt_rate
+
             # Sum volumes (different exchanges = additive volume)
             if volume_btc_values:
                 aggregated["volume_24h_btc"] = sum(volume_btc_values)
