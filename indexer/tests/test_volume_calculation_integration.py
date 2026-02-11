@@ -112,12 +112,13 @@ class TestVolumeCalculationIntegration:
         """Test that stamp worker correctly retrieves and formats volume data."""
         # Mock the sales history processor responses
         with patch("index_core.stamp_worker.sales_history_processor") as mock_processor:
-            # Setup mock responses - calculate_volume_from_history returns floats
+            # Setup mock responses - calculate_volume_from_history returns satoshis
+            # (stamp_worker divides by 1e8 to convert to BTC)
             mock_processor.calculate_volume_from_history.side_effect = [
-                0.0005,  # 24h volume
-                0.0015,  # 7d volume
-                0.0035,  # 30d volume
-                0.0065,  # total volume
+                50000,  # 24h volume in satoshis (0.0005 BTC)
+                150000,  # 7d volume in satoshis (0.0015 BTC)
+                350000,  # 30d volume in satoshis (0.0035 BTC)
+                650000,  # total volume in satoshis (0.0065 BTC)
             ]
             mock_processor.get_recent_sales.return_value = []
 
@@ -127,7 +128,7 @@ class TestVolumeCalculationIntegration:
             # Calculate volume metrics
             volume_metrics = worker._calculate_volume_metrics_from_history(test_cpid)
 
-            # Verify the results
+            # Verify the results (converted from satoshis to BTC)
             assert volume_metrics["volume_24h_btc"] == 0.0005
             assert volume_metrics["volume_7d_btc"] == 0.0015
             assert volume_metrics["volume_30d_btc"] == 0.0035
