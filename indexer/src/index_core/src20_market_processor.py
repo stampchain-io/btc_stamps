@@ -363,7 +363,7 @@ class SRC20MarketDataProcessor:
                 enhanced_data["volume_to_mcap_ratio"] = min(volume_to_mcap_ratio, D("1000"))  # Cap at 1000%
 
             # Calculate trading activity score
-            holder_count = market_data.get("holder_count", 0)
+            holder_count = market_data.get("holder_count") or 0
             volume_24h_float = float(volume_24h) if volume_24h else 0
 
             activity_score = D("0")

@@ -159,6 +159,9 @@ class SRC20Worker:
                 aggregated_data["source_count"] = len(source_data)
                 aggregated_data["sources"] = list(source_data.keys())
 
+                # Calculate derived metrics (market_cap_usd, activity scores, etc.)
+                aggregated_data = self.processor.calculate_derived_metrics(aggregated_data)
+
                 # Validate the aggregated data
                 validated_data = self.processor.validate_src20_market_data(aggregated_data)
                 if validated_data:
