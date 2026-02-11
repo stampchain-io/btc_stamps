@@ -36,10 +36,14 @@ STAMPSCAN_BASE_URL = config.STAMPSCAN_BASE_URL
 STAMPSCAN_LISTING_SUMMARY_ENDPOINT = "/market/listingSummary"
 STAMPSCAN_COMBINED_LISTINGS_ENDPOINT = "/utxo/combinedListings"
 
+# BitMart API configuration
+BITMART_BASE_URL = "https://api-cloud.bitmart.com"
+BITMART_RATE_LIMITER = RateLimiter(calls_per_second=1.0)
+
 # SRC-20 token mappings for exchanges
 SRC20_EXCHANGE_MAPPINGS = {
-    "STAMP": {"kucoin": "STAMP-USDT", "symbol": "STAMP", "base_currency": "USDT"}
-    # Future tokens can be added here
+    "STAMP": {"kucoin": "STAMP-USDT", "bitmart": "STAMP_USDT", "symbol": "STAMP", "base_currency": "USDT"},
+    "KEVIN": {"bitmart": "KEVIN_USDT", "symbol": "KEVIN", "base_currency": "USDT"},
 }
 
 # Request timeouts and retry settings
@@ -66,6 +70,7 @@ class SRC20Worker:
         self.kucoin_rate_limiter = KUCOIN_RATE_LIMITER
         self.stampscan_rate_limiter = STAMPSCAN_RATE_LIMITER
         self.exchange_rate_limiter = EXCHANGE_RATE_LIMITER
+        self.bitmart_rate_limiter = BITMART_RATE_LIMITER
         self._openstamp_cache = None  # Cache the full OpenStamp response
         self._openstamp_cache_time = 0
         self._openstamp_cache_ttl = 300  # Cache for 5 minutes (300 seconds)
@@ -109,6 +114,18 @@ class SRC20Worker:
                     logger.warning(f"Failed to fetch KuCoin data for {tick}")
             elif token_config and "kucoin" in token_config and not config.ENABLE_KUCOIN_API:
                 logger.debug(f"Skipping KuCoin data fetch for {tick} - ENABLE_KUCOIN_API is disabled")
+
+            # Fetch from BitMart if we have exchange mapping for this token
+            if token_config and "bitmart" in token_config and config.ENABLE_BITMART_API:
+                logger.debug(f"Fetching BitMart data for {tick} (symbol: {token_config['bitmart']})")
+                bitmart_data = self._fetch_bitmart_data(tick, token_config)
+                if bitmart_data:
+                    source_data["bitmart"] = bitmart_data
+                    logger.debug(f"Successfully fetched BitMart data for {tick}")
+                else:
+                    logger.warning(f"Failed to fetch BitMart data for {tick}")
+            elif token_config and "bitmart" in token_config and not config.ENABLE_BITMART_API:
+                logger.debug(f"Skipping BitMart data fetch for {tick} - ENABLE_BITMART_API is disabled")
 
             # Always try OpenStamp API for all SRC-20 tokens
             logger.debug(f"Fetching OpenStamp data for {tick}")
@@ -200,7 +217,7 @@ class SRC20Worker:
                 market_data["exchange_symbol"] = symbol
 
                 # Record successful API call
-                tracker.record_success(market_data.get("quality_score"))
+                tracker.record_success(market_data.get("data_quality_score"))
                 record_call_metrics(tracker)
 
                 return market_data
@@ -266,6 +283,268 @@ class SRC20Worker:
         except Exception as e:
             logger.error(f"Error in KuCoin API call: {e}")
             return None
+
+    def _fetch_bitmart_data(self, tick: str, token_config: Dict) -> Optional[Dict]:
+        """
+        Fetch market data from BitMart API with reliability tracking.
+
+        Args:
+            tick: SRC-20 token ticker
+            token_config: Token configuration with exchange mappings
+
+        Returns:
+            Dictionary with market data or None if failed
+        """
+        tracker = create_reliability_tracker("bitmart", "src20", tick)
+        tracker.start_tracking()
+
+        try:
+            symbol = token_config["bitmart"]
+            logger.debug(f"Fetching BitMart data for {tick} (symbol: {symbol})")
+
+            # Fetch ticker data (v3 ticker includes last, volume, high/low, bid/ask, fluctuation)
+            ticker_data = self._bitmart_api_call("/spot/quotation/v3/ticker", {"symbol": symbol})
+
+            # Process the raw data into market metrics
+            market_data = self._process_bitmart_data(tick, ticker_data)
+
+            if market_data:
+                market_data["data_source"] = "bitmart"
+                market_data["exchange_symbol"] = symbol
+
+                # Record successful API call
+                tracker.record_success(market_data.get("data_quality_score"))
+                record_call_metrics(tracker)
+
+                return market_data
+            else:
+                # Data processing failed
+                tracker.record_failure("Data processing failed")
+                record_call_metrics(tracker)
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching BitMart data for {tick}: {e}")
+            tracker.record_failure(str(e))
+            record_call_metrics(tracker)
+            return None
+
+    def _bitmart_api_call(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
+        """
+        Make a rate-limited API call to BitMart.
+
+        Args:
+            endpoint: API endpoint path
+            params: Query parameters
+
+        Returns:
+            API response data or None if failed
+        """
+        try:
+            # Rate limiting
+            self.bitmart_rate_limiter.acquire()
+
+            url = f"{BITMART_BASE_URL}{endpoint}"
+
+            for attempt in range(MAX_RETRIES):
+                try:
+                    logger.debug(f"BitMart API call: {endpoint} (attempt {attempt + 1})")
+
+                    response = requests.get(
+                        url,
+                        params=params,
+                        timeout=REQUEST_TIMEOUT,
+                        headers={"User-Agent": "BitcoinStamps-Indexer/1.0", "Accept": "application/json"},
+                    )
+
+                    response.raise_for_status()
+                    data = response.json()
+
+                    # Check BitMart response format (success code is 1000)
+                    if data.get("code") == 1000 and "data" in data:
+                        return data["data"]
+                    else:
+                        logger.warning(f"BitMart API error: {data.get('message', 'Unknown error')}")
+                        return None
+
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"BitMart API request failed (attempt {attempt + 1}): {e}")
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+                    else:
+                        raise
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error in BitMart API call: {e}")
+            return None
+
+    def _process_bitmart_data(self, tick: str, ticker_data: Optional[Dict]) -> Optional[Dict]:
+        """
+        Process raw BitMart v3 ticker data into standardized market metrics.
+
+        Args:
+            tick: SRC-20 token ticker
+            ticker_data: v3 ticker response data
+
+        Returns:
+            Dictionary with processed market data
+        """
+        try:
+            market_data = {
+                "tick": tick,
+                "price_btc": None,
+                "price_usd": None,
+                "volume_24h_btc": None,
+                "volume_24h_usd": None,
+                "price_change_24h": None,
+                "price_change_24h_percent": None,
+                "high_24h_btc": None,
+                "low_24h_btc": None,
+                "market_cap_btc": None,
+                "trading_pairs_count": 1,  # At least BitMart
+                "data_quality_score": 0.0,
+                "confidence_level": "medium",
+            }
+
+            if not ticker_data:
+                return market_data
+
+            # Get BTC/USDT rate for conversion
+            btc_usdt_rate = self._get_btc_usdt_rate()
+
+            if not btc_usdt_rate:
+                logger.warning(f"Could not fetch BTC/USDT rate for {tick}, using USDT values without conversion")
+
+            # Process last price
+            price_usdt = self._safe_float(ticker_data.get("last"))
+            if price_usdt:
+                market_data["price_usd"] = price_usdt
+                if btc_usdt_rate:
+                    market_data["price_btc"] = price_usdt / btc_usdt_rate
+                else:
+                    market_data["price_btc"] = price_usdt
+
+            # Process 24h quote volume (USDT volume)
+            qv_24h = self._safe_float(ticker_data.get("qv_24h"))
+            if qv_24h:
+                market_data["volume_24h_usd"] = qv_24h
+                if btc_usdt_rate:
+                    market_data["volume_24h_btc"] = qv_24h / btc_usdt_rate
+                else:
+                    market_data["volume_24h_btc"] = qv_24h
+
+            # Process 24h high/low
+            high_usdt = self._safe_float(ticker_data.get("high_24h"))
+            low_usdt = self._safe_float(ticker_data.get("low_24h"))
+            if high_usdt:
+                if btc_usdt_rate:
+                    market_data["high_24h_btc"] = high_usdt / btc_usdt_rate
+                else:
+                    market_data["high_24h_btc"] = high_usdt
+            if low_usdt:
+                if btc_usdt_rate:
+                    market_data["low_24h_btc"] = low_usdt / btc_usdt_rate
+                else:
+                    market_data["low_24h_btc"] = low_usdt
+
+            # Process fluctuation (already a ratio, multiply by 100 for percentage)
+            fluctuation = self._safe_float(ticker_data.get("fluctuation"))
+            if fluctuation is not None:
+                market_data["price_change_24h_percent"] = fluctuation * 100
+                if price_usdt and btc_usdt_rate:
+                    market_data["price_change_24h"] = (price_usdt * fluctuation) / btc_usdt_rate
+
+            # Use bid/ask mid-price if available for more accurate current price
+            bid_px = self._safe_float(ticker_data.get("bid_px"))
+            ask_px = self._safe_float(ticker_data.get("ask_px"))
+            if bid_px and ask_px:
+                mid_price_usdt = (bid_px + ask_px) / 2
+                if btc_usdt_rate:
+                    market_data["price_btc"] = mid_price_usdt / btc_usdt_rate
+                else:
+                    market_data["price_btc"] = mid_price_usdt
+
+            # Calculate derived metrics
+            market_data["data_quality_score"] = self._calculate_bitmart_quality_score(market_data)
+            market_data["confidence_level"] = self._determine_bitmart_confidence_level(market_data)
+
+            return market_data
+
+        except Exception as e:
+            logger.error(f"Error processing BitMart data for {tick}: {e}")
+            return None
+
+    def _calculate_bitmart_quality_score(self, market_data: Dict) -> float:
+        """
+        Calculate data quality score for BitMart data.
+
+        Args:
+            market_data: Dictionary with market data
+
+        Returns:
+            Quality score (0-10)
+        """
+        try:
+            score = 7.0  # Base score for BitMart (reputable exchange)
+
+            # Check data completeness
+            required_fields = ["price_btc", "volume_24h_btc"]
+            missing_fields = sum(1 for field in required_fields if market_data.get(field) is None)
+
+            if missing_fields > 0:
+                score -= missing_fields * 2.0
+
+            # Bonus for additional data
+            if market_data.get("price_change_24h_percent") is not None:
+                score += 1.0
+
+            if market_data.get("high_24h_btc") is not None and market_data.get("low_24h_btc") is not None:
+                score += 1.0
+
+            # Safe volume check
+            volume_24h_btc = market_data.get("volume_24h_btc")
+            if volume_24h_btc is not None and volume_24h_btc > 0:
+                score += 1.0
+
+            return max(0.0, min(10.0, score))
+
+        except Exception as e:
+            logger.error(f"Error calculating BitMart quality score: {e}")
+            return 5.0  # Default medium quality
+
+    def _determine_bitmart_confidence_level(self, market_data: Dict) -> float:
+        """
+        Determine confidence level for BitMart data.
+
+        Args:
+            market_data: Dictionary with market data
+
+        Returns:
+            Confidence level as float (0.0-10.0)
+        """
+        try:
+            quality_score = market_data.get("data_quality_score", 0)
+            volume_24h = market_data.get("volume_24h_btc", 0)
+
+            # Handle None volume safely
+            if volume_24h is None:
+                volume_24h = 0
+
+            # Higher confidence for higher volume (same thresholds as KuCoin)
+            if quality_score >= 8.0 and volume_24h > 0.001:
+                return 9.0  # High confidence
+            elif quality_score >= 6.0 and volume_24h > 0.0001:
+                return 7.0  # Medium confidence
+            elif quality_score >= 4.0:
+                return 5.0  # Low confidence
+            else:
+                return 3.0  # Very low confidence
+
+        except Exception as e:
+            logger.error(f"Error determining BitMart confidence level: {e}")
+            return 5.0  # Default medium confidence
 
     def _fetch_openstamp_data(self, tick: str) -> Optional[Dict]:
         """
@@ -365,7 +644,7 @@ class SRC20Worker:
                 logger.debug(f"Successfully fetched OpenStamp data for {tick}")
 
                 # Record successful API call
-                tracker.record_success(market_data.get("quality_score"))
+                tracker.record_success(market_data.get("data_quality_score"))
                 record_call_metrics(tracker)
 
                 return market_data
@@ -436,7 +715,7 @@ class SRC20Worker:
                         logger.debug(f"Successfully fetched StampScan data for {tick}")
 
                         # Record successful API call
-                        tracker.record_success(market_data.get("quality_score"))
+                        tracker.record_success(market_data.get("data_quality_score"))
                         record_call_metrics(tracker)
 
                         return market_data
@@ -543,7 +822,7 @@ class SRC20Worker:
                 "market_cap_btc": None,
                 "holder_count": None,
                 "trading_pairs_count": 1,  # At least StampScan tracking
-                "quality_score": 0.0,
+                "data_quality_score": 0.0,
                 "confidence_level": "medium",
             }
 
@@ -585,7 +864,7 @@ class SRC20Worker:
                 market_data["latest_tx_hash"] = tx_hash
 
             # Calculate derived metrics
-            market_data["quality_score"] = self._calculate_stampscan_quality_score(market_data)
+            market_data["data_quality_score"] = self._calculate_stampscan_quality_score(market_data)
             market_data["confidence_level"] = self._determine_stampscan_confidence_level(market_data)
 
             return market_data
@@ -637,7 +916,7 @@ class SRC20Worker:
             Confidence level as float (0.0-10.0)
         """
         try:
-            quality_score = market_data.get("quality_score", 0)
+            quality_score = market_data.get("data_quality_score", 0)
             holder_count = market_data.get("holder_count", 0)
 
             # Handle None holder count safely
@@ -686,7 +965,7 @@ class SRC20Worker:
                 "low_24h_btc": None,
                 "market_cap_btc": None,
                 "trading_pairs_count": 1,  # At least KuCoin
-                "quality_score": 0.0,
+                "data_quality_score": 0.0,
                 "confidence_level": "medium",
             }
 
@@ -782,7 +1061,7 @@ class SRC20Worker:
                             market_data["volume_24h_btc"] = kline_volume_usdt
 
             # Calculate derived metrics
-            market_data["quality_score"] = self._calculate_kucoin_quality_score(market_data)
+            market_data["data_quality_score"] = self._calculate_kucoin_quality_score(market_data)
             market_data["confidence_level"] = self._determine_kucoin_confidence_level(market_data)
 
             # TODO: Calculate market cap when we have supply data
@@ -901,7 +1180,7 @@ class SRC20Worker:
             Confidence level as float (0.0-10.0)
         """
         try:
-            quality_score = market_data.get("quality_score", 0)
+            quality_score = market_data.get("data_quality_score", 0)
             volume_24h = market_data.get("volume_24h_btc", 0)
 
             # Handle None volume safely
@@ -946,7 +1225,7 @@ class SRC20Worker:
             "trading_pairs_count": 0,
             "last_updated": datetime.now(),
             "data_source": "placeholder",
-            "quality_score": 1.0,  # Low quality for placeholder
+            "data_quality_score": 1.0,  # Low quality for placeholder
             "confidence_level": "very_low",
         }
 
@@ -1170,6 +1449,7 @@ class SRC20Worker:
             # Source confidence weights (higher = more trusted)
             confidence_weights = {
                 "kucoin": 9.0,  # High - real exchange data
+                "bitmart": 9.0,  # High - real exchange data
                 "openstamp": 8.0,  # High - comprehensive SRC-20 data
                 "stampscan": 7.0,  # Medium-High - specialized Bitcoin stamps
                 "placeholder": 1.0,  # Low - fallback data
@@ -1197,7 +1477,9 @@ class SRC20Worker:
 
             # Weighted aggregation for numeric fields
             price_values = []
-            volume_values = []
+            price_usd_values = []
+            volume_btc_values = []
+            volume_usd_values = []
             holder_counts = []
             quality_scores = []
             total_confidence = 0.0
@@ -1212,9 +1494,15 @@ class SRC20Worker:
                     price_values.append((float(data["price_btc"]), weight))
                     price_sources.append(source)
 
-                # Collect volume data with weights
+                # Collect USD price data with weights
+                if data.get("price_usd") is not None:
+                    price_usd_values.append((float(data["price_usd"]), weight))
+
+                # Collect volume data (summed across exchanges)
                 if data.get("volume_24h_btc") is not None:
-                    volume_values.append((float(data["volume_24h_btc"]), weight))
+                    volume_btc_values.append(float(data["volume_24h_btc"]))
+                if data.get("volume_24h_usd") is not None:
+                    volume_usd_values.append(float(data["volume_24h_usd"]))
 
                 # Collect holder counts (use highest confidence source)
                 if data.get("holder_count") is not None:
@@ -1250,15 +1538,23 @@ class SRC20Worker:
                         aggregated["price_source_type"] = "composite"
                     elif primary_source.lower() == "openstamp":
                         aggregated["price_source_type"] = "floor_ask"
-                    elif primary_source.lower() in ["kucoin", "stampscan"]:
+                    elif primary_source.lower() in ["kucoin", "bitmart", "stampscan"]:
                         aggregated["price_source_type"] = "last_traded"
                     else:
                         aggregated["price_source_type"] = "unknown"
 
+            # Weighted average for USD price (same logic as BTC price)
+            if price_usd_values:
+                weighted_price_usd = sum(price * weight for price, weight in price_usd_values) / sum(
+                    weight for _, weight in price_usd_values
+                )
+                aggregated["price_usd"] = weighted_price_usd
+
             # Sum volumes (different exchanges = additive volume)
-            if volume_values:
-                total_volume = sum(volume for volume, _ in volume_values)
-                aggregated["volume_24h_btc"] = total_volume
+            if volume_btc_values:
+                aggregated["volume_24h_btc"] = sum(volume_btc_values)
+            if volume_usd_values:
+                aggregated["volume_24h_usd"] = sum(volume_usd_values)
 
             # Use highest confidence holder count
             if holder_counts:
@@ -1284,8 +1580,6 @@ class SRC20Worker:
             best_data = source_data[best_source]
 
             for field in [
-                "price_usd",
-                "volume_24h_usd",
                 "volume_7d_btc",
                 "market_cap_btc",
                 "circulating_supply",
@@ -1372,7 +1666,9 @@ class SRC20Worker:
         Returns:
             Confidence score (0-10)
         """
-        base_confidence = {"kucoin": 9.0, "openstamp": 8.0, "stampscan": 7.0, "placeholder": 1.0}.get(source, 5.0)
+        base_confidence = {"kucoin": 9.0, "bitmart": 9.0, "openstamp": 8.0, "stampscan": 7.0, "placeholder": 1.0}.get(
+            source, 5.0
+        )
 
         # Adjust based on data completeness
         has_price = data.get("price_btc") is not None

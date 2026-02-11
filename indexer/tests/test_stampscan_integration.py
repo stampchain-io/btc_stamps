@@ -52,7 +52,7 @@ class TestStampScanIntegration:
             "volume_24h_btc": 5.2,
             "holder_count": 13501,
             "latest_tx_hash": "f353823cdc63ee24fe2167ca14d3bb9b6a54dd063b53382c0cd42f05d7262808",
-            "quality_score": 9.0,  # Actual calculation: 6.0 base + 2.0 price + 1.0 mcap + 1.0 holders + 1.0 volume - capped at 10
+            "data_quality_score": 9.0,  # Actual calculation: 6.0 base + 2.0 price + 1.0 mcap + 1.0 holders + 1.0 volume - capped at 10
             "confidence_level": 7.0,  # Based on quality_score=9.0 and holder_count=13501 (>1000)
             "data_source": "stampscan",
             "primary_exchange": "stampscan",
@@ -127,7 +127,7 @@ class TestStampScanIntegration:
         assert result["volume_24h_btc"] == 5.2  # sum_1d used for 24h volume
         assert result["holder_count"] == 13501
         # Quality score: 6.0 base + 2.0 price + 1.0 mcap + 1.0 holders + 1.0 volume = 11.0, capped at 10.0
-        assert result["quality_score"] == 10.0
+        assert result["data_quality_score"] == 10.0
         # Confidence: quality_score >= 8.0 and holder_count > 1000 = 8.0
         assert result["confidence_level"] == 8.0
 
@@ -150,7 +150,7 @@ class TestStampScanIntegration:
         assert result["volume_24h_btc"] is None
         assert result["holder_count"] == 500
         # Quality score: 6.0 base + 2.0 price + 1.0 holders = 9.0
-        assert result["quality_score"] == 9.0
+        assert result["data_quality_score"] == 9.0
         # Confidence: quality_score >= 6.0 and holder_count > 100 = 7.0
         assert result["confidence_level"] == 7.0
 
@@ -179,17 +179,17 @@ class TestStampScanIntegration:
     def test_determine_stampscan_confidence_level(self):
         """Test StampScan confidence level determination."""
         # High quality, high holders
-        high_quality_data = {"quality_score": 9.0, "holder_count": 2000}
+        high_quality_data = {"data_quality_score": 9.0, "holder_count": 2000}
         confidence = self.worker._determine_stampscan_confidence_level(high_quality_data)
         assert confidence == 8.0  # High confidence
 
         # Medium quality, medium holders
-        medium_quality_data = {"quality_score": 7.0, "holder_count": 500}
+        medium_quality_data = {"data_quality_score": 7.0, "holder_count": 500}
         confidence = self.worker._determine_stampscan_confidence_level(medium_quality_data)
         assert confidence == 7.0  # Medium-high confidence
 
         # Low quality
-        low_quality_data = {"quality_score": 5.0, "holder_count": 50}
+        low_quality_data = {"data_quality_score": 5.0, "holder_count": 50}
         confidence = self.worker._determine_stampscan_confidence_level(low_quality_data)
         assert confidence == 6.0  # Medium confidence
 
@@ -263,7 +263,7 @@ class TestStampScanIntegration:
                             "price_btc": 1.5e-7,
                             "market_cap_btc": 150.0,
                             "holder_count": 13501,
-                            "quality_score": 10.0,
+                            "data_quality_score": 10.0,
                             "confidence_level": 8.0,
                             "data_source": "stampscan",
                         }

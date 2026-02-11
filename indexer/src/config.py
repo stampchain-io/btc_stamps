@@ -198,6 +198,9 @@ STAMPSCAN_BASE_URL = os.environ.get("STAMPSCAN_BASE_URL", "https://api.stampscan
 # Kucoin API configuration
 ENABLE_KUCOIN_API = os.getenv("ENABLE_KUCOIN_API", "true").lower() == "true"
 
+# BitMart API configuration
+ENABLE_BITMART_API = os.getenv("ENABLE_BITMART_API", "false").lower() == "true"
+
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID", None)
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)

@@ -21,7 +21,7 @@ from index_core.fetch_utils import RateLimiter, is_rate_limited
 from index_core.holder_count_catchup_job import holder_count_catchup_job
 from index_core.market_data_service import market_data_service
 from index_core.sales_history_processor import sales_history_processor
-from index_core.src20_worker import SRC20Worker
+from index_core.src20_worker import SRC20_EXCHANGE_MAPPINGS, SRC20Worker
 from index_core.stamp_worker import StampWorker
 
 logger = logging.getLogger(__name__)
@@ -587,16 +587,17 @@ class MarketDataJobScheduler:
                 else:
                     logger.debug(f"Multi-source: Processed {processed_count} tokens successfully")
 
-                # Update STAMP token from KuCoin (only token we track there)
-                try:
-                    stamp_data = src20_worker.process_src20_market_data("STAMP")
-                    if stamp_data:
-                        market_data_service.update_src20_market_data("STAMP", stamp_data, task_db)
-                        logger.debug("KuCoin: Updated STAMP token")
-                    else:
-                        logger.warning("KuCoin: No market data returned for STAMP")
-                except Exception as e:
-                    logger.error(f"Error updating STAMP from KuCoin: {e}")
+                # Update tokens with exchange-specific data (KuCoin, BitMart)
+                for tick in SRC20_EXCHANGE_MAPPINGS:
+                    try:
+                        token_data = src20_worker.process_src20_market_data(tick)
+                        if token_data:
+                            market_data_service.update_src20_market_data(tick, token_data, task_db)
+                            logger.debug(f"Exchange: Updated {tick} token")
+                        else:
+                            logger.warning(f"Exchange: No market data returned for {tick}")
+                    except Exception as e:
+                        logger.error(f"Error updating {tick} from exchange: {e}")
 
                 elapsed_time = time.time() - start_time
                 logger.debug(f"SRC-20 update complete: {processed_count} tokens in {elapsed_time:.1f}s")
