@@ -15,6 +15,7 @@ Bitcoin's primary innovation is permanent, censorship-resistant value storage ba
 **Core Problem**: Digital assets require permanent storage to retain value. Traditional NFT platforms rely on IPFS, Arweave, or centralized servers—all subject to failure modes outside asset holders' control. Even Bitcoin-based solutions using witness data lack permanence guarantees since nodes can prune witness segments after validation.
 
 **Solution**: Store asset data in transaction outputs (UTXOs) rather than witness data or external systems. Bitcoin's consensus rules require all full nodes to maintain the UTXO set for transaction validation, making UTXO-embedded data:
+
 - **Consensus-critical**: Required for network operation
 - **Unprunable**: Cannot be removed without breaking validation
 - **Universal**: Stored by every full node globally
