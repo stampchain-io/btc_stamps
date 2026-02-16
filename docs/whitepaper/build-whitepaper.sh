@@ -117,9 +117,7 @@ clean_section() {
 ---
 title: "Bitcoin Stamps Protocol"
 subtitle: "A Technical Whitepaper — Version $VERSION"
-author:
-  - The Original Trinity (Mikeinspace, Arwyn, Reinamora)
-  - Bitcoin Stamps Community
+author: "The Original Trinity (Mikeinspace, Arwyn, Reinamora) & Bitcoin Stamps Community"
 date: "$BUILD_DATE"
 version: "$VERSION"
 lang: en
