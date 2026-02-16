@@ -141,7 +141,7 @@ output_script = OP_1 + data[0:33] + data[33:66] + real_pubkey + OP_3 + OP_CHECKM
 
 ### 2.3.2 P2WSH/OLGA Encoding (Block 865,000+)
 
-**OLGA** (Optimal Large Graphics Arrangement) uses Pay-to-Witness-Script-Hash for 30-95% cost reduction.
+**OLGA** (Octet Linked Graphical Artifacts) uses Pay-to-Witness-Script-Hash for 30-95% cost reduction.
 
 **Structure**:
 ```

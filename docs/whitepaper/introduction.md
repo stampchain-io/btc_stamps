@@ -80,7 +80,7 @@ Each "pubkey" is 32 bytes of image/data. A 2-of-3 multisig provides 64 bytes usa
 
 ### 1.2.6 Optimization: OLGA at Block 865,000 (October 15, 2023)
 
-Reinamora introduced OLGA (Optimal Large Graphics Arrangement)—P2WSH encoding replacing bare multisig for 30-95% cost reduction.
+Reinamora introduced OLGA (Octet Linked Graphical Artifacts)—P2WSH encoding replacing bare multisig for 30-95% cost reduction.
 
 **P2WSH structure**:
 ```
@@ -128,16 +128,13 @@ Bitcoin Stamps protocol comprises:
 ## 1.5 Document Scope
 
 This whitepaper specifies:
-- UTXO storage architecture (Section 2)
-- Bare multisig encoding (Section 3.1)
-- P2WSH/OLGA encoding (Section 3.2)
-- SRC-20 token standard (Section 4.1)
-- SRC-721 recursion (Section 4.2)
-- SRC-101 naming (Section 4.3)
-- Implementation guidelines (Section 5)
-- Security analysis (Section 6)
-- Economic model (Section 7)
-- Comparative protocol analysis (Section 8)
+- UTXO storage architecture and data encoding — bare multisig and P2WSH/OLGA (Section 2)
+- Token standards — SRC-20, SRC-721, SRC-101 (Section 3)
+- Economic model (Section 4)
+- Stamps Improvement Proposals / SIP governance (Section 5)
+- Implementation guidelines (Section 6)
+- Security analysis (Section 7)
+- Future work and research directions (Section 8)
 
 **Out of scope**: Wallet integration details, specific indexer implementations, user interface design, market dynamics. Focus is protocol specification for implementers.
 

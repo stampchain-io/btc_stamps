@@ -35,15 +35,13 @@ The protocol evolved from Counterparty foundations (block 779,652) through nativ
 ## Table of Contents
 
 1. **[Introduction](./introduction.md)** — Protocol motivation, history, evolution
-2. **[Protocol Architecture](./architecture.md)** — UTXO storage, encoding layers, account model
-3. **Data Encoding Methods** — Bare multisig, P2WSH/OLGA technical specs
-4. **[Token Standards](./token-standards.md)** — SRC-20 tokens, SRC-721 recursion, SRC-101 names
-5. **[Economic Model](./economics.md)** — Fee structures, miner incentives, sustainability
-6. **[Stamps Improvement Proposals](./improvement-proposals.md)** — SIP governance, active proposals, roadmap
-7. **[Implementation](./implementation.md)** — Indexer architecture, consensus model, validation logic
-8. **[Security Analysis](./security.md)** — Permanence guarantees, attack vectors, mitigations
-9. **[Future Directions](./future.md)** — Conditional transfers, privacy, bridges, research areas
-10. **Appendices** — Reference implementations, test vectors, block timeline
+2. **[Protocol Architecture](./architecture.md)** — UTXO storage, encoding layers, data encoding methods (bare multisig, P2WSH/OLGA)
+3. **[Token Standards](./token-standards.md)** — SRC-20 tokens, SRC-721 recursion, SRC-101 names
+4. **[Economic Model](./economics.md)** — Fee structures, miner incentives, sustainability
+5. **[Stamps Improvement Proposals](./improvement-proposals.md)** — SIP governance, active proposals, roadmap
+6. **[Implementation](./implementation.md)** — Indexer architecture, consensus model, validation logic
+7. **[Security Analysis](./security.md)** — Permanence guarantees, attack vectors, mitigations
+8. **[Future Work](./future.md)** — Research directions, SIP roadmap summary
 
 ---
 
@@ -51,14 +49,14 @@ The protocol evolved from Counterparty foundations (block 779,652) through nativ
 
 This whitepaper consists of multiple sections:
 
-- **[introduction.md](./introduction.md)** — Protocol history from Counterparty origins (block 779,652) through native encoding (793,068) to OLGA optimization (865,000)
-- **[architecture.md](./architecture.md)** — Technical architecture: UTXO storage model, bare multisig vs P2WSH encoding, account-based asset tracking
+- **[introduction.md](./introduction.md)** — Protocol history from Counterparty origins (block 779,652) through native encoding (793,068) to OLGA optimization (833,000/865,000)
+- **[architecture.md](./architecture.md)** — Technical architecture: UTXO storage model, bare multisig and P2WSH/OLGA encoding, account-based asset tracking
 - **[token-standards.md](./token-standards.md)** — SRC-20, SRC-721, SRC-721r, SRC-101 specifications
 - **[economics.md](./economics.md)** — UTXO permanence economics, storage costs, fee analysis
 - **[improvement-proposals.md](./improvement-proposals.md)** — SIP governance framework and active proposals (SIP-0001 through SIP-0008)
 - **[implementation.md](./implementation.md)** — Indexer architecture, consensus mechanisms, validation logic
 - **[security.md](./security.md)** — Threat model, attack vectors, immutability guarantees
-- **[future.md](./future.md)** — Roadmap for conditional transfers, privacy enhancements, cross-chain bridges
+- **[future.md](./future.md)** — Research directions and SIP roadmap summary
 
 ---
 

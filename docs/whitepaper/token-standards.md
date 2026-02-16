@@ -12,7 +12,7 @@ SRC-20 is an account-based fungible token protocol that enables fair, accessible
 
 ### First Deployment
 
-The KEVIN token, deployed by Reinamora at block 788041, represents the genesis SRC-20 deployment.
+The KEVIN token, deployed by Arwyn at block 788,041, represents the genesis SRC-20 deployment.
 
 ### Transaction Structure
 
