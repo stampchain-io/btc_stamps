@@ -21,19 +21,28 @@ This roadmap prioritizes **backward compatibility**, **security-first design**, 
 ### 9.1.1 Timeline (2026-2028)
 
 ```
-2026 Q2: SIP-0005 Binary Data Format
-    ↓ (40-60% cost reduction for stamp creation)
+Phase 1 — Foundation (2026 Q2):
+  SIP-0005 Binary Transfer Format (40-60% cost reduction)
+  SIP-0001 Conditional Transfers / HTLC (escrows, atomic swaps)
+  SIP-0008 Dual Transaction Parsing (combined stamp + SRC-20 ops)
 
-2026 Q3: SIP-0003 Cross-Chain Bridges (testnet)
-    ↓ (Lightning Network, Liquid Network integration)
+Phase 2 — Core Trading (2026 Q3):
+  SIP-0006 Native SRC-20 AMM (on-chain liquidity pools)
+    ↓ Gating: SIP-0001 live for 2000+ blocks
 
-2027 Q1: SIP-0001 Conditional Transfers
-    ↓ (Escrows, time-locked transfers, atomic swaps)
+Phase 3 — Cross-Chain (2026 Q3-Q4):
+  SIP-0003 Cross-Chain Bridges (testnet → limited mainnet)
+    ↓ Gating: SIP-0006 Phase 1 stable for 1000+ blocks
 
-2027 Q2-Q4: SIP-0004 Privacy Enhancements (phased rollout)
+Phase 4 — Wrapped Assets (2027 Q1-Q2):
+  SIP-0007 Wrapped Asset Standard (wBTC/wUSDT mint/burn)
+    ↓ Gating: SIP-0003 bridge operational + security audit
+
+Phase 5 — Privacy (independent track):
+  SIP-0004 Privacy Enhancements (phased rollout)
     ↓ (Confidential amounts → Stealth addresses → Full privacy)
 
-2028: Advanced research (zk-SNARKs, DLC integration, rollups)
+2028+: Advanced research (zk-SNARKs, DLC integration, rollups)
 ```
 
 ### 9.1.2 Design Principles for Future Development
