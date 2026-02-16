@@ -55,7 +55,7 @@ This whitepaper consists of multiple sections:
 - **[architecture.md](./architecture.md)** — Technical architecture: UTXO storage model, bare multisig vs P2WSH encoding, account-based asset tracking
 - **[token-standards.md](./token-standards.md)** — SRC-20, SRC-721, SRC-721r, SRC-101 specifications
 - **[economics.md](./economics.md)** — UTXO permanence economics, storage costs, fee analysis
-- **[improvement-proposals.md](./improvement-proposals.md)** — SIP governance framework and active proposals (SIP-0001 through SIP-0005)
+- **[improvement-proposals.md](./improvement-proposals.md)** — SIP governance framework and active proposals (SIP-0001 through SIP-0008)
 - **[implementation.md](./implementation.md)** — Indexer architecture, consensus mechanisms, validation logic
 - **[security.md](./security.md)** — Threat model, attack vectors, immutability guarantees
 - **[future.md](./future.md)** — Roadmap for conditional transfers, privacy enhancements, cross-chain bridges
