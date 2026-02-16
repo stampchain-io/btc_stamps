@@ -2,6 +2,9 @@
 
 This document details all protocols supported by the Bitcoin Stamps indexer, including their structure, validation rules, and examples.
 
+> **📖 For comprehensive protocol background and technical architecture, see the [Bitcoin Stamps Technical Whitepaper](./whitepaper/index.md).**
+> The whitepaper covers protocol history, UTXO permanence model, economic analysis, security guarantees, and future directions.
+
 ## Table of Contents
 
 1. [Common Concepts](#common-concepts)
