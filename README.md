@@ -26,6 +26,8 @@ entire Bitcoin Stamps ecosystem. You can view the [initial commit here](https://
 - 🌐 Explore the protocol at [stampchain.io](https://stampchain.io/)
 - 📚 Find developer API docs at [stampchain.io/docs](https://stampchain.io/docs)
 - 📖 Read the [Technical Whitepaper](docs/whitepaper/index.md) for protocol architecture and specifications
+- 🗺️ View the [SIP Roadmap & Registry](https://bitcoinstamps.xyz/en/protocols/sips) for protocol improvement proposals
+- 📄 Browse the full [Protocol Documentation](https://bitcoinstamps.xyz) site
 
 ## 🔶 Bitcoin Stamps - Immutable Digital Assets on Bitcoin
 
@@ -74,6 +76,21 @@ A domain name system native to Bitcoin Stamps, developed by [bitname.pro](https:
 
 > **Core principle**: Unlike Ordinals, Bitcoin Stamps operate directly on the UTXO set to ensure true immutability.
 > This fundamental design choice makes it impossible to accidentally spend or "inscribe" a Stamp.
+
+## 📋 Stamps Improvement Proposals (SIPs)
+
+Protocol evolution is governed through community-driven SIPs. See [SIP-0000](https://github.com/stampchain-io/btc_stamps/issues/686) for the full process.
+
+| SIP | Title | Status |
+|-----|-------|--------|
+| [0001](https://github.com/stampchain-io/btc_stamps/issues/685) | SRC-20 Conditional Transfers (Hashlock/Timelock) | Draft |
+| [0003](https://github.com/stampchain-io/btc_stamps/issues/485) | SRC-20 Cross-Chain Bridge Specification | Draft |
+| [0004](https://github.com/stampchain-io/btc_stamps/issues/687) | Shielded SRC-20 — Privacy Extension (Phased) | Draft |
+| [0005](https://github.com/stampchain-io/btc_stamps/issues/688) | Binary Transfer Format for SRC-20 | Draft |
+| [0006](https://github.com/stampchain-io/btc_stamps/issues/689) | Native SRC-20 AMM (Automated Market Maker) | Draft |
+| [0008](https://github.com/stampchain-io/btc_stamps/issues/692) | Dual Transaction Parsing | Draft |
+
+Full roadmap and gating criteria: [bitcoinstamps.xyz/en/protocols/sips](https://bitcoinstamps.xyz/en/protocols/sips) | Whitepaper details: [docs/whitepaper/improvement-proposals.md](docs/whitepaper/improvement-proposals.md)
 
 ## 🤝 Contributions
 
