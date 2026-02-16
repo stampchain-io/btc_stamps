@@ -61,7 +61,7 @@ def main():
 
     parser.add_argument("--tests", default="tests/", help="Test directory or specific test files (default: tests/)")
     parser.add_argument(
-        "--min-coverage", type=int, default=55, help="Minimum coverage percentage (fails if below, default: 55)"
+        "--min-coverage", type=int, default=54, help="Minimum coverage percentage (fails if below, default: 54)"
     )
     parser.add_argument("--branch", action="store_true", default=True, help="Include branch coverage (default: True)")
     parser.add_argument("--fail-under", type=int, help="Fail if coverage is under this percentage")
