@@ -25,6 +25,7 @@ entire Bitcoin Stamps ecosystem. You can view the [initial commit here](https://
 - 💬 Join the community in the [Bitcoin Stamps Telegram chat](https://t.me/BitcoinStamps)
 - 🌐 Explore the protocol at [stampchain.io](https://stampchain.io/)
 - 📚 Find developer API docs at [stampchain.io/docs](https://stampchain.io/docs)
+- 📖 Read the [Technical Whitepaper](docs/whitepaper/index.md) for protocol architecture and specifications
 
 ## 🔶 Bitcoin Stamps - Immutable Digital Assets on Bitcoin
 
