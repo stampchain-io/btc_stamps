@@ -414,5 +414,5 @@ Multiple standards operate on same underlying UTXO permanence.
 
 ---
 
-**Next**: [Data Encoding Methods →](#) (Section 3)
+**Next**: [Token Standards →](./token-standards.md)
 **Previous**: [← Introduction](./introduction.md)
