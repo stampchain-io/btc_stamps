@@ -61,15 +61,19 @@ All SIPs are tracked as GitHub Issues in the Bitcoin Stamps repository:
 
 ## 6.2 Active SIPs
 
-### 6.2.1 SIP-0001: Conditional Transfers
+### 6.2.1 SIP-0001: SRC-20 HTLC (Hash Time-Locked Contracts)
 
 **GitHub Issue**: [#685](https://github.com/stampchain-io/btc_stamps/issues/685)
 
 **Status**: Draft (as of 2026-02)
 
-**Motivation**: Enable programmable token transfers with conditions evaluated by indexers. Supports DeFi primitives (escrows, swaps, vesting) without modifying Bitcoin consensus.
+**Motivation**: Enable trustless atomic swaps and escrow services for SRC-20 tokens through hash time-locked contracts. Supports cross-asset exchanges and conditional transfers without requiring external oracles or modifying Bitcoin consensus.
 
 **Technical Design**:
+
+SIP-0001 introduces three new SRC-20 operations:
+
+**1. `conditional_transfer` — Create HTLC with hashlock and/or timelock**:
 ```json
 {
   "p": "src-20",
@@ -77,24 +81,52 @@ All SIPs are tracked as GitHub Issues in the Bitcoin Stamps repository:
   "tick": "KEVIN",
   "amt": "1000",
   "to": "bc1q...recipient",
-  "conditions": {
-    "unlock_height": 900000,
-    "oracle_signature": "witness_required",
-    "multisig_threshold": {"m": 2, "n": 3}
-  }
+  "hashlock": "a4b9c8d7e6f5...sha256hash",
+  "timelock": 900000
 }
 ```
+- **hashlock** (optional): SHA-256 hash — recipient must reveal preimage to claim
+- **timelock** (optional): Block height — sender can refund after this block if unclaimed
+- At least one of hashlock/timelock required
+- Tokens deducted from sender immediately, held in indexer escrow state
+
+**2. `claim` — Recipient claims tokens with preimage**:
+```json
+{
+  "p": "src-20",
+  "op": "claim",
+  "tick": "KEVIN",
+  "transfer_tx": "abc123...original_txid",
+  "preimage": "secret_value"
+}
+```
+- Indexer verifies `SHA-256(preimage)` matches hashlock
+- Must be before timelock block height (if timelock set)
+- Tokens credited to recipient
+
+**3. `refund` — Sender reclaims tokens after timelock expires**:
+```json
+{
+  "p": "src-20",
+  "op": "refund",
+  "tick": "KEVIN",
+  "transfer_tx": "abc123...original_txid"
+}
+```
+- Only valid after timelock block height reached
+- Tokens returned to original sender
 
 **Use Cases**:
-- **Time-locked transfers**: Tokens released at specific block height
-- **Escrow services**: Third-party oracle signatures required for release
-- **Atomic swaps**: Cross-asset exchange with cryptographic settlement
-- **Vesting schedules**: Gradual token unlock over time
+- **Atomic swaps**: Cross-asset exchange (e.g., KEVIN ↔ STAMP) with cryptographic settlement
+- **Escrow services**: Time-locked deposits with refund guarantees
+- **Trustless bridge deposits**: Lock tokens with hashlock, mint on L2 with preimage reveal (see SIP-0003)
+- **Time-locked vesting**: Gradual token unlock over time
 
 **Challenges**:
-- Oracle trust assumptions (mitigated by multi-oracle schemes)
-- Indexer validation complexity (requires condition evaluation logic)
-- Backward compatibility (legacy indexers ignore conditional fields)
+- **Liveness requirement**: Both parties must be online during swap window
+- **Timelock griefing**: Malicious actors can lock counterparty funds then abandon swap
+- **Multi-step process**: Atomic swap requires 4 transactions (2 conditional_transfer + 2 claim)
+- **Indexer validation complexity**: Requires SHA-256 verification and timelock enforcement
 
 **Activation Timeline**: TBD pending community review and implementation testing.
 
@@ -102,7 +134,7 @@ All SIPs are tracked as GitHub Issues in the Bitcoin Stamps repository:
 
 **GitHub Issue**: [#485](https://github.com/stampchain-io/btc_stamps/issues/485)
 
-**Status**: Review (as of 2026-02)
+**Status**: Draft (as of 2026-02)
 
 **Motivation**: Enable SRC-20 token movement between Bitcoin mainnet and Layer 2 protocols (Lightning Network, sidechains, rollups) while maintaining UTXO-based permanence guarantees for bridged asset records.
 
@@ -185,71 +217,193 @@ prove(0 < amount < max_supply)
 
 **Activation Timeline**: Specification under development (target 2027).
 
-### 6.2.4 SIP-0005: Binary Data Format
+### 6.2.4 SIP-0005: Binary Transfer Format for SRC-20
 
 **GitHub Issue**: [#688](https://github.com/stampchain-io/btc_stamps/issues/688)
 
-**Status**: Review (as of 2026-02)
+**Status**: Draft (as of 2026-02)
 
-**Motivation**: Replace JSON-encoded SRC-20 transactions with compact binary format. Reduce transaction size by 40-60%, lowering minting costs and increasing throughput.
+**Motivation**: Replace JSON-encoded SRC-20 transactions with compact binary format. Reduce transaction size by approximately 63%, lowering minting costs and increasing throughput.
 
 **Format Specification**:
 ```
-Binary SRC-20 Transfer:
-[1 byte: version] [1 byte: op_code] [4 bytes: tick_id]
-[8 bytes: amount] [32 bytes: to_address_hash]
-
-Total: 46 bytes vs. ~120 bytes JSON equivalent
+Binary SRC-20 Transfer Format (44 bytes total):
+<prefix:6><version:1><op:1><tick:20><amount:8><decimals:8> = 44 bytes raw
 ```
 
-**Op Codes**:
-- `0x01`: DEPLOY
-- `0x02`: MINT
-- `0x03`: TRANSFER
-- `0x04`: CONDITIONAL_TRANSFER (SIP-0001)
+**Field Breakdown**:
+- **prefix** (6 bytes): `stamp:` — indexer detection marker (ASCII: `73 74 61 6D 70 3A`)
+- **version** (1 byte): `0x01` for format version 1
+- **op** (1 byte): Operation code
+  - `0x01`: DEPLOY
+  - `0x02`: MINT
+  - `0x03`: TRANSFER
+- **tick** (20 bytes): UTF-8 ticker padded with null bytes
+  - Example: "KEVIN" → `4B 45 56 49 4E` + 15 null bytes (`0x00`)
+- **amount** (8 bytes): uint64 big-endian raw amount (not decimal-adjusted)
+- **decimals** (8 bytes): uint64 big-endian decimal precision
 
-**Encoding Rules**:
-- **Variable-length integers**: Smaller amounts use fewer bytes
-- **Address compression**: Use hash instead of full Bech32 string
-- **Tick identifiers**: Numeric IDs replace string tickers (lookup table)
+**Detection Logic**:
+```python
+if data[:6] == b'stamp:' and data[6] == 0x01:
+    # Binary format
+    parse_binary(data)
+else:
+    # JSON format (backward compatible)
+    parse_json(data)
+```
 
 **Benefits**:
-- 40-60% size reduction → 40-60% cost savings
-- Faster indexer parsing (binary vs JSON)
-- Increased data density (more stamps per block)
+- **~63% size reduction**: 44 bytes binary vs ~120 bytes JSON
+- **Faster indexer parsing**: Binary deserialization vs JSON parsing
+- **Lower transaction fees**: Smaller data size reduces on-chain costs
+- **Increased data density**: More stamps per block
 
 **Migration Strategy**:
 - Binary format optional after activation
-- JSON format remains valid indefinitely
-- Indexers must support both formats
+- JSON format remains valid indefinitely (backward compatibility)
+- Indexers must support both formats simultaneously
 - Wallets can choose format based on user preference
 
-**Activation Timeline**: Pending final specification review (target Q2 2026).
+**Activation Timeline**: TBD pending final specification review.
+
+### 6.2.5 SIP-0006: Native SRC-20 AMM (Automated Market Maker)
+
+**GitHub Issue**: [#689](https://github.com/stampchain-io/btc_stamps/issues/689)
+
+**Status**: Draft (as of 2026-02)
+
+**Motivation**: Enable trustless on-chain token swaps without order books or centralized exchanges. The account-based SRC-20 model is ideal for AMM implementation since balance updates are atomic indexer operations, eliminating UTXO coordination complexity.
+
+**Technical Design**:
+
+SIP-0006 introduces four new SRC-20 operations for constant product market maker (Uniswap V2-style):
+
+**1. `create_pool` — Deploy new liquidity pool**:
+```json
+{
+  "p": "src-20",
+  "op": "create_pool",
+  "tick_a": "KEVIN",
+  "tick_b": "STAMP",
+  "fee_tier": 30
+}
+```
+- **fee_tier**: Fee in basis points (10 = 0.1%, 30 = 0.3%, 100 = 1.0%)
+- Creates LP token with tick: `LP:KEVIN/STAMP`
+
+**2. `add_liquidity` — Deposit token pair to pool**:
+```json
+{
+  "p": "src-20",
+  "op": "add_liquidity",
+  "pool": "LP:KEVIN/STAMP",
+  "amt_a": "1000",
+  "amt_b": "5000"
+}
+```
+- Deposits proportional to current pool ratio
+- Mints LP tokens to liquidity provider
+- LP tokens are standard SRC-20 (transferable, tradeable)
+
+**3. `remove_liquidity` — Withdraw from pool**:
+```json
+{
+  "p": "src-20",
+  "op": "remove_liquidity",
+  "pool": "LP:KEVIN/STAMP",
+  "lp_amt": "500"
+}
+```
+- Burns LP tokens
+- Returns proportional share of pool reserves
+
+**4. `swap` — Exchange tokens**:
+```json
+{
+  "p": "src-20",
+  "op": "swap",
+  "pool": "LP:KEVIN/STAMP",
+  "from_tick": "KEVIN",
+  "amt_in": "100"
+}
+```
+
+**Swap Pricing Formula (Constant Product)**:
+```
+amt_out = (reserve_out × amt_in_with_fee) / (reserve_in + amt_in_with_fee)
+
+where:
+  amt_in_with_fee = amt_in × (10000 - fee_bps)
+
+Example (0.3% fee tier):
+  amt_in_with_fee = 100 × (10000 - 30) / 10000 = 99.7
+```
+
+**LP Token Mechanics**:
+- LP tokens are standard SRC-20 tokens with tick format `LP:{tick_a}/{tick_b}`
+- Fully transferable between addresses
+- Can be traded on secondary markets
+- Mintable/burnable ONLY through AMM operations (add/remove liquidity)
+- Represent proportional claim on pool reserves
+
+**Phased Rollout**:
+- **Phase 1**: SRC-20/SRC-20 pools (fully trustless, no external dependencies)
+- **Phase 2**: wBTC pools (requires SIP-0007 wrapped asset standard)
+- **Phase 3**: Stablecoin pools (requires SIP-0003 bridge for USDT/USDC)
+
+**Benefits**:
+- **Trustless**: No intermediaries, no custody risk
+- **Permissionless**: Anyone can create pools or provide liquidity
+- **Atomic operations**: Swaps execute in single indexer transaction
+- **Capital efficient**: Liquidity providers earn fees on all trades
+
+**Challenges**:
+- **Impermanent loss**: Liquidity providers exposed to price divergence
+- **MEV risk**: Indexer ordering can enable front-running (mitigated by transaction fee priority)
+- **Pool fragmentation**: Multiple fee tiers for same pair splits liquidity
+
+**Activation Timeline**: TBD pending community review and Phase 1 implementation.
 
 ## 6.3 Superseded SIPs
 
-### 6.3.1 SIP-0002: Extended Counterparty Support
+### 6.3.1 SIP-0002: SRC-20 UTXO Binding & Transfer Format v2.0
 
 **GitHub Issue**: [#484](https://github.com/stampchain-io/btc_stamps/issues/484)
 
-**Status**: Superseded
+**Status**: Superseded (by SIP-0001)
 
-**Original Motivation**: Extend SRC-20 Counterparty support beyond block 796,000 to maintain backward compatibility with legacy Counterparty infrastructure.
+**Original Motivation**: Bind SRC-20 token balances to specific Bitcoin UTXOs to enable single-transaction PSBT-based atomic swaps without multi-step HTLC protocols.
+
+**Proposed Design**:
+```json
+{
+  "p": "src-20",
+  "op": "bind_utxo",
+  "tick": "KEVIN",
+  "amt": "1000",
+  "utxo": "txid:vout"
+}
+```
+- Tokens would be locked to specific UTXO
+- Spending the UTXO would automatically transfer bound tokens
+- Enabled single-step atomic swaps via PSBT co-signing
 
 **Rejection Rationale**:
-- **Protocol independence**: Community consensus favored Bitcoin-native encoding over Counterparty dependency
-- **Technical debt**: Maintaining dual validation paths (Counterparty + native) increased complexity
-- **Security surface**: Counterparty protocol vulnerabilities could affect Stamps
-- **Migration success**: Block 796,000 cutoff executed smoothly without significant user disruption
+- **Fundamental loss risk**: If user spends bound UTXO in normal Bitcoin transaction, SRC-20 tokens could be lost
+  - Bitcoin consensus has no knowledge of SRC-20 state
+  - Wallets cannot prevent accidental UTXO spending
+  - Loss prevention is impossible without modifying Bitcoin protocol
+- **Non-deterministic rescue operations**: Indexer "token recovery" would break consensus determinism
+- **SIP-0001 provides superior solution**: HTLC covers all atomic swap use cases without loss risk
+- **Complexity vs benefit**: UTXO coordination adds significant implementation burden for marginal UX improvement
 
-**Historical Context**: Early stamps (blocks 779,652 - 796,000) used Counterparty OP_RETURN encoding. SIP-0002 proposed continuing this approach, but community voted to enforce native encoding only after block 796,000.
-
-**Superseded By**: Native Bitcoin encoding became mandatory. No SIP replacement needed—community consensus rejected the proposal.
+**Superseded By**: SIP-0001 (HTLC) provides trustless atomic swaps without binding tokens to UTXOs, eliminating loss risk while maintaining full functionality.
 
 **Lessons Learned**:
-- Clean breaks preferred over indefinite backward compatibility
-- Protocol independence increases long-term resilience
-- Sufficient migration time (779,652 → 796,000) prevented ecosystem disruption
+- Account-based models should not be forcibly bound to UTXO mechanics
+- Protocol safety (loss prevention) outweighs UX convenience (single-step swaps)
+- Multi-step protocols (HTLC) acceptable when they eliminate fundamental risks
 
 ## 6.4 SIP Process Best Practices
 
@@ -372,17 +526,18 @@ Total: 46 bytes vs. ~120 bytes JSON equivalent
 
 | SIP | Title | Status | GitHub | Target Activation |
 |-----|-------|--------|--------|-------------------|
-| **0001** | Conditional Transfers | Draft | [#685](https://github.com/stampchain-io/btc_stamps/issues/685) | TBD |
-| **0002** | Extended Counterparty Support | Superseded | [#484](https://github.com/stampchain-io/btc_stamps/issues/484) | N/A (Rejected) |
-| **0003** | Cross-Chain Bridges | Review | [#485](https://github.com/stampchain-io/btc_stamps/issues/485) | Q3 2026 (target) |
-| **0004** | Privacy Enhancements | Draft | [#687](https://github.com/stampchain-io/btc_stamps/issues/687) | 2027 (target) |
-| **0005** | Binary Data Format | Review | [#688](https://github.com/stampchain-io/btc_stamps/issues/688) | Q2 2026 (target) |
+| **0001** | SRC-20 Conditional Transfers (HTLC) | Draft | [#685](https://github.com/stampchain-io/btc_stamps/issues/685) | TBD |
+| **0002** | SRC-20 UTXO Binding & Transfer Format v2.0 | Superseded (by SIP-0001) | [#484](https://github.com/stampchain-io/btc_stamps/issues/484) | N/A |
+| **0003** | SRC-20 Cross-Chain Bridge Specification | Draft | [#485](https://github.com/stampchain-io/btc_stamps/issues/485) | TBD |
+| **0004** | Shielded SRC-20 — Privacy Extension | Draft | [#687](https://github.com/stampchain-io/btc_stamps/issues/687) | 2027+ (phased) |
+| **0005** | Binary Transfer Format for SRC-20 | Draft | [#688](https://github.com/stampchain-io/btc_stamps/issues/688) | TBD |
+| **0006** | Native SRC-20 AMM (Automated Market Maker) | Draft | [#689](https://github.com/stampchain-io/btc_stamps/issues/689) | TBD |
 
 ---
 
 **References**:
 - [Bitcoin Stamps GitHub Repository](https://github.com/stampchain-io/btc_stamps)
-- [SIP Process Documentation](https://github.com/stampchain-io/btc_stamps/blob/main/SIPS.md)
+- [SIP-0000: SIP Purpose and Guidelines](https://github.com/stampchain-io/btc_stamps/issues/686)
 - [Counterparty Improvement Proposals (CIPs)](https://github.com/CounterpartyXCP/cips) — Inspiration for SIP governance model
 
 ---
