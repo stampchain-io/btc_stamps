@@ -54,7 +54,7 @@ Bitcoin Stamps are stored directly in Bitcoin's Unspent Transaction Output (UTXO
 
 ### OLGA Encoding
 
-**Breakthrough Optimization**: Introduced at block 833000, OLGA (Optimized Low Gas Architecture) eliminates Base64 encoding:
+**Breakthrough Optimization**: P2WSH encoding was enabled at block 833,000 (`CP_P2WSH_FEAT_BLOCK_START`), with the first SRC-20 OLGA transaction at block 865,000 (`BTC_SRC20_OLGA_BLOCK`). OLGA (Octet Linked Graphical Artifacts) eliminates Base64 encoding:
 
 **Technical Innovation**:
 - Stores raw binary data directly in transaction outputs
