@@ -129,6 +129,9 @@ TxResult = namedtuple(
 )
 
 
+_sales_catchup_started = False
+
+
 class BlockProcessor:
     def __init__(self, db):
         self.db: Connection = db
@@ -287,9 +290,10 @@ class BlockProcessor:
         # Process dispense sales for this block after stamps are processed
         # This ensures we capture sales data in real-time as blocks are processed
         if config.ENABLE_MARKET_DATA_SCHEDULER:
-            # Start sales history catchup on first run if needed
-            if not hasattr(self, "_sales_catchup_started"):
-                self._sales_catchup_started = True
+            # Start sales history catchup once (module-level flag persists across BlockProcessor instances)
+            global _sales_catchup_started
+            if not _sales_catchup_started:
+                _sales_catchup_started = True
                 try:
                     from index_core.market_data_jobs import start_sales_history_catchup
 
