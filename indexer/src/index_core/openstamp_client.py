@@ -95,7 +95,9 @@ class OpenStampClient:
             response = self.session.get(url, timeout=DEFAULT_TIMEOUT)
 
             if response.status_code != 200:
-                raise OpenStampApiError(f"OpenStamp API request failed with status {response.status_code}: {response.text}")
+                # Truncate response body to avoid dumping raw HTML error pages into logs
+                body_preview = response.text[:200] if response.text else ""
+                raise OpenStampApiError(f"OpenStamp API request failed with status {response.status_code}: {body_preview}")
 
             response_data = response.json()
 
