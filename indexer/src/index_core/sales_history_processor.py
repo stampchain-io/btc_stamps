@@ -455,95 +455,96 @@ class SalesHistoryProcessor:
         max_retries = 3
         retry_count = 0
 
-        while retry_count < max_retries and self.catchup_running:
-            try:
-                with self._lock:
-                    logger.debug(f"Starting sales history catchup (attempt {retry_count + 1}/{max_retries})")
-
-                    # Lower thread priority to reduce impact on main indexer
-                    import os
-
-                    if hasattr(os, "nice"):
-                        try:
-                            os.nice(10)  # Lower priority
-                            logger.debug("Lowered catchup thread priority")
-                        except BaseException:
-                            pass  # Not critical if it fails
-
-                    # Try to get database connection with logging
-                    logger.debug("Attempting to get database connection for catchup...")
-                    connection_start = time.time()
-
-                    try:
-                        db = self.db_manager.get_long_running_connection()
-                        logger.debug(f"Got database connection in {time.time() - connection_start:.2f}s")
-                    except Exception as conn_error:
-                        logger.error(f"Failed to get database connection: {conn_error}")
-                        if "exhausted" in str(conn_error).lower() or "timeout" in str(conn_error).lower():
-                            logger.error(
-                                f"Connection pool exhausted. DB_MAX_CONNECTIONS={os.getenv('DB_MAX_CONNECTIONS', '10')}"
-                            )
-                        raise
-
-                    # Update CPID cache
-                    logger.debug("Updating CPID cache...")
-                    self.update_cpid_cache(db)
-
-                    if self.mode == "FULL_CATCHUP":
-                        logger.debug("Starting FULL_CATCHUP mode")
-                        success = self._run_full_catchup(db)
-
-                        if success:
-                            logger.debug("✅ Full catchup completed successfully")
-                            return  # Success, exit retry loop
-                        else:
-                            raise Exception("Full catchup failed")
-                    else:
-                        logger.debug("In REALTIME mode - no bulk catchup needed")
-                        # Update checkpoint to current block so future mode checks stay in REALTIME
-                        current_block = self.backend.getblockcount()
-                        self.update_checkpoint("last_catchup_completion", current_block, db)
-                        return
-
-            except queue.Empty:
-                logger.error("Connection pool exhausted")
-                retry_count += 1
-                if retry_count < max_retries:
-                    wait_time = retry_count * 30
-                    logger.debug(f"Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Failed after {max_retries} attempts - connection pool issues")
-
-            except Exception as e:
-                logger.error(f"Catchup error: {e}")
-                logger.error(traceback.format_exc())
-                retry_count += 1
-                if retry_count < max_retries:
-                    wait_time = retry_count * 10
-                    logger.debug(f"Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Failed after {max_retries} attempts")
-
-            finally:
-                self.catchup_running = False
-                if self.catchup_executor:
-                    try:
-                        self.catchup_executor.shutdown(wait=False)
-                    except BaseException:
-                        pass
-                self.catchup_executor = None
-
-                # Clean up any db connection
+        try:
+            while retry_count < max_retries and self.catchup_running:
                 try:
-                    if "db" in locals() and db:
-                        db.close()
+                    with self._lock:
+                        logger.debug(f"Starting sales history catchup (attempt {retry_count + 1}/{max_retries})")
+
+                        # Lower thread priority to reduce impact on main indexer
+                        import os
+
+                        if hasattr(os, "nice"):
+                            try:
+                                os.nice(10)  # Lower priority
+                                logger.debug("Lowered catchup thread priority")
+                            except BaseException:
+                                pass  # Not critical if it fails
+
+                        # Try to get database connection with logging
+                        logger.debug("Attempting to get database connection for catchup...")
+                        connection_start = time.time()
+
+                        try:
+                            db = self.db_manager.get_long_running_connection()
+                            logger.debug(f"Got database connection in {time.time() - connection_start:.2f}s")
+                        except Exception as conn_error:
+                            logger.error(f"Failed to get database connection: {conn_error}")
+                            if "exhausted" in str(conn_error).lower() or "timeout" in str(conn_error).lower():
+                                logger.error(
+                                    f"Connection pool exhausted. DB_MAX_CONNECTIONS={os.getenv('DB_MAX_CONNECTIONS', '10')}"
+                                )
+                            raise
+
+                        # Update CPID cache
+                        logger.debug("Updating CPID cache...")
+                        self.update_cpid_cache(db)
+
+                        if self.mode == "FULL_CATCHUP":
+                            logger.debug("Starting FULL_CATCHUP mode")
+                            success = self._run_full_catchup(db)
+
+                            if success:
+                                logger.debug("✅ Full catchup completed successfully")
+                                return  # Success, exit retry loop
+                            else:
+                                raise Exception("Full catchup failed")
+                        else:
+                            logger.debug("In REALTIME mode - no bulk catchup needed")
+                            # Update checkpoint to current block so future mode checks stay in REALTIME
+                            current_block = self.backend.getblockcount()
+                            self.update_checkpoint("last_catchup_completion", current_block, db)
+                            return
+
+                except queue.Empty:
+                    logger.error("Connection pool exhausted")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        wait_time = retry_count * 30
+                        logger.debug(f"Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Failed after {max_retries} attempts - connection pool issues")
+
+                except Exception as e:
+                    logger.error(f"Catchup error: {e}")
+                    logger.error(traceback.format_exc())
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        wait_time = retry_count * 10
+                        logger.debug(f"Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Failed after {max_retries} attempts")
+
+        finally:
+            self.catchup_running = False
+            if self.catchup_executor:
+                try:
+                    self.catchup_executor.shutdown(wait=False)
                 except BaseException:
                     pass
+            self.catchup_executor = None
 
-                # Log final progress
-                logger.debug(f"Final catchup progress: {self.progress}")
+            # Clean up any db connection
+            try:
+                if "db" in locals() and db:
+                    db.close()
+            except BaseException:
+                pass
+
+            # Log final progress
+            logger.debug(f"Final catchup progress: {self.progress}")
 
         logger.debug("Catchup thread exiting")
 
