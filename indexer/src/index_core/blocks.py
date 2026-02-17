@@ -621,7 +621,7 @@ def notify_api_cache_invalidation(block_height: int, block_hash: str) -> None:
         if response.status_code == 200:
             logger.info(f"✅ API cache invalidated for block {block_height}")
         else:
-            logger.warning(f"API cache invalidation returned status {response.status_code}: {response.text}")
+            logger.warning(f"API cache invalidation returned status {response.status_code}: {response.text[:200]}")
     except requests.exceptions.Timeout:
         logger.warning(f"API cache invalidation webhook timed out for block {block_height}")
     except requests.exceptions.SSLError as e:

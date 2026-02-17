@@ -629,6 +629,8 @@ async def fetch_xcp_async(
                                 return data
                             else:
                                 error_text = await response.text()
+                                # Truncate to avoid dumping raw HTML error pages into logs
+                                error_preview = error_text[:200] if error_text else ""
 
                                 # Verbose logging for all non-200 responses to help with debugging
                                 if response.status == 429:
@@ -639,7 +641,7 @@ async def fetch_xcp_async(
                                         f"⏳ Node {node['name']} returned 503 (Service Unavailable) for {endpoint}\n"
                                         f"   URL: {url}\n"
                                         f"   Params: {params}\n"
-                                        f"   Response: {error_text}\n"
+                                        f"   Response: {error_preview}\n"
                                         f"   This typically means Counterparty is still catching up to this block"
                                     )
                                 else:
@@ -648,12 +650,12 @@ async def fetch_xcp_async(
                                         f"❌ Node {node['name']} returned HTTP {response.status} for {endpoint}\n"
                                         f"   URL: {url}\n"
                                         f"   Params: {params}\n"
-                                        f"   Response: {error_text}"
+                                        f"   Response: {error_preview}"
                                     )
 
                                 health_tracker = node_health_tracker.get(node["name"])
                                 if health_tracker:
-                                    health_tracker.mark_failure(f"HTTP {response.status}: {error_text}")
+                                    health_tracker.mark_failure(f"HTTP {response.status}: {error_preview}")
                                 endpoint_circuit_breakers.record_failure(node["name"])
 
                 except RuntimeError as re:
@@ -826,8 +828,9 @@ def fetch_xcp(
                     health_tracker.mark_success()
                 return data
             else:
-                error_body = response.text
-                logger.warning(f"Error response from {node['name']}: {error_body}")
+                # Truncate to avoid dumping raw HTML error pages into logs
+                error_body = response.text[:200] if response.text else ""
+                logger.warning(f"Error response from {node['name']}: HTTP {response.status_code}: {error_body}")
                 last_error = f"HTTP {response.status_code}: {error_body}"
                 # Mark node failure
                 health_tracker = node_health_tracker.get(node["name"])
