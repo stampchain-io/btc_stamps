@@ -78,6 +78,7 @@ class MonitoringLogger:
         error_message: Optional[str],
     ):
         """Log API call data to database table for frontend queries."""
+        db = None
         try:
             db = self.db_manager.connect()
             with db.cursor() as cursor:
@@ -93,6 +94,9 @@ class MonitoringLogger:
         except Exception as e:
             # Don't let monitoring failures break the main flow
             logger.warning(f"Failed to log API call to database: {e}")
+        finally:
+            if db is not None:
+                db.close()
 
     def log_processing_metric(self, metric_name: str, value: Any, **context: Any):
         """Log processing metrics with structured format."""

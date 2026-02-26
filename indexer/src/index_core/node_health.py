@@ -101,6 +101,7 @@ class NodeHealth:
         self.version_info: Optional[Dict] = None
         self._lock = threading.Lock()
         self.minor_failures = 0  # Track less severe failures separately
+        self._last_health_update_time = 0.0  # Cooldown for health update thread spawning
         # Add missing attributes
         self.last_success = 0.0
         self.total_successes = 0
@@ -221,16 +222,17 @@ class NodeHealth:
                     )
 
                     # Trigger immediate health update to ensure other components use backup nodes
+                    # Rate-limited to at most once per 30 seconds to prevent thread storms
                     if self.minor_failures >= 5:
-                        logger.warning(f"Node {self.name} has persistent issues, triggering health update")
-                        try:
-                            # Import here to avoid circular imports
-                            import threading
-
-                            # Update health in a separate thread to not block
-                            threading.Thread(target=update_healthy_nodes, daemon=True).start()
-                        except Exception as health_update_error:
-                            logger.error(f"Failed to trigger health update: {health_update_error}")
+                        now = time.time()
+                        if now - self._last_health_update_time >= 30:
+                            self._last_health_update_time = now
+                            logger.warning(f"Node {self.name} has persistent issues, triggering health update")
+                            try:
+                                # Update health in a separate thread to not block
+                                threading.Thread(target=update_healthy_nodes, daemon=True).start()
+                            except Exception as health_update_error:
+                                logger.error(f"Failed to trigger health update: {health_update_error}")
         except Exception as e:
             logger.error(f"Error in mark_failure for {self.name}: {e}")
         finally:
@@ -857,10 +859,9 @@ def get_next_healthy_node_round_robin():
 def persist_counterparty_versions():
     """Persist current Counterparty node versions to DB."""
     from index_core.database import upsert_node_version
-    from index_core.database_manager import DatabaseManager
+    from index_core.database_manager import db_manager
     from index_core.fetch_utils import fetch_node_version_v2
 
-    db_manager = DatabaseManager()
     db = db_manager.connect()
     try:
         for node in config.NODES:
@@ -895,7 +896,7 @@ def persist_counterparty_versions():
 def persist_bitcoin_core_version():
     """Persist current Bitcoin Core version to DB."""
     from index_core.database import upsert_node_version
-    from index_core.database_manager import DatabaseManager
+    from index_core.database_manager import db_manager
 
     network_info = Backend().getnetworkinfo()
     if not network_info:
@@ -908,7 +909,6 @@ def persist_bitcoin_core_version():
     revision = version_int % 100
     version_string = f"{major}.{minor}.{revision}"
 
-    db_manager = DatabaseManager()
     db = db_manager.connect()
     try:
         upsert_node_version(
@@ -933,7 +933,7 @@ def persist_indexer_version():
     import re
 
     from index_core.database import upsert_node_version
-    from index_core.database_manager import DatabaseManager
+    from index_core.database_manager import db_manager
 
     version_string = config.VERSION_STRING
     if not version_string:
@@ -946,7 +946,6 @@ def persist_indexer_version():
 
     major, minor, revision, suffix = int(match.group(1)), int(match.group(2)), int(match.group(3)), match.group(4)
 
-    db_manager = DatabaseManager()
     db = db_manager.connect()
     try:
         upsert_node_version(

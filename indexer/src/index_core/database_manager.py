@@ -311,6 +311,7 @@ class DatabaseManager:
         query_preview = query[:100] + "..." if len(query) > 100 else query
         logger.debug(f"Executing query with retry: {query_preview}")
         start_time = time.time()
+        retry_connection = None
 
         for attempt in range(self.max_retries):
             try:
@@ -326,12 +327,25 @@ class DatabaseManager:
                         f"Query execution failed (attempt {attempt + 1}) after {elapsed_time:.2f}s: {e}. Retrying..."
                     )
                     try:
+                        # Close the previous retry connection if we obtained one
+                        if retry_connection is not None:
+                            try:
+                                retry_connection.close()
+                            except Exception:
+                                pass
                         # Get a new connection from the pool
-                        connection = self.connect()
-                        cursor = connection.cursor()
+                        retry_connection = self.connect()
+                        cursor = retry_connection.cursor()
                     except Exception as conn_error:
                         logger.error(f"Failed to get new connection: {conn_error}")
                         raise
+
+        # Clean up the last retry connection if we never succeeded
+        if retry_connection is not None:
+            try:
+                retry_connection.close()
+            except Exception:
+                pass
 
         elapsed_time = time.time() - start_time
         if last_error:
