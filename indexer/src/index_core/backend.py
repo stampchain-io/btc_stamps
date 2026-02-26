@@ -397,6 +397,14 @@ class Backend:
         self.blockcount_cache.invalidate("current")
         self.last_blockcount_time = 0
 
+    def getnetworkinfo(self) -> Optional[Dict]:
+        """Fetch Bitcoin Core network info including version."""
+        try:
+            return self.rpc("getnetworkinfo", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch getnetworkinfo: {e}")
+            return None
+
     def getblockhash(self, blockcount):
         return self.rpc("getblockhash", [blockcount])
 

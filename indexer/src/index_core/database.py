@@ -2967,6 +2967,89 @@ def import_csv_data(cursor, csv_url, insert_query, is_url=False):
         raise
 
 
+def upsert_node_version(
+    db,
+    component_name: str,
+    version_string: str,
+    version_major: Optional[int] = None,
+    version_minor: Optional[int] = None,
+    version_revision: Optional[int] = None,
+    version_suffix: Optional[str] = None,
+    extra_info: Optional[Dict] = None,
+) -> bool:
+    """Upsert a component version into node_version_history.
+
+    Uses the nullable boolean pattern: is_current=TRUE for the active row
+    (unique per component), is_current=NULL for historical rows.
+
+    Returns True if a new version was inserted, False if unchanged.
+    """
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, version_string FROM node_version_history " "WHERE component_name = %s AND is_current = TRUE",
+            (component_name,),
+        )
+        existing = cursor.fetchone()
+
+        if existing and existing[1] == version_string:
+            return False
+
+        if existing:
+            cursor.execute(
+                "UPDATE node_version_history SET is_current = NULL, superseded_at = NOW() " "WHERE id = %s",
+                (existing[0],),
+            )
+
+        extra_info_json = json.dumps(extra_info) if extra_info else None
+        cursor.execute(
+            "INSERT INTO node_version_history "
+            "(component_name, version_string, version_major, version_minor, "
+            "version_revision, version_suffix, extra_info, is_current) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)",
+            (
+                component_name,
+                version_string,
+                version_major,
+                version_minor,
+                version_revision,
+                version_suffix,
+                extra_info_json,
+            ),
+        )
+        db.commit()
+        logger.info(f"Version updated for {component_name}: {version_string}")
+        return True
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cursor.close()
+
+
+def get_current_versions(db) -> List[Dict]:
+    """Get all current component versions for frontend API use."""
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "SELECT component_name, version_string, version_major, version_minor, "
+            "version_revision, version_suffix, extra_info, detected_at "
+            "FROM node_version_history WHERE is_current = TRUE "
+            "ORDER BY component_name"
+        )
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            if row_dict.get("extra_info") and isinstance(row_dict["extra_info"], str):
+                row_dict["extra_info"] = json.loads(row_dict["extra_info"])
+            results.append(row_dict)
+        return results
+    finally:
+        cursor.close()
+
+
 def initialize_tables(db):
     """Initialize database tables from schema file."""
     try:
@@ -2995,6 +3078,7 @@ def initialize_tables(db):
             "src101price",
             "src20_token_stats",
             "stamp_views",
+            "node_version_history",
         ]
 
         # Only include market data tables if the scheduler is enabled

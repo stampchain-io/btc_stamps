@@ -890,5 +890,32 @@ CREATE TABLE IF NOT EXISTS `sales_history_checkpoints` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tracks progress of sales history processing';
 
 -- =====================================================================
+-- NODE VERSION TRACKING
+-- =====================================================================
+-- Tracks current and historical versions of system components
+-- (bitcoin_core, counterparty:local, counterparty:public, stamps_indexer)
+-- for frontend consumption. Uses nullable boolean pattern:
+-- is_current=TRUE for active row (unique per component), NULL for history.
+
+CREATE TABLE IF NOT EXISTS `node_version_history` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `component_name` VARCHAR(100) NOT NULL COMMENT 'e.g. bitcoin_core, counterparty:local, stamps_indexer',
+  `version_string` VARCHAR(100) NOT NULL COMMENT 'Human-readable version (e.g. 28.0.0, 11.0.3)',
+  `version_major` INT NULL,
+  `version_minor` INT NULL,
+  `version_revision` INT NULL,
+  `version_suffix` VARCHAR(50) NULL COMMENT 'e.g. canary.252, rc1',
+  `extra_info` JSON NULL COMMENT 'Component-specific metadata',
+  `is_current` BOOLEAN NULL DEFAULT TRUE COMMENT 'TRUE=active, NULL=historical (nullable for unique key pattern)',
+  `detected_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `superseded_at` TIMESTAMP NULL COMMENT 'When replaced by newer version',
+
+  UNIQUE KEY `unique_current_component` (`component_name`, `is_current`) COMMENT 'At most one current row per component',
+  INDEX `idx_component_history` (`component_name`, `detected_at` DESC),
+  INDEX `idx_current_versions` (`is_current`) COMMENT 'Fast lookup of all current versions'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Tracks current and historical versions of system components for frontend consumption';
+
+-- =====================================================================
 -- END OF SCHEMA
 -- =====================================================================

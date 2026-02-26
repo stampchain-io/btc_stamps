@@ -433,6 +433,14 @@ def cp_version(log_connection=False):
     # Return the first successful connection for backward compatibility
     for result in version_results:
         if result["status"] == "connected":
+            # Persist all component versions to DB on startup
+            try:
+                from index_core.node_health import persist_all_versions
+
+                persist_all_versions()
+            except Exception as e:
+                logger.warning(f"Failed to persist node versions on startup: {e}")
+
             return result["version_string"], result["version_info"]
 
     logger.warning("Could not determine Counterparty version: All node connections failed.")
