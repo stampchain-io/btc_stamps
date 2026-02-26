@@ -243,9 +243,9 @@ class TestPersistAllVersions(unittest.TestCase):
 class TestPersistBitcoinCoreVersion(unittest.TestCase):
     """Test persist_bitcoin_core_version() with mocked RPC."""
 
-    @patch("index_core.database_manager.DatabaseManager")
+    @patch("index_core.database_manager.db_manager")
     @patch("index_core.backend.Backend.getnetworkinfo")
-    def test_persist_bitcoin_core_version(self, mock_getnetworkinfo, mock_db_mgr_cls):
+    def test_persist_bitcoin_core_version(self, mock_getnetworkinfo, mock_db_mgr):
         from index_core.node_health import persist_bitcoin_core_version
 
         mock_getnetworkinfo.return_value = {
@@ -259,7 +259,7 @@ class TestPersistBitcoinCoreVersion(unittest.TestCase):
         mock_cursor = MagicMock()
         mock_db.cursor.return_value = mock_cursor
         mock_cursor.fetchone.return_value = None  # No existing row
-        mock_db_mgr_cls.return_value.connect.return_value = mock_db
+        mock_db_mgr.connect.return_value = mock_db
 
         persist_bitcoin_core_version()
 
@@ -286,9 +286,9 @@ class TestPersistBitcoinCoreVersion(unittest.TestCase):
 class TestPersistIndexerVersion(unittest.TestCase):
     """Test persist_indexer_version() with mocked config."""
 
-    @patch("index_core.database_manager.DatabaseManager")
+    @patch("index_core.database_manager.db_manager")
     @patch("index_core.node_health.config")
-    def test_persist_indexer_version(self, mock_config, mock_db_mgr_cls):
+    def test_persist_indexer_version(self, mock_config, mock_db_mgr):
         from index_core.node_health import persist_indexer_version
 
         mock_config.VERSION_STRING = "1.8.26+canary.252"
@@ -297,7 +297,7 @@ class TestPersistIndexerVersion(unittest.TestCase):
         mock_cursor = MagicMock()
         mock_db.cursor.return_value = mock_cursor
         mock_cursor.fetchone.return_value = None
-        mock_db_mgr_cls.return_value.connect.return_value = mock_db
+        mock_db_mgr.connect.return_value = mock_db
 
         persist_indexer_version()
 
@@ -315,10 +315,10 @@ class TestPersistIndexerVersion(unittest.TestCase):
 class TestPersistCounterpartyVersions(unittest.TestCase):
     """Test persist_counterparty_versions() with mocked fetch."""
 
-    @patch("index_core.database_manager.DatabaseManager")
+    @patch("index_core.database_manager.db_manager")
     @patch("index_core.fetch_utils.fetch_node_version_v2")
     @patch("index_core.node_health.config")
-    def test_persist_counterparty_versions(self, mock_config, mock_fetch, mock_db_mgr_cls):
+    def test_persist_counterparty_versions(self, mock_config, mock_fetch, mock_db_mgr):
         from index_core.node_health import persist_counterparty_versions
 
         mock_config.NODES = [
@@ -342,7 +342,7 @@ class TestPersistCounterpartyVersions(unittest.TestCase):
         mock_cursor = MagicMock()
         mock_db.cursor.return_value = mock_cursor
         mock_cursor.fetchone.return_value = None
-        mock_db_mgr_cls.return_value.connect.return_value = mock_db
+        mock_db_mgr.connect.return_value = mock_db
 
         persist_counterparty_versions()
 
@@ -352,10 +352,10 @@ class TestPersistCounterpartyVersions(unittest.TestCase):
         assert params[1] == "11.0.3"
         mock_db.close.assert_called_once()
 
-    @patch("index_core.database_manager.DatabaseManager")
+    @patch("index_core.database_manager.db_manager")
     @patch("index_core.fetch_utils.fetch_node_version_v2")
     @patch("index_core.node_health.config")
-    def test_skips_node_when_fetch_fails(self, mock_config, mock_fetch, mock_db_mgr_cls):
+    def test_skips_node_when_fetch_fails(self, mock_config, mock_fetch, mock_db_mgr):
         from index_core.node_health import persist_counterparty_versions
 
         mock_config.NODES = [
@@ -364,7 +364,7 @@ class TestPersistCounterpartyVersions(unittest.TestCase):
         mock_fetch.return_value = (None, None)
 
         mock_db = MagicMock()
-        mock_db_mgr_cls.return_value.connect.return_value = mock_db
+        mock_db_mgr.connect.return_value = mock_db
 
         persist_counterparty_versions()
 
