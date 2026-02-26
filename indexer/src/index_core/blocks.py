@@ -817,6 +817,7 @@ def follow(
     # Initialize scheduler flag early to avoid UnboundLocalError in cleanup
     market_data_scheduler_started = False
     first_block_processed = False  # Track if we've processed at least one block
+    last_version_check_time = 0  # Track last version persistence time
 
     def handle_shutdown():
         """Callback for shutdown notification"""
@@ -1047,6 +1048,17 @@ def follow(
                             logger.info(f"Market data job scheduler started with {max_workers} workers")
                         except Exception as e:
                             logger.warning(f"Failed to start market data scheduler: {e}")
+
+                # Periodically persist node/indexer versions
+                if first_block_processed and time.time() - last_version_check_time >= config.VERSION_CHECK_INTERVAL:
+                    try:
+                        from index_core.node_health import persist_all_versions
+
+                        persist_all_versions()
+                        last_version_check_time = time.time()
+                    except Exception as e:
+                        logger.warning(f"Failed to persist node versions: {e}")
+                        last_version_check_time = time.time()  # Don't retry immediately on failure
 
                 # If we're close to the tip, increase the sleep interval to reduce load
                 pause_interval = config.BACKEND_POLL_INTERVAL

@@ -852,3 +852,124 @@ def get_next_healthy_node_round_robin():
         # All nodes appear unhealthy
         logger.error("Round-robin: All nodes appear unhealthy after checking")
         return None
+
+
+def persist_counterparty_versions():
+    """Persist current Counterparty node versions to DB."""
+    from index_core.database import upsert_node_version
+    from index_core.database_manager import DatabaseManager
+    from index_core.fetch_utils import fetch_node_version_v2
+
+    db_manager = DatabaseManager()
+    db = db_manager.connect()
+    try:
+        for node in config.NODES:
+            node_name = node.get("name", "unknown")
+            node_url = node.get("url", "")
+            try:
+                version, version_info = fetch_node_version_v2(node_url)
+                if not version or not version_info:
+                    logger.debug(f"Could not fetch version for CP node {node_name}")
+                    continue
+
+                upsert_node_version(
+                    db,
+                    component_name=f"counterparty:{node_name}",
+                    version_string=version,
+                    version_major=version_info.get("version_major"),
+                    version_minor=version_info.get("version_minor"),
+                    version_revision=version_info.get("version_revision"),
+                    extra_info={
+                        "last_block": version_info.get("last_block"),
+                        "last_message_index": version_info.get("last_message_index"),
+                        "network": version_info.get("network"),
+                        "server_ready": version_info.get("server_ready"),
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to persist version for CP node {node_name}: {e}")
+    finally:
+        db.close()
+
+
+def persist_bitcoin_core_version():
+    """Persist current Bitcoin Core version to DB."""
+    from index_core.database import upsert_node_version
+    from index_core.database_manager import DatabaseManager
+
+    network_info = Backend().getnetworkinfo()
+    if not network_info:
+        logger.debug("Could not fetch Bitcoin Core network info")
+        return
+
+    version_int = network_info.get("version", 0)
+    major = version_int // 10000
+    minor = (version_int % 10000) // 100
+    revision = version_int % 100
+    version_string = f"{major}.{minor}.{revision}"
+
+    db_manager = DatabaseManager()
+    db = db_manager.connect()
+    try:
+        upsert_node_version(
+            db,
+            component_name="bitcoin_core",
+            version_string=version_string,
+            version_major=major,
+            version_minor=minor,
+            version_revision=revision,
+            extra_info={
+                "subversion": network_info.get("subversion"),
+                "protocolversion": network_info.get("protocolversion"),
+                "connections": network_info.get("connections"),
+            },
+        )
+    finally:
+        db.close()
+
+
+def persist_indexer_version():
+    """Persist current indexer version to DB."""
+    import re
+
+    from index_core.database import upsert_node_version
+    from index_core.database_manager import DatabaseManager
+
+    version_string = config.VERSION_STRING
+    if not version_string:
+        return
+
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)(?:\+(.+))?", version_string)
+    if not match:
+        logger.warning(f"Could not parse indexer version: {version_string}")
+        return
+
+    major, minor, revision, suffix = int(match.group(1)), int(match.group(2)), int(match.group(3)), match.group(4)
+
+    db_manager = DatabaseManager()
+    db = db_manager.connect()
+    try:
+        upsert_node_version(
+            db,
+            component_name="stamps_indexer",
+            version_string=version_string,
+            version_major=major,
+            version_minor=minor,
+            version_revision=revision,
+            version_suffix=suffix,
+        )
+    finally:
+        db.close()
+
+
+def persist_all_versions():
+    """Persist all component versions. Each component is independent — one failure won't block others."""
+    for name, func in [
+        ("bitcoin_core", persist_bitcoin_core_version),
+        ("counterparty", persist_counterparty_versions),
+        ("stamps_indexer", persist_indexer_version),
+    ]:
+        try:
+            func()
+        except Exception as e:
+            logger.warning(f"Failed to persist {name} version: {e}")

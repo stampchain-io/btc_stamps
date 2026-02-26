@@ -557,6 +557,8 @@ def update_version_globals(version_string: str):
 update_version_globals(VERSION_STRING)
 
 
+VERSION_CHECK_INTERVAL = int(os.environ.get("VERSION_CHECK_INTERVAL", "300"))  # 5 min default
+
 BTC_NAME = "Bitcoin"
 STAMPS_NAME = "btc_stamps"
 APP_NAME = STAMPS_NAME.lower()
