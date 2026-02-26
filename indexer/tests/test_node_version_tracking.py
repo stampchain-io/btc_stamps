@@ -244,18 +244,16 @@ class TestPersistBitcoinCoreVersion(unittest.TestCase):
     """Test persist_bitcoin_core_version() with mocked RPC."""
 
     @patch("index_core.database_manager.DatabaseManager")
-    @patch("index_core.backend.Backend")
-    def test_persist_bitcoin_core_version(self, mock_backend_cls, mock_db_mgr_cls):
+    @patch("index_core.backend.Backend.getnetworkinfo")
+    def test_persist_bitcoin_core_version(self, mock_getnetworkinfo, mock_db_mgr_cls):
         from index_core.node_health import persist_bitcoin_core_version
 
-        mock_backend = MagicMock()
-        mock_backend.getnetworkinfo.return_value = {
+        mock_getnetworkinfo.return_value = {
             "version": 280000,
             "subversion": "/Satoshi:28.0.0/",
             "protocolversion": 70016,
             "connections": 10,
         }
-        mock_backend_cls.return_value = mock_backend
 
         mock_db = MagicMock()
         mock_cursor = MagicMock()
@@ -275,13 +273,11 @@ class TestPersistBitcoinCoreVersion(unittest.TestCase):
         assert params[4] == 0  # revision
         mock_db.close.assert_called_once()
 
-    @patch("index_core.backend.Backend")
-    def test_skips_when_rpc_fails(self, mock_backend_cls):
+    @patch("index_core.backend.Backend.getnetworkinfo")
+    def test_skips_when_rpc_fails(self, mock_getnetworkinfo):
         from index_core.node_health import persist_bitcoin_core_version
 
-        mock_backend = MagicMock()
-        mock_backend.getnetworkinfo.return_value = None
-        mock_backend_cls.return_value = mock_backend
+        mock_getnetworkinfo.return_value = None
 
         # Should not raise
         persist_bitcoin_core_version()
