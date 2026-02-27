@@ -106,6 +106,12 @@ def main() -> None:
 
     # Safety confirmation unless --confirm is used
     if not args.confirm:
+        # Show which database will be affected
+        db_host = os.environ.get("RDS_HOSTNAME", "localhost")
+        db_name = os.environ.get("RDS_DATABASE", "btc_stamps")
+        db_port = os.environ.get("RDS_PORT", "3306")
+        print(f"📊 Target Database: {db_host}:{db_port}/{db_name}")
+        print()
         print(f"⚠️  WARNING: This will delete all data from block {args.block_index} onwards!")
         print("This includes:")
         print("  - All transactions and blocks")
