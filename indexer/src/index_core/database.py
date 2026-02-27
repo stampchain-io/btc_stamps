@@ -2981,7 +2981,8 @@ def upsert_node_version(
     cursor = db.cursor()
     try:
         cursor.execute(
-            "SELECT id, version_string FROM node_version_history " "WHERE component_name = %s AND is_current = TRUE",
+            "SELECT id, version_string FROM node_version_history "
+            "WHERE component_name = %s AND is_current = TRUE FOR UPDATE",
             (component_name,),
         )
         existing = cursor.fetchone()
