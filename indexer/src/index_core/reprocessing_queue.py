@@ -53,8 +53,7 @@ class ReprocessingQueue:
     def _create_table(self) -> None:
         """Create queue table if not exists."""
         with self.lock:
-            self.conn.execute(
-                """
+            self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS reprocess_queue (
                     tx_hash TEXT PRIMARY KEY,
                     attempts INTEGER DEFAULT 0,
@@ -63,8 +62,7 @@ class ReprocessingQueue:
                     added_at REAL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),  -- Creation timestamp
                     last_attempt_at REAL  -- Last retry timestamp
                 )
-            """
-            )
+            """)
             self.conn.commit()
 
     def enqueue(self, tx_hash: str) -> None:
@@ -176,19 +174,16 @@ class ReprocessingQueue:
         with self.lock:
             cursor = self.conn.cursor()
             # Create the main fallback sessions table
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS fallback_sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     start_block_index INTEGER NOT NULL UNIQUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
             # Create the failed blocks table (normalized)
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS failed_blocks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id INTEGER NOT NULL,
@@ -198,8 +193,7 @@ class ReprocessingQueue:
                     FOREIGN KEY (session_id) REFERENCES fallback_sessions(id) ON DELETE CASCADE,
                     UNIQUE(session_id, block_index)
                 )
-            """
-            )
+            """)
             # Create indexes for performance
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_blocks_session ON failed_blocks(session_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_blocks_block_index ON failed_blocks(block_index)")

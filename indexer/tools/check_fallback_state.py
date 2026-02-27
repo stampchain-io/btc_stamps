@@ -34,12 +34,10 @@ try:
         print("No fallback sessions found in database")
 
     # Check for any orphaned failed blocks
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT COUNT(*) FROM failed_blocks 
         WHERE session_id NOT IN (SELECT id FROM fallback_sessions)
-    """
-    )
+    """)
     orphaned = cursor.fetchone()[0]
     if orphaned > 0:
         print(f"\nWARNING: Found {orphaned} orphaned failed block records")

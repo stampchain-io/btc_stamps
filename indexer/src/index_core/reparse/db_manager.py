@@ -38,8 +38,7 @@ class ReparseDBManager:
         cursor.execute("DROP TEMPORARY TABLE IF EXISTS _reparse_src20_ledger")
 
         # Create blocks table (only fields needed for hashing)
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TEMPORARY TABLE _reparse_blocks (
                 block_index INTEGER NOT NULL,
                 block_hash VARCHAR(64),
@@ -48,32 +47,27 @@ class ReparseDBManager:
                 ledger_hash VARCHAR(64),
                 PRIMARY KEY (block_index)
             ) ENGINE=MEMORY
-        """
-        )
+        """)
 
         # Create minimal stamps table
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TEMPORARY TABLE _reparse_stamps (
                 tx_index INTEGER NOT NULL,
                 tx_hash VARCHAR(64),
                 block_index INTEGER,
                 PRIMARY KEY (tx_index)
             ) ENGINE=MEMORY
-        """
-        )
+        """)
 
         # Create minimal src20_ledger table
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TEMPORARY TABLE _reparse_src20_ledger (
                 block_index INTEGER NOT NULL,
                 tx_hash VARCHAR(64),
                 tick VARCHAR(10),
                 PRIMARY KEY (block_index, tx_hash)
             ) ENGINE=MEMORY
-        """
-        )
+        """)
 
         logger.info("Created temporary in-memory tables for validation")
 

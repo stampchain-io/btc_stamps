@@ -10,6 +10,7 @@ If our local balance_data differs from remote only in NEIRO entries, the other t
 seen in the remote are normal activity we also processed. If other ticks differ too,
 we have additional missed transactions.
 """
+
 import os
 import sys
 import time

@@ -758,8 +758,7 @@ def main():
     show_help = "--help" in sys.argv or "-h" in sys.argv
 
     if show_help:
-        print(
-            """
+        print("""
 Database Comparison Tool
 
 Usage: python compare_tables.py [options]
@@ -772,8 +771,7 @@ Exit Codes:
   0 - All tables match perfectly
   1 - One or more tables have discrepancies
   2 - Error during execution
-        """
-        )
+        """)
         return 0
 
     if os.getcwd().endswith("/indexer"):
@@ -809,12 +807,10 @@ Exit Codes:
 
     try:
         # Get block_index first
-        dev_cursor.execute(
-            """
+        dev_cursor.execute("""
             SELECT MAX(block_index)
             FROM blocks
-            """
-        )
+            """)
         block_index = dev_cursor.fetchone()[0]
 
         # Now we can print the connection details with the block_index

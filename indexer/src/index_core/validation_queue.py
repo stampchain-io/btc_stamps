@@ -48,8 +48,7 @@ class ValidationQueueManager:
     def _ensure_table_exists(self):
         """Create the validation queue table if it doesn't exist."""
         with self.lock:
-            self.conn.execute(
-                f"""
+            self.conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {VALIDATION_QUEUE_TABLE} (
                     block_index INTEGER PRIMARY KEY,
                     local_ledger_hash TEXT NOT NULL,
@@ -62,16 +61,13 @@ class ValidationQueueManager:
                     api_ledger_hash TEXT,
                     error_message TEXT
                 )
-            """
-            )
+            """)
 
             # Create index for efficient queries
-            self.conn.execute(
-                f"""
+            self.conn.execute(f"""
                 CREATE INDEX IF NOT EXISTS idx_validation_queue_status
                 ON {VALIDATION_QUEUE_TABLE} (validation_status, retry_count)
-            """
-            )
+            """)
 
             self.conn.commit()
             logger.info(f"Ensured {VALIDATION_QUEUE_TABLE} table exists")
@@ -157,8 +153,7 @@ class ValidationQueueManager:
     def get_validation_stats(self) -> dict:
         """Get statistics about the validation queue."""
         with self.lock:
-            cursor = self.conn.execute(
-                f"""
+            cursor = self.conn.execute(f"""
                 SELECT
                     validation_status,
                     COUNT(*) as count,
@@ -166,8 +161,7 @@ class ValidationQueueManager:
                     MAX(block_index) as max_block
                 FROM {VALIDATION_QUEUE_TABLE}
                 GROUP BY validation_status
-            """
-            )
+            """)
 
             stats = {}
             for row in cursor.fetchall():
@@ -179,14 +173,12 @@ class ValidationQueueManager:
     def get_mismatches(self) -> List[dict]:
         """Get all blocks with validation mismatches."""
         with self.lock:
-            cursor = self.conn.execute(
-                f"""
+            cursor = self.conn.execute(f"""
                 SELECT block_index, local_ledger_hash, api_ledger_hash, validated_at
                 FROM {VALIDATION_QUEUE_TABLE}
                 WHERE validation_status = 'mismatch'
                 ORDER BY block_index
-            """
-            )
+            """)
 
             mismatches = []
             for row in cursor.fetchall():

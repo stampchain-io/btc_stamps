@@ -145,16 +145,14 @@ def find_duplicate_stamps(db):
     logger.info("Checking for duplicate stamp numbers")
 
     cursor = db.cursor()
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT stamp, COUNT(*) as count
         FROM stamps 
         WHERE stamp > 0
         GROUP BY stamp 
         HAVING COUNT(*) > 1
         ORDER BY stamp
-    """
-    )
+    """)
 
     duplicates = cursor.fetchall()
 

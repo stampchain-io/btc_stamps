@@ -56,13 +56,11 @@ class DispenseProcessor:
         try:
             with db.cursor() as cursor:
                 # Get all stamp CPIDs
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT DISTINCT cpid
                     FROM StampTableV4
                     WHERE ident IN ('STAMP', 'SRC-721')
-                """
-                )
+                """)
 
                 cpids = {row[0] for row in cursor.fetchall()}
 

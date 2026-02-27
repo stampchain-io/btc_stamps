@@ -369,15 +369,13 @@ class MarketDataJobScheduler:
         """Get all SRC-20 tokens that exist in the database."""
         try:
             with db.cursor() as cursor:
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT DISTINCT tick
                     FROM SRC20Valid
                     WHERE tick IS NOT NULL
                     AND tick != ''
                     ORDER BY tick
-                """
-                )
+                """)
 
                 results = cursor.fetchall()
                 tokens = {row[0] for row in results}

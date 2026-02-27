@@ -36,12 +36,10 @@ class TestDatabaseInitialization:
         database.initialize(mock_db)
 
         # Verify queries
-        mock_cursor.execute.assert_any_call(
-            """
+        mock_cursor.execute.assert_any_call("""
         SELECT MIN(block_index)
         FROM blocks
-    """
-        )
+    """)
         mock_cursor.execute.assert_any_call("""DELETE FROM blocks WHERE block_index < %s""", (TEST_BLOCK_FIRST,))
         mock_cursor.execute.assert_any_call("""DELETE FROM transactions WHERE block_index < %s""", (TEST_BLOCK_FIRST,))
         mock_cursor.close.assert_called_once()

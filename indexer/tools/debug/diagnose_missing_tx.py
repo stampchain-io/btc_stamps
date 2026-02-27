@@ -7,6 +7,7 @@ Theory: The Python code combines pubkeys from ALL multisig outputs into one chun
 but decode_checkmultisig() length validation fails because the second output's
 ARC4-decrypted padding is not null bytes.
 """
+
 import binascii
 import os
 import sys

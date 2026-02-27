@@ -2,6 +2,7 @@
 """
 Debug script to check what fields are available in dispense events from Counterparty API.
 """
+
 import json
 import logging
 from index_core.fetch_utils import fetch_xcp

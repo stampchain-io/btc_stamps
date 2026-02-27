@@ -3,6 +3,7 @@
 Run tests excluding integration tests.
 This is useful for CI/CD pipelines where integration tests might be too slow or require special setup.
 """
+
 import subprocess
 import sys
 

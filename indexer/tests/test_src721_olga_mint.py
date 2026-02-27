@@ -180,9 +180,7 @@ class TestSRC721OLGAMint(unittest.TestCase):
             <img src="/s/A12345678901234567890">
             <script>var data = {json.dumps(json_data)};</script>
         </body>
-        </html>""".encode(
-            "utf-8"
-        )
+        </html>""".encode("utf-8")
 
         stamp_data = self.create_stamp_data(p2wsh_data=html_content)
         # Simulate that this was identified as SRC-20 from embedded JSON

@@ -80,12 +80,10 @@ def check_database(db_path: str, auto_clean: bool = False) -> bool:
             print("\n✅ No fallback sessions found")
 
         # Check for orphaned failed blocks
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COUNT(*) FROM failed_blocks 
             WHERE session_id NOT IN (SELECT id FROM fallback_sessions)
-        """
-        )
+        """)
         orphaned_count = cursor.fetchone()[0]
 
         if orphaned_count > 0:
@@ -93,34 +91,28 @@ def check_database(db_path: str, auto_clean: bool = False) -> bool:
             issues_found = True
 
             if auto_clean:
-                cursor.execute(
-                    """
+                cursor.execute("""
                     DELETE FROM failed_blocks 
                     WHERE session_id NOT IN (SELECT id FROM fallback_sessions)
-                """
-                )
+                """)
                 conn.commit()
                 print("✅ Orphaned blocks cleaned")
 
         # Check reprocess queue for old entries
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COUNT(*) FROM reprocess_queue 
             WHERE added_at < CAST(strftime('%s', 'now') AS INTEGER) - 86400
-        """
-        )
+        """)
         old_entries = cursor.fetchone()[0]
 
         if old_entries > 0:
             print(f"\n⚠️  Found {old_entries} reprocess queue entries older than 24 hours")
 
             if auto_clean:
-                cursor.execute(
-                    """
+                cursor.execute("""
                     DELETE FROM reprocess_queue 
                     WHERE added_at < CAST(strftime('%s', 'now') AS INTEGER) - 86400
-                """
-                )
+                """)
                 conn.commit()
                 print("✅ Old queue entries cleaned")
 

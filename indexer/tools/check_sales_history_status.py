@@ -50,26 +50,22 @@ def check_sales_history_status():
         print(f"\n📊 Total records: {total_count:,}")
 
         # Get recent records count (last 24 hours)
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COUNT(*) as count
             FROM stamp_sales_history 
             WHERE processed_at >= NOW() - INTERVAL 24 HOUR
-        """
-        )
+        """)
         result = cursor.fetchone()
         recent_count = result["count"] if result else 0
         print(f"📈 Records in last 24h: {recent_count:,}")
 
         # Get latest record
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT tx_hash, cpid, block_index, processed_at, block_time 
             FROM stamp_sales_history 
             ORDER BY processed_at DESC 
             LIMIT 1
-        """
-        )
+        """)
         latest = cursor.fetchone()
         if latest:
             print(f"\n🔄 Latest record:")
@@ -79,14 +75,12 @@ def check_sales_history_status():
             print(f"   Processed: {latest['processed_at']}")
 
         # Get distribution by type
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT 
                 COUNT(CASE WHEN cpid LIKE 'A%' THEN 1 END) as cp_stamps,
                 COUNT(CASE WHEN cpid NOT LIKE 'A%' THEN 1 END) as regular_stamps
             FROM stamp_sales_history
-        """
-        )
+        """)
         dist = cursor.fetchone()
         if dist:
             print(f"\n📊 Distribution:")
@@ -94,19 +88,16 @@ def check_sales_history_status():
             print(f"   Regular Stamps: {dist['regular_stamps']:,}")
 
         # Check for gaps
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT MIN(block_index) as min_block, MAX(block_index) as max_block
             FROM stamp_sales_history
-        """
-        )
+        """)
         result = cursor.fetchone()
         if result and result["min_block"] and result["max_block"]:
             print(f"\n📏 Block range: {result['min_block']:,} - {result['max_block']:,}")
 
             # Check processing rate
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT 
                     DATE(processed_at) as date,
                     COUNT(*) as count
@@ -114,20 +105,17 @@ def check_sales_history_status():
                 WHERE processed_at >= NOW() - INTERVAL 7 DAY
                 GROUP BY DATE(processed_at)
                 ORDER BY date DESC
-            """
-            )
+            """)
             print(f"\n📅 Processing rate (last 7 days):")
             for row in cursor.fetchall():
                 print(f"   {row['date']}: {row['count']:,} records")
 
         # Check if actively processing
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COUNT(*) as count
             FROM stamp_sales_history 
             WHERE processed_at >= NOW() - INTERVAL 1 HOUR
-        """
-        )
+        """)
         result = cursor.fetchone()
         last_hour = result["count"] if result else 0
 
