@@ -368,8 +368,7 @@ class StampActivityCalculator:
         """Log current activity level distribution"""
         try:
             with db.cursor() as cursor:
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT
                         activity_level,
                         COUNT(*) as count,
@@ -378,8 +377,7 @@ class StampActivityCalculator:
                     FROM stamp_market_data
                     WHERE activity_level IS NOT NULL
                     GROUP BY activity_level
-                """
-                )
+                """)
 
                 logger.debug("Activity Level Distribution:")
                 total_stamps = 0

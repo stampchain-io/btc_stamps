@@ -890,7 +890,7 @@ class Src101Processor:
             if "address_data" not in self.src101_dict.keys():
                 self.src101_dict["address_data"] = None
             else:
-                (valid, self.src101_dict["address_data"]) = check_and_convert_addres_type_data(
+                valid, self.src101_dict["address_data"] = check_and_convert_addres_type_data(
                     self.src101_dict["address_data"], bytes(reversed(self.src101_dict.get("prev_tx_hash"))).hex()
                 )
                 if not valid:

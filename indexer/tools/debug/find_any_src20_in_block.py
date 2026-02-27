@@ -6,6 +6,7 @@ Find ANY transaction in a block that contains SRC-20 data in any encoding:
 - Any multisig format (1-of-2, 1-of-3, etc.)
 Also search by specific address spending.
 """
+
 import binascii
 import json
 import os

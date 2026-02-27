@@ -3,6 +3,7 @@
 Check the status of the Background Coordinator.
 Useful for monitoring which background tasks are running.
 """
+
 import json
 import os
 import sys

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Find multisig burnkey transactions in a specific block and check if they're in our DB."""
+
 import binascii
 import json
 import os

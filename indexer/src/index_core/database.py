@@ -68,12 +68,10 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 def initialize(db: Connection) -> None:
     """Initialize data, create and populate the database."""
     cursor = db.cursor()
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT MIN(block_index)
         FROM blocks
-    """
-    )
+    """)
     row = cursor.fetchone()
     block_index = row[0] if row else None
 
@@ -1096,12 +1094,10 @@ def rebuild_balances(db, block_index=None):
 
         # Atomic swap
         logger.info("Performing atomic table swap")
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             RENAME TABLE balances TO balances_old,
                          {temp_table} TO balances
-            """
-        )
+            """)
 
         # Cleanup
         logger.debug("Cleaning up old table")
@@ -1217,9 +1213,7 @@ def purge_block_db(db: Connection, block_index: int) -> None:
             """
             DELETE FROM {}
             WHERE block_index >= %s
-            """.format(
-                table
-            ),
+            """.format(table),
             (block_index,),
         )  # nosec
 
@@ -3104,9 +3098,7 @@ def initialize_tables(db):
             FROM information_schema.tables
             WHERE table_schema = DATABASE()
             AND table_name IN ({})
-        """.format(
-                ",".join(["%s"] * len(required_tables))
-            ),
+        """.format(",".join(["%s"] * len(required_tables))),
             required_tables,
         )
 

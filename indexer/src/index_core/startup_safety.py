@@ -38,12 +38,10 @@ def check_reprocess_queue_safety() -> Tuple[bool, str]:
         cursor = conn.cursor()
 
         # Check for any sessions with test block numbers
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT start_block_index FROM fallback_sessions
             ORDER BY start_block_index LIMIT 10
-        """
-        )
+        """)
 
         sessions = cursor.fetchall()
         for (start_block,) in sessions:

@@ -92,8 +92,7 @@ class SRC20HolderCountUpdater:
                 logger.info("Force updating all SRC-20 holder counts and progress data")
                 cursor = db.cursor()
                 # Optimized query - split mint count into separate join
-                cursor.execute(
-                    """
+                cursor.execute("""
                     UPDATE src20_market_data smd
                     JOIN (
                         SELECT
@@ -128,12 +127,10 @@ class SRC20HolderCountUpdater:
                        OR smd.progress_percentage != COALESCE(counts.progress_percentage, 0)
                        OR smd.total_mints IS NULL
                        OR smd.total_mints != counts.mint_count
-                """
-                )
+                """)
 
                 # Also set 0 for tokens with no holders
-                cursor.execute(
-                    """
+                cursor.execute("""
                     UPDATE src20_market_data smd
                     LEFT JOIN (
                         SELECT DISTINCT tick
@@ -148,8 +145,7 @@ class SRC20HolderCountUpdater:
                     WHERE active.tick IS NULL
                       AND (smd.holder_count IS NULL OR smd.holder_count > 0
                            OR smd.total_minted IS NULL OR smd.total_minted > 0)
-                """
-                )
+                """)
 
                 updated_count = cursor.rowcount
             else:

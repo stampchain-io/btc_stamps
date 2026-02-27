@@ -52,12 +52,10 @@ def analyze_src20_market_data():
         logger.info("")
 
         # 1. Total count of SRC-20 tokens with market data
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT COUNT(*) as total_tokens
             FROM src20_market_data
-        """
-        )
+        """)
         total_tokens = cursor.fetchone()[0]
 
         logger.info(f"📊 TOTAL SRC-20 TOKENS WITH MARKET DATA: {format_number(total_tokens)}")
@@ -67,8 +65,7 @@ def analyze_src20_market_data():
         logger.info("📈 DATA COMPLETENESS ANALYSIS:")
         logger.info("-" * 60)
 
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT 
                 COUNT(*) as total,
                 COUNT(CASE WHEN price_btc IS NOT NULL AND price_btc > 0 THEN 1 END) as has_price,
@@ -82,8 +79,7 @@ def analyze_src20_market_data():
                 COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as updated_last_hour,
                 COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 END) as updated_last_24h
             FROM src20_market_data
-        """
-        )
+        """)
 
         stats = cursor.fetchone()
         logger.info(f"  • Tokens with price data: {format_number(stats[1])} ({stats[1]/stats[0]*100:.1f}%)")
@@ -106,8 +102,7 @@ def analyze_src20_market_data():
         )
         logger.info("-" * 120)
 
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT 
                 tick,
                 price_btc,
@@ -139,8 +134,7 @@ def analyze_src20_market_data():
                OR volume_24h_btc > 0
             ORDER BY completeness_score DESC, data_quality_score DESC, volume_24h_btc DESC
             LIMIT 20
-        """
-        )
+        """)
 
         rank = 1
         for row in cursor.fetchall():
@@ -164,8 +158,7 @@ def analyze_src20_market_data():
         logger.info("📡 DATA SOURCES ANALYSIS:")
         logger.info("-" * 60)
 
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT 
                 primary_exchange,
                 COUNT(*) as token_count,
@@ -177,8 +170,7 @@ def analyze_src20_market_data():
             WHERE primary_exchange IS NOT NULL
             GROUP BY primary_exchange
             ORDER BY token_count DESC
-        """
-        )
+        """)
 
         for row in cursor.fetchall():
             source = row[0]
@@ -202,57 +194,47 @@ def analyze_src20_market_data():
         logger.info("-" * 60)
 
         # Tokens with no price data
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT COUNT(*) 
             FROM src20_market_data 
             WHERE price_btc IS NULL OR price_btc = 0
-        """
-        )
+        """)
         no_price = cursor.fetchone()[0]
         logger.info(f"  • Tokens without price data: {no_price} ({no_price/total_tokens*100:.1f}%)")
 
         # Tokens with no holder data
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT COUNT(*) 
             FROM src20_market_data 
             WHERE holder_count = 0 OR holder_count IS NULL
-        """
-        )
+        """)
         no_holders = cursor.fetchone()[0]
         logger.info(f"  • Tokens without holder data: {no_holders} ({no_holders/total_tokens*100:.1f}%)")
 
         # Tokens with no volume data
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT COUNT(*) 
             FROM src20_market_data 
             WHERE volume_24h_btc = 0 AND volume_7d_btc = 0 AND volume_30d_btc = 0
-        """
-        )
+        """)
         no_volume = cursor.fetchone()[0]
         logger.info(f"  • Tokens without any volume data: {no_volume} ({no_volume/total_tokens*100:.1f}%)")
 
         # Tokens with low quality scores
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT COUNT(*) 
             FROM src20_market_data 
             WHERE data_quality_score < 5
-        """
-        )
+        """)
         low_quality = cursor.fetchone()[0]
         logger.info(f"  • Tokens with low quality score (<5): {low_quality} ({low_quality/total_tokens*100:.1f}%)")
 
         # Stale data
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT COUNT(*) 
             FROM src20_market_data 
             WHERE last_updated < DATE_SUB(NOW(), INTERVAL 7 DAY)
-        """
-        )
+        """)
         stale_data = cursor.fetchone()[0]
         logger.info(f"  • Tokens with stale data (>7 days): {stale_data} ({stale_data/total_tokens*100:.1f}%)")
 
@@ -260,8 +242,7 @@ def analyze_src20_market_data():
 
         # List tokens with missing critical data
         logger.info("  📋 Tokens missing critical data (top 10 by potential importance):")
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT 
                 s.tick,
                 CASE 
@@ -289,8 +270,7 @@ def analyze_src20_market_data():
                OR (m.volume_24h_btc = 0 AND m.volume_7d_btc = 0)
             ORDER BY COALESCE(b.holder_count, 0) DESC
             LIMIT 10
-        """
-        )
+        """)
 
         for row in cursor.fetchall():
             tick = row[0]
@@ -311,8 +291,7 @@ def analyze_src20_market_data():
         logger.info("🔄 UPDATE FREQUENCY AND DATA FRESHNESS:")
         logger.info("-" * 60)
 
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT 
                 CASE 
                     WHEN last_updated > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN '< 1 hour'
@@ -335,8 +314,7 @@ def analyze_src20_market_data():
                     WHEN '3-7 days' THEN 5
                     ELSE 6
                 END
-        """
-        )
+        """)
 
         for row in cursor.fetchall():
             age_group = row[0]
@@ -347,16 +325,14 @@ def analyze_src20_market_data():
         logger.info("")
 
         # Update frequency distribution
-        cursor = db.execute(
-            """
+        cursor = db.execute("""
             SELECT 
                 update_frequency_minutes,
                 COUNT(*) as token_count
             FROM src20_market_data
             GROUP BY update_frequency_minutes
             ORDER BY update_frequency_minutes
-        """
-        )
+        """)
 
         logger.info("  📊 Update Frequency Distribution:")
         for row in cursor.fetchall():

@@ -3,6 +3,7 @@
 Simple script to update CHECKPOINTS_MAINNET in check.py with the latest
 ledger_hash and txlist_hash values from the database.
 """
+
 import logging
 import os
 import re

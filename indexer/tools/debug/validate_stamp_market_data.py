@@ -49,16 +49,14 @@ class StampMarketDataValidator:
         try:
             with db.cursor() as cursor:
                 # Get all Counterparty stamps (those starting with 'A' and length > 15)
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT DISTINCT cpid, stamp, ident 
                     FROM StampTableV4
                     WHERE cpid LIKE 'A%' 
                     AND LENGTH(cpid) > 15
                     AND ident NOT IN ('SRC-20', 'SRC-20 BALANCE')
                     ORDER BY cpid
-                """
-                )
+                """)
 
                 stamps = []
                 for row in cursor.fetchall():
@@ -79,8 +77,7 @@ class StampMarketDataValidator:
         try:
             with db.cursor() as cursor:
                 # Get sales statistics
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT 
                         COUNT(*) as total_sales,
                         COUNT(DISTINCT cpid) as unique_stamps
@@ -91,15 +88,13 @@ class StampMarketDataValidator:
                         AND LENGTH(cpid) > 15
                         AND ident NOT IN ('SRC-20', 'SRC-20 BALANCE')
                     )
-                """
-                )
+                """)
                 result = cursor.fetchone()
                 stats["total_sales"] = result[0] or 0
                 stats["unique_stamps_with_sales"] = result[1] or 0
 
                 # Get stamps without any sales
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT COUNT(DISTINCT cpid)
                     FROM StampTableV4
                     WHERE cpid LIKE 'A%' 
@@ -108,8 +103,7 @@ class StampMarketDataValidator:
                     AND cpid NOT IN (
                         SELECT DISTINCT cpid FROM stamp_sales_history
                     )
-                """
-                )
+                """)
                 stats["stamps_without_sales"] = cursor.fetchone()[0] or 0
 
                 logger.info(f"Sales data: {stats['total_sales']:,} sales for {stats['unique_stamps_with_sales']:,} stamps")
@@ -178,8 +172,7 @@ class StampMarketDataValidator:
         try:
             with db.cursor() as cursor:
                 # Check for missing market data records
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT s.cpid, s.stamp, s.ident
                     FROM StampTableV4 s
                     LEFT JOIN stamp_market_data m ON s.cpid = m.cpid
@@ -188,8 +181,7 @@ class StampMarketDataValidator:
                     AND s.ident NOT IN ('SRC-20', 'SRC-20 BALANCE')
                     AND m.cpid IS NULL
                     LIMIT 100
-                """
-                )
+                """)
                 missing_records = []
                 for row in cursor.fetchall():
                     missing_records.append({"cpid": row[0], "stamp": row[1], "ident": row[2]})
@@ -199,8 +191,7 @@ class StampMarketDataValidator:
                     self.issues["missing_market_data"] = missing_records
 
                 # Check for stamps with sales but no last sale price
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT DISTINCT 
                         s.cpid, 
                         s.stamp,
@@ -216,8 +207,7 @@ class StampMarketDataValidator:
                     AND (m.last_sale_price_btc IS NULL OR m.last_sale_price_btc = 0)
                     GROUP BY s.cpid, s.stamp, m.last_sale_price_btc
                     LIMIT 100
-                """
-                )
+                """)
                 missing_prices = []
                 for row in cursor.fetchall():
                     missing_prices.append(
@@ -235,8 +225,7 @@ class StampMarketDataValidator:
                     self.issues["missing_last_sale"] = missing_prices
 
                 # Check for stamps with open dispensers but no floor price
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT DISTINCT 
                         s.cpid,
                         s.stamp,
@@ -253,8 +242,7 @@ class StampMarketDataValidator:
                     AND (m.floor_price_btc IS NULL OR m.floor_price_btc = 0)
                     GROUP BY s.cpid, s.stamp, m.floor_price_btc
                     LIMIT 100
-                """
-                )
+                """)
                 missing_floors = []
                 for row in cursor.fetchall():
                     missing_floors.append(
@@ -272,8 +260,7 @@ class StampMarketDataValidator:
                     self.issues["missing_floor_price"] = missing_floors
 
                 # Check for stale data (not updated in 24 hours but has recent activity)
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT 
                         s.cpid,
                         s.stamp,
@@ -290,8 +277,7 @@ class StampMarketDataValidator:
                     AND ssh.processed_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
                     GROUP BY s.cpid, s.stamp, m.last_updated
                     LIMIT 100
-                """
-                )
+                """)
                 stale_data = []
                 for row in cursor.fetchall():
                     stale_data.append(

@@ -94,8 +94,7 @@ class MarketDataEffectivenessAnalyzer:
         stats = {}
 
         # Stamp market data statistics
-        stamp_stats = self.fetch_one(
-            """
+        stamp_stats = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_records,
                 COUNT(floor_price_btc) as records_with_floor_price,
@@ -107,13 +106,11 @@ class MarketDataEffectivenessAnalyzer:
                 COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as fresh_records,
                 COUNT(CASE WHEN last_updated < DATE_SUB(NOW(), INTERVAL 6 HOUR) THEN 1 END) as stale_records
             FROM stamp_market_data
-        """
-        )
+        """)
         stats["stamp_market_data"] = stamp_stats
 
         # Stamp holder cache statistics
-        holder_stats = self.fetch_one(
-            """
+        holder_stats = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_records,
                 COUNT(DISTINCT cpid) as unique_stamps,
@@ -122,13 +119,11 @@ class MarketDataEffectivenessAnalyzer:
                 MIN(last_updated) as oldest_update,
                 MAX(last_updated) as newest_update
             FROM stamp_holder_cache
-        """
-        )
+        """)
         stats["stamp_holder_cache"] = holder_stats
 
         # SRC20 market data statistics
-        src20_stats = self.fetch_one(
-            """
+        src20_stats = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_records,
                 COUNT(price_btc) as records_with_price,
@@ -139,13 +134,11 @@ class MarketDataEffectivenessAnalyzer:
                 MAX(last_updated) as newest_update,
                 COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 30 MINUTE) THEN 1 END) as fresh_records
             FROM src20_market_data
-        """
-        )
+        """)
         stats["src20_market_data"] = src20_stats
 
         # Collection market data statistics
-        collection_stats = self.fetch_one(
-            """
+        collection_stats = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_records,
                 COUNT(floor_price_btc) as records_with_floor_price,
@@ -154,13 +147,11 @@ class MarketDataEffectivenessAnalyzer:
                 MIN(last_updated) as oldest_update,
                 MAX(last_updated) as newest_update
             FROM collection_market_data
-        """
-        )
+        """)
         stats["collection_market_data"] = collection_stats
 
         # Stamp sales history statistics
-        sales_stats = self.fetch_one(
-            """
+        sales_stats = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_sales,
                 COUNT(DISTINCT cpid) as unique_stamps_sold,
@@ -175,13 +166,11 @@ class MarketDataEffectivenessAnalyzer:
                 COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 86400 THEN 1 END) as sales_24h,
                 COUNT(CASE WHEN block_time > UNIX_TIMESTAMP() - 604800 THEN 1 END) as sales_7d
             FROM stamp_sales_history
-        """
-        )
+        """)
         stats["stamp_sales_history"] = sales_stats
 
         # Market data sources reliability
-        source_stats = self.fetch_all(
-            """
+        source_stats = self.fetch_all("""
             SELECT 
                 source_name,
                 asset_type,
@@ -193,8 +182,7 @@ class MarketDataEffectivenessAnalyzer:
             FROM market_data_sources
             GROUP BY source_name, asset_type
             ORDER BY avg_success_rate DESC
-        """
-        )
+        """)
         stats["market_data_sources"] = source_stats
 
         return stats
@@ -204,8 +192,7 @@ class MarketDataEffectivenessAnalyzer:
         timing_analysis = {}
 
         # Stamp update frequency analysis
-        stamp_timing = self.fetch_all(
-            """
+        stamp_timing = self.fetch_all("""
             SELECT 
                 DATE(last_updated) as update_date,
                 HOUR(last_updated) as update_hour,
@@ -217,13 +204,11 @@ class MarketDataEffectivenessAnalyzer:
             WHERE last_updated >= DATE_SUB(NOW(), INTERVAL 7 DAY)
             GROUP BY DATE(last_updated), HOUR(last_updated)
             ORDER BY update_date DESC, update_hour DESC
-        """
-        )
+        """)
         timing_analysis["stamp_update_patterns"] = stamp_timing
 
         # SRC20 update frequency analysis
-        src20_timing = self.fetch_all(
-            """
+        src20_timing = self.fetch_all("""
             SELECT 
                 DATE(last_updated) as update_date,
                 HOUR(last_updated) as update_hour,
@@ -233,13 +218,11 @@ class MarketDataEffectivenessAnalyzer:
             WHERE last_updated >= DATE_SUB(NOW(), INTERVAL 7 DAY)
             GROUP BY DATE(last_updated), HOUR(last_updated)
             ORDER BY update_date DESC, update_hour DESC
-        """
-        )
+        """)
         timing_analysis["src20_update_patterns"] = src20_timing
 
         # Update lag analysis - how fresh is the data?
-        freshness_analysis = self.fetch_one(
-            """
+        freshness_analysis = self.fetch_one("""
             SELECT 
                 COUNT(CASE WHEN smd.last_updated > DATE_SUB(NOW(), INTERVAL 15 MINUTE) THEN 1 END) as very_fresh,
                 COUNT(CASE WHEN smd.last_updated > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as fresh, 
@@ -247,8 +230,7 @@ class MarketDataEffectivenessAnalyzer:
                 COUNT(CASE WHEN smd.last_updated <= DATE_SUB(NOW(), INTERVAL 6 HOUR) THEN 1 END) as stale,
                 COUNT(*) as total
             FROM stamp_market_data smd
-        """
-        )
+        """)
         timing_analysis["data_freshness"] = freshness_analysis
 
         return timing_analysis
@@ -258,8 +240,7 @@ class MarketDataEffectivenessAnalyzer:
         quality_analysis = {}
 
         # Data completeness analysis
-        completeness = self.fetch_one(
-            """
+        completeness = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_stamps,
                 COUNT(smd.cpid) as stamps_with_cache,
@@ -270,13 +251,11 @@ class MarketDataEffectivenessAnalyzer:
                 AVG(smd.data_quality_score) as avg_quality_score
             FROM StampTableV4 s
             LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
-        """
-        )
+        """)
         quality_analysis["data_completeness"] = completeness
 
         # Quality score distribution
-        quality_distribution = self.fetch_all(
-            """
+        quality_distribution = self.fetch_all("""
             SELECT 
                 CASE 
                     WHEN data_quality_score >= 9 THEN 'Excellent (9-10)'
@@ -291,13 +270,11 @@ class MarketDataEffectivenessAnalyzer:
             WHERE data_quality_score IS NOT NULL
             GROUP BY quality_category
             ORDER BY avg_score DESC
-        """
-        )
+        """)
         quality_analysis["quality_distribution"] = quality_distribution
 
         # Error rate analysis from market data sources
-        error_analysis = self.fetch_all(
-            """
+        error_analysis = self.fetch_all("""
             SELECT 
                 source_name,
                 asset_type,
@@ -307,8 +284,7 @@ class MarketDataEffectivenessAnalyzer:
             FROM market_data_sources
             GROUP BY source_name, asset_type
             ORDER BY success_rate DESC
-        """
-        )
+        """)
         quality_analysis["error_rates"] = error_analysis
 
         return quality_analysis
@@ -318,8 +294,7 @@ class MarketDataEffectivenessAnalyzer:
         performance = {}
 
         # Response time analysis from market data sources
-        response_times = self.fetch_all(
-            """
+        response_times = self.fetch_all("""
             SELECT 
                 source_name,
                 asset_type,
@@ -331,13 +306,11 @@ class MarketDataEffectivenessAnalyzer:
             WHERE api_response_time_ms > 0
             GROUP BY source_name, asset_type
             ORDER BY avg_response_time ASC
-        """
-        )
+        """)
         performance["api_response_times"] = response_times
 
         # Volume vs holder correlation (performance indicator)
-        volume_correlation = self.fetch_all(
-            """
+        volume_correlation = self.fetch_all("""
             SELECT 
                 CASE 
                     WHEN holder_count > 100 THEN 'High Holders (>100)'
@@ -352,21 +325,18 @@ class MarketDataEffectivenessAnalyzer:
             WHERE holder_count IS NOT NULL AND volume_24h_btc IS NOT NULL
             GROUP BY holder_category
             ORDER BY avg_volume DESC
-        """
-        )
+        """)
         performance["volume_holder_correlation"] = volume_correlation
 
         # Cache efficiency metrics
-        cache_efficiency = self.fetch_one(
-            """
+        cache_efficiency = self.fetch_one("""
             SELECT 
                 COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as hot_cache,
                 COUNT(CASE WHEN last_updated BETWEEN DATE_SUB(NOW(), INTERVAL 6 HOUR) AND DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as warm_cache,
                 COUNT(CASE WHEN last_updated < DATE_SUB(NOW(), INTERVAL 6 HOUR) THEN 1 END) as cold_cache,
                 COUNT(*) as total_cache
             FROM stamp_market_data
-        """
-        )
+        """)
         performance["cache_efficiency"] = cache_efficiency
 
         return performance
@@ -376,8 +346,7 @@ class MarketDataEffectivenessAnalyzer:
         multi_source_analysis = {}
 
         # Source performance comparison (including StampScan)
-        source_performance = self.fetch_all(
-            """
+        source_performance = self.fetch_all("""
             SELECT 
                 source_name,
                 COUNT(*) as total_assets,
@@ -393,13 +362,11 @@ class MarketDataEffectivenessAnalyzer:
             WHERE asset_type = 'src20'
             GROUP BY source_name
             ORDER BY avg_confidence DESC
-        """
-        )
+        """)
         multi_source_analysis["source_performance"] = source_performance
 
         # Multi-source asset coverage
-        coverage_analysis = self.fetch_all(
-            """
+        coverage_analysis = self.fetch_all("""
             SELECT 
                 asset_id,
                 COUNT(DISTINCT source_name) as source_count,
@@ -413,13 +380,11 @@ class MarketDataEffectivenessAnalyzer:
             HAVING source_count > 1  -- Only tokens with multiple sources
             ORDER BY source_count DESC, best_confidence DESC
             LIMIT 20
-        """
-        )
+        """)
         multi_source_analysis["multi_source_coverage"] = coverage_analysis
 
         # Source data comparison for same assets
-        source_comparison = self.fetch_all(
-            """
+        source_comparison = self.fetch_all("""
             SELECT 
                 mds1.asset_id,
                 mds1.source_name as source_1,
@@ -442,13 +407,11 @@ class MarketDataEffectivenessAnalyzer:
               AND mds2.price_btc IS NOT NULL
             ORDER BY price_difference_percent DESC
             LIMIT 10
-        """
-        )
+        """)
         multi_source_analysis["source_price_comparisons"] = source_comparison
 
         # Aggregation effectiveness
-        aggregation_stats = self.fetch_one(
-            """
+        aggregation_stats = self.fetch_one("""
             SELECT 
                 COUNT(DISTINCT smd.tick) as aggregated_tokens,
                 AVG(smd.data_quality_score) as avg_aggregated_quality,
@@ -457,8 +420,7 @@ class MarketDataEffectivenessAnalyzer:
                 COUNT(CASE WHEN smd.exchange_sources LIKE '%,%' THEN 1 END) as tokens_with_multiple_sources,
                 (SELECT COUNT(DISTINCT asset_id) FROM market_data_sources WHERE asset_type = 'src20') as total_source_records
             FROM src20_market_data smd
-        """
-        )
+        """)
         multi_source_analysis["aggregation_effectiveness"] = aggregation_stats
 
         return multi_source_analysis
@@ -468,8 +430,7 @@ class MarketDataEffectivenessAnalyzer:
         freshness_analysis = {}
 
         # Update frequency analysis
-        update_intervals = self.fetch_all(
-            """
+        update_intervals = self.fetch_all("""
             SELECT 
                 'src20' as asset_type,
                 COUNT(*) as total_records,
@@ -497,13 +458,11 @@ class MarketDataEffectivenessAnalyzer:
                 MAX(last_updated) as newest_record,
                 AVG(TIMESTAMPDIFF(MINUTE, last_updated, NOW())) as avg_age_minutes
             FROM stamp_market_data
-        """
-        )
+        """)
         freshness_analysis["update_intervals"] = update_intervals
 
         # Job scheduling effectiveness
-        job_patterns = self.fetch_all(
-            """
+        job_patterns = self.fetch_all("""
             SELECT 
                 DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i') as update_window,
                 COUNT(*) as updates_count,
@@ -519,13 +478,11 @@ class MarketDataEffectivenessAnalyzer:
             GROUP BY DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i')
             ORDER BY update_window DESC
             LIMIT 20
-        """
-        )
+        """)
         freshness_analysis["recent_job_patterns"] = job_patterns
 
         # Identify tokens that haven't been updated
-        stale_tokens = self.fetch_all(
-            """
+        stale_tokens = self.fetch_all("""
             SELECT 
                 tick,
                 last_updated,
@@ -544,8 +501,7 @@ class MarketDataEffectivenessAnalyzer:
             WHERE last_updated <= DATE_SUB(NOW(), INTERVAL 2 HOUR)
             ORDER BY last_updated ASC
             LIMIT 25
-        """
-        )
+        """)
         freshness_analysis["stale_tokens"] = stale_tokens
 
         return freshness_analysis
@@ -576,8 +532,7 @@ class MarketDataEffectivenessAnalyzer:
 
     def analyze_trending_stamps(self) -> Dict[str, Any]:
         """Analyze trending stamps and their data patterns."""
-        trending = self.fetch_all(
-            """
+        trending = self.fetch_all("""
             SELECT 
                 s.stamp,
                 s.cpid,
@@ -591,16 +546,14 @@ class MarketDataEffectivenessAnalyzer:
             WHERE smd.volume_24h_btc > 0
             ORDER BY smd.volume_24h_btc DESC
             LIMIT 20
-        """
-        )
+        """)
 
         return {"top_trading_stamps": trending}
 
     def analyze_batch_effectiveness(self) -> Dict[str, Any]:
         """Analyze batch processing effectiveness."""
         # Analyze update patterns to identify batch processing
-        batch_analysis = self.fetch_all(
-            """
+        batch_analysis = self.fetch_all("""
             SELECT 
                 DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i') as update_window,
                 COUNT(*) as updates_in_window,
@@ -611,8 +564,7 @@ class MarketDataEffectivenessAnalyzer:
             GROUP BY DATE_FORMAT(last_updated, '%Y-%m-%d %H:%i')
             HAVING updates_in_window > 10  -- Identify potential batch operations
             ORDER BY update_window DESC
-        """
-        )
+        """)
 
         return {"batch_update_patterns": batch_analysis}
 
@@ -1070,8 +1022,7 @@ class MarketDataEffectivenessAnalyzer:
         sales_analysis = {}
 
         # Sales activity by time period
-        sales_activity = self.fetch_one(
-            """
+        sales_activity = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_sales,
                 COUNT(DISTINCT cpid) as unique_stamps_sold,
@@ -1082,13 +1033,11 @@ class MarketDataEffectivenessAnalyzer:
                 SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 86400 THEN btc_amount END) / 100000000.0 as volume_24h_btc,
                 SUM(CASE WHEN block_time > UNIX_TIMESTAMP() - 604800 THEN btc_amount END) / 100000000.0 as volume_7d_btc
             FROM stamp_sales_history
-        """
-        )
+        """)
         sales_analysis["sales_activity"] = sales_activity
 
         # Top selling stamps by volume
-        top_stamps_volume = self.fetch_all(
-            """
+        top_stamps_volume = self.fetch_all("""
             SELECT 
                 ssh.cpid,
                 s.stamp,
@@ -1104,13 +1053,11 @@ class MarketDataEffectivenessAnalyzer:
             GROUP BY ssh.cpid, s.stamp
             ORDER BY total_volume_btc DESC
             LIMIT 20
-        """
-        )
+        """)
         sales_analysis["top_stamps_by_volume"] = top_stamps_volume
 
         # Sales distribution by type
-        sales_by_type = self.fetch_all(
-            """
+        sales_by_type = self.fetch_all("""
             SELECT 
                 sale_type,
                 COUNT(*) as sale_count,
@@ -1120,13 +1067,11 @@ class MarketDataEffectivenessAnalyzer:
             FROM stamp_sales_history
             GROUP BY sale_type
             ORDER BY sale_count DESC
-        """
-        )
+        """)
         sales_analysis["sales_by_type"] = sales_by_type
 
         # Recent sales trend
-        recent_trend = self.fetch_all(
-            """
+        recent_trend = self.fetch_all("""
             SELECT 
                 DATE(FROM_UNIXTIME(block_time)) as sale_date,
                 COUNT(*) as daily_sales,
@@ -1137,13 +1082,11 @@ class MarketDataEffectivenessAnalyzer:
             WHERE block_time > UNIX_TIMESTAMP() - 1209600  -- Last 14 days
             GROUP BY DATE(FROM_UNIXTIME(block_time))
             ORDER BY sale_date DESC
-        """
-        )
+        """)
         sales_analysis["daily_sales_trend"] = recent_trend
 
         # Active traders analysis
-        active_traders = self.fetch_one(
-            """
+        active_traders = self.fetch_one("""
             SELECT 
                 COUNT(DISTINCT buyer_address) as unique_buyers,
                 COUNT(DISTINCT seller_address) as unique_sellers,
@@ -1152,8 +1095,7 @@ class MarketDataEffectivenessAnalyzer:
                 (SELECT COUNT(DISTINCT seller_address) FROM stamp_sales_history 
                  WHERE block_time > UNIX_TIMESTAMP() - 86400) as active_sellers_24h
             FROM stamp_sales_history
-        """
-        )
+        """)
         sales_analysis["trader_activity"] = active_traders
 
         return sales_analysis
@@ -1163,8 +1105,7 @@ class MarketDataEffectivenessAnalyzer:
         stampscan_analysis = {}
 
         # StampScan overall performance
-        stampscan_stats = self.fetch_one(
-            """
+        stampscan_stats = self.fetch_one("""
             SELECT 
                 COUNT(*) as total_assets,
                 COUNT(CASE WHEN price_btc IS NOT NULL THEN 1 END) as assets_with_floor_price,
@@ -1178,13 +1119,11 @@ class MarketDataEffectivenessAnalyzer:
                 COUNT(CASE WHEN last_updated > DATE_SUB(NOW(), INTERVAL 30 MINUTE) THEN 1 END) as fresh_records
             FROM market_data_sources
             WHERE source_name = 'stampscan' AND asset_type = 'src20'
-        """
-        )
+        """)
         stampscan_analysis["stampscan_performance"] = stampscan_stats
 
         # StampScan data quality for floor prices
-        floor_price_coverage = self.fetch_one(
-            """
+        floor_price_coverage = self.fetch_one("""
             SELECT 
                 COUNT(DISTINCT asset_id) as tokens_tracked,
                 COUNT(CASE WHEN price_btc IS NOT NULL THEN 1 END) as tokens_with_floor_price,
@@ -1192,13 +1131,11 @@ class MarketDataEffectivenessAnalyzer:
                 COUNT(CASE WHEN market_cap_btc IS NOT NULL THEN 1 END) as tokens_with_market_cap
             FROM market_data_sources
             WHERE source_name = 'stampscan' AND asset_type = 'src20'
-        """
-        )
+        """)
         stampscan_analysis["floor_price_coverage"] = floor_price_coverage
 
         # Compare StampScan with other sources
-        source_comparison = self.fetch_all(
-            """
+        source_comparison = self.fetch_all("""
             SELECT 
                 mds.asset_id,
                 MAX(CASE WHEN mds.source_name = 'stampscan' THEN mds.price_btc END) as stampscan_price,
@@ -1212,8 +1149,7 @@ class MarketDataEffectivenessAnalyzer:
             GROUP BY mds.asset_id
             HAVING stampscan_price IS NOT NULL OR kucoin_price IS NOT NULL OR openstamp_price IS NOT NULL
             LIMIT 20
-        """
-        )
+        """)
         stampscan_analysis["source_data_comparison"] = source_comparison
 
         return stampscan_analysis

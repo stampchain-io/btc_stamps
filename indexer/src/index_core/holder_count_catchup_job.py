@@ -197,9 +197,7 @@ class HolderCountCatchupJob:
                         LEFT JOIN src20_market_data smd ON sv.tick = smd.tick
                         WHERE sv.op = 'DEPLOY'
                         AND sv.tick IN ({})
-                    """.format(
-                            ",".join(["%s"] * len(tokens))
-                        ),
+                    """.format(",".join(["%s"] * len(tokens))),
                         [stale_threshold] + tokens,
                     )
 
@@ -268,8 +266,7 @@ class HolderCountCatchupJob:
         try:
             with db.cursor() as cursor:
                 # Get overall stats
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT
                         COUNT(DISTINCT sv.tick) as total_tokens,
                         COUNT(DISTINCT CASE WHEN smd.tick IS NULL THEN sv.tick END) as no_market_data,
@@ -279,8 +276,7 @@ class HolderCountCatchupJob:
                     FROM SRC20Valid sv
                     LEFT JOIN src20_market_data smd ON sv.tick = smd.tick
                     WHERE sv.op = 'DEPLOY'
-                """
-                )
+                """)
 
                 stats = cursor.fetchone()
 

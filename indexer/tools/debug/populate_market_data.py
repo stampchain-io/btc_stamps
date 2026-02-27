@@ -135,15 +135,13 @@ def populate_src20_market_data():
     try:
         # Get all SRC-20 tokens from database
         with db.cursor() as cursor:
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT DISTINCT tick
                 FROM SRC20Valid
                 WHERE tick IS NOT NULL
                 AND tick != ''
                 ORDER BY tick
-            """
-            )
+            """)
 
             database_tokens = {row[0] for row in cursor.fetchall()}
 
@@ -256,8 +254,7 @@ def show_sample_data():
         with db.cursor() as cursor:
             # Sample stamp data
             print("\n=== STAMP MARKET DATA (Top 5 by volume) ===")
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT cpid, floor_price_btc, holder_count, 
                        volume_24h_btc, price_source, 
                        data_quality_score, last_updated
@@ -265,8 +262,7 @@ def show_sample_data():
                 WHERE volume_24h_btc > 0
                 ORDER BY volume_24h_btc DESC
                 LIMIT 5
-            """
-            )
+            """)
 
             results = cursor.fetchall()
             if results:
@@ -281,8 +277,7 @@ def show_sample_data():
 
             # Sample SRC-20 data
             print("\n=== SRC-20 MARKET DATA (Top 5 by market cap) ===")
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT tick, price_btc, market_cap_btc, 
                        volume_24h_btc, primary_exchange,
                        holder_count, last_updated
@@ -290,8 +285,7 @@ def show_sample_data():
                 WHERE market_cap_btc > 0
                 ORDER BY market_cap_btc DESC
                 LIMIT 5
-            """
-            )
+            """)
 
             results = cursor.fetchall()
             if results:

@@ -46,15 +46,13 @@ class DispenserMarketDataValidator:
         db = self.db_manager.connect()
         try:
             with db.cursor() as cursor:
-                cursor.execute(
-                    """
+                cursor.execute("""
                     SELECT DISTINCT cpid
                     FROM StampTableV4
                     WHERE cpid LIKE 'A%' 
                     AND LENGTH(cpid) > 15
                     AND ident NOT IN ('SRC-20', 'SRC-20 BALANCE')
-                    """
-                )
+                    """)
 
                 for row in cursor.fetchall():
                     self.cpid_cache.add(row[0])
