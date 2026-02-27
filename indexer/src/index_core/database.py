@@ -3139,9 +3139,8 @@ def initialize_tables(db):
             "creator.csv",
             config.BOOTSTRAP_CREATOR_CSV_URL,
             """
-            INSERT INTO creator (address, creator)
+            INSERT IGNORE INTO creator (address, creator)
             VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE creator = VALUES(creator)
             """,
         )
         import_bootstrap_data(
