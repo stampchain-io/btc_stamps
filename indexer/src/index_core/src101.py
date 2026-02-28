@@ -1240,15 +1240,15 @@ def update_owner_table(db, owner_updates, block_index):
                 INSERT INTO {SRC101_OWNERS_TABLE}
                 ({SRC101_OWNERS_TABLE}.index, id, last_update, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, txt_data, expire_timestamp, address_btc, address_eth, prim)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    last_update = VALUES(last_update),
-                    preowner = VALUES(preowner),
-                    owner = VALUES(owner),
-                    txt_data = VALUES(txt_data),
-                    address_btc = VALUES(address_btc),
-                    address_eth = VALUES(address_eth),
-                    prim = VALUES(prim),
-                    expire_timestamp = VALUES(expire_timestamp)
+                AS new_row ON DUPLICATE KEY UPDATE
+                    last_update = new_row.last_update,
+                    preowner = new_row.preowner,
+                    owner = new_row.owner,
+                    txt_data = new_row.txt_data,
+                    address_btc = new_row.address_btc,
+                    address_eth = new_row.address_eth,
+                    prim = new_row.prim,
+                    expire_timestamp = new_row.expire_timestamp
             """,
                 (
                     max_index + 1,

@@ -259,12 +259,12 @@ class Src20Processor:
                 INSERT INTO src20_metadata
                 (tick, tick_hash, description, x, tg, web, email, deploy_block_index, deploy_tx_hash)
                 VALUES (%(tick)s, %(tick_hash)s, %(description)s, %(x)s, %(tg)s, %(web)s, %(email)s, %(deploy_block_index)s, %(deploy_tx_hash)s)
-                ON DUPLICATE KEY UPDATE
-                description = COALESCE(VALUES(description), description),
-                x = COALESCE(VALUES(x), x),
-                tg = COALESCE(VALUES(tg), tg),
-                web = COALESCE(VALUES(web), web),
-                email = COALESCE(VALUES(email), email)
+                AS new_row ON DUPLICATE KEY UPDATE
+                description = COALESCE(new_row.description, src20_metadata.description),
+                x = COALESCE(new_row.x, src20_metadata.x),
+                tg = COALESCE(new_row.tg, src20_metadata.tg),
+                web = COALESCE(new_row.web, src20_metadata.web),
+                email = COALESCE(new_row.email, src20_metadata.email)
                 """,
                 metadata,
             )
@@ -1175,10 +1175,10 @@ def update_balance_table(db, balance_updates, block_index, block_time):
             INSERT INTO balances
             (id, address, tick, amt, locked_amt, last_update, block_time, p, tick_hash)
             VALUES (%s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s)
-            ON DUPLICATE KEY UPDATE
-                amt = amt + VALUES(amt),
-                locked_amt = VALUES(locked_amt),
-                last_update = VALUES(last_update)
+            AS new_row ON DUPLICATE KEY UPDATE
+                amt = balances.amt + new_row.amt,
+                locked_amt = new_row.locked_amt,
+                last_update = new_row.last_update
             """,
             insert_data,
         )

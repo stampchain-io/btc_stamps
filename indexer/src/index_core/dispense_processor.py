@@ -337,9 +337,9 @@ class DispenseProcessor:
                         (tx_hash, block_index, cpid, source_address, destination_address,
                          dispense_quantity, btc_amount, satoshirate, dispenser_tx_hash, block_time)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                        btc_amount = VALUES(btc_amount),
-                        satoshirate = VALUES(satoshirate)
+                        AS new_row ON DUPLICATE KEY UPDATE
+                        btc_amount = new_row.btc_amount,
+                        satoshirate = new_row.satoshirate
                     """,
                         insert_data,
                     )

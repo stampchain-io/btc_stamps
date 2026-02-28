@@ -266,7 +266,7 @@ class StampData:
         query = """
         INSERT INTO collection_stamps (collection_id, stamp)
         VALUES (UNHEX(%s), %s)
-        ON DUPLICATE KEY UPDATE collection_id=VALUES(collection_id), stamp=VALUES(stamp)
+        AS new_row ON DUPLICATE KEY UPDATE collection_id=new_row.collection_id, stamp=new_row.stamp
         """
         cursor = db.cursor()
         cursor.executemany(query, stamp_inserts)
@@ -279,7 +279,7 @@ class StampData:
         query = """
         INSERT INTO collection_creators (collection_id, creator_address)
         VALUES (UNHEX(%s), %s)
-        ON DUPLICATE KEY UPDATE collection_id=VALUES(collection_id), creator_address=VALUES(creator_address)
+        AS new_row ON DUPLICATE KEY UPDATE collection_id=new_row.collection_id, creator_address=new_row.creator_address
         """
         cursor = db.cursor()
         cursor.executemany(query, creator_inserts)

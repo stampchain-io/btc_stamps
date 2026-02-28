@@ -97,7 +97,7 @@ def update_s3_db_objects(db, filename, file_obj_md5):
 
         # Insert the new object
         cursor.execute(
-            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) " "ON DUPLICATE KEY UPDATE md5 = VALUES(md5)",
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) " "AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5",
             (id, s3_file_path, file_obj_md5),
         )
 
@@ -128,7 +128,7 @@ def add_s3_objects_to_db(db, s3_objects):
     try:
         cursor = db.cursor()
 
-        query = "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE md5 = VALUES(md5)"
+        query = "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5"
         values = [(key + obj["md5"], key, obj["md5"]) for key, obj in s3_objects.items()]
 
         # Execute the multi-insert operation

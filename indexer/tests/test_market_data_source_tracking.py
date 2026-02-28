@@ -318,9 +318,9 @@ class TestMarketDataSourceTracking:
         sql_query = execute_call[0][0]
 
         assert "ON DUPLICATE KEY UPDATE" in sql_query
-        assert "price_btc = VALUES(price_btc)" in sql_query
-        assert "volume_24h_btc = VALUES(volume_24h_btc)" in sql_query
-        assert "source_confidence = VALUES(source_confidence)" in sql_query
+        assert "price_btc = new_row.price_btc" in sql_query
+        assert "volume_24h_btc = new_row.volume_24h_btc" in sql_query
+        assert "source_confidence = new_row.source_confidence" in sql_query
 
     def test_source_confidence_tracking(self):
         """Test tracking of source confidence over time."""

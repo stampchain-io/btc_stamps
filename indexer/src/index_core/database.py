@@ -1152,10 +1152,10 @@ def insert_batch_to_temp(cursor, temp_table, balances_batch):
             f"""
             INSERT INTO {temp_table} (id, tick, tick_hash, address, amt, last_update, block_time, p)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                amt = VALUES(amt),
-                last_update = VALUES(last_update),
-                block_time = VALUES(block_time)
+            AS new_row ON DUPLICATE KEY UPDATE
+                amt = new_row.amt,
+                last_update = new_row.last_update,
+                block_time = new_row.block_time
             """,
             chunk,
         )
@@ -1878,9 +1878,9 @@ def update_src20_token_stats(db):
     query = """
         INSERT INTO src20_token_stats (tick, total_minted, holders_count)
         SELECT * FROM v_src20_token_stats
-        ON DUPLICATE KEY UPDATE
-            total_minted = VALUES(total_minted),
-            holders_count = VALUES(holders_count)
+        AS new_row ON DUPLICATE KEY UPDATE
+            total_minted = new_row.total_minted,
+            holders_count = new_row.holders_count
     """
 
     with db.cursor() as cursor:
@@ -2238,7 +2238,7 @@ def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
                 if field in market_data:
                     fields.append(db_field)
                     values.append(market_data[field])
-                    update_fields.append(f"{db_field} = VALUES({db_field})")
+                    update_fields.append(f"{db_field} = new_row.{db_field}")
 
             # Add timestamps
             fields.extend(["last_updated", "created_at"])
@@ -2253,7 +2253,7 @@ def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
             query = f"""
                 INSERT INTO stamp_market_data ({field_list})
                 VALUES ({placeholders})
-                ON DUPLICATE KEY UPDATE {update_clause}
+                AS new_row ON DUPLICATE KEY UPDATE {update_clause}
             """  # nosec
 
             cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
@@ -2320,7 +2320,7 @@ def insert_src20_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
                 if field in market_data:
                     fields.append(db_field)
                     values.append(market_data[field])
-                    update_fields.append(f"{db_field} = VALUES({db_field})")
+                    update_fields.append(f"{db_field} = new_row.{db_field}")
 
             # Add timestamps
             fields.extend(["last_updated", "created_at"])
@@ -2335,7 +2335,7 @@ def insert_src20_market_data(db: Connection, market_data: Dict[str, Any]) -> Non
             query = f"""
                 INSERT INTO src20_market_data ({field_list})
                 VALUES ({placeholders})
-                ON DUPLICATE KEY UPDATE {update_clause}
+                AS new_row ON DUPLICATE KEY UPDATE {update_clause}
             """  # nosec
 
             cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
@@ -2399,13 +2399,13 @@ def insert_stamp_holder_data(db: Connection, holder_data: Dict[str, Any]) -> Non
                     cpid, address, quantity, percentage, rank_position,
                     balance_source, last_updated, last_tx_block
                 ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
-                ON DUPLICATE KEY UPDATE
-                    quantity = VALUES(quantity),
-                    percentage = VALUES(percentage),
-                    rank_position = VALUES(rank_position),
-                    balance_source = VALUES(balance_source),
+                AS new_row ON DUPLICATE KEY UPDATE
+                    quantity = new_row.quantity,
+                    percentage = new_row.percentage,
+                    rank_position = new_row.rank_position,
+                    balance_source = new_row.balance_source,
                     last_updated = NOW(),
-                    last_tx_block = VALUES(last_tx_block)
+                    last_tx_block = new_row.last_tx_block
             """  # nosec
 
             values = (
@@ -2504,19 +2504,19 @@ def insert_market_data_source(db: Connection, source_data: Dict[str, Any]) -> No
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, NOW()
                 )
-                ON DUPLICATE KEY UPDATE
-                    price_btc = VALUES(price_btc),
-                    volume_24h_btc = VALUES(volume_24h_btc),
-                    holder_count = VALUES(holder_count),
-                    market_cap_btc = VALUES(market_cap_btc),
-                    source_confidence = VALUES(source_confidence),
-                    api_response_time_ms = VALUES(api_response_time_ms),
-                    success_rate_24h = VALUES(success_rate_24h),
-                    last_success = VALUES(last_success),
-                    last_failure = VALUES(last_failure),
-                    consecutive_failures = VALUES(consecutive_failures),
+                AS new_row ON DUPLICATE KEY UPDATE
+                    price_btc = new_row.price_btc,
+                    volume_24h_btc = new_row.volume_24h_btc,
+                    holder_count = new_row.holder_count,
+                    market_cap_btc = new_row.market_cap_btc,
+                    source_confidence = new_row.source_confidence,
+                    api_response_time_ms = new_row.api_response_time_ms,
+                    success_rate_24h = new_row.success_rate_24h,
+                    last_success = new_row.last_success,
+                    last_failure = new_row.last_failure,
+                    consecutive_failures = new_row.consecutive_failures,
                     last_updated = NOW(),
-                    update_count_24h = VALUES(update_count_24h)
+                    update_count_24h = new_row.update_count_24h
             """  # nosec
 
             values = (
@@ -3152,12 +3152,12 @@ def initialize_tables(db):
             """INSERT INTO srcbackground
             (tick, tick_hash, base64, font_size, text_color, unicode, p)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-            base64 = VALUES(base64),
-            font_size = VALUES(font_size),
-            text_color = VALUES(text_color),
-            unicode = VALUES(unicode),
-            p = VALUES(p)""",
+            AS new_row ON DUPLICATE KEY UPDATE
+            base64 = new_row.base64,
+            font_size = new_row.font_size,
+            text_color = new_row.text_color,
+            unicode = new_row.unicode,
+            p = new_row.p""",
         )
         db.commit()
         cursor.close()

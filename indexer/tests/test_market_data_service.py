@@ -597,13 +597,13 @@ class TestMarketDataBugFixes:
         sql_query = execute_call[0][0]
         sql_params = execute_call[0][1]
 
-        # Verify VALUES() function is used in UPDATE clause
+        # Verify alias syntax is used in UPDATE clause
         assert "ON DUPLICATE KEY UPDATE" in sql_query
-        assert "floor_price_btc = VALUES(floor_price_btc)" in sql_query
-        assert "volume_24h_btc = VALUES(volume_24h_btc)" in sql_query
-        assert "holder_count = VALUES(holder_count)" in sql_query
-        assert "primary_exchange = VALUES(primary_exchange)" in sql_query
-        assert "data_quality_score = VALUES(data_quality_score)" in sql_query
+        assert "floor_price_btc = new_row.floor_price_btc" in sql_query
+        assert "volume_24h_btc = new_row.volume_24h_btc" in sql_query
+        assert "holder_count = new_row.holder_count" in sql_query
+        assert "primary_exchange = new_row.primary_exchange" in sql_query
+        assert "data_quality_score = new_row.data_quality_score" in sql_query
         assert "last_updated = NOW()" in sql_query
 
         # Verify parameter count matches placeholders

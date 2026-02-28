@@ -106,7 +106,7 @@ class SalesHistoryProcessor:
                     """
                     INSERT INTO sales_history_checkpoints (checkpoint_type, checkpoint_value, last_updated)
                     VALUES (%s, %s, NOW())
-                    ON DUPLICATE KEY UPDATE checkpoint_value = VALUES(checkpoint_value), last_updated = NOW()
+                    AS new_row ON DUPLICATE KEY UPDATE checkpoint_value = new_row.checkpoint_value, last_updated = NOW()
                 """,
                     (checkpoint_type, value),
                 )

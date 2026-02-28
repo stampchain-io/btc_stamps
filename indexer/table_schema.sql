@@ -438,9 +438,9 @@ GROUP BY b.tick;
 -- Initial population of src20_token_stats
 INSERT INTO src20_token_stats (tick, total_minted, holders_count)
 SELECT * FROM v_src20_token_stats
-ON DUPLICATE KEY UPDATE
-    total_minted = VALUES(total_minted),
-    holders_count = VALUES(holders_count);
+AS new_row ON DUPLICATE KEY UPDATE
+    total_minted = new_row.total_minted,
+    holders_count = new_row.holders_count;
 
 -- =====================================================================
 -- ENHANCED MARKET DATA CACHE TABLES

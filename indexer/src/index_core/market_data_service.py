@@ -326,7 +326,7 @@ class MarketDataService:
 
                     # Build column names and update fields
                     columns = [field_mapping[f] for f in valid_fields.keys()]
-                    update_fields = [f"{col} = VALUES({col})" for col in columns]
+                    update_fields = [f"{col} = new_row.{col}" for col in columns]
 
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
@@ -334,7 +334,7 @@ class MarketDataService:
                     query = f"""
                         INSERT INTO {STAMP_MARKET_DATA_TABLE} (cpid, {', '.join(columns)}, last_updated, created_at)
                         VALUES (%s, {', '.join(['%s'] * len(columns))}, NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
+                        AS new_row ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
                     """
 
                     # Prepare values for INSERT only
@@ -428,7 +428,7 @@ class MarketDataService:
 
                     # Build column names and update fields
                     columns = [field_mapping[f] for f in valid_fields.keys()]
-                    update_fields = [f"{col} = VALUES({col})" for col in columns]
+                    update_fields = [f"{col} = new_row.{col}" for col in columns]
 
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
@@ -436,7 +436,7 @@ class MarketDataService:
                     query = f"""
                         INSERT INTO {SRC20_MARKET_DATA_TABLE} (tick, {', '.join(columns)}, last_updated, created_at)
                         VALUES (%s, {', '.join(['%s'] * len(columns))}, NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
+                        AS new_row ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
                     """
 
                     # Prepare values for INSERT only
@@ -503,7 +503,7 @@ class MarketDataService:
 
                     # Build column names and update fields
                     columns = [field_mapping[f] for f in valid_fields.keys()]
-                    update_fields = [f"{col} = VALUES({col})" for col in columns]
+                    update_fields = [f"{col} = new_row.{col}" for col in columns]
 
                     # Always update last_updated timestamp
                     update_fields.append("last_updated = NOW()")
@@ -511,7 +511,7 @@ class MarketDataService:
                     query = f"""
                         INSERT INTO {COLLECTION_MARKET_DATA_TABLE} (collection_id, {', '.join(columns)}, last_updated, created_at)
                         VALUES (UNHEX(%s), {', '.join(['%s'] * len(columns))}, NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
+                        AS new_row ON DUPLICATE KEY UPDATE {', '.join(update_fields)}
                     """
 
                     # Prepare values for INSERT only

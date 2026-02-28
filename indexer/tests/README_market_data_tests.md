@@ -72,7 +72,7 @@ poetry run pytest tests/test_market_data_service.py tests/test_market_data_jobs.
 
 ## Key Bugs Fixed
 
-1. **SQL Query Construction Error**: The `INSERT INTO ... ON DUPLICATE KEY UPDATE` queries were using incorrect parameter handling. Fixed by using `VALUES(column)` syntax.
+1. **SQL Query Construction Error**: The `INSERT INTO ... ON DUPLICATE KEY UPDATE` queries were using incorrect parameter handling. Fixed by using `AS new_row` alias syntax (MySQL 8.0.19+) to replace deprecated `VALUES(column)` function.
 
 2. **Collection ID Format Issue**: Collection IDs were being returned as binary data instead of hex strings. Fixed by using `HEX()` function in SQL queries.
 
