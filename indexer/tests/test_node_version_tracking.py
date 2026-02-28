@@ -46,7 +46,7 @@ class TestUpsertNodeVersion(unittest.TestCase):
         db.commit.assert_called_once()
 
     def test_no_change_skip(self):
-        """Same version_string should return False and not write."""
+        """Same version_string should return False, not write, but commit to release FOR UPDATE lock."""
         from index_core.database import upsert_node_version
 
         db, cursor = self._make_mock_db(fetchone_return=(42, "28.0.0"))
@@ -61,7 +61,8 @@ class TestUpsertNodeVersion(unittest.TestCase):
         # Only the SELECT, no INSERT or UPDATE
         calls = cursor.execute.call_args_list
         assert len(calls) == 1
-        db.commit.assert_not_called()
+        # Must commit to release the FOR UPDATE lock on pooled connections
+        db.commit.assert_called_once()
 
     def test_version_change_with_history(self):
         """Different version should supersede the old row and insert new."""
