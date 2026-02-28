@@ -11,7 +11,7 @@ services:
       - .env.mysql
     # environment:
     #   - MYSQL_DATABASE=${RDS_DATABASE:-btc_stamps}
-    command: --bind-address=0.0.0.0 --innodb_data_file_path=ibdata1:10M:autoextend
+    command: --bind-address=0.0.0.0 --innodb_data_file_path=ibdata1:10M:autoextend --innodb-buffer-pool-size=3G
     ports:
       - "3306:3306"
     healthcheck:
