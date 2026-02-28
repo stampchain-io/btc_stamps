@@ -2988,6 +2988,7 @@ def upsert_node_version(
         existing = cursor.fetchone()
 
         if existing and existing[1] == version_string:
+            db.commit()  # Release the FOR UPDATE lock
             return False
 
         if existing:
