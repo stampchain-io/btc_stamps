@@ -173,8 +173,21 @@ def test_rollback_tool_command_line_interface():
             mock_args.force = False  # Explicitly set force to False
             mock_parse.return_value = mock_args
 
-            # Mock the perform_complete_rollback function
-            with patch("rollback_db.perform_complete_rollback") as mock_rollback:
+            # Mock safety-check dependencies so the force=False path works without a real DB
+            mock_cursor = Mock()
+            mock_cursor.fetchone.return_value = (900000,)
+            mock_conn = Mock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_db_manager = Mock()
+            mock_db_manager.connect.return_value = mock_conn
+
+            with (
+                patch("index_core.database_manager.DatabaseManager", return_value=mock_db_manager),
+                patch("rollback_db.validate_block_number"),
+                patch("rollback_db.validate_rollback_distance"),
+                patch("rollback_db.perform_complete_rollback") as mock_rollback,
+                patch("builtins.print"),
+            ):
                 main()
                 mock_rollback.assert_called_with(12000, force=False)
 
