@@ -96,12 +96,12 @@ def test_indexer_rollback_method_integration(temp_db, clean_singleton):
             mock_db_manager_class.return_value = mock_db_manager
 
             # Mock the actual rollback operations
-            with patch("src.index_core.database.purge_block_db") as mock_purge, patch(
-                "src.index_core.database.clear_all_caches"
-            ) as mock_clear_caches, patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances, patch(
-                "src.index_core.database.rebuild_owners"
-            ) as mock_rebuild_owners, patch(
-                "src.index_core.backend.Backend"
+            with (
+                patch("src.index_core.database.purge_block_db") as mock_purge,
+                patch("src.index_core.database.clear_all_caches") as mock_clear_caches,
+                patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances,
+                patch("src.index_core.database.rebuild_owners") as mock_rebuild_owners,
+                patch("src.index_core.backend.Backend"),
             ):
 
                 # Call the indexer's rollback method
@@ -128,12 +128,12 @@ def test_bitcoin_block_rollback_not_affected():
         mock_db_manager_class.return_value = mock_db_manager
 
         # Mock reorg detection and rollback
-        with patch("src.index_core.database.purge_block_db") as mock_purge, patch(
-            "src.index_core.database.clear_all_caches"
-        ) as mock_clear_caches, patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances, patch(
-            "src.index_core.database.rebuild_owners"
-        ) as mock_rebuild_owners, patch(
-            "src.index_core.backend.Backend"
+        with (
+            patch("src.index_core.database.purge_block_db") as mock_purge,
+            patch("src.index_core.database.clear_all_caches") as mock_clear_caches,
+            patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances,
+            patch("src.index_core.database.rebuild_owners") as mock_rebuild_owners,
+            patch("src.index_core.backend.Backend"),
         ):
 
             # Simulate a Bitcoin reorg requiring rollback to block 12000
@@ -254,9 +254,13 @@ def test_fallback_state_integration_with_rollback(temp_db, clean_singleton):
             mock_db_manager.connect.return_value = mock_conn
             mock_db_manager_class.return_value = mock_db_manager
 
-            with patch("src.index_core.database.purge_block_db"), patch("src.index_core.database.clear_all_caches"), patch(
-                "src.index_core.database.rebuild_balances"
-            ), patch("src.index_core.database.rebuild_owners"), patch("src.index_core.backend.Backend"):
+            with (
+                patch("src.index_core.database.purge_block_db"),
+                patch("src.index_core.database.clear_all_caches"),
+                patch("src.index_core.database.rebuild_balances"),
+                patch("src.index_core.database.rebuild_owners"),
+                patch("src.index_core.backend.Backend"),
+            ):
                 # Perform rollback to block before fallback started
                 perform_complete_rollback(12000)
 
