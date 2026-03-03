@@ -126,6 +126,7 @@ class StampData:
     collection_onchain: Optional[bool] = None
     db: Optional[object] = None
     _lock: Optional[threading.Lock] = None
+    _cp_issuer: Optional[str] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -509,9 +510,12 @@ class StampData:
         self.locked = stamp.get("locked")
         self.divisible = stamp.get("divisible")
         self.message_index = stamp.get("message_index")
+        issuer = stamp.get("issuer")
+        if issuer:
+            self._cp_issuer = str(issuer)
 
     def update_stamp_hash_and_block_time(self):
-        self.creator = self.source
+        self.creator = self._cp_issuer if self._cp_issuer else self.source
         self.stamp_hash = create_base62_hash(self.tx_hash, str(self.block_index), 20)
         if isinstance(self.block_time, int):
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
