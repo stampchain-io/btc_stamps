@@ -97,7 +97,8 @@ def update_s3_db_objects(db, filename, file_obj_md5):
 
         # Insert the new object
         cursor.execute(
-            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) " "AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5",
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) "
+            "AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5",
             (id, s3_file_path, file_obj_md5),
         )
 

@@ -196,7 +196,8 @@ class TestAWSIntegration:
         cursor.executemany.assert_called_once()
         query, values = cursor.executemany.call_args[0]
         assert (
-            query == "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5"
+            query
+            == "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5"
         )
         # Sort values for comparison since dict ordering might vary
         assert sorted(values) == sorted(expected_values)
