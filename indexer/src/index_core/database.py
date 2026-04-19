@@ -3046,6 +3046,35 @@ def get_current_versions(db) -> List[Dict]:
         cursor.close()
 
 
+def log_reorg_event(
+    db: Connection,
+    block_index: int,
+    old_block_hash: Optional[str],
+    new_block_hash: Optional[str],
+    rollback_depth: int,
+    detection_method: str,
+) -> None:
+    """Log a blockchain reorganization event for observability."""
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT INTO reorg_events (block_index, old_block_hash, new_block_hash, rollback_depth, detection_method)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (block_index, old_block_hash, new_block_hash, rollback_depth, detection_method),
+        )
+        db.commit()
+        cursor.close()
+        logger.info(f"Logged reorg event at block {block_index} (method={detection_method})")
+    except Exception as e:
+        logger.warning(f"Failed to log reorg event (non-fatal): {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def initialize_tables(db):
     """Initialize database tables from schema file."""
     try:
@@ -3075,6 +3104,7 @@ def initialize_tables(db):
             "src20_token_stats",
             "stamp_views",
             "node_version_history",
+            "reorg_events",
         ]
 
         # Only include market data tables if the scheduler is enabled
