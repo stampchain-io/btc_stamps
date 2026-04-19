@@ -917,5 +917,22 @@ CREATE TABLE IF NOT EXISTS `node_version_history` (
 COMMENT='Tracks current and historical versions of system components for frontend consumption';
 
 -- =====================================================================
+-- REORG EVENT TRACKING
+-- =====================================================================
+-- Tracks blockchain reorganization events for observability and debugging
+
+CREATE TABLE IF NOT EXISTS `reorg_events` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `detected_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `block_index` INT NOT NULL,
+  `old_block_hash` VARCHAR(64),
+  `new_block_hash` VARCHAR(64),
+  `rollback_depth` INT NOT NULL,
+  `detection_method` VARCHAR(64) NOT NULL COMMENT 'orphan_block_check or block_already_exists',
+  INDEX `idx_block_index` (`block_index`),
+  INDEX `idx_detected_at` (`detected_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci COMMENT='Tracks blockchain reorganization events for observability';
+
+-- =====================================================================
 -- END OF SCHEMA
 -- =====================================================================

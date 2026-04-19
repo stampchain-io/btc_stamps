@@ -46,6 +46,7 @@ from index_core.database import (  # update_src20_token_stats,  # Now handled by
     insert_into_stamp_table,
     insert_transactions,
     is_prev_block_parsed,
+    log_reorg_event,
     next_tx_index,
     purge_block_db,
     rebuild_balances,
@@ -1376,7 +1377,7 @@ def follow(
                         logger.debug(f"Block {block_index} has no stamp issuances - this is normal")
 
                     # Check for orphan blocks
-                    if block_tip - block_index < 100 and not reparse_mode:
+                    if not reparse_mode:
                         requires_rollback = False
                         while True:
                             if block_index == config.BLOCK_FIRST:
@@ -1420,6 +1421,14 @@ def follow(
                                     error_message=f"Detected rollback loop at block {block_index}", block_index=block_index
                                 )
 
+                            log_reorg_event(
+                                db,
+                                block_index=block_index,
+                                old_block_hash=db_parent,
+                                new_block_hash=backend_parent,
+                                rollback_depth=0,
+                                detection_method="orphan_block_check",
+                            )
                             block_index = rollback_to_block(db, block_index, "Chain reorganization detected")
                             if cp_pipeline_instance:
                                 logger.info(f"Resetting CP pipeline after chain reorg to block {block_index}")
@@ -1517,9 +1526,31 @@ def follow(
                             difficulty,
                         )
                     except BlockAlreadyExistsError as e:
-                        logger.warning(e)
+                        logger.warning(f"Block {block_index} already exists - likely reorg. Initiating rollback. {e}")
                         db.rollback()
-                        sys.exit(f"Exiting due to block already existing. {e}")
+                        rollback_target = block_index - 1
+                        if check_rollback_loop(rollback_target):
+                            logger.error("Exiting due to rollback loop detection")
+                            handle_rollback_loop_failure(
+                                error_message=f"Detected rollback loop at block {rollback_target}",
+                                block_index=rollback_target,
+                            )
+                        log_reorg_event(
+                            db,
+                            block_index=block_index,
+                            old_block_hash=None,
+                            new_block_hash=block_hash,
+                            rollback_depth=0,
+                            detection_method="block_already_exists",
+                        )
+                        block_index = rollback_to_block(
+                            db, rollback_target, "Chain reorganization detected (block already exists)"
+                        )
+                        if cp_pipeline_instance:
+                            cp_pipeline_instance.reset(block_index)
+                        stamp_issuances_list = None
+                        time.sleep(10)
+                        continue
                     except DatabaseInsertError as e:
                         logger.error(e)
                         db.rollback()
