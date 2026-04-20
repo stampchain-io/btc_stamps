@@ -562,8 +562,9 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     stamp_mimetype, stamp_url, supply, block_time,
                     tx_hash, tx_index, ident, src_data,
                     stamp_hash, is_btc_stamp,
-                    file_hash, is_valid_base64, file_size_bytes
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    file_hash, is_valid_base64, file_size_bytes,
+                    encoding_method
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """  # nosec
 
             data = [
@@ -591,6 +592,7 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     parsed.file_hash,
                     parsed.is_valid_base64,
                     parsed.file_size_bytes,
+                    parsed.encoding_method,
                 )
                 for parsed in parsed_stamps
             ]
@@ -2720,6 +2722,18 @@ def apply_schema_updates(db, cursor):
             "indexes": [
                 ("idx_holder_calc", ["tick", "amt", "address"]),  # Optimized for holder count calculations
                 ("idx_balances_tick_amt", ["tick", "amt"]),  # Frontend team optimization
+            ],
+        },
+        "StampTableV4": {
+            "columns": [
+                (
+                    "encoding_method",
+                    "ENUM('MULTISIG', 'OLGA')",
+                    "Transaction encoding method detected during parsing",
+                ),
+            ],
+            "indexes": [
+                ("idx_encoding_method", ["encoding_method"]),
             ],
         },
     }

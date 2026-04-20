@@ -458,7 +458,7 @@ class TestStampOperations:
         args = mock_cursor.executemany.call_args[0]
         assert "INSERT INTO STAMPS" in args[0]
         assert len(args[1]) == 1  # One stamp
-        assert len(args[1][0]) == 23  # 23 fields
+        assert len(args[1][0]) == 24  # 24 fields (including encoding_method)
 
 
 class TestBalanceCalculations:

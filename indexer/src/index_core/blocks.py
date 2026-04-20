@@ -126,6 +126,7 @@ TxResult = namedtuple(
         "block_hash",
         "block_time",
         "p2wsh_data",
+        "is_olga",
     ],
 )
 
@@ -156,6 +157,13 @@ class BlockProcessor:
                     logger.error(f"🔍 DEBUG TX 95dca4dc: Data length = {len(result.data) if result.data else 0}")
                     logger.error(f"🔍 DEBUG TX 95dca4dc: Data preview = {result.data[:100] if result.data else 'None'}...")
 
+                # Derive encoding_method from parser signals
+                # Every valid stamp is either OLGA (P2WSH) or MULTISIG
+                if result.is_olga:
+                    encoding_method = "OLGA"
+                else:
+                    encoding_method = "MULTISIG"
+
                 initial_stamp_data = StampData(
                     tx_hash=result.tx_hash,
                     source=result.source,
@@ -173,6 +181,7 @@ class BlockProcessor:
                     block_time=result.block_time,
                     is_op_return=result.is_op_return,
                     p2wsh_data=result.p2wsh_data,
+                    encoding_method=encoding_method,
                 )
 
                 # DEBUG: Log before parsing

@@ -54,6 +54,7 @@ TxResult = namedtuple(
         "block_hash",
         "block_time",
         "p2wsh_data",
+        "is_olga",
     ],
 )
 
@@ -436,6 +437,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             "keyburn",
             "is_op_return",
             "p2wsh_data",
+            "is_olga",
         ],
     )
 
@@ -474,6 +476,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                 keyburn,
                 is_op_return,
                 p2wsh_data,
+                vout_info.is_olga,
             )
 
         # Handle P2WSH data chunks for SRC-20 transactions
@@ -555,10 +558,11 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
             keyburn,
             is_op_return,
             None,
+            vout_info.is_olga,
         )
 
     except (DecodeError, BTCOnlyError):
-        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None)
+        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None, False)
 
 
 def decode_checkmultisig(ctx, chunk):
@@ -614,6 +618,7 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
     keyburn = getattr(transaction_info, "keyburn", None)
     is_op_return = getattr(transaction_info, "is_op_return", None)
     p2wsh_data = getattr(transaction_info, "p2wsh_data", None)
+    is_olga = getattr(transaction_info, "is_olga", False)
 
     if block_index != util.CURRENT_BLOCK_INDEX:
         raise ValueError(f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}")
@@ -641,11 +646,12 @@ def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None
             keyburn,
             is_op_return,
             p2wsh_data,
+            is_olga,
         )
 
     else:
         # skip_logger.debug("Skipping transaction: {}".format(tx_hash))
-        return tuple(None for _ in range(11))
+        return tuple(None for _ in range(12))
 
 
 def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
@@ -687,6 +693,7 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
             keyburn,
             is_op_return,
             p2wsh_data,
+            is_olga,
         ) = list_tx(db, block_index, tx_hash, tx_hex, stamp_issuance=stamp_issuance)
 
         # Calculate fee rate for this transaction
@@ -717,11 +724,29 @@ def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
             None,
             None,
             p2wsh_data,
+            is_olga,
         )
     except Exception:
 
         return TxResult(
-            None, None, None, None, None, None, None, None, None, None, None, None, tx_hash, block_index, None, None, None
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            tx_hash,
+            block_index,
+            None,
+            None,
+            None,
+            None,
         )
 
 
