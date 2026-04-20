@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   `file_hash` varchar(255) DEFAULT NULL,
   `is_valid_base64` tinyint(1) DEFAULT NULL,
   `file_size_bytes` int DEFAULT NULL COMMENT 'Size of the decoded stamp file in bytes',
+  `encoding_method` ENUM('MULTISIG', 'OLGA') NULL
+    COMMENT 'Transaction encoding method detected during parsing',
   PRIMARY KEY (`stamp`),
   UNIQUE `tx_hash` (`tx_hash`),
   UNIQUE `stamp_hash` (`stamp_hash`),
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS `StampTableV4` (
   INDEX `idx_stamp_url_mimetype` (`stamp_url`(97), `stamp_mimetype`),
   INDEX `idx_stamp_file` (`stamp_hash`, `stamp_mimetype`, `stamp_url`(97)),
   INDEX `idx_cpid_ident` (`cpid`, `ident`),
+  INDEX `idx_encoding_method` (`encoding_method`),
   INDEX `idx_stamp_count` (`is_btc_stamp`, `ident`, `creator`(42)),
   INDEX `idx_stamp_details` (
     `stamp`,

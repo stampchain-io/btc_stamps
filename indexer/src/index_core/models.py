@@ -91,6 +91,7 @@ class StampData:
     block_time: Union[int, datetime]
     is_op_return: bool
     p2wsh_data: bytes
+    encoding_method: Optional[str] = None  # 'MULTISIG' or 'OLGA'
     stamp: Optional[int] = None
     creator: Optional[str] = None
     cpid: Optional[str] = None
