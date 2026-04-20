@@ -116,8 +116,9 @@ class TestDispenserBulkFetcherIntegration:
             second_call_time = time.time() - start_time
             assert refreshed2 is False  # Should use cache
 
-            # Second call should be much faster (cache hit)
-            assert second_call_time < first_call_time * 0.5  # At least 2x faster
+            # Cache behavior is verified by refreshed2 == False above.
+            # Timing assertions removed: both calls are sub-microsecond mocked calls,
+            # making time comparisons unreliable in CI environments.
 
             # Results should be identical
             assert dispensers1 == dispensers2
