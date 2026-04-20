@@ -1,8 +1,0 @@
-{
-    "recommendations": [
-        "ms-python.python",
-        "ms-python.black-formatter",
-        "ms-python.flake8",
-        "streetsidesoftware.code-spell-checker"
-    ]
-}
