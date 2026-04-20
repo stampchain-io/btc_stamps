@@ -36,15 +36,15 @@ logger = logging.getLogger(__name__)
 
 
 def get_db_connection():
-    """Create a database connection using environment variables."""
+    """Create a database connection using environment variables (RDS_ or MYSQL_ prefix)."""
     import pymysql
 
     return pymysql.connect(
-        host=os.environ.get("MYSQL_HOST", "localhost"),
-        port=int(os.environ.get("MYSQL_PORT", 3306)),
-        user=os.environ.get("MYSQL_USER", "root"),
-        password=os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQL_DATABASE", "btc_stamps"),
+        host=os.environ.get("RDS_HOSTNAME", os.environ.get("MYSQL_HOST", "localhost")),
+        port=int(os.environ.get("RDS_PORT", os.environ.get("MYSQL_PORT", 3306))),
+        user=os.environ.get("RDS_USER", os.environ.get("MYSQL_USER", "root")),
+        password=os.environ.get("RDS_PASSWORD", os.environ.get("MYSQL_PASSWORD", "")),
+        database=os.environ.get("RDS_DATABASE", os.environ.get("MYSQL_DATABASE", "btc_stamps")),
         charset="utf8mb4",
         autocommit=False,
     )
@@ -54,36 +54,33 @@ def phase1_sql_updates(db, dry_run=False):
     """Phase 1: Unambiguous SQL updates based on block ranges."""
     cursor = db.cursor()
 
+    # Each entry: (description, update_sql, count_where) — count_where omits encoding_method for dry-run compatibility
     updates = [
         (
             "Pre-833000: all MULTISIG",
             "UPDATE StampTableV4 SET encoding_method = 'MULTISIG' WHERE block_index < 833000 AND encoding_method IS NULL",
+            "WHERE block_index < 833000",
         ),
         (
             "keyburn=NULL after 833000: CP-originated OLGA (P2WSH)",
             "UPDATE StampTableV4 SET encoding_method = 'OLGA' WHERE keyburn IS NULL AND block_index >= 833000 AND encoding_method IS NULL",
+            "WHERE keyburn IS NULL AND block_index >= 833000",
         ),
         (
             "833000-865000, keyburn=1: all MULTISIG (OLGA didn't exist yet)",
             "UPDATE StampTableV4 SET encoding_method = 'MULTISIG' WHERE block_index >= 833000 AND block_index < 865000 AND keyburn = 1 AND encoding_method IS NULL",
+            "WHERE block_index >= 833000 AND block_index < 865000 AND keyburn = 1",
         ),
     ]
 
-    for description, sql in updates:
+    for description, update_sql, count_where in updates:
         logger.info(f"Phase 1: {description}")
         if dry_run:
-            # Count affected rows
-            count_sql = sql.replace(
-                "UPDATE StampTableV4 SET encoding_method = 'MULTISIG'", "SELECT COUNT(*) FROM StampTableV4"
-            )
-            count_sql = count_sql.replace(
-                "UPDATE StampTableV4 SET encoding_method = 'OLGA'", "SELECT COUNT(*) FROM StampTableV4"
-            )
-            cursor.execute(count_sql)
+            cursor.execute(f"SELECT COUNT(*) FROM StampTableV4 {count_where}")  # nosec
             count = cursor.fetchone()[0]
             logger.info(f"  [DRY RUN] Would update {count} rows")
         else:
-            cursor.execute(sql)
+            cursor.execute(update_sql)
             logger.info(f"  Updated {cursor.rowcount} rows")
             db.commit()
 
@@ -111,7 +108,14 @@ def phase2_rust_reparse(db, batch_size=1000, dry_run=False):
     cursor = db.cursor()
 
     # Count total stamps to process
-    cursor.execute("SELECT COUNT(*) FROM StampTableV4 WHERE block_index >= 865000 AND keyburn = 1 AND encoding_method IS NULL")
+    # Use encoding_method IS NULL if column exists, otherwise count all in range
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) FROM StampTableV4 WHERE block_index >= 865000 AND keyburn = 1 AND encoding_method IS NULL"
+        )
+    except Exception:
+        db.rollback()
+        cursor.execute("SELECT COUNT(*) FROM StampTableV4 WHERE block_index >= 865000 AND keyburn = 1")
     total = cursor.fetchone()[0]
     logger.info(f"Phase 2: {total} stamps to re-parse")
 
