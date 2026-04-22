@@ -158,17 +158,17 @@ cp indexer/.env.sample indexer/.env
 
 Choose one of these methods to run the services:
 
-##### Option 1: Using docker-compose commands
+##### Option 1: Using docker compose commands
 
 ```shell
 # Start all services
-cd docker && docker-compose up -d
+cd docker && docker compose up -d
 
 # View indexer logs
-docker-compose logs -f indexer
+docker compose logs -f indexer
 
 # Shutdown services
-docker-compose down
+docker compose down
 ```
 
 ##### Option 2: Using make commands
