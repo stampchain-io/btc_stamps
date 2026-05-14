@@ -48,7 +48,7 @@ from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, Dat
 from index_core.memory_manager import memory_manager
 from index_core.stamp_types import NO_DEPLOY, DeployResult
 
-from .fallback_state import load_failed_blocks
+from .reprocessing_queue import ReprocessingQueue
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -1283,15 +1283,17 @@ def perform_complete_rollback(block_index: int, force: bool = False) -> None:
 
         logger.info(f"✅ Complete rollback finished to block {block_index}")
 
-        # Check if we should clear fallback state
-        failed_blocks = load_failed_blocks()
-        if failed_blocks:
-            fallback_start_block = min(failed_blocks.keys())  # Get min instead of manager
-            if fallback_start_block and block_index <= fallback_start_block:
+        # Check if we should clear fallback state.
+        # Query the fallback session directly via ReprocessingQueue rather than
+        # load_failed_blocks(), which depends on util.CURRENT_BLOCK_INDEX and silently
+        # returns {} when called from the rollback CLI (CURRENT_BLOCK_INDEX is None there).
+        fallback_start_block = ReprocessingQueue.get_instance().get_oldest_failed_block()
+        if fallback_start_block:
+            if block_index <= fallback_start_block:
                 logger.info(f"Clearing fallback state (started at block {fallback_start_block})...")
                 from .fallback_state import clear_fallback_state
 
-                clear_fallback_state(fallback_start_block)  # Or clear_all_fallbacks() if available
+                clear_fallback_state(fallback_start_block)
             else:
                 logger.info(f"Note: Fallback mode is active (started at block {fallback_start_block})")
                 logger.info(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")

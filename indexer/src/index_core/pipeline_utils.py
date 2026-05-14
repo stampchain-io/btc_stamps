@@ -904,11 +904,40 @@ class CPBlocksPipeline:
             try:
                 validate_block_number(target_block, "rollback target")
 
-                # Get current block for distance validation
-                current_block = backend_instance.getblockcount()
-                validate_rollback_distance(current_block, target_block)
+                # Use the indexer's last-processed block (not the bitcoin tip) for the
+                # distance check. The safety bound is about how much *indexed state* we
+                # are discarding — bitcoin advancing while the indexer was offline is
+                # irrelevant and would spuriously trip the limit after long downtime.
+                # Fall back to the bitcoin tip only if the DB height is unavailable.
+                from index_core.database import last_db_index
+                from index_core.database_manager import DatabaseManager
 
-                log_safety_check(f"Rollback validated: current={current_block}, target={target_block}")
+                try:
+                    db_manager = DatabaseManager()
+                    db = db_manager.connect()
+                    try:
+                        indexer_block = last_db_index(db)
+                    finally:
+                        db.close()
+                except Exception as db_err:
+                    logger.warning(
+                        f"Could not read indexer height for rollback distance check, "
+                        f"falling back to bitcoin tip: {db_err}"
+                    )
+                    indexer_block = backend_instance.getblockcount()
+
+                # If the DB is already at or below the target, the rollback is a no-op
+                # for state purposes; skip the distance check rather than tripping it.
+                if indexer_block <= target_block:
+                    log_safety_check(
+                        f"Rollback distance check skipped: indexer already at {indexer_block} "
+                        f"(target={target_block})"
+                    )
+                else:
+                    validate_rollback_distance(indexer_block, target_block)
+                    log_safety_check(
+                        f"Rollback validated: indexer={indexer_block}, target={target_block}"
+                    )
             except ReprocessSafetyError as e:
                 logger.error(f"SAFETY VIOLATION: Cannot perform rollback: {e}")
                 raise RuntimeError(f"Safety check failed: {e}")
