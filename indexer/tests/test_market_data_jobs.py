@@ -406,8 +406,13 @@ class TestMarketDataJobScheduler:
                     # Also verify STAMP special handling (always processed)
                     assert "STAMP" in processed_ticks  # STAMP is always added
 
+    @patch("config.ENABLE_KUCOIN_API", True)
     def test_stamp_kucoin_case_matching(self):
-        """Test that STAMP token matches KuCoin exchange mapping regardless of case."""
+        """Test that STAMP token matches KuCoin exchange mapping regardless of case.
+
+        ENABLE_KUCOIN_API defaults to False in production (KuCoin delisted
+        SRC20 pairs); force-enable to exercise the KuCoin matching path.
+        """
         from index_core.src20_worker import SRC20Worker
 
         worker = SRC20Worker()

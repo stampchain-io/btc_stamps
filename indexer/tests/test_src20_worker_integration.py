@@ -30,6 +30,13 @@ class TestSRC20WorkerIntegration(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        # These tests cover the KuCoin code path with mocked API calls.
+        # ENABLE_KUCOIN_API defaults to False in production (KuCoin delisted
+        # the SRC20 trading pairs), so force-enable it here.
+        self._kucoin_patcher = patch("config.ENABLE_KUCOIN_API", True)
+        self._kucoin_patcher.start()
+        self.addCleanup(self._kucoin_patcher.stop)
+
         self.worker = SRC20Worker()
 
         # Mock successful KuCoin API responses

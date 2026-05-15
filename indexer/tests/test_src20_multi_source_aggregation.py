@@ -147,8 +147,13 @@ class TestSRC20MultiSourceAggregation:
         incomplete_confidence = self.worker._calculate_source_confidence("openstamp", incomplete_data)
         assert incomplete_confidence == 8.5  # 8.0 base + 0.5 (holders)
 
+    @patch("config.ENABLE_KUCOIN_API", True)
     def test_process_src20_market_data_multi_source_flow(self):
-        """Test the complete multi-source flow in process_src20_market_data."""
+        """Test the complete multi-source flow in process_src20_market_data.
+
+        ENABLE_KUCOIN_API defaults to False in production (KuCoin delisted
+        SRC20 pairs); force-enable to exercise the multi-source path.
+        """
         with patch.object(self.worker, "_fetch_kucoin_data") as mock_kucoin:
             with patch.object(self.worker, "_fetch_openstamp_data") as mock_openstamp:
                 with patch.object(self.worker, "_fetch_stampscan_data") as mock_stampscan:
