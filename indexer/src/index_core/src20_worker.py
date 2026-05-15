@@ -1562,11 +1562,22 @@ class SRC20Worker:
                 if btc_usdt_rate:
                     aggregated["price_usd"] = float(price_btc_val) * btc_usdt_rate
 
-            # Sum volumes (different exchanges = additive volume)
+            # Sum volumes (different exchanges = additive volume).
+            # When sources are reachable but none report 24h volume (e.g. KuCoin
+            # returns "Unsupported trading pair", StampScan omits sum_1d), default
+            # to 0 if we still have a price — that's the truthful interpretation:
+            # the market exists but observed no 24h trades. The downstream
+            # validator strips None volumes, which breaks API consumers and
+            # integration tests that expect volume_24h_btc to be present
+            # whenever price_btc is.
             if volume_btc_values:
                 aggregated["volume_24h_btc"] = sum(volume_btc_values)
+            elif aggregated.get("price_btc") is not None:
+                aggregated["volume_24h_btc"] = 0.0
             if volume_usd_values:
                 aggregated["volume_24h_usd"] = sum(volume_usd_values)
+            elif aggregated.get("price_usd") is not None:
+                aggregated["volume_24h_usd"] = 0.0
 
             # Use highest confidence holder count
             if holder_counts:
