@@ -380,7 +380,7 @@ class TestRobustAggregationIntegration:
         """Set up test fixtures."""
         self.worker = SRC20Worker()
 
-    @patch("config.ENABLE_KUCOIN_API", True)
+    @patch("index_core.src20_worker.config.ENABLE_KUCOIN_API", True)
     def test_complete_aggregation_flow_with_all_features(self):
         """Test complete aggregation with median, conflict resolution, and logging.
 
