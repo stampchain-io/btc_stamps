@@ -214,6 +214,18 @@ class DatabaseManager:
             self._initialize_pool()
             self.__class__._initialized = True
 
+    @classmethod
+    def _reset_for_testing(cls) -> None:
+        """Clear singleton state. Test-only — production code must not call this."""
+        with cls._singleton_lock:
+            if cls._instance is not None and getattr(cls._instance, "pool", None) is not None:
+                try:
+                    cls._instance.pool.close_all()
+                except Exception:
+                    pass
+            cls._instance = None
+            cls._initialized = False
+
     def _initialize_pool(self):
         """Initialize the connection pool with parameters from environment."""
         # Skip pool initialization if we're in test mode with mock DB
