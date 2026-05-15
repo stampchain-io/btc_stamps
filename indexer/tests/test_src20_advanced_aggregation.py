@@ -380,8 +380,13 @@ class TestRobustAggregationIntegration:
         """Set up test fixtures."""
         self.worker = SRC20Worker()
 
+    @patch("config.ENABLE_KUCOIN_API", True)
     def test_complete_aggregation_flow_with_all_features(self):
-        """Test complete aggregation with median, conflict resolution, and logging."""
+        """Test complete aggregation with median, conflict resolution, and logging.
+
+        ENABLE_KUCOIN_API defaults to False in production (KuCoin delisted
+        SRC20 pairs); force-enable to exercise the all-sources path.
+        """
         with patch.object(self.worker, "_fetch_kucoin_data") as mock_kucoin:
             with patch.object(self.worker, "_fetch_openstamp_data") as mock_openstamp:
                 with patch.object(self.worker, "_fetch_stampscan_data") as mock_stampscan:

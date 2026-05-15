@@ -110,10 +110,18 @@ def mock_reliability_tracker():
 
 @pytest.fixture
 def src20_worker():
-    """Create a fresh SRC20Worker instance for testing."""
+    """Create a fresh SRC20Worker instance for testing.
+
+    These tests cover the mocked KuCoin code path. ENABLE_KUCOIN_API defaults
+    to False in production (KuCoin delisted SRC20 pairs), so force-enable it
+    for the duration of any test using this fixture.
+    """
+    from unittest.mock import patch
+
     from index_core.src20_worker import SRC20Worker
 
-    return SRC20Worker()
+    with patch("config.ENABLE_KUCOIN_API", True):
+        yield SRC20Worker()
 
 
 @pytest.fixture
