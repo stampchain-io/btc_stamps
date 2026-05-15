@@ -195,8 +195,14 @@ class TestDatabaseManager:
         os.environ["MOCK_DB"] = "1"
         os.environ["USE_TEST_DB"] = "1"
 
+        # DatabaseManager is a process-wide singleton; clear it so each test
+        # exercises a fresh init path instead of reusing state from prior tests.
+        DatabaseManager._reset_for_testing()
+
     def teardown_method(self):
         """Clean up after each test"""
+        DatabaseManager._reset_for_testing()
+
         # Restore original environment values
         if self._original_mock_db is not None:
             os.environ["MOCK_DB"] = self._original_mock_db
