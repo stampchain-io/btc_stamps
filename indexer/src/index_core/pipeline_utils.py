@@ -921,8 +921,7 @@ class CPBlocksPipeline:
                         db.close()
                 except Exception as db_err:
                     logger.warning(
-                        f"Could not read indexer height for rollback distance check, "
-                        f"falling back to bitcoin tip: {db_err}"
+                        f"Could not read indexer height for rollback distance check, " f"falling back to bitcoin tip: {db_err}"
                     )
                     indexer_block = backend_instance.getblockcount()
 
@@ -930,14 +929,11 @@ class CPBlocksPipeline:
                 # for state purposes; skip the distance check rather than tripping it.
                 if indexer_block <= target_block:
                     log_safety_check(
-                        f"Rollback distance check skipped: indexer already at {indexer_block} "
-                        f"(target={target_block})"
+                        f"Rollback distance check skipped: indexer already at {indexer_block} " f"(target={target_block})"
                     )
                 else:
                     validate_rollback_distance(indexer_block, target_block)
-                    log_safety_check(
-                        f"Rollback validated: indexer={indexer_block}, target={target_block}"
-                    )
+                    log_safety_check(f"Rollback validated: indexer={indexer_block}, target={target_block}")
             except ReprocessSafetyError as e:
                 logger.error(f"SAFETY VIOLATION: Cannot perform rollback: {e}")
                 raise RuntimeError(f"Safety check failed: {e}")
