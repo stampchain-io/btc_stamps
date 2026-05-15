@@ -1,11 +1,96 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+# Dependabot configuration for stampchain-io/btc_stamps
+# PRs flow: dependabot -> dev (with branch protection review)
+#
+# Ecosystems covered:
+#   - pip            Poetry-managed indexer/pyproject.toml
+#   - docker         indexer/Dockerfile (python base image)
+#   - github-actions .github/workflows/*
+#
+# Supply-chain defense: 7-day cooldown on every ecosystem catches yanked-
+# after-publish compromised packages (npm shai-hulud / nx / @ctrl/tinycolor,
+# tj-actions/changed-files). Per Dependabot spec, security advisory updates
+# BYPASS cooldown, so CVE-driven bumps still flow through immediately.
 
 version: 2
 updates:
-  - package-ecosystem: "pip" # See documentation for possible values
-    directory: "/indexer" # Location of package manifests
+  # Python dependencies — Poetry-managed under indexer/
+  - package-ecosystem: "pip"
+    directory: "/indexer"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      # Group Python tooling updates together (black/flake8/mypy/bandit/pytest stack)
+      python-tooling:
+        patterns:
+          - "black"
+          - "isort"
+          - "flake8*"
+          - "mypy*"
+          - "bandit*"
+          - "pytest*"
+          - "coverage*"
+      # Group minor + patch updates for stability
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Major version bumps need manual review (breaking-change risk)
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Docker base images — indexer Dockerfile uses python:${PYTHON_VERSION}-slim.
+  # Dependabot tracks the ARG and proposes minor/patch bumps to the python tag.
+  - package-ecosystem: "docker"
+    directory: "/indexer"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps(docker)"
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+
+  # GitHub Actions — tj-actions/changed-files compromise (March 2025) made this
+  # a real supply-chain vector; cooldown is essential here.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
