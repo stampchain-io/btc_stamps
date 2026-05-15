@@ -115,12 +115,16 @@ def src20_worker():
     These tests cover the mocked KuCoin code path. ENABLE_KUCOIN_API defaults
     to False in production (KuCoin delisted SRC20 pairs), so force-enable it
     for the duration of any test using this fixture.
+
+    Patch via the consumer's bound reference (index_core.src20_worker.config)
+    so the patch survives other tests that may swap sys.modules["config"] via
+    reload_config() in test_config.py.
     """
     from unittest.mock import patch
 
     from index_core.src20_worker import SRC20Worker
 
-    with patch("config.ENABLE_KUCOIN_API", True):
+    with patch("index_core.src20_worker.config.ENABLE_KUCOIN_API", True):
         yield SRC20Worker()
 
 
