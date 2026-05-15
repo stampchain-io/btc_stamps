@@ -72,6 +72,9 @@ jobs:
           poetry config virtualenvs.in-project true
           poetry install
         working-directory: ./indexer
+      - name: Verify poetry.lock is in sync with pyproject.toml
+        working-directory: ./indexer
+        run: poetry check --lock
       - name: Check for debug flags
         run: |
           if grep -qi "DEBUG_SKIP_REBUILD_BALANCES = True" ./indexer/.env; then
