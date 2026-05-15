@@ -183,14 +183,36 @@ class ConnectionPool:
 
 
 class DatabaseManager:
+    # Process-wide singleton: every `DatabaseManager()` call returns the same
+    # instance so the connection pool is shared across all components. Without
+    # this, each of the ~17 callers spun up its own ConnectionPool with its own
+    # min_connections eager-init, multiplying total connections by ~17x and
+    # exhausting RDS max_connections.
+    _instance: Optional["DatabaseManager"] = None
+    _singleton_lock = threading.Lock()
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._singleton_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        self.max_retries = 5
-        self.retry_delay = 5
-        self.connect_timeout = 30
-        self.read_timeout = 3600
-        self.write_timeout = 3600
-        self.pool = None
-        self._initialize_pool()
+        if self.__class__._initialized:
+            return
+        with self.__class__._singleton_lock:
+            if self.__class__._initialized:
+                return
+            self.max_retries = 5
+            self.retry_delay = 5
+            self.connect_timeout = 30
+            self.read_timeout = 3600
+            self.write_timeout = 3600
+            self.pool = None
+            self._initialize_pool()
+            self.__class__._initialized = True
 
     def _initialize_pool(self):
         """Initialize the connection pool with parameters from environment."""
@@ -224,7 +246,11 @@ class DatabaseManager:
             "charset": "utf8mb4",
             "autocommit": False,
             "client_flag": pymysql.constants.CLIENT.MULTI_STATEMENTS,
-            "init_command": "SET SESSION wait_timeout=28800, max_execution_time=3600000",
+            # Do NOT override SESSION wait_timeout — let the server's global
+            # wait_timeout reap idle pool connections. Previously this forced
+            # 8h per-session, which made idle/leaked connections immortal until
+            # the indexer process restarted.
+            "init_command": "SET SESSION max_execution_time=3600000",
         }
 
         return params
@@ -247,7 +273,10 @@ class DatabaseManager:
             {
                 "read_timeout": 86400,
                 "write_timeout": 86400,
-                "init_command": "SET SESSION wait_timeout=86400, max_execution_time=8640000",
+                # Long-running ops legitimately need longer than the default
+                # server wait_timeout. 2h covers reparse/snapshot/rebuild paths
+                # without making leaks immortal (was 24h).
+                "init_command": "SET SESSION wait_timeout=7200, max_execution_time=8640000",
             }
         )
         return pymysql.connect(**params)
