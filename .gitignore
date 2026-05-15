@@ -57,6 +57,9 @@ knowledge_memory.jsonl
 .claude/commands/
 .claude/agents/
 indexer/.claude
+# Transient agent runtime state (heartbeat.txt, session-info.json, etc.) —
+# never commit; was previously ingested by auto-commit hook before this rule.
+.claude-remote/
 
 # GitHub instructions (developer-local)
 .github/instructions/
