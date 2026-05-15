@@ -195,8 +195,11 @@ except Exception:
 # StampScan API configuration
 STAMPSCAN_BASE_URL = os.environ.get("STAMPSCAN_BASE_URL", "https://api.stampscan.xyz")
 
-# Kucoin API configuration
-ENABLE_KUCOIN_API = os.getenv("ENABLE_KUCOIN_API", "true").lower() == "true"
+# Kucoin API configuration. Default off: KuCoin delisted the SRC20 trading
+# pairs (STAMP-USDT, KEVIN-USDT) so live calls return "Unsupported trading
+# pair" and only pollute source_data with all-None entries. Set
+# ENABLE_KUCOIN_API=true to re-enable if KuCoin relists.
+ENABLE_KUCOIN_API = os.getenv("ENABLE_KUCOIN_API", "false").lower() == "true"
 
 # BitMart API configuration
 ENABLE_BITMART_API = os.getenv("ENABLE_BITMART_API", "false").lower() == "true"
