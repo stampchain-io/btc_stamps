@@ -2029,12 +2029,41 @@ def follow(
                 else:
                     time.sleep(error_cooldown)
 
-                # Try to reconnect to database
-                try:
-                    db = check_db_connection(db)
-                except Exception as reconnect_error:
-                    logger.error(f"Failed to reconnect to database: {reconnect_error}")
-                    raise
+                # Try to reconnect to database with extended backoff.
+                # RDS reboots / storage-full events / failovers can knock the DB
+                # offline for several minutes; we want to ride through them
+                # rather than exit the process and require manual restart.
+                # check_db_connection() already retries 5x with short delays
+                # (~50s total). Once that fails, we keep retrying here with
+                # capped exponential backoff until either RDS comes back or we
+                # hit MAX_DB_OUTAGE_SECONDS (default 30 min).
+                max_outage_seconds = int(os.environ.get("MAX_DB_OUTAGE_SECONDS", "1800"))
+                reconnect_start = time.time()
+                backoff = 5
+                while True:
+                    if server.shutdown_flag.is_set():
+                        # External shutdown takes precedence over retry.
+                        raise RuntimeError("Shutdown requested during DB reconnect")
+                    try:
+                        db = check_db_connection(db)
+                        elapsed = time.time() - reconnect_start
+                        if elapsed > 5:
+                            logger.info(f"Database reconnected after {elapsed:.1f}s outage")
+                        break
+                    except Exception as reconnect_error:
+                        elapsed = time.time() - reconnect_start
+                        if elapsed >= max_outage_seconds:
+                            logger.error(
+                                f"Database unavailable for {elapsed:.0f}s "
+                                f"(>= MAX_DB_OUTAGE_SECONDS={max_outage_seconds}); giving up"
+                            )
+                            raise
+                        logger.warning(
+                            f"DB still unavailable ({reconnect_error}); waiting {backoff}s and retrying "
+                            f"(outage so far: {elapsed:.0f}s, cap: {max_outage_seconds}s)"
+                        )
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2, 60)  # cap per-attempt sleep at 60s
 
             except CriticalBlockFetchError as e:
                 # Handle critical fetch errors that should halt execution
