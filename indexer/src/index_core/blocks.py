@@ -2062,7 +2062,11 @@ def follow(
                             f"DB still unavailable ({reconnect_error}); waiting {backoff}s and retrying "
                             f"(outage so far: {elapsed:.0f}s, cap: {max_outage_seconds}s)"
                         )
-                        time.sleep(backoff)
+                        # Use shutdown_flag.wait() instead of time.sleep() so SIGTERM
+                        # interrupts the wait immediately — a 60s blocking sleep would
+                        # otherwise delay clean shutdown by up to one backoff window.
+                        if server.shutdown_flag.wait(timeout=backoff):
+                            raise RuntimeError("Shutdown requested during DB reconnect wait")
                         backoff = min(backoff * 2, 60)  # cap per-attempt sleep at 60s
 
             except CriticalBlockFetchError as e:
