@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# indexer-logs — attach to a tmux session that live-tails the indexer's journald output.
+#
+# Same UX as the previous `poetry run indexer` foreground tail, except the
+# underlying indexer process is the systemd-supervised btc-stamps-indexer
+# service. Detaching from or closing this tmux session does NOT stop the
+# indexer; systemd owns the process lifecycle.
+#
+# Inside the session:
+#   Ctrl-b d        detach (indexer keeps running, session persists)
+#   q               quit journalctl (then session closes; indexer untouched)
+#   PgUp / PgDn     scroll history (tmux copy-mode: Ctrl-b [ then PgUp)
+#
+# Outside the session — manage the indexer itself:
+#   sudo systemctl status  btc-stamps-indexer
+#   sudo systemctl restart btc-stamps-indexer
+#   sudo systemctl stop    btc-stamps-indexer    # e.g. before branch switch
+#   sudo systemctl start   btc-stamps-indexer
+#   sudo systemctl reset-failed btc-stamps-indexer   # clear restart-burst lockout
+#
+# Branch switch:
+#   sudo systemctl stop btc-stamps-indexer
+#   cd /home/ubuntu/btc_stamps && git checkout <branch> && git pull
+#   cd indexer && poetry install
+#   sudo systemctl start btc-stamps-indexer
+#   indexer-logs
+
+set -euo pipefail
+
+SESSION="indexer-logs"
+UNIT="btc-stamps-indexer"
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "ERROR: tmux is not installed. Falling back to direct journalctl tail." >&2
+  echo "       Install tmux with: sudo apt-get install tmux" >&2
+  exec journalctl -u "$UNIT" -f -n 500 --output=cat
+fi
+
+if ! systemctl list-unit-files "${UNIT}.service" >/dev/null 2>&1; then
+  echo "ERROR: systemd unit '${UNIT}.service' is not installed." >&2
+  echo "       See /home/ubuntu/btc_stamps/ops/INDEXER_SUPERVISION.md" >&2
+  exit 1
+fi
+
+if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux new-session -d -s "$SESSION" \
+    "journalctl -u '$UNIT' -f -n 500 --output=cat"
+fi
+
+exec tmux attach -t "$SESSION"
