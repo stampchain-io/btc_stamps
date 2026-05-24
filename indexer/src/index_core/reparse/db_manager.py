@@ -6,6 +6,8 @@ import pymysql
 from pymysql.connections import Connection
 from pymysql.cursors import Cursor, DictCursor
 
+from index_core.database_manager import _apply_socket_keepalive
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +80,7 @@ class ReparseDBManager:
 
             # Connect to existing database
             self.connection = pymysql.connect(**params)
+            _apply_socket_keepalive(self.connection)
 
             # Create temporary tables
             with self.connection.cursor() as cursor:
