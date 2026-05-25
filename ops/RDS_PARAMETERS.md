@@ -23,9 +23,9 @@ operations like `OPTIMIZE TABLE` don't hit a quiet behavioral gap.
 
 ## Operational alarms
 
-The `stampminter` SNS topic
-(`arn:aws:sns:us-east-1:947253282047:stampminter`) receives SMS + email for
-existing RDS alarms. New alarms added in this PR:
+CloudWatch alarms on the production RDS instance route to the existing
+ops SNS topic (SMS + email). Topic ARN and subscriber list are managed
+out-of-band (see internal ops runbook). New alarms added in this PR:
 
 - `stamps-4-storage-low` — `FreeStorageSpace` < 10 GB
 - `stamps-4-database-connections-very-high` — `DatabaseConnections` > 500
