@@ -3,6 +3,7 @@
 import logging
 import os
 import queue
+import socket
 import threading
 import time
 from typing import Dict, Optional
@@ -12,6 +13,29 @@ from pymysql.connections import Connection
 from pymysql.cursors import Cursor
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_socket_keepalive(connection: Connection) -> None:
+    """Enable TCP keepalive on a pymysql connection so the kernel detects
+    a dead RDS endpoint within minutes instead of waiting for the default
+    ~2-hour Linux idle timeout. Without this, a worker mid-recv() when RDS
+    is killed (e.g. storage-full shutdown) can hang on the dead socket
+    long past the application read_timeout.
+    """
+    try:
+        sock = connection._sock  # type: ignore[attr-defined]  # pymysql doesn't expose this in stubs
+        if sock is None:
+            return
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        # Idle 60s → first probe; probes every 10s × 6 → ~2 min to FIN a dead peer.
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+        if hasattr(socket, "TCP_KEEPINTVL"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+        if hasattr(socket, "TCP_KEEPCNT"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+    except Exception as e:
+        logger.debug(f"Could not apply TCP keepalive to connection: {e}")
 
 
 class PooledConnection:
@@ -65,6 +89,7 @@ class ConnectionPool:
         """Create a new database connection."""
         try:
             connection = pymysql.connect(**self.connection_params)
+            _apply_socket_keepalive(connection)
             with self._lock:
                 self._active_connections[id(connection)] = connection
             return connection
@@ -78,11 +103,13 @@ class ConnectionPool:
             # Try to get a connection from the pool
             connection = self._pool.get(timeout=self.timeout)
 
-            # Verify the connection is still alive
+            # Verify the connection is still alive. Pre-ping with a tight
+            # timeout so a half-dead socket (e.g. RDS killed without sending
+            # RST) doesn't hang the borrower for the full read_timeout.
             try:
-                connection.ping(reconnect=True)
-            except Exception:
-                # Connection is dead, remove it and create a new one
+                connection.ping(reconnect=False)
+            except Exception as e:
+                logger.info(f"Pool: evicting stale connection ({e}); reconnecting")
                 self._remove_connection(connection)
                 connection = self._create_connection()
 
@@ -108,11 +135,14 @@ class ConnectionPool:
             return
 
         try:
-            # Verify the connection is still usable
-            connection.ping(reconnect=True)
+            # Verify the connection is still usable before returning to pool.
+            # reconnect=False — if the socket is dead we'd rather evict than
+            # block the returner on a re-handshake; the next borrower will
+            # create a fresh connection via _create_connection().
+            connection.ping(reconnect=False)
             self._pool.put(connection, timeout=self.timeout)
         except Exception as e:
-            logger.debug(f"Connection ping failed: {str(e)}")
+            logger.info(f"Pool: ping failed on return ({e}); evicting")
             self._remove_connection(connection)
 
     def _remove_connection(self, connection: Connection):
@@ -208,8 +238,13 @@ class DatabaseManager:
             self.max_retries = 5
             self.retry_delay = 5
             self.connect_timeout = 30
-            self.read_timeout = 3600
-            self.write_timeout = 3600
+            # Pool connections handle short queries (market data, lookups,
+            # block-loop writes). A 1-hour read_timeout used to mask dead
+            # sockets — when RDS was killed mid-recv(), workers hung up to
+            # an hour. 5 min covers every legitimate pool query; long ops
+            # (reparse, rebuild, sales_history) use get_long_running_connection().
+            self.read_timeout = int(os.environ.get("DB_READ_TIMEOUT", "300"))
+            self.write_timeout = int(os.environ.get("DB_WRITE_TIMEOUT", "300"))
             self.pool = None
             self._initialize_pool()
             self.__class__._initialized = True
@@ -291,7 +326,9 @@ class DatabaseManager:
                 "init_command": "SET SESSION wait_timeout=7200, max_execution_time=8640000",
             }
         )
-        return pymysql.connect(**params)
+        connection = pymysql.connect(**params)
+        _apply_socket_keepalive(connection)
+        return connection
 
     def connect(self) -> Connection:
         """Get a connection from the pool with retries."""
