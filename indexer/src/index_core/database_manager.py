@@ -23,7 +23,7 @@ def _apply_socket_keepalive(connection: Connection) -> None:
     long past the application read_timeout.
     """
     try:
-        sock = connection._sock  # noqa: SLF001 — pymysql doesn't expose this
+        sock = connection._sock  # type: ignore[attr-defined]  # pymysql doesn't expose this in stubs
         if sock is None:
             return
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)

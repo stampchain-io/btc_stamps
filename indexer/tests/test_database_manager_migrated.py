@@ -213,8 +213,8 @@ class TestDatabaseManagerMigrated:
         assert db_manager.max_retries == 5
         assert db_manager.retry_delay == 5
         assert db_manager.connect_timeout == 30
-        assert db_manager.read_timeout == 3600
-        assert db_manager.write_timeout == 3600
+        assert db_manager.read_timeout == 300
+        assert db_manager.write_timeout == 300
 
     def test_database_manager_mock_mode(self):
         """Test DatabaseManager behavior in mock mode."""
