@@ -423,6 +423,22 @@ CP_MAX_RETRIES = int(os.environ.get("CP_MAX_RETRIES", "5"))
 CP_BASE_DELAY = int(os.environ.get("CP_BASE_DELAY", "1"))
 CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "75"))  # Increased for better throughput
 
+# Per-node request budgets (requests/second). The CP maintainer has confirmed
+# there is no application-level rate limit on api.counterparty.io (see GH
+# issue #2394) — the 429s we see come from the CDN/edge layer in front of
+# the public endpoint. Defaults are intentionally conservative; tune up in
+# prod after observing 429 rates.
+CP_PUBLIC_API_LIMIT = float(os.environ.get("CP_PUBLIC_API_LIMIT", "5"))  # req/s when hitting api.counterparty.io
+CP_LOCAL_NODE_LIMIT = float(os.environ.get("CP_LOCAL_NODE_LIMIT", "50"))  # req/s when hitting a local CP node
+# Cap on concurrent in-flight CP requests across all worker tasks. Without
+# this, asyncio.gather() in _fetch_blocks_range_async can burst 100+
+# simultaneous fetches during initial sync.
+CP_MAX_CONCURRENT = int(os.environ.get("CP_MAX_CONCURRENT", "4"))
+# Testing override: when true, force-route every CP call to the public
+# api.counterparty.io endpoint regardless of local-node health. Used to
+# validate rate-limit behavior in non-prod environments.
+FORCE_PUBLIC_CP_API = os.environ.get("FORCE_PUBLIC_CP_API", "false").lower() == "true"
+
 
 SRC_VALIDATION_API1 = "https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconciliation/balances_hash?block_height="
 SRC_VALIDATION_API2 = (

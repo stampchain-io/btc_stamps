@@ -76,30 +76,83 @@ class RateLimiter:
         self.last_call_time = 0.0
         self._lock = threading.Lock()
 
+    def _compute_wait(self) -> float:
+        """Compute required wait (called under lock). Updates last_call_time
+        as if the wait will be honored — so concurrent callers serialize."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_call_time
+        required_wait = self.min_interval - time_since_last
+        if required_wait > 0:
+            self.last_call_time = current_time + required_wait
+            return required_wait
+        self.last_call_time = current_time
+        return 0.0
+
     def acquire(self, tokens: float = 1.0) -> float:
-        """
-        Acquire permission to proceed, with rate limiting.
-
-        Args:
-            tokens: Number of tokens to acquire (affects wait time proportionally)
-
-        Returns:
-            The time waited in seconds before being allowed to proceed
-        """
-        wait_time = 0.0
+        """Blocking acquire — use from sync code."""
         with self._lock:
-            current_time = time.time()
-            time_since_last = current_time - self.last_call_time
-            required_wait = (tokens * self.min_interval) - time_since_last
-
-            if required_wait > 0:
-                wait_time = required_wait
-                time.sleep(required_wait)
-                self.last_call_time = current_time + required_wait
-            else:
-                self.last_call_time = current_time
-
+            wait_time = self._compute_wait() * tokens
+        if wait_time > 0:
+            time.sleep(wait_time)
         return wait_time
+
+    async def acquire_async(self, tokens: float = 1.0) -> float:
+        """Async acquire — use from coroutines so we don't block the loop."""
+        with self._lock:
+            wait_time = self._compute_wait() * tokens
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
+        return wait_time
+
+
+# Per-target rate limiters, lazily instantiated. The "key" is either a node
+# name (for fine-grained per-node limits) or the special tokens "public" /
+# "local" for endpoint-class limits. Callers should ask for the limiter
+# matching the node they're about to hit.
+_rate_limiters: dict = {}
+_rate_limiters_lock = threading.Lock()
+
+
+def _is_public_cp_endpoint(url: str) -> bool:
+    """True if URL points at the public api.counterparty.io endpoint
+    (regardless of port/scheme/path)."""
+    return "api.counterparty.io" in url.lower()
+
+
+def get_rate_limiter_for_url(url: str) -> RateLimiter:
+    """Return the rate limiter appropriate for a CP URL — public limit for
+    api.counterparty.io, local-node limit for everything else."""
+    key = "public" if _is_public_cp_endpoint(url) else "local"
+    with _rate_limiters_lock:
+        limiter = _rate_limiters.get(key)
+        if limiter is None:
+            rps = config.CP_PUBLIC_API_LIMIT if key == "public" else config.CP_LOCAL_NODE_LIMIT
+            limiter = RateLimiter(calls_per_second=rps)
+            _rate_limiters[key] = limiter
+            logger.info(f"fetch_utils: rate limiter '{key}' initialized at {rps} req/s")
+    return limiter
+
+
+def _parse_retry_after(value) -> float:
+    """Parse a Retry-After header value into seconds. Accepts integer
+    seconds or HTTP-date format; returns 60s default on failure."""
+    if not value:
+        return 60.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        # HTTP-date format (RFC 7231). Compute delta from now.
+        from email.utils import parsedate_to_datetime
+        import datetime
+
+        target = parsedate_to_datetime(value)
+        now = datetime.datetime.now(target.tzinfo) if target.tzinfo else datetime.datetime.utcnow()
+        delta = (target - now).total_seconds()
+        return max(1.0, delta)
+    except Exception:
+        return 60.0
 
 
 @sleep_and_retry
@@ -618,6 +671,9 @@ async def fetch_xcp_async(
                     async with aiohttp.ClientSession(
                         timeout=timeout_obj, connector=connector, headers={"Connection": "keep-alive"}
                     ) as session:
+                        # Proactive rate limit — keeps us under the CDN's
+                        # per-IP budget instead of waiting for 429 retries.
+                        await get_rate_limiter_for_url(url).acquire_async()
                         async with session.get(url, params=params) as response:
                             logger.debug(f"Response status from {node['name']}: {response.status}")
                             if response.status == 200:
@@ -634,8 +690,12 @@ async def fetch_xcp_async(
 
                                 # Verbose logging for all non-200 responses to help with debugging
                                 if response.status == 429:
-                                    logger.warning(f"⏳ Node {node['name']} returned 429 (Too Many Requests) for {endpoint}")
-                                    set_rate_limit_backoff(60.0)
+                                    retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                                    logger.warning(
+                                        f"⏳ Node {node['name']} returned 429 (Too Many Requests) for {endpoint}; "
+                                        f"backing off {retry_after:.0f}s"
+                                    )
+                                    set_rate_limit_backoff(retry_after)
                                 elif response.status == 503:
                                     logger.warning(
                                         f"⏳ Node {node['name']} returned 503 (Service Unavailable) for {endpoint}\n"
@@ -816,6 +876,9 @@ def fetch_xcp(
         url = f"{node['url'].rstrip('/')}{endpoint}"
         try:
             logger.debug(f"Fetching from {node['name']} at URL: {url}")
+            # Proactive rate limit — same chokepoint as the async path
+            # to keep us under the CDN budget.
+            get_rate_limiter_for_url(url).acquire()
             response = requests.get(url, params=params, timeout=10)
             logger.debug(f"Response status from {node['name']}: {response.status_code}")
 
@@ -830,7 +893,14 @@ def fetch_xcp(
             else:
                 # Truncate to avoid dumping raw HTML error pages into logs
                 error_body = response.text[:200] if response.text else ""
-                logger.warning(f"Error response from {node['name']}: HTTP {response.status_code}: {error_body}")
+                if response.status_code == 429:
+                    retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                    logger.warning(
+                        f"⏳ Node {node['name']} returned 429 (Too Many Requests); backing off {retry_after:.0f}s"
+                    )
+                    set_rate_limit_backoff(retry_after)
+                else:
+                    logger.warning(f"Error response from {node['name']}: HTTP {response.status_code}: {error_body}")
                 last_error = f"HTTP {response.status_code}: {error_body}"
                 # Mark node failure
                 health_tracker = node_health_tracker.get(node["name"])
@@ -1460,42 +1530,49 @@ async def _fetch_blocks_range_async(
     results = {}
     max_retries_per_block = 3
 
-    async def fetch_block_with_retry(block_idx):
-        for attempt in range(max_retries_per_block):
-            try:
-                # This function now returns None on any failure
-                block_data = await fetch_block_transactions_with_pagination(block_idx)
-                if block_data:
-                    if progress_indicator and block_idx % 10 == 0:
-                        logger.debug(f"Progress: Fetched block {block_idx}")
-                    return block_idx, block_data
-                else:
-                    logger.warning(
-                        f"Fetch for block {block_idx} failed (attempt {attempt + 1}/{max_retries_per_block}). Retrying with next node..."
-                    )
-                    # Update health nodes before the last attempt so it can use fresh nodes
-                    # This gives us one more chance with potentially new healthy nodes
-                    if attempt == max_retries_per_block - 2:  # Before the last attempt
-                        logger.info(f"Updating healthy nodes before final attempt for block {block_idx}")
-                        update_healthy_nodes()
-                    await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
-            except Exception as e:
-                logger.error(f"Unhandled exception fetching block {block_idx} (attempt {attempt + 1}): {e}", exc_info=True)
-                await asyncio.sleep(1 * (attempt + 1))
+    # Cap concurrent in-flight block fetches. Without this, a 100-block
+    # initial-sync range fires 100+ simultaneous CP requests via
+    # asyncio.gather() — guaranteed to trip the public CDN's burst budget
+    # even with the per-request rate limiter.
+    sem = asyncio.BoundedSemaphore(config.CP_MAX_CONCURRENT)
 
-        # Check if fallback mode is enabled globally
-        if is_global_fallback_enabled():
-            logger.warning(
-                f"Block {block_idx} failed {max_retries_per_block} attempts but fallback mode is enabled - returning fallback indicator"
-            )
-            # Return a special indicator that tells the pipeline to use fallback
-            return block_idx, {"fallback": True, "block_index": block_idx}
-        else:
-            logger.error(
-                f"❌ PERMANENTLY FAILED to fetch block {block_idx} after {max_retries_per_block} attempts - block will be stuck in queue"
-            )
-            logger.error(f"Block {block_idx} will need manual intervention or cleanup mechanism to retry")
-            return block_idx, None  # Final failure
+    async def fetch_block_with_retry(block_idx):
+        async with sem:
+            for attempt in range(max_retries_per_block):
+                try:
+                    # This function now returns None on any failure
+                    block_data = await fetch_block_transactions_with_pagination(block_idx)
+                    if block_data:
+                        if progress_indicator and block_idx % 10 == 0:
+                            logger.debug(f"Progress: Fetched block {block_idx}")
+                        return block_idx, block_data
+                    else:
+                        logger.warning(
+                            f"Fetch for block {block_idx} failed (attempt {attempt + 1}/{max_retries_per_block}). Retrying with next node..."
+                        )
+                        # Update health nodes before the last attempt so it can use fresh nodes
+                        # This gives us one more chance with potentially new healthy nodes
+                        if attempt == max_retries_per_block - 2:  # Before the last attempt
+                            logger.info(f"Updating healthy nodes before final attempt for block {block_idx}")
+                            update_healthy_nodes()
+                        await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
+                except Exception as e:
+                    logger.error(f"Unhandled exception fetching block {block_idx} (attempt {attempt + 1}): {e}", exc_info=True)
+                    await asyncio.sleep(1 * (attempt + 1))
+
+            # Check if fallback mode is enabled globally
+            if is_global_fallback_enabled():
+                logger.warning(
+                    f"Block {block_idx} failed {max_retries_per_block} attempts but fallback mode is enabled - returning fallback indicator"
+                )
+                # Return a special indicator that tells the pipeline to use fallback
+                return block_idx, {"fallback": True, "block_index": block_idx}
+            else:
+                logger.error(
+                    f"❌ PERMANENTLY FAILED to fetch block {block_idx} after {max_retries_per_block} attempts - block will be stuck in queue"
+                )
+                logger.error(f"Block {block_idx} will need manual intervention or cleanup mechanism to retry")
+                return block_idx, None  # Final failure
 
     tasks = [fetch_block_with_retry(i) for i in range(start_block, end_block + 1)]
 
