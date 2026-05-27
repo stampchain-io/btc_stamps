@@ -1530,6 +1530,10 @@ def follow(
                             logger.critical(f"XCP: {xcp_hash}")
                             logger.critical(f"BTC: {block_hash}")
                             block_index = rollback_to_block(db, block_index - 2, "XCP/Bitcoin hash mismatch")
+                            if cp_pipeline_instance:
+                                logger.info(f"Resetting CP pipeline after hash-mismatch rollback to block {block_index}")
+                                cp_pipeline_instance.reset(block_index)
+                            stamp_issuances_list = None
                             continue
 
                     # Filter transactions based on genesis status
