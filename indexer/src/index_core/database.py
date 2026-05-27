@@ -3103,6 +3103,17 @@ def log_reorg_event(
 
 def initialize_tables(db):
     """Initialize database tables from schema file."""
+    # Optional bootstrap import: when BOOTSTRAP_ON_EMPTY=true and an
+    # empty DB is detected, decompress + load a partner-distributed
+    # SQL bundle BEFORE the normal schema-init runs. On success the
+    # rest of initialize_tables() sees all tables present + populated
+    # and just applies any schema deltas. On any failure the importer
+    # calls sys.exit() with a distinct code; systemd shouldn't auto-
+    # restart on a corrupted bootstrap.
+    from index_core.bootstrap_importer import run_or_exit
+
+    run_or_exit(db)
+
     try:
         logger.info("initializing tables...")
         cursor = db.cursor()
