@@ -124,12 +124,10 @@ async def test_rate_limiter_async_waits_through_global_backoff():
 
 def test_rate_limiter_initialized_at_configured_rate(monkeypatch):
     """Public-class limiter uses CP_PUBLIC_API_LIMIT, local-class uses CP_LOCAL_NODE_LIMIT."""
-    # fetch_utils imports the top-level `config` module (src/config.py),
-    # not index_core.config. Patch that one.
-    import config as top_config
-
-    monkeypatch.setattr(top_config, "CP_PUBLIC_API_LIMIT", 3.0)
-    monkeypatch.setattr(top_config, "CP_LOCAL_NODE_LIMIT", 25.0)
+    # Patch the same config module reference fetch_utils actually reads,
+    # regardless of sys.path quirks between local and CI.
+    monkeypatch.setattr(fetch_utils.config, "CP_PUBLIC_API_LIMIT", 3.0)
+    monkeypatch.setattr(fetch_utils.config, "CP_LOCAL_NODE_LIMIT", 25.0)
     fetch_utils._rate_limiters.clear()  # force re-init
 
     pub = fetch_utils.get_rate_limiter_for_url("https://api.counterparty.io/x")
