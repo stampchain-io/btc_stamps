@@ -423,11 +423,11 @@ CP_MAX_RETRIES = int(os.environ.get("CP_MAX_RETRIES", "5"))
 CP_BASE_DELAY = int(os.environ.get("CP_BASE_DELAY", "1"))
 CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "75"))  # Increased for better throughput
 
-# Per-node request budgets (requests/second). The CP maintainer has confirmed
-# there is no application-level rate limit on api.counterparty.io (see GH
-# issue #2394) — the 429s we see come from the CDN/edge layer in front of
-# the public endpoint. Defaults are intentionally conservative; tune up in
-# prod after observing 429 rates.
+# Per-node request budgets (requests/second). The public Counterparty
+# endpoint's actual rate-limit policy isn't published, and the 429s we
+# observe appear to originate at the CDN/edge layer (HTML response bodies,
+# no JSON error envelope). Defaults are intentionally conservative; tune
+# up in prod after observing 429 rates and Retry-After header values.
 CP_PUBLIC_API_LIMIT = float(os.environ.get("CP_PUBLIC_API_LIMIT", "5"))  # req/s when hitting api.counterparty.io
 CP_LOCAL_NODE_LIMIT = float(os.environ.get("CP_LOCAL_NODE_LIMIT", "50"))  # req/s when hitting a local CP node
 # Cap on concurrent in-flight CP requests across all worker tasks. Without
