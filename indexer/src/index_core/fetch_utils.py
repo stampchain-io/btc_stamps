@@ -144,8 +144,8 @@ def _parse_retry_after(value) -> float:
         pass
     try:
         # HTTP-date format (RFC 7231). Compute delta from now.
-        from email.utils import parsedate_to_datetime
         import datetime
+        from email.utils import parsedate_to_datetime
 
         target = parsedate_to_datetime(value)
         now = datetime.datetime.now(target.tzinfo) if target.tzinfo else datetime.datetime.utcnow()
@@ -895,9 +895,7 @@ def fetch_xcp(
                 error_body = response.text[:200] if response.text else ""
                 if response.status_code == 429:
                     retry_after = _parse_retry_after(response.headers.get("Retry-After"))
-                    logger.warning(
-                        f"⏳ Node {node['name']} returned 429 (Too Many Requests); backing off {retry_after:.0f}s"
-                    )
+                    logger.warning(f"⏳ Node {node['name']} returned 429 (Too Many Requests); backing off {retry_after:.0f}s")
                     set_rate_limit_backoff(retry_after)
                 else:
                     logger.warning(f"Error response from {node['name']}: HTTP {response.status_code}: {error_body}")

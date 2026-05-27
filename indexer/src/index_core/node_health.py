@@ -733,9 +733,7 @@ def get_healthy_nodes():
     # public api.counterparty.io path. Used in non-prod environments to
     # validate rate-limit behavior against the real CDN.
     if config.FORCE_PUBLIC_CP_API:
-        public_only = [
-            n for n in config.XCP_V2_NODES if "api.counterparty.io" in n.get("url", "").lower()
-        ]
+        public_only = [n for n in config.XCP_V2_NODES if "api.counterparty.io" in n.get("url", "").lower()]
         if public_only:
             logger.debug(f"FORCE_PUBLIC_CP_API=true → routing to {len(public_only)} public node(s) only")
             return public_only
