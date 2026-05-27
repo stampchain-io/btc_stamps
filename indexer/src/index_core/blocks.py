@@ -720,6 +720,13 @@ def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
 
     logger.warning(f"ROLLBACK INITIATED: Rolling back {rollback_depth} blocks to {target_block} ({reason})")
 
+    # Early-warning detector: if we hit the same target repeatedly in a short
+    # window, page ops before the existing check_rollback_loop threshold
+    # (which is sized to terminate the process, not to alert).
+    from index_core.ops_alerter import stuck_rollback_detector
+
+    stuck_rollback_detector.record(target_block, reason)
+
     # Invalidate the block count cache to ensure fresh data after rollback
     backend_instance.invalidate_blockcount_cache()
 
@@ -857,6 +864,14 @@ def follow(
             rebuild_balances(db)
             rebuild_owners(db)
             # update_src20_token_stats(db)  # Now handled by async holder updater
+
+        # Progress watchdog: pages ops if the main loop stalls (no block
+        # processed for OPS_ALERT_STALL_SEC, default 30 min) — catches the
+        # silent-hang pattern (process alive in futex_wait_queue, no log
+        # output) that systemd cannot detect.
+        from index_core.ops_alerter import progress_watchdog
+
+        progress_watchdog.start()
 
         # Get index of last block and current tip
         block_tip = backend_instance.getblockcount()
@@ -1515,6 +1530,10 @@ def follow(
                             logger.critical(f"XCP: {xcp_hash}")
                             logger.critical(f"BTC: {block_hash}")
                             block_index = rollback_to_block(db, block_index - 2, "XCP/Bitcoin hash mismatch")
+                            if cp_pipeline_instance:
+                                logger.info(f"Resetting CP pipeline after hash-mismatch rollback to block {block_index}")
+                                cp_pipeline_instance.reset(block_index)
+                            stamp_issuances_list = None
                             continue
 
                     # Filter transactions based on genesis status
@@ -1524,6 +1543,7 @@ def follow(
                     txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
 
                     util.CURRENT_BLOCK_INDEX = block_index
+                    progress_watchdog.tick(label=f"block {block_index}")
 
                     try:
                         insert_block(

@@ -90,6 +90,25 @@ class CriticalFailureHandler:
 
             logger.critical(f"Exception Traceback:\n{traceback.format_exc()}")
 
+        # Escalate via ops alerter BEFORE cleanup — cleanup may hang or
+        # take long enough that the process is killed before paging out.
+        try:
+            from index_core.ops_alerter import notify as _ops_notify
+
+            body = error_message
+            if block_index is not None:
+                body = f"block_index={block_index}\n{body}"
+            if exception:
+                body = f"{body}\nexception: {type(exception).__name__}: {exception}"
+            _ops_notify(
+                "critical",
+                f"Critical failure ({failure_type.value})",
+                body,
+                dedup_key=f"critical-failure-{failure_type.value}",
+            )
+        except Exception as e:
+            logger.error(f"ops_alerter notify failed during critical shutdown: {e}")
+
         # Perform cleanup with timeout
         self._perform_cleanup()
 
