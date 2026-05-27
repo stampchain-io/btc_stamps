@@ -88,18 +88,32 @@ class RateLimiter:
         self.last_call_time = current_time
         return 0.0
 
+    def _global_backoff_remaining(self) -> float:
+        """Return seconds remaining on any active global rate-limit backoff
+        (set by set_rate_limit_backoff after a 429). Returns 0 when none."""
+        with _rate_limit_lock:
+            remaining = _rate_limit_until - time.time()
+        return remaining if remaining > 0 else 0.0
+
     def acquire(self, tokens: float = 1.0) -> float:
-        """Blocking acquire — use from sync code."""
+        """Blocking acquire — use from sync code. Waits through both the
+        per-request interval AND any active global 429 backoff window."""
         with self._lock:
-            wait_time = self._compute_wait() * tokens
+            interval_wait = self._compute_wait() * tokens
+        backoff_wait = self._global_backoff_remaining()
+        wait_time = max(interval_wait, backoff_wait)
         if wait_time > 0:
             time.sleep(wait_time)
         return wait_time
 
     async def acquire_async(self, tokens: float = 1.0) -> float:
-        """Async acquire — use from coroutines so we don't block the loop."""
+        """Async acquire — use from coroutines so we don't block the loop.
+        Waits through both the per-request interval AND any active global
+        429 backoff window."""
         with self._lock:
-            wait_time = self._compute_wait() * tokens
+            interval_wait = self._compute_wait() * tokens
+        backoff_wait = self._global_backoff_remaining()
+        wait_time = max(interval_wait, backoff_wait)
         if wait_time > 0:
             await asyncio.sleep(wait_time)
         return wait_time

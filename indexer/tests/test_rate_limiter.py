@@ -91,6 +91,37 @@ def test_parse_retry_after_http_date_format():
     assert 100 < delta < 140, f"expected ~120s, got {delta}"
 
 
+def test_rate_limiter_waits_through_global_backoff():
+    """When set_rate_limit_backoff() has been called (e.g. after a 429),
+    subsequent acquires must wait through the remaining backoff window
+    even if the per-request interval is satisfied."""
+    rl = fetch_utils.RateLimiter(calls_per_second=100.0)  # 10ms min interval — trivially satisfied
+    rl.acquire()  # prime the limiter, satisfy interval
+    fetch_utils.set_rate_limit_backoff(0.3)  # 300ms global backoff
+    try:
+        t0 = time.time()
+        rl.acquire()
+        elapsed = time.time() - t0
+        assert elapsed >= 0.25, f"expected ~0.3s backoff wait, got {elapsed:.3f}s"
+    finally:
+        # Reset so other tests aren't affected
+        fetch_utils._rate_limit_until = 0.0
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_async_waits_through_global_backoff():
+    rl = fetch_utils.RateLimiter(calls_per_second=100.0)
+    await rl.acquire_async()
+    fetch_utils.set_rate_limit_backoff(0.3)
+    try:
+        t0 = time.time()
+        await rl.acquire_async()
+        elapsed = time.time() - t0
+        assert elapsed >= 0.25, f"expected ~0.3s backoff wait, got {elapsed:.3f}s"
+    finally:
+        fetch_utils._rate_limit_until = 0.0
+
+
 def test_rate_limiter_initialized_at_configured_rate(monkeypatch):
     """Public-class limiter uses CP_PUBLIC_API_LIMIT, local-class uses CP_LOCAL_NODE_LIMIT."""
     # fetch_utils imports the top-level `config` module (src/config.py),
