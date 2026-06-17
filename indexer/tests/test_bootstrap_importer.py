@@ -79,10 +79,10 @@ def test_is_db_empty_false_when_blocks_has_rows():
 
 def test_is_db_empty_safe_default_on_error(caplog):
     """If we can't tell, treat as not-empty to avoid clobbering data."""
-    import pymysql
+    from pymysql.err import MySQLError
 
     db = MagicMock()
-    db.cursor.side_effect = pymysql.err.MySQLError("simulated")
+    db.cursor.side_effect = MySQLError("simulated")
     with caplog.at_level("WARNING"):
         assert bootstrap_importer._is_db_empty(db) is False
     assert any("empty-check failed" in r.message for r in caplog.records)
