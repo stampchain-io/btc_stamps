@@ -1020,8 +1020,33 @@ async def _validate_block_data_completeness(block_index: int, block_data: Dict[s
         # Check for suspiciously low transaction count
         tx_count = len(transactions)
         if tx_count == 0:
-            logger.debug(f"Block {block_index}: No transactions found - empty block")
-            # Empty blocks are possible, so we don't fail validation
+            # Empty CP blocks are normal — Bitcoin blocks often have no CP-relevant
+            # transactions. But "0 transactions" can also mean CP returned a partial
+            # response during a hiccup. Cross-check against result_count before
+            # accepting. Without this guard, a transient empty response silently
+            # drops every issuance/transfer in the block (see incident with
+            # A15716034302284605000 at block 954140).
+            try:
+                probe = await fetch_xcp_async(
+                    f"/blocks/{block_index}/transactions",
+                    {"verbose": "false", "limit": "1"},
+                    timeout=30,
+                )
+                expected = probe.get("result_count") if probe else None
+            except Exception as e:
+                logger.warning(
+                    f"Block {block_index}: count probe failed ({e}); " f"accepting 0-tx as empty block (cannot verify)"
+                )
+                return True
+
+            if expected is not None and expected > 0:
+                logger.error(
+                    f"Block {block_index}: CP says {expected} transactions exist "
+                    f"but fetcher returned 0 — refusing to index incomplete data"
+                )
+                return False
+
+            logger.debug(f"Block {block_index}: No transactions found - empty block (verified)")
             return True
 
         # Check if we hit pagination limits
