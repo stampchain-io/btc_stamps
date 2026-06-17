@@ -168,6 +168,11 @@ def initialize_config(
         logger.error(f"SHA Hash Inconsistencies: {e}")
         raise e
 
+    # libmagic is consensus-critical: its MIME classification of stamp bytes
+    # feeds is_btc_stamp which feeds txlist_hash. Fail-loud on drift.
+    from index_core.magic_consensus import assert_consensus_libmagic
+    assert_consensus_libmagic()
+
     # Data directory
     data_dir = appdirs.user_data_dir(appauthor=config.STAMPS_NAME, appname=config.APP_NAME, roaming=True)
     if not os.path.isdir(data_dir):

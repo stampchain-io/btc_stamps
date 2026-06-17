@@ -1,6 +1,23 @@
 # Build stage
 ARG PYTHON_VERSION=3.12
 ARG INSTALL_DEV=false
+
+# Consensus-anchor stage: libmagic 5.41 from Ubuntu 22.04.
+# The indexer's txlist_hash depends on libmagic's MIME classification of stamp
+# bytes (file_suffix flows into is_btc_stamp which is hashed). The CHECKPOINTS
+# in indexer/src/index_core/check.py were generated against libmagic 5.41;
+# python:3.12-slim's Debian trixie base ships 5.46 which classifies some
+# ambiguous content (e.g. truncated-ZIP-header stamps in block 783727) as
+# application/octet-stream instead of application/zip, flipping is_btc_stamp
+# and diverging txlist_hash from 783727 onward. We vendor the 5.41 binaries
+# from Ubuntu 22.04 into the runtime stage to lock the consensus classifier.
+# See magic_consensus.py for the startup assertion that fails loud on drift.
+FROM ubuntu:22.04 AS libmagic-anchor
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1=1:5.41-3ubuntu0.1 \
+    libmagic-mgc=1:5.41-3ubuntu0.1 \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM python:${PYTHON_VERSION}-slim AS builder
 
 # Build arguments
@@ -70,10 +87,11 @@ ENV PYTHONPATH=/app:/app/src \
 
 WORKDIR /app
 
-# Install system/runtime dependencies
+# Install system/runtime dependencies.
+# NOTE: libmagic is NOT installed here — it's pulled from the libmagic-anchor
+# stage below to pin it to the consensus-anchor version (5.41). See top of file.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
-    libmagic1 \
     default-libmysqlclient-dev \
     default-mysql-client \
     libgmp-dev \
@@ -82,6 +100,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
+
+# Vendor libmagic 5.41 from the anchor stage. The .so and .mgc files together
+# define the consensus classifier; both must come from the same libmagic build
+# (the .mgc binary format is not forward-compatible across major versions —
+# verified: a 5.41 .mgc fails to load under 5.46 with "Size … not a multiple
+# of 432"). magic_consensus.py asserts the runtime version and the .mgc sha256
+# at startup, so any accidental drift fails loud rather than silently breaking
+# txlist_hash. amd64 hardcoded here; add an arm64 COPY if/when arm64 images
+# are built.
+COPY --from=libmagic-anchor /usr/lib/x86_64-linux-gnu/libmagic.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=libmagic-anchor /usr/lib/file/magic.mgc /usr/lib/file/magic.mgc
+COPY --from=libmagic-anchor /usr/share/misc/magic.mgc /usr/share/misc/magic.mgc
 
 # Install dockerize (optional)
 ARG TARGETARCH
