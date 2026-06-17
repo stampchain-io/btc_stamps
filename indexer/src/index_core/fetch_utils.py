@@ -1168,6 +1168,14 @@ async def _fetch_block_transactions_workaround(block_index: int, node_url: Optio
     # Step 2: Get all events for the block
     logger.debug("Step 2: Fetching all events for the block")
     events_endpoint = f"/blocks/{block_index}/events"
+
+    # Probe expected count so a silently-truncated pagination is caught below.
+    events_count_response = await fetch_xcp_async(events_endpoint, {"limit": "1"}, timeout=30)
+    expected_event_count = None
+    if events_count_response and "result_count" in events_count_response:
+        expected_event_count = events_count_response["result_count"]
+        logger.debug(f"Block {block_index} expects {expected_event_count} events")
+
     all_events = []
     next_cursor = None
     page_count = 0
@@ -1211,6 +1219,15 @@ async def _fetch_block_transactions_workaround(block_index: int, node_url: Optio
 
     logger.debug(f"Got {len(all_events)} total events for block {block_index}")
 
+    # Validate against probe; mismatch returns None to trigger reprocess/fallback.
+    if expected_event_count is not None and len(all_events) != expected_event_count:
+        logger.error(
+            f"Event count mismatch for block {block_index}: "
+            f"expected {expected_event_count}, got {len(all_events)}. "
+            f"Refusing to index incomplete data."
+        )
+        return None
+
     # Step 3: Match events to transactions
     logger.debug("Step 3: Matching events to transactions")
     for event in all_events:
@@ -1234,14 +1251,16 @@ async def _fetch_block_transactions_workaround(block_index: int, node_url: Optio
     for tx in all_transactions:
         tx_type = tx.get("transaction_type")
         if tx_type in ["issuance", "fairminter"]:
-            # Check for events in the transaction
             events = tx.get("events", [])
+            if not events:
+                logger.warning(
+                    f"CP issuance tx {tx.get('tx_hash')} in block {block_index} returned no events; "
+                    f"likely an events pagination race — would silently drop without count guard"
+                )
             for event in events:
                 if event.get("event") in ["ASSET_ISSUANCE", "NEW_FAIRMINT"]:
-                    # Use the proper issuance parsing function
                     issuance_data = parse_issuance_from_transaction(tx, event)
                     if issuance_data:
-                        # This is a valid STAMP issuance
                         issuances.append(issuance_data)
 
     logger.debug(f"Found {len(issuances)} stamp issuances")
@@ -1352,6 +1371,11 @@ async def _fetch_block_transactions_verbose_safe_pagination(
         tx_type = tx.get("transaction_type")
         if tx_type in ["issuance", "fairminter"]:
             events = tx.get("events", [])
+            if not events:
+                logger.warning(
+                    f"CP issuance tx {tx.get('tx_hash')} in block {block_index} returned no events; "
+                    f"likely an events pagination race — would silently drop without count guard"
+                )
             for event in events:
                 if event.get("event") in ["ASSET_ISSUANCE", "NEW_FAIRMINT"]:
                     issuance_data = parse_issuance_from_transaction(tx, event)
@@ -1462,6 +1486,11 @@ async def _fetch_block_transactions_original(block_index: int, node_url: Optiona
         tx_type = tx.get("transaction_type")
         if tx_type in ["issuance", "fairminter"]:
             events = tx.get("events", [])
+            if not events:
+                logger.warning(
+                    f"CP issuance tx {tx.get('tx_hash')} in block {block_index} returned no events; "
+                    f"likely an events pagination race — would silently drop without count guard"
+                )
             for event in events:
                 if event.get("event") in ["ASSET_ISSUANCE", "NEW_FAIRMINT"]:
                     issuance_data = parse_issuance_from_transaction(tx, event)
