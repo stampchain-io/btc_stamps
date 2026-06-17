@@ -65,7 +65,7 @@ def _is_db_empty(db: Connection) -> bool:
                 return True  # table doesn't exist yet
             cursor.execute("SELECT 1 FROM blocks LIMIT 1")
             return cursor.fetchone() is None
-    except pymysql.Error as e:
+    except pymysql.err.MySQLError as e:
         logger.warning(f"bootstrap_importer: empty-check failed ({e}); treating as not-empty (safe default)")
         return False
 
