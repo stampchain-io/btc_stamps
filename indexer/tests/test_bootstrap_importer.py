@@ -82,7 +82,7 @@ def test_is_db_empty_safe_default_on_error(caplog):
     import pymysql
 
     db = MagicMock()
-    db.cursor.side_effect = pymysql.MySQLError("simulated")
+    db.cursor.side_effect = pymysql.Error("simulated")
     with caplog.at_level("WARNING"):
         assert bootstrap_importer._is_db_empty(db) is False
     assert any("empty-check failed" in r.message for r in caplog.records)
