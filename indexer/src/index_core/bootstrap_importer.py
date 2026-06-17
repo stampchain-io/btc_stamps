@@ -23,8 +23,8 @@ import subprocess
 import sys
 from typing import Tuple
 
-from pymysql.err import MySQLError
 from pymysql.connections import Connection
+from pymysql.err import MySQLError
 
 logger = logging.getLogger(__name__)
 
