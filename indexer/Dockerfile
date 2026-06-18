@@ -70,10 +70,11 @@ ENV PYTHONPATH=/app:/app/src \
 
 WORKDIR /app
 
-# Install system/runtime dependencies
+# Install system/runtime dependencies. libmagic was removed when the
+# in-house MIME classifier in index_core/stamp_mime.py replaced
+# python-magic on the consensus path.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
-    libmagic1 \
     default-libmysqlclient-dev \
     default-mysql-client \
     libgmp-dev \
