@@ -58,9 +58,5 @@ services:
       - "3306:3306"
     volumes:
       - ./snapshots:/app/snapshots:ro
-    command: >
-      sh -c "if [ "$REPARSE_MODE" = "true" ]; then
-               poetry run reparse;
-             else
-               /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf;
-             fi" 
+    # $$ escapes from compose interpolation so REPARSE_MODE is dereferenced at runtime.
+    command: ["sh", "-c", "if [ \"$$REPARSE_MODE\" = \"true\" ]; then exec poetry run reparse; else exec poetry run indexer; fi"]
