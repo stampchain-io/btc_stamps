@@ -23,6 +23,9 @@ def is_legitimate_html(content_bytes):
     Returns:
         bool: True if content is legitimate HTML, False otherwise
     """
+    if not content_bytes:
+        return False
+
     try:
         # Must be valid UTF-8
         content_str = content_bytes.decode("utf-8")
