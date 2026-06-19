@@ -83,7 +83,7 @@ Determinism guarantees:
 
 Validation
 ----------
-The differential harness at indexer/tests/test_stamp_mime_diff.py runs
+The differential harness at indexer/tests/stamp_mime_diff.py runs
 classify_safe() against libmagic 5.41 across StampTableV4 with the
 dispatcher's upstream gates (json.loads, is_legitimate_html,
 STRIP_WHITESPACE.lstrip()) applied identically to both paths. Every
@@ -142,9 +142,7 @@ def classify(content_bytes: bytes) -> str:
     # Documented DIB header sizes: BITMAPCOREHEADER=12, BITMAPINFOHEADER=40,
     # BITMAPV2INFOHEADER=52, BITMAPV3INFOHEADER=56, OS22XBITMAPHEADER=64,
     # BITMAPV4HEADER=108, BITMAPV5HEADER=124.
-    if (n >= 18 and b[:2] == b"BM"
-            and int.from_bytes(b[14:18], "little") in
-            {12, 40, 52, 56, 64, 108, 124}):
+    if n >= 18 and b[:2] == b"BM" and int.from_bytes(b[14:18], "little") in {12, 40, 52, 56, 64, 108, 124}:
         return "image/bmp"
 
     # [RIFF / WebP] 'RIFF' .... 'WEBP'
@@ -163,8 +161,7 @@ def classify(content_bytes: bytes) -> str:
         # to image/heic to stay inside the observed-MIME set; the
         # differential harness will surface any case where libmagic
         # emits image/heif on real content (none observed so far).
-        if brand in (b"heic", b"heix", b"heim", b"heis",
-                     b"hevc", b"hevx", b"hevm", b"hevs", b"mif1"):
+        if brand in (b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1"):
             return "image/heic"
         # Other ISO BMFF brands (mp4, qt, 3gp, etc) fall through to
         # octet-stream — none have appeared in StampTableV4.
@@ -354,7 +351,12 @@ _HTML_TAG_NEEDLES = (
     b"<link",
     b"<table",
     b"<div",
-    b"<h1", b"<h2", b"<h3", b"<h4", b"<h5", b"<h6",
+    b"<h1",
+    b"<h2",
+    b"<h3",
+    b"<h4",
+    b"<h5",
+    b"<h6",
 )
 
 
@@ -471,6 +473,7 @@ def _looks_like_text(b: bytes) -> bool:
 # of libmagic's failure mode.
 # ---------------------------------------------------------------------------
 
+
 def classify_safe(content_bytes: bytes) -> str:
     """classify() wrapped in libmagic-equivalent failure semantics."""
     try:
@@ -510,9 +513,9 @@ if __name__ == "__main__":
         (b"ID3\x03\x00", "audio/mpeg"),
         # zlib: each canonical (CMF=0x78, FLG ∈ {0x01,0x5E,0x9C,0xDA})
         (b"\x78\x01abcdef", "application/zlib"),
-        (b"\x78\x5Eabcdef", "application/zlib"),
-        (b"\x78\x9Cabcdef", "application/zlib"),
-        (b"\x78\xDAabcdef", "application/zlib"),
+        (b"\x78\x5eabcdef", "application/zlib"),
+        (b"\x78\x9cabcdef", "application/zlib"),
+        (b"\x78\xdaabcdef", "application/zlib"),
         # zlib FALSE-POSITIVE GUARD: "x" followed by a text-safe byte that
         # is NOT one of the four canonical zlib FLG values — must stay
         # text/plain. (0x20 = space, satisfies (0x78<<8|0x20) % 31 != 0
@@ -522,8 +525,7 @@ if __name__ == "__main__":
         (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
         (b"<?xml version='1.0'?><svg></svg>", "image/svg+xml"),
         (b"<?xml version='1.0'?><root/>", "text/xml"),
-        (b"<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.1//EN' 'svg11.dtd'><svg></svg>",
-         "image/svg+xml"),
+        (b"<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.1//EN' 'svg11.dtd'><svg></svg>", "image/svg+xml"),
         # Strict offset: leading whitespace before <svg → libmagic's SVG
         # rule misses, HTML detection takes over via <style>.
         # Mirrors block ?  tx=ec2889bbe26d… in prod corpus.
@@ -562,20 +564,17 @@ if __name__ == "__main__":
         # behavior on un-BOM'd UTF-16 is similarly heuristic; we
         # conservatively classify those as octet-stream (see fixture
         # below).
-        (b"\xff\xfe" + "<?xml version='1.0'?><root/>".encode("utf-16-le"),
-         "text/xml"),
-        (b"\xfe\xff" + "<?xml version='1.0'?><root/>".encode("utf-16-be"),
-         "text/xml"),
+        (b"\xff\xfe" + "<?xml version='1.0'?><root/>".encode("utf-16-le"), "text/xml"),
+        (b"\xfe\xff" + "<?xml version='1.0'?><root/>".encode("utf-16-be"), "text/xml"),
         # UTF-16 WITHOUT BOM → octet-stream. Confirms we don't false-
         # positive on plain binary that happens to have low bytes.
-        ("<?xml version='1.0'?><root/>".encode("utf-16-le"),
-         "application/octet-stream"),
+        ("<?xml version='1.0'?><root/>".encode("utf-16-le"), "application/octet-stream"),
         # Text & binary
         (b"plain text only", "text/plain"),
         (b"text with\ttab and\nnewline", "text/plain"),
         (b"\x00\x01\x02binary", "application/octet-stream"),
         (b"text \x00 with NUL", "application/octet-stream"),
-        (b"text \x7F with DEL", "application/octet-stream"),
+        (b"text \x7f with DEL", "application/octet-stream"),
         # UTF-8 multibyte → still text
         ("café".encode("utf-8"), "text/plain"),
     ]
