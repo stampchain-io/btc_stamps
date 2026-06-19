@@ -142,6 +142,21 @@ def main():
     logger.info(f"  RDS_USER: {os.environ.get('RDS_USER')}")
     logger.info(f"  DEBUG: {os.environ.get('DEBUG', 'false')}")
 
+    # SRC-20 ledger validation requires the stampscan validation secret.
+    # Without it, fetch_api_ledger_data returns (None, None) → ValueError
+    # → LedgerMismatchError, surfacing as a misleading "Ledger hash
+    # mismatch detected" message. Warn loudly so operators don't chase
+    # a phantom consensus bug.
+    if not os.environ.get("SRC_VALIDATION_SECRET_API2"):
+        logger.warning(
+            "SRC_VALIDATION_SECRET_API2 is not set. SRC-20 ledger "
+            "validation will fail at the first block with SRC-20 "
+            "activity. Set the secret in .env / .env.local before "
+            "syncing past CP_SRC20_GENESIS_BLOCK, or run with "
+            "FORCE=true to skip ledger validation (NOT recommended "
+            "for dev reindex — bypasses real consensus checks)."
+        )
+
     import index_core.server as server
 
     # Initialize server with our logging configuration
