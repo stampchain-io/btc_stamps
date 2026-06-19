@@ -6,6 +6,8 @@ db
 .env
 .env.local
 db_data/
+db_data.bak.*
+db_data.failed.*
 files/
 indexer/.env
 .idea/
