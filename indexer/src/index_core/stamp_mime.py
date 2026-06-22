@@ -666,12 +666,17 @@ if __name__ == "__main__":
     # Minimally-structurally-valid PNG: signature + IHDR + IEND.
     png_min = (
         b"\x89PNG\r\n\x1a\n"
-        + (13).to_bytes(4, "big") + b"IHDR" + (b"\x00" * 13) + (b"\x00" * 4)
-        + (0).to_bytes(4, "big") + b"IEND" + (b"\x00" * 4)
+        + (13).to_bytes(4, "big")
+        + b"IHDR"
+        + (b"\x00" * 13)
+        + (b"\x00" * 4)
+        + (0).to_bytes(4, "big")
+        + b"IEND"
+        + (b"\x00" * 4)
     )
     # GIF with header + LSD (7) + trailer (0x3B).
-    gif87_min = b"GIF87a" + (b"\x00" * 7) + b"\x3B"
-    gif89_min = b"GIF89a" + (b"\x00" * 7) + b"\x3B"
+    gif87_min = b"GIF87a" + (b"\x00" * 7) + b"\x3b"
+    gif89_min = b"GIF89a" + (b"\x00" * 7) + b"\x3b"
     # JPEG with SOI + APP0(JFIF) + DQT + SOF0 + SOS + EOI.
     jpeg_min = (
         b"\xff\xd8"

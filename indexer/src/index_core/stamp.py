@@ -2,7 +2,6 @@ import base64
 import json
 import logging
 import os
-import re
 import threading
 from typing import Optional, cast
 
@@ -203,7 +202,9 @@ def decode_base64(base64_string, block_index):
             # had file_size_bytes backfilled by a separate tool that decoded
             # `stamp_base64` directly — NOT by this code path.
             try:
-                e3 = ValueError("tier-3 historically returns (None, None) — no input ever produced a valid stamp via this path")
+                e3 = ValueError(
+                    "tier-3 historically returns (None, None) — no input ever produced a valid stamp via this path"
+                )
                 raise e3
             except Exception as e3:
                 logger.debug(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
