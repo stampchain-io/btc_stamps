@@ -1,0 +1,73 @@
+name: Reparse Consensus Validation
+
+# Per-PR validation that the indexer's consensus surface still matches the
+# checked-in baseline at indexer/snapshots/ci_consensus_hashes.json. Each
+# block listed in the baseline is fetched from a bitcoind RPC (or, if none is
+# configured, the blockstream.info public node), the raw bytes are verified
+# against the expected block_hash, and (TODO follow-up) the indexer parser
+# pipeline is run against them to confirm txlist_hash / ledger_hash /
+# messages_hash match the baseline.
+#
+# Why this exists: poetry.lock + freeze-drift catch package-version drift,
+# but only an actual replay of consensus-boundary blocks catches parser-output
+# drift (Bucket A dep bumps, Rust-parser changes, MIME classifier changes).
+# Without this, every Bucket A bump needs a manual 24-48h reindex for signal.
+# This gets us a per-PR signal at boundary blocks in <5 min on CI.
+#
+# To refresh the baseline after an intentional consensus change:
+#   ./indexer/ci/refresh-consensus-hashes.sh
+#   git add indexer/snapshots/ci_consensus_hashes.json
+#   git commit
+#
+# This is advisory on first land (does not block merge). Promote to required
+# after one bake cycle confirms zero false positives.
+
+on:
+  pull_request:
+    paths:
+      - 'indexer/src/index_core/**'
+      - 'indexer/src/rust_parser/**'
+      - 'indexer/pyproject.toml'
+      - 'indexer/poetry.lock'
+      - 'indexer/snapshots/ci_consensus_hashes.json'
+      - 'indexer/snapshots/reference_hashes.json'
+      - 'indexer/src/config.py'
+      - '.github/workflows/reparse-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reparse-validate:
+    name: Reparse Consensus Validation
+    runs-on: ubuntu-latest
+    # Advisory on first land — promote to required after one bake cycle.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cross-check CHECKPOINTS_MAINNET against reference_hashes.json
+        # Catches the "someone edited check.py without refreshing
+        # reference_hashes.json (or vice versa)" failure mode. Pure-Python AST
+        # parse, no indexer venv needed.
+        run: |
+          python3 indexer/ci/validate_checkpoints_vs_reference.py
+
+      - name: Validate block bytes against baseline
+        env:
+          # Operator-supplied bitcoind RPC. Leave unset to use the
+          # blockstream.info public node (content-addressed, so trust is
+          # bounded by hash verification — the workflow rejects any block
+          # whose bytes don't hash to the expected block_hash).
+          BITCOIN_RPC_URL: ${{ secrets.BITCOIN_RPC_URL }}
+          BITCOIN_RPC_USER: ${{ secrets.BITCOIN_RPC_USER }}
+          BITCOIN_RPC_PASSWORD: ${{ secrets.BITCOIN_RPC_PASSWORD }}
+        run: |
+          python3 indexer/ci/ci_validate_consensus.py \
+            --baseline indexer/snapshots/ci_consensus_hashes.json
