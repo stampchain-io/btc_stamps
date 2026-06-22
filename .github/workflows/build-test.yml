@@ -25,7 +25,7 @@ jobs:
       status: ${{ steps.test.outputs.test_status }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Create Python module structure
         run: |
