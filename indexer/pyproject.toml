@@ -9,7 +9,7 @@ manifest-path = "src/rust_parser/Cargo.toml"
 
 [tool.poetry]
 name = "indexer"
-version = "1.8.26+canary.279"
+version = "1.8.26+canary.282"
 description = "Bitcoin Stamps Indexer"
 authors = ["reinamora <reinamora@stampchain.io>"]
 homepage = "https://stampchain.io"
@@ -37,7 +37,7 @@ regex = "2026.2.28"
 requests = "2.32.5"
 pymysql = "1.1.1"
 cryptography = "^46.0.5"
-pybase64 = "^1.4.1"
+pybase64 = "1.4.3"
 boto3 = "^1.39.12"
 msgpack = "1.1.2"
 python-dotenv = "1.1.1"
@@ -53,7 +53,7 @@ redis = "^6.2.0"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
-pynacl = ">=1.6.2"
+pynacl = "1.6.2"
 
 [tool.poetry.group.dev.dependencies]
 taskipy = "^1.13.0"
