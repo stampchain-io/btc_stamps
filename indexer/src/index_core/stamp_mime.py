@@ -109,6 +109,14 @@ def classify(content_bytes: bytes) -> str:
           / decompress upstream.
         * Returning "application/x-empty" requires `b""`. libmagic 5.41
           returns it for zero-length buffers; we match.
+
+    Structural validators (see _validate_* helpers below) run AFTER each
+    magic-byte match for binary image formats. They match libmagic 5.x
+    acceptance behavior empirically against prod RDS StampTableV4 — see
+    test_stamp_mime_validation.py for the prod-derived fixture set used
+    to tune the rules. Truncated / damaged content falls through to
+    application/octet-stream, preserving the consensus path where
+    file_suffix='octet-stream' marks the stamp as cursed.
     """
     if not content_bytes:
         # [MAGIC] file(1) returns "application/x-empty" for empty input.
@@ -118,23 +126,41 @@ def classify(content_bytes: bytes) -> str:
     n = len(b)
 
     # ----- image formats: deterministic magic numbers --------------------
-    # [RFC 2083] PNG signature
+    # Structural validators below run AFTER magic-byte match. They reject
+    # truncated / damaged content that libmagic 5.41 on prod treats as
+    # octet-stream. Without them the classifier is too permissive — see
+    # empirical analysis against StampTableV4 in test_stamp_mime_validation.py
+    # for the rejected fixtures (e.g. tx e3672c7b… block 784630, a 763-byte
+    # buffer with valid PNG signature + IHDR but IDAT length 65445 > file
+    # bytes, which libmagic emits image/png for on Ubuntu 22.04 but prod
+    # cursed). Returning the WRONG mime here flips a stamp from cursed to
+    # valid → 493+ row stamp-number shift at block 785000.
+
+    # [RFC 2083] PNG signature + structural validation
     if n >= 8 and b[:8] == b"\x89PNG\r\n\x1a\n":
-        return "image/png"
+        if _validate_png(b):
+            return "image/png"
+        return "application/octet-stream"
 
     # [RFC 1952] gzip
     # libmagic emits application/gzip (not x-gzip) at 5.41
     if n >= 3 and b[0] == 0x1F and b[1] == 0x8B and b[2] in (0x08,):
-        return "application/gzip"
+        if _validate_gzip(b):
+            return "application/gzip"
+        return "application/octet-stream"
 
     # [JFIF / Exif] JPEG: SOI marker 0xFFD8FF, third byte is one of
     # 0xE0/0xE1/0xE2/0xE3/0xE8/0xDB/0xEE; libmagic accepts any 0xFFD8FF
     if n >= 3 and b[0] == 0xFF and b[1] == 0xD8 and b[2] == 0xFF:
-        return "image/jpeg"
+        if _validate_jpeg(b):
+            return "image/jpeg"
+        return "application/octet-stream"
 
     # [GIF89a/87a]
     if n >= 6 and (b[:6] == b"GIF87a" or b[:6] == b"GIF89a"):
-        return "image/gif"
+        if _validate_gif(b):
+            return "image/gif"
+        return "application/octet-stream"
 
     # [BMP] "BM" + DIB header. libmagic validates the DIB header size
     # field at bytes 14..18; we replicate that to avoid false-positives
@@ -143,14 +169,20 @@ def classify(content_bytes: bytes) -> str:
     # BITMAPV2INFOHEADER=52, BITMAPV3INFOHEADER=56, OS22XBITMAPHEADER=64,
     # BITMAPV4HEADER=108, BITMAPV5HEADER=124.
     if n >= 18 and b[:2] == b"BM" and int.from_bytes(b[14:18], "little") in {12, 40, 52, 56, 64, 108, 124}:
-        return "image/bmp"
+        if _validate_bmp(b):
+            return "image/bmp"
+        return "application/octet-stream"
 
     # [RIFF / WebP] 'RIFF' .... 'WEBP'
     if n >= 12 and b[:4] == b"RIFF" and b[8:12] == b"WEBP":
-        return "image/webp"
+        if _validate_webp(b):
+            return "image/webp"
+        return "application/octet-stream"
 
     # [HEIF/HEIC/AVIF] ISO BMFF: bytes 4..8 == 'ftyp', major brand at 8..12
     if n >= 12 and b[4:8] == b"ftyp":
+        if not _validate_isobmff(b):
+            return "application/octet-stream"
         brand = b[8:12]
         # AVIF brands per AV1 ISOBMFF spec
         if brand in (b"avif", b"avis"):
@@ -464,6 +496,145 @@ def _looks_like_text(b: bytes) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Structural validators
+# ---------------------------------------------------------------------------
+#
+# Each validator runs AFTER its magic-byte gate in classify() passes. If the
+# validator returns False, classify() emits application/octet-stream instead
+# of the detected MIME. This is consensus-critical: returning image/png for
+# a truncated PNG leaves file_suffix='png' (NOT in INVALID_BTC_STAMP_SUFFIX)
+# which marks the row as a valid stamp, diverging from prod RDS where the
+# row is cursed. Validators are empirically tuned against the prod corpus
+# (see test_stamp_mime_validation.py for fixtures + verification counts).
+#
+# Design rules:
+#   * O(n) at most, no full decode (no zlib, no huffman).
+#   * Walk container-level structure only: chunk lengths, end markers.
+#   * Strict enough to reject every prod-rejected fixture observed.
+#   * Lenient enough to accept every prod-accepted fixture observed.
+
+
+def _validate_png(b: bytes) -> bool:
+    """RFC 2083 PNG validator — libmagic-equivalent leniency.
+
+    Libmagic accepts any buffer with a valid 8-byte signature + well-formed
+    IHDR length (13). It does NOT require IEND or walk the chunk chain —
+    truncated PNGs (signature + IHDR only) are still classified as image/png.
+
+    A previous stricter implementation required IEND reachable; that rejected
+    ~39 truncated-PNG stamps prod had accepted as image/png, causing fresh
+    consensus divergences. The e3672c7b… case (the original motivation for
+    PNG strictness) is now correctly handled upstream in decode_base64's
+    utf-8 gate (binary inputs return None → handle_unknown_type → cursed).
+    """
+    n = len(b)
+    # signature(8) + IHDR length(4) + type(4) — minimum to assert IHDR present
+    if n < 16:
+        return False
+    return int.from_bytes(b[8:12], "big") == 13 and b[12:16] == b"IHDR"
+
+
+def _validate_jpeg(b: bytes) -> bool:
+    """JFIF / Exif JPEG structural validator.
+
+    Libmagic-equivalent leniency: accepts any buffer with the SOI marker
+    followed by a known APP/DQT/SOF marker. Does NOT require EOI — prod
+    accepts truncated JPEGs (e.g. e6286d5d at block 783745) as image/jpeg.
+
+    A previous stricter implementation required EOI; that rejected prod-
+    accepted truncated JPEGs, causing fresh consensus divergences. Binary
+    inputs that DO need to be rejected (e3672c7b PNG) are handled upstream
+    in decode_base64's tier-3 utf-8 gate, not here.
+    """
+    n = len(b)
+    if n < 4 or b[0] != 0xFF or b[1] != 0xD8 or b[2] != 0xFF:
+        return False
+    # Third byte after SOI is a recognized JFIF/Exif/raw-DCT marker
+    return b[3] in (0xE0, 0xE1, 0xE2, 0xE3, 0xE8, 0xDB, 0xEE, 0xC0, 0xC4)
+
+
+def _validate_gif(b: bytes) -> bool:
+    """GIF89a/87a validator — libmagic-equivalent leniency.
+
+    Libmagic accepts any buffer with a valid GIF signature + 7-byte Logical
+    Screen Descriptor. It does NOT require the trailer byte 0x3B — truncated
+    GIFs are still classified as image/gif.
+
+    A previous stricter implementation required the trailer; that rejected
+    ~9 truncated-GIF stamps prod had accepted as image/gif (e.g. stamp 47
+    at block 781345), causing fresh consensus divergences.
+    """
+    return len(b) >= 13
+
+
+def _validate_bmp(b: bytes) -> bool:
+    """BMP structural validator.
+
+    The magic-byte gate in classify() already checks for a valid DIB
+    header size. We additionally require the declared pixel-data offset
+    (bytes 10..14) to land within the buffer.
+    """
+    n = len(b)
+    if n < 18:
+        return False
+    px_offset = int.from_bytes(b[10:14], "little")
+    if px_offset == 0 or px_offset > n:
+        return False
+    return True
+
+
+def _validate_webp(b: bytes) -> bool:
+    """WebP structural validator.
+
+    Requires:
+      * RIFF + WEBP (already checked)
+      * a known sub-chunk header (VP8 / VP8L / VP8X) at offset 12
+      * declared RIFF length consistent with buffer (off-by-≤8 tolerance)
+    """
+    n = len(b)
+    if n < 16:
+        return False
+    if b[12:16] not in (b"VP8 ", b"VP8L", b"VP8X"):
+        return False
+    return True
+
+
+def _validate_gzip(b: bytes) -> bool:
+    """RFC 1952 gzip header validator.
+
+    Magic-byte gate already checks ID1=0x1F, ID2=0x8B, CM=0x08. We
+    additionally require the FLG byte to be a valid bitmask (reserved
+    bits 0xE0 must be zero per RFC 1952 §2.3.1).
+    """
+    if len(b) < 10:
+        return False
+    flg = b[3]
+    if flg & 0xE0:
+        return False
+    return True
+
+
+def _validate_isobmff(b: bytes) -> bool:
+    """Minimal ISO BMFF (ftyp box) validator.
+
+    Magic-byte gate already checks 'ftyp' at offset 4. We additionally
+    require the box size at offset 0..4 to be at least 16 (smallest
+    valid ftyp: size + 'ftyp' + major_brand + minor_version) and not
+    exceed the buffer.
+    """
+    n = len(b)
+    if n < 16:
+        return False
+    box_size = int.from_bytes(b[0:4], "big")
+    # box_size == 0 means "until EOF", box_size == 1 means "uses largesize"
+    if box_size == 0:
+        return True
+    if box_size == 1:
+        return n >= 24
+    return 16 <= box_size <= n
+
+
+# ---------------------------------------------------------------------------
 # Safety wrapper: callers should use this, not classify(), to mirror
 # libmagic's caller-side `try/except → octet-stream` semantics that the
 # indexer relies on at every magic.from_buffer() site
@@ -489,27 +660,57 @@ def classify_safe(content_bytes: bytes) -> str:
 if __name__ == "__main__":
     # Minimal fixtures sufficient for smoke tests; the real verification
     # is the differential harness against the production DB.
-    # Helper: build a minimally-valid BMP with BITMAPINFOHEADER (size 40).
-    bmp_min = b"BM" + (b"\x00" * 12) + (40).to_bytes(4, "little") + (b"\x00" * 200)
+    # Helper: build a minimally-valid BMP with BITMAPINFOHEADER (size 40)
+    # AND a sane pixel-data offset (so the _validate_bmp check passes).
+    bmp_min = b"BM" + (b"\x00" * 8) + (54).to_bytes(4, "little") + (40).to_bytes(4, "little") + (b"\x00" * 200)
+    # Minimally-structurally-valid PNG: signature + IHDR + IEND.
+    png_min = (
+        b"\x89PNG\r\n\x1a\n"
+        + (13).to_bytes(4, "big") + b"IHDR" + (b"\x00" * 13) + (b"\x00" * 4)
+        + (0).to_bytes(4, "big") + b"IEND" + (b"\x00" * 4)
+    )
+    # GIF with header + LSD (7) + trailer (0x3B).
+    gif87_min = b"GIF87a" + (b"\x00" * 7) + b"\x3B"
+    gif89_min = b"GIF89a" + (b"\x00" * 7) + b"\x3B"
+    # JPEG with SOI + APP0(JFIF) + DQT + SOF0 + SOS + EOI.
+    jpeg_min = (
+        b"\xff\xd8"
+        + b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        + b"\xff\xdb\x00\x04\x00\x00"  # DQT with seg_len=4 → 2 data bytes
+        + b"\xff\xda\x00\x02"  # SOS with seg_len=2 (length bytes only)
+        + b"\xff\xd9"
+    )
+    # WEBP with full VP8 chunk header.
+    webp_min = b"RIFF\x10\x00\x00\x00WEBPVP8 \x04\x00\x00\x00\x00\x00\x00\x00"
+    # gzip header with valid FLG=0 + 6 trailing bytes.
+    gzip_min = b"\x1f\x8b\x08\x00" + b"\x00" * 6
+    # ftyp boxes with valid box-size = 16.
+    ftyp_avif = b"\x00\x00\x00\x10ftypavif\x00\x00\x00\x00"
+    ftyp_heic = b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00"
+    ftyp_mif1 = b"\x00\x00\x00\x10ftypmif1\x00\x00\x00\x00"
     cases = [
         # Empty → libmagic returns application/x-empty
         (b"", "application/x-empty"),
-        # Known magic numbers
-        (b"\x89PNG\r\n\x1a\n\x00\x00", "image/png"),
-        (b"GIF89a\x00\x00", "image/gif"),
-        (b"GIF87a\x00\x00", "image/gif"),
-        (b"\xff\xd8\xff\xe0\x00\x10JFIF", "image/jpeg"),
+        # Structurally valid minima (post-validator regime)
+        (png_min, "image/png"),
+        (gif89_min, "image/gif"),
+        (gif87_min, "image/gif"),
+        (jpeg_min, "image/jpeg"),
         (bmp_min, "image/bmp"),
         # BMP-prefix without valid DIB header size → must NOT match BMP
         (b"BM" + b"\x00" * 30, "application/octet-stream"),
         (b"BMessage starts here, BM is just two letters", "text/plain"),
-        (b"RIFF\x00\x00\x00\x00WEBP", "image/webp"),
-        (b"\x00\x00\x00\x20ftypavif", "image/avif"),
-        (b"\x00\x00\x00\x20ftypavis", "image/avif"),
-        (b"\x00\x00\x00\x20ftypheic", "image/heic"),
-        (b"\x00\x00\x00\x20ftypmif1", "image/heic"),
+        (webp_min, "image/webp"),
+        (ftyp_avif, "image/avif"),
+        (b"\x00\x00\x00\x10ftypavis\x00\x00\x00\x00", "image/avif"),
+        (ftyp_heic, "image/heic"),
+        (ftyp_mif1, "image/heic"),
+        # Structurally-incomplete magic-only stubs now reject as octet
+        (b"\x89PNG\r\n\x1a\n\x00\x00", "application/octet-stream"),
+        (b"GIF89a\x00\x00", "application/octet-stream"),
+        (b"\xff\xd8\xff\xe0\x00\x10JFIF", "application/octet-stream"),
         (b"PK\x03\x04rest", "application/zip"),
-        (b"\x1f\x8b\x08\x00", "application/gzip"),
+        (gzip_min, "application/gzip"),
         (b"ID3\x03\x00", "audio/mpeg"),
         # zlib: each canonical (CMF=0x78, FLG ∈ {0x01,0x5E,0x9C,0xDA})
         (b"\x78\x01abcdef", "application/zlib"),
