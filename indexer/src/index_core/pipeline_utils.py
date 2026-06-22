@@ -72,7 +72,11 @@ class CPBlocksPipeline:
         self.fetch_futures_lock = threading.Lock()  # Lock for fetch_futures dictionary
         self.fetch_futures = {}  # Track active fetch futures
         self.blocks_fetch_timestamps = {}  # Track when each block started being fetched
-        self.fetch_timeout = 60  # Timeout for block fetches in seconds
+        # Busy SRC-20 blocks need many paginated /v2/blocks/N/transactions calls;
+        # under the 20 req/s rate limit a legitimate fetch can exceed 60s and
+        # trip a timeout cascade that jams the retry queue. Configurable via
+        # PIPELINE_FETCH_TIMEOUT so operators can adjust without a code change.
+        self.fetch_timeout = int(os.environ.get("PIPELINE_FETCH_TIMEOUT", "180"))
         self.failed_fetch_blocks = {}  # Track blocks that failed to fetch with retry count
 
         # Fallback mode settings
