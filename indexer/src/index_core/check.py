@@ -143,13 +143,6 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
         "ledger_hash": "6f80bd0cc8b7a9a49cd49d7e1d371a80c11566e9800f3f601ff4793274109f96",
         "txlist_hash": "c13b5b98e47b4449b2a8fdf3221a7b905447e0820b658734ba8e8f87986d7e4a",
     },
-    # Extended from prod RDS (stamps-4) on 2026-06-22 to close the 885k → 950k
-    # gap. Each block_index's hash matches what the production indexer
-    # computed and stored — these blocks are byte-identical between dev (the
-    # libmagic-removal reindex of this PR) and prod RDS for every block from
-    # 779,652 through 866,000 as of this PR (verified via compare_tables.py).
-    # Empty ledger_hash entries reflect blocks where the SRC-20 ledger
-    # contained no balance changes (matches prod RDS NULL).
     890000: {
         "ledger_hash": "df6a553b7a81c8560c82d188e5f1f6ec888e93b8302deedcbebc25eaa8f174df",
         "txlist_hash": "011c812279e9de4457ffacab8428249195cffaa9ec1991c6145ca0f286099dbd",
