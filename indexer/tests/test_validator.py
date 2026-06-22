@@ -107,6 +107,5 @@ def test_compute_block_hashes_restores_genesis_on_inner_exception():
 
         # The mutation MUST be undone regardless of the inner exception.
         assert config.BTC_SRC20_GENESIS_BLOCK == original_gen, (
-            "compute_block_hashes leaked the BTC_SRC20_GENESIS_BLOCK mutation "
-            "after an inner exception — see #771"
+            "compute_block_hashes leaked the BTC_SRC20_GENESIS_BLOCK mutation " "after an inner exception — see #771"
         )
