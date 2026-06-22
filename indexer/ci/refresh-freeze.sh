@@ -30,7 +30,12 @@ docker build \
 echo "Dumping resolved pip freeze from container..."
 # --exclude-editable skips the indexer itself (installed as -e /app); we only
 # want to track third-party version drift, not our own canary version bumps.
+# Also drop btc_stamps_parser: it's built locally from src/rust_parser, and
+# the resulting wheel's sha256 is not byte-reproducible until Item 2 of #759
+# (wheel distribution from a release artifact) lands. Its version is tracked
+# in src/rust_parser/Cargo.toml instead.
 docker run --rm "$IMAGE_TAG" pip freeze --all --exclude-editable \
+  | grep -vE '^btc[_-]stamps[_-]parser\b' \
   | LC_ALL=C sort > "$OUTPUT"
 
 echo "Wrote $OUTPUT ($(wc -l < "$OUTPUT") lines)"

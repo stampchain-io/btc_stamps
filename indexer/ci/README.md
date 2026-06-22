@@ -6,9 +6,17 @@ because the indexer's stamp / SRC-20 / CP detection logic is consensus-critical.
 
 ## `freeze.prod.lock`
 
-Sorted output of `pip freeze --all` from inside the production indexer image
-(`indexer/Dockerfile` with `INSTALL_DEV=false`, Python 3.12). This is the
-canonical record of every resolved package version that prod actually installs.
+Sorted output of `pip freeze --all --exclude-editable` from inside the
+production indexer image (`indexer/Dockerfile` with `INSTALL_DEV=false`,
+Python 3.12), with the locally-built `btc_stamps_parser` wheel filtered out.
+This is the canonical record of every third-party resolved package version
+that prod actually installs.
+
+The Rust parser is excluded because the wheel it builds is not byte-
+reproducible across runs even with a pinned toolchain (different sha256
+each time). Its version is tracked separately in
+`indexer/src/rust_parser/Cargo.toml`. Once #759 Item 2 (wheel distribution
+from a pinned release artifact) lands, we can re-include it.
 
 Why this file and not just `poetry.lock`: `poetry.lock` guarantees lockfile-
 internal consistency, but it does NOT guarantee that `pip install` inside the

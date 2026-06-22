@@ -57,7 +57,11 @@ jobs:
         run: |
           # --exclude-editable skips the indexer itself (-e /app); we track
           # third-party version drift, not our own canary version bumps.
+          # Drop btc_stamps_parser too: it's a locally-built wheel whose
+          # sha256 is not byte-reproducible until #759 Item 2 (wheel
+          # distribution) lands. Its version lives in Cargo.toml.
           docker run --rm btc-stamps-freeze-baseline:tmp pip freeze --all --exclude-editable \
+            | grep -vE '^btc[_-]stamps[_-]parser\b' \
             | LC_ALL=C sort > /tmp/freeze.actual.lock
           wc -l /tmp/freeze.actual.lock indexer/ci/freeze.prod.lock || true
 

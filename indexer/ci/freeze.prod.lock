@@ -19,7 +19,6 @@ bitcoinlib==0.7.4
 blessings==1.7
 boto3==1.39.12
 botocore==1.39.12
-btc_stamps_parser @ file:///app/target/wheels/btc_stamps_parser-0.1.0-cp312-cp312-manylinux_2_34_x86_64.whl#sha256=b824fffa55a30adef316f166766ea06e7a922a6576feeafc99e48d1d7279d7ab
 build==1.5.0
 certifi==2025.1.31
 cffi==2.0.0
