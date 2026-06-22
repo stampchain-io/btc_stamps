@@ -164,7 +164,7 @@ def rpc(method, params):
         raise RuntimeError(f"rpc {method}({params}): {payload['error']}")
     return payload["result"]
 
-out = {"metadata": {"source": "refresh-consensus-hashes.sh", "rpc": rpc_url}, "blocks": {}}
+out = {"metadata": {"source": "refresh-consensus-hashes.sh", "rpc": rpc_url}, "hashes": {}}
 
 for entry in entries:
     block_index, reason = entry.split(":", 1)
@@ -180,7 +180,7 @@ for entry in entries:
     if block_hash != ref.get("block_hash"):
         print(f"  block {block_index}: bitcoind hash {block_hash} != {source} {ref.get('block_hash')}", file=sys.stderr)
         sys.exit(1)
-    out["blocks"][block_index] = {
+    out["hashes"][block_index] = {
         "reason": reason,
         "block_hash": block_hash,
         "txlist_hash": ref.get("txlist_hash", ""),

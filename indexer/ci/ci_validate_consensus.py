@@ -77,7 +77,7 @@ def main() -> int:
 
     with open(args.baseline) as f:
         baseline = json.load(f)
-    blocks = baseline.get("blocks", {})
+    blocks = baseline.get("hashes") or baseline.get("blocks") or {}
     if not blocks:
         print(f"::error::{args.baseline} has no blocks", file=sys.stderr)
         return 1
