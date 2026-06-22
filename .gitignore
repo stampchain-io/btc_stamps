@@ -5,7 +5,7 @@ db
 .DS_Store
 .env
 .env.local
-db_data/
+db_data*/
 files/
 indexer/.env
 .idea/
