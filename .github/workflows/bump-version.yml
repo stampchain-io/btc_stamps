@@ -37,7 +37,7 @@ jobs:
       
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -78,7 +78,7 @@ jobs:
 
       - name: Set up Python
         if: env.SKIP == 'false'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
@@ -172,7 +172,7 @@ jobs:
       - name: Create Release
         if: env.SKIP == 'false' && env.NEW_VERSION && github.ref == 'refs/heads/main'
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -215,12 +215,12 @@ jobs:
       NEW_VERSION: ''
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
       
@@ -257,7 +257,7 @@ jobs:
       - name: Create Release
         if: env.NEW_VERSION
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
