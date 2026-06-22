@@ -1,0 +1,123 @@
+name: Freeze Drift Check
+
+# Verify that the resolved python packages inside the production indexer
+# Docker image match the checked-in baseline at indexer/ci/freeze.prod.lock.
+#
+# Rationale: poetry.lock guarantees lockfile-internal consistency but does
+# NOT guarantee that what pip installs inside the prod image equals what a
+# maintainer has running locally — base-image wheel preferences, Python
+# minor differences, and platform tags can all diverge. The empirical bug
+# in PR #753 (regex 2024.11.6 vs 2026.2.28, PyNaCl 1.5.0 vs 1.6.2) was
+# exactly this class of drift. Comparing the *realized* container state
+# against a checked-in baseline catches it pre-merge.
+#
+# To intentionally update the baseline, run ./indexer/ci/refresh-freeze.sh
+# locally and commit the new indexer/ci/freeze.prod.lock in the same PR.
+# See indexer/ci/README.md.
+
+on:
+  pull_request:
+    paths:
+      - 'indexer/pyproject.toml'
+      - 'indexer/poetry.lock'
+      - 'indexer/Dockerfile'
+      - 'indexer/ci/freeze.prod.lock'
+      - '.github/workflows/freeze-drift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  freeze-drift:
+    name: Freeze Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production-mode indexer image
+        uses: docker/build-push-action@v6
+        with:
+          context: indexer
+          file: indexer/Dockerfile
+          target: builder
+          build-args: |
+            PYTHON_VERSION=3.12
+            INSTALL_DEV=false
+          tags: btc-stamps-freeze-baseline:tmp
+          load: true
+          cache-from: type=gha,scope=freeze-drift
+          cache-to: type=gha,scope=freeze-drift,mode=max
+
+      - name: Dump pip freeze from container
+        run: |
+          # --exclude-editable skips the indexer itself (-e /app); we track
+          # third-party version drift, not our own canary version bumps.
+          # Drop btc_stamps_parser too: it's a locally-built wheel whose
+          # sha256 is not byte-reproducible until #759 Item 2 (wheel
+          # distribution) lands. Its version lives in Cargo.toml.
+          docker run --rm btc-stamps-freeze-baseline:tmp pip freeze --all --exclude-editable \
+            | grep -vE '^btc[_-]stamps[_-]parser\b' \
+            | LC_ALL=C sort > /tmp/freeze.actual.lock
+          wc -l /tmp/freeze.actual.lock indexer/ci/freeze.prod.lock || true
+
+      - name: Diff freeze vs baseline
+        id: diff
+        run: |
+          if ! [ -f indexer/ci/freeze.prod.lock ]; then
+            echo "::error::indexer/ci/freeze.prod.lock missing. Run ./indexer/ci/refresh-freeze.sh and commit the output."
+            exit 1
+          fi
+          if diff -u indexer/ci/freeze.prod.lock /tmp/freeze.actual.lock > /tmp/freeze.diff; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "No drift detected."
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            echo "Drift detected:"
+            cat /tmp/freeze.diff
+          fi
+
+      - name: Comment drift on PR
+        if: steps.diff.outputs.drift == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const diff = fs.readFileSync('/tmp/freeze.diff', 'utf8');
+            const body = [
+              '### Freeze drift detected',
+              '',
+              'The resolved python packages inside the production indexer image differ from the checked-in baseline at `indexer/ci/freeze.prod.lock`. This is the same class of drift that caused the PR #753 reindex investigation.',
+              '',
+              'If this drift is intentional (you bumped a dep, changed the Dockerfile, or updated poetry.lock), regenerate the baseline locally and commit it:',
+              '',
+              '```bash',
+              './indexer/ci/refresh-freeze.sh',
+              'git add indexer/ci/freeze.prod.lock',
+              'git commit',
+              '```',
+              '',
+              'If this drift is unexpected, investigate before merging.',
+              '',
+              '<details><summary>Unified diff</summary>',
+              '',
+              '```diff',
+              diff.slice(0, 60000),
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail on drift
+        if: steps.diff.outputs.drift == 'true'
+        run: exit 1
