@@ -74,3 +74,39 @@ def test_hash_computation_matches_production():
             config.CURRENT_BLOCK_INDEX = original_current_block
         elif hasattr(config, "CURRENT_BLOCK_INDEX"):
             delattr(config, "CURRENT_BLOCK_INDEX")
+
+
+def test_compute_block_hashes_restores_genesis_on_inner_exception():
+    """Regression test for #771.
+
+    compute_block_hashes temporarily mutates config.BTC_SRC20_GENESIS_BLOCK so
+    that pre-genesis stamp filtering treats the reparse genesis as
+    post-genesis. The mutation MUST be restored even if an inner call
+    (backend_instance.getblockhash / getblock, fetch_xcp_blocks_concurrent,
+    filter_block_transactions) raises — otherwise the global leaks into every
+    subsequent block's filtering for the lifetime of the process.
+
+    Pre-#771 the restore happened after the work but NOT in a try/finally, so
+    any inner exception left the global pointing at CP_STAMP_GENESIS_BLOCK
+    instead of BTC_SRC20_GENESIS_BLOCK.
+    """
+    original_gen = config.BTC_SRC20_GENESIS_BLOCK
+
+    with patch("pathlib.Path.mkdir"):
+        validator = ReparseValidator(snapshot_path="/tmp/test_snapshots/dummy.json")
+        validator.snapshot_manager = MagicMock()
+
+        # Force the first backend call inside compute_block_hashes to raise so we
+        # exit between the genesis mutation and the (pre-#771 non-finally) restore.
+        with patch(
+            "index_core.reparse.validator.backend_instance.getblockhash",
+            side_effect=RuntimeError("simulated bitcoind hiccup"),
+        ):
+            with pytest.raises(RuntimeError):
+                validator.compute_block_hashes(config.CP_STAMP_GENESIS_BLOCK + 1)
+
+        # The mutation MUST be undone regardless of the inner exception.
+        assert config.BTC_SRC20_GENESIS_BLOCK == original_gen, (
+            "compute_block_hashes leaked the BTC_SRC20_GENESIS_BLOCK mutation "
+            "after an inner exception — see #771"
+        )
