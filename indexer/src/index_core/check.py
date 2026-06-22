@@ -143,6 +143,65 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
         "ledger_hash": "6f80bd0cc8b7a9a49cd49d7e1d371a80c11566e9800f3f601ff4793274109f96",
         "txlist_hash": "c13b5b98e47b4449b2a8fdf3221a7b905447e0820b658734ba8e8f87986d7e4a",
     },
+    # Extended from prod RDS (stamps-4) on 2026-06-22 to close the 885k → 950k
+    # gap. Each block_index's hash matches what the production indexer
+    # computed and stored — these blocks are byte-identical between dev (the
+    # libmagic-removal reindex of this PR) and prod RDS for every block from
+    # 779,652 through 866,000 as of this PR (verified via compare_tables.py).
+    # Empty ledger_hash entries reflect blocks where the SRC-20 ledger
+    # contained no balance changes (matches prod RDS NULL).
+    890000: {
+        "ledger_hash": "df6a553b7a81c8560c82d188e5f1f6ec888e93b8302deedcbebc25eaa8f174df",
+        "txlist_hash": "011c812279e9de4457ffacab8428249195cffaa9ec1991c6145ca0f286099dbd",
+    },
+    895000: {
+        "ledger_hash": "f27608543b2e8ecefcd3571b386c3369eb5f9e4eab795aae100785afb6064743",
+        "txlist_hash": "08c8bb9a2c2f9e37f11bd853af32c3368916807d975786ddb97a6b08a77e7f30",
+    },
+    900000: {
+        "ledger_hash": "cb8ef6b287fae844009bdb51de425e9f2d7221d6bc90b0888a5f36424f26068b",
+        "txlist_hash": "c3350aab20cee4250c4e62affef05232b0436593977451929a3e27c66e06da91",
+    },
+    905000: {
+        "ledger_hash": "c5d822eb4bb3899550e5b3c13838f7cc4dc65312b5139438841f9364ac317cf1",
+        "txlist_hash": "59912c2f22a70643a985fd3fa2a9a31e064103799a81fd5ccdd4cd433f4e700e",
+    },
+    910000: {
+        "ledger_hash": "ea84ceb61bdb91625c1337ea3993d31aad97ed13f785b1a98a64d1e5fceb9100",
+        "txlist_hash": "9747c34a27c140ab908632788ee6ed62bc87d49b0d715602983bb9613e0a6e92",
+    },
+    915000: {
+        "ledger_hash": "32fa96f1ff7dea5cae8ee974fe565391f633e16aa6cb33be791d06bfa5d015a7",
+        "txlist_hash": "d678c68751dfdf68163cc16db151f37efc23899b8ce8ac189f9ad9389ffb9bdb",
+    },
+    920000: {
+        "ledger_hash": "",
+        "txlist_hash": "457793493e518571554ec72851f60aa0c515f56353ff3a628a1765cfab4c6657",
+    },
+    925000: {
+        "ledger_hash": "c846c5515db2be61130b7c0e8f820574328d0132434b131d5f9201154cdb56db",
+        "txlist_hash": "13bf6b8a8b742602f1ba2b70ac9c5f98d829ebbba92c2746af485cd34d21c76c",
+    },
+    930000: {
+        "ledger_hash": "939236fb786a44ca02901c9f1d6db4fd79ee131671244cccc46fdbce1b31eab8",
+        "txlist_hash": "9819ca1bcb722a0a07e64b1cd1dda8281b3679092b07a6179c0249138d03eae1",
+    },
+    935000: {
+        "ledger_hash": "",
+        "txlist_hash": "fb74ae53d4bd483482f51ab1df54de327bb5274a5aa337e2b9e059469f4f95f9",
+    },
+    940000: {
+        "ledger_hash": "",
+        "txlist_hash": "0bebe1bff46d720216ed15b9086720d0af4df7c7dd4c4ee0d4bdd62a8446e352",
+    },
+    945000: {
+        "ledger_hash": "aa1f00269c89f544eecb4a3b1c0687a03fa21a9e45bd36ed4ccfd9cab2f746dd",
+        "txlist_hash": "60f11aec963482e671280992856003dbb1408ca6af6879eccf436cf2a058b791",
+    },
+    950000: {
+        "ledger_hash": "",
+        "txlist_hash": "fb981ea18d630321841c3ff51c2de04ea1fe1739de3eb1cd7a82dc106731e972",
+    },
 }
 
 
