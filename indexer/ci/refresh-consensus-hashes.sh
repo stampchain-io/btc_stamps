@@ -143,6 +143,47 @@ def fetch_from_rds(block_index_str):
         "messages_hash": row[3],
     }
 
+
+def fetch_prev_hashes(block_index_int):
+    """Look up block_index - 1 in reference_hashes.json, falling back to prod RDS.
+
+    Returns a dict with prev_block_hash + the three consensus hashes, or None
+    if neither source has the prior block. The runner uses these to seed the
+    validator's chain-position lookup for curated blocks where block_index - 1
+    isn't in reference_hashes.json (i.e. the 892,905+ tip side)."""
+    prev_idx = block_index_int - 1
+    ref = reference.get(str(prev_idx))
+    if ref is None:
+        ref = fetch_from_rds(str(prev_idx))
+    if ref is None:
+        return None
+    return {
+        "prev_block_hash": ref.get("block_hash", ""),
+        "prev_ledger_hash": ref.get("ledger_hash", ""),
+        "prev_txlist_hash": ref.get("txlist_hash", ""),
+        "prev_messages_hash": ref.get("messages_hash", ""),
+    }
+
+
+def fetch_stamp_counter_before(block_index_int):
+    """Return MAX(stamp) for all stamps with block_index < N, from prod RDS.
+
+    The InMemoryBlockProcessor uses cache_manager['stamp']['counter'] as a
+    running counter when assigning stamp_number to validated stamps. For a
+    from-genesis sequential reparse the counter builds up naturally; for the
+    non-contiguous CI subset we need to seed it explicitly so the first stamp
+    in block N gets stamp_number = seed + 1, matching production. Returns 0
+    if RDS isn't available."""
+    if rds_conn is None:
+        return 0
+    with rds_conn.cursor() as cur:
+        cur.execute(
+            "SELECT IFNULL(MAX(stamp), 0) FROM StampTableV4 WHERE block_index < %s",
+            (block_index_int,),
+        )
+        row = cur.fetchone()
+    return int(row[0]) if row else 0
+
 rpc_url = f"http://{os.environ.get('RPC_IP', '127.0.0.1')}:{os.environ.get('RPC_PORT', '8332')}/"
 rpc_user = os.environ.get("RPC_USER", "rpc")
 rpc_secret = os.environ.get("RPC_PASSWORD", "")
@@ -180,7 +221,7 @@ for entry in entries:
     if block_hash != ref.get("block_hash"):
         print(f"  block {block_index}: bitcoind hash {block_hash} != {source} {ref.get('block_hash')}", file=sys.stderr)
         sys.exit(1)
-    out["hashes"][block_index] = {
+    entry_out = {
         "reason": reason,
         "block_hash": block_hash,
         "txlist_hash": ref.get("txlist_hash", ""),
@@ -188,13 +229,24 @@ for entry in entries:
         "messages_hash": ref.get("messages_hash", ""),
         "source": source,
     }
+    prev = fetch_prev_hashes(int(block_index))
+    if prev is None:
+        print(
+            f"  block {block_index}: prior block hashes unavailable (no reference / RDS); "
+            f"chain-position validation may fall back to zero prev-hashes",
+            file=sys.stderr,
+        )
+    else:
+        entry_out.update(prev)
+    entry_out["stamp_counter_before"] = fetch_stamp_counter_before(int(block_index))
+    out["hashes"][block_index] = entry_out
     print(f"  block {block_index} ({reason}): captured [{source}]")
 
 with open(output_path, "w") as f:
     json.dump(out, f, indent=2, sort_keys=True)
     f.write("\n")
 
-print(f"\nWrote {output_path} with {len(out['blocks'])} blocks")
+print(f"\nWrote {output_path} with {len(out['hashes'])} blocks")
 PY
 
 echo "Done. Review with: git diff $OUTPUT"
