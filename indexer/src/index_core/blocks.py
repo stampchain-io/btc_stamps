@@ -46,6 +46,7 @@ from index_core.database import (  # update_src20_token_stats,  # Now handled by
     insert_into_stamp_table,
     insert_transactions,
     is_prev_block_parsed,
+    last_db_index,
     log_reorg_event,
     next_tx_index,
     purge_block_db,
@@ -873,7 +874,14 @@ def follow(
 
         progress_watchdog.start()
 
-        # Get index of last block and current tip
+        # Get index of last block and current tip.
+        # Safety belt for issue #784: refresh the in-process tip from the DB
+        # before deriving block_index. perform_complete_rollback() already
+        # refreshes this global; this is defense in depth so a future caller
+        # that purges blocks without going through that function cannot strand
+        # follow() with a stale value (the prior incident drove
+        # is_prev_block_parsed into an iterative destructive purge cascade).
+        util.CURRENT_BLOCK_INDEX = last_db_index(db)
         block_tip = backend_instance.getblockcount()
         if util.CURRENT_BLOCK_INDEX == 0:
             logger.warning("New database.")

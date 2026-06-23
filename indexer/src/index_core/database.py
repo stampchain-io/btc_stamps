@@ -1283,6 +1283,16 @@ def perform_complete_rollback(block_index: int, force: bool = False) -> None:
 
         logger.info(f"✅ Complete rollback finished to block {block_index}")
 
+        # Refresh the in-process tip cache (issue #784). Without this, callers
+        # such as blocks.follow() and the runtime fallback-rollback path read a
+        # pre-rollback util.CURRENT_BLOCK_INDEX and drive is_prev_block_parsed()
+        # into a destructive iterative purge cascade. Mirrors the pattern used
+        # by initialize_database(). Safe in the CLI rollback case too — the
+        # process exits shortly after.
+        refreshed_tip = last_db_index(db)
+        util.CURRENT_BLOCK_INDEX = refreshed_tip
+        logger.info(f"🔁 Refreshed util.CURRENT_BLOCK_INDEX to {refreshed_tip} after rollback")
+
         # Check if we should clear fallback state.
         # Query the fallback session directly via ReprocessingQueue rather than
         # load_failed_blocks(), which depends on util.CURRENT_BLOCK_INDEX and silently

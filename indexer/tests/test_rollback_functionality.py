@@ -101,6 +101,7 @@ def test_indexer_rollback_method_integration(temp_db, clean_singleton):
                 patch("src.index_core.database.clear_all_caches") as mock_clear_caches,
                 patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances,
                 patch("src.index_core.database.rebuild_owners") as mock_rebuild_owners,
+                patch("src.index_core.database.last_db_index", return_value=12000),
                 patch("src.index_core.backend.Backend"),
             ):
 
@@ -133,6 +134,7 @@ def test_bitcoin_block_rollback_not_affected():
             patch("src.index_core.database.clear_all_caches") as mock_clear_caches,
             patch("src.index_core.database.rebuild_balances") as mock_rebuild_balances,
             patch("src.index_core.database.rebuild_owners") as mock_rebuild_owners,
+            patch("src.index_core.database.last_db_index", return_value=12000),
             patch("src.index_core.backend.Backend"),
         ):
 
@@ -259,6 +261,7 @@ def test_fallback_state_integration_with_rollback(temp_db, clean_singleton):
                 patch("src.index_core.database.clear_all_caches"),
                 patch("src.index_core.database.rebuild_balances"),
                 patch("src.index_core.database.rebuild_owners"),
+                patch("src.index_core.database.last_db_index", return_value=12000),
                 patch("src.index_core.backend.Backend"),
             ):
                 # Perform rollback to block before fallback started
@@ -266,3 +269,42 @@ def test_fallback_state_integration_with_rollback(temp_db, clean_singleton):
 
                 # The rollback operation should complete successfully
                 # Fallback state handling is managed by the main indexer code
+
+
+def test_rollback_refreshes_current_block_index(clean_singleton):
+    """Issue #784 (sub-bug 2): perform_complete_rollback must refresh
+    util.CURRENT_BLOCK_INDEX so callers (e.g. blocks.follow()) don't read a
+    stale pre-rollback value and drive is_prev_block_parsed() into a
+    destructive iterative purge cascade."""
+    # Reach the global via the SAME module identity database.py uses
+    # (``import index_core.util as util``). Importing via ``src.index_core``
+    # gives a different sys.modules entry and the assertion would miss the write.
+    import src.index_core.database as database_module
+
+    util = database_module.util
+
+    # Pre-seed the global to a stale (pre-rollback) value, as it would be
+    # after initialize_database() ran but before a rollback is triggered.
+    util.CURRENT_BLOCK_INDEX = 955065
+
+    with patch("src.index_core.database.DatabaseManager") as mock_db_manager_class, patch(
+        "src.index_core.database.last_db_index", return_value=12000
+    ) as mock_last_db_index:
+        mock_db_manager = Mock()
+        mock_conn = Mock()
+        mock_db_manager.connect.return_value = mock_conn
+        mock_db_manager_class.return_value = mock_db_manager
+
+        with (
+            patch("src.index_core.database.purge_block_db"),
+            patch("src.index_core.database.clear_all_caches"),
+            patch("src.index_core.database.rebuild_balances"),
+            patch("src.index_core.database.rebuild_owners"),
+            patch("src.index_core.backend.Backend"),
+        ):
+            perform_complete_rollback(12000)
+
+        # Global must now reflect the post-rollback DB tip, not the stale 955065.
+        assert util.CURRENT_BLOCK_INDEX == 12000
+        # last_db_index was consulted against the same connection used for the purge.
+        mock_last_db_index.assert_called_with(mock_conn)
