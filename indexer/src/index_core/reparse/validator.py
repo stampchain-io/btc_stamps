@@ -257,30 +257,36 @@ class ReparseValidator:
             util.CURRENT_BLOCK_INDEX = block_index
             import config as _cfg
 
-            # Temporarily align BTC_SRC20_GENESIS_BLOCK to our CP_STAMP_GENESIS_BLOCK
+            # Temporarily align BTC_SRC20_GENESIS_BLOCK to our CP_STAMP_GENESIS_BLOCK.
+            # The try/finally ensures the global is restored even if an inner
+            # call (getblock / fetch_xcp / filter_block_transactions) raises —
+            # otherwise a transient bitcoind / CP-core hiccup leaks the mutated
+            # value into every subsequent block's filtering for the lifetime of
+            # the process. Same pattern is already used below for CHECKPOINTS_MAINNET.
             _orig_gen = _cfg.BTC_SRC20_GENESIS_BLOCK
             _cfg.BTC_SRC20_GENESIS_BLOCK = _cfg.CP_STAMP_GENESIS_BLOCK
-            # Get block data from Bitcoin node
-            block_hash = backend_instance.getblockhash(block_index)
-            block_data = backend_instance.getblock(block_hash, 2)
-            if not block_data:
-                raise ValidationError(f"Failed to get block data for block {block_index}")
+            try:
+                # Get block data from Bitcoin node
+                block_hash = backend_instance.getblockhash(block_index)
+                block_data = backend_instance.getblock(block_hash, 2)
+                if not block_data:
+                    raise ValidationError(f"Failed to get block data for block {block_index}")
 
-            # Get CP block data
-            cp_blocks = fetch_xcp_blocks_concurrent(block_index, block_index)
-            stamp_issuances = cp_blocks[block_index]["issuances"] if block_index in cp_blocks else []
+                # Get CP block data
+                cp_blocks = fetch_xcp_blocks_concurrent(block_index, block_index)
+                stamp_issuances = cp_blocks[block_index]["issuances"] if block_index in cp_blocks else []
 
-            # Filter transactions
-            txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
-            # For CP genesis block, only include stamp issuance transactions in memory reparse
-            if block_index == _cfg.CP_STAMP_GENESIS_BLOCK:
-                raw_transactions = {
-                    issuance["tx_hash"]: raw_transactions[issuance["tx_hash"]]
-                    for issuance in stamp_issuances
-                    if issuance.get("tx_hash") in raw_transactions
-                }
-            # Restore original SRC20 genesis for other logic
-            _cfg.BTC_SRC20_GENESIS_BLOCK = _orig_gen
+                # Filter transactions
+                txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+                # For CP genesis block, only include stamp issuance transactions in memory reparse
+                if block_index == _cfg.CP_STAMP_GENESIS_BLOCK:
+                    raw_transactions = {
+                        issuance["tx_hash"]: raw_transactions[issuance["tx_hash"]]
+                        for issuance in stamp_issuances
+                        if issuance.get("tx_hash") in raw_transactions
+                    }
+            finally:
+                _cfg.BTC_SRC20_GENESIS_BLOCK = _orig_gen
 
             # Process transactions using BlockProcessor if not provided
             # Initialize an in-memory processor if none provided
