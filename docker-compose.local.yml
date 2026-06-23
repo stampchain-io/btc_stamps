@@ -22,7 +22,18 @@ services:
       - MYSQL_PASSWORD=${RDS_PASSWORD}
       - MYSQL_ROOT_HOST=%
     ports:
-      - "3306:3306" 
+      - "3306:3306"
+    # Indexer used to start before schema_init finished, fail its first 3
+    # pymysql.connect() calls with "Lost connection during query", and then
+    # hang on later connects (libmysqlclient state corruption). Healthcheck
+    # gates the indexer's start until mysqladmin ping AND the init schema
+    # have completed.
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent && mysql -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD -e 'SHOW TABLES' $$MYSQL_DATABASE | grep -q blocks"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
   indexer:
     build:
@@ -38,6 +49,10 @@ services:
     network_mode: ${NETWORK_MODE:-host}
     env_file:
       - ${ENV_FILE:-.env.local}
+    depends_on:
+      mysql:
+        condition: service_healthy
+        required: false
     environment:
       - ENV_FILE=${ENV_FILE:-.env.local}
       - DEBUG=1
@@ -58,9 +73,5 @@ services:
       - "3306:3306"
     volumes:
       - ./snapshots:/app/snapshots:ro
-    command: >
-      sh -c "if [ "$REPARSE_MODE" = "true" ]; then
-               poetry run reparse;
-             else
-               /usr/bin/supervisord -c /etc/supervisor/conf.d/indexer.conf;
-             fi" 
+    # $$ escapes from compose interpolation so REPARSE_MODE is dereferenced at runtime.
+    command: ["sh", "-c", "if [ \"$$REPARSE_MODE\" = \"true\" ]; then exec poetry run reparse; else exec poetry run indexer; fi"]

@@ -1,7 +1,7 @@
 CacheControl==0.14.4
 PyMySQL==1.1.1
 PyNaCl==1.6.2
-Pygments==2.19.1
+Pygments==2.20.0
 RapidFuzz==3.14.5
 SQLAlchemy==2.0.41
 SecretStorage==3.5.0
@@ -86,7 +86,6 @@ python-bitcoinrpc==1.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
 python-jose==3.4.0
-python-magic==0.4.27
 pyzmq==27.0.0
 ratelimit==2.2.1
 redis==6.2.0

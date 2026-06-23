@@ -94,7 +94,9 @@ RPC_USER: Optional[str] = os.environ.get("RPC_USER", "rpc")
 RPC_PASSWORD: Optional[str] = os.environ.get("RPC_PASSWORD", "rpc")
 RPC_IP: Optional[str] = os.environ.get("RPC_IP", "127.0.0.1")
 RPC_PORT: Optional[str] = os.environ.get("RPC_PORT", "8332")
-RPC_TLS = os.environ.get("RPC_TLS", False)
+# `os.environ.get("RPC_TLS", False)` returns the string "false" when the
+# var is set to "false" — truthy, silently switches to https → hang.
+RPC_TLS = os.environ.get("RPC_TLS", "").lower() in ("1", "true", "yes", "on")
 
 # ZMQ Configuration
 ZMQ_HOST = os.environ.get("ZMQ_HOST", "127.0.0.1")

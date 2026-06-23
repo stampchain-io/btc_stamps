@@ -220,12 +220,10 @@ class TestEnhancedMimeDetection(unittest.TestCase):
         self.assertNotEqual(result, "text/html")
 
     def test_enhanced_mime_detection_empty_content(self):
-        """Test empty content handling - should not crash with ZeroDivisionError."""
-        empty_content = b""
-        # This currently fails due to a bug in is_legitimate_html (division by zero)
-        # When the bug is fixed, this should return a valid MIME type
-        with self.assertRaises(ZeroDivisionError):
-            enhanced_mime_detection(empty_content)
+        """Empty input is now classified as application/x-empty (matches
+        libmagic 5.41 behavior); previously raised ZeroDivisionError via
+        is_legitimate_html — see PR #753 fix."""
+        self.assertEqual(enhanced_mime_detection(b""), "application/x-empty")
 
     def test_enhanced_mime_detection_exception_handling(self):
         """Test exception handling in magic detection."""

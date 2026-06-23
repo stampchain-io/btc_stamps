@@ -6,7 +6,7 @@ Provides improved detection for HTML, JavaScript, CSS and other content types
 import gzip
 import zlib
 
-import magic
+from . import stamp_mime
 
 
 def is_legitimate_html(content_bytes):
@@ -23,6 +23,9 @@ def is_legitimate_html(content_bytes):
     Returns:
         bool: True if content is legitimate HTML, False otherwise
     """
+    if not content_bytes:
+        return False
+
     try:
         # Must be valid UTF-8
         content_str = content_bytes.decode("utf-8")
@@ -139,10 +142,7 @@ def detect_and_decompress_svg(content_bytes, block_index=None):
     else:
         # New behavior: only decompress for explicit gzip MIME types
         # Get magic MIME type first (preserves old behavior)
-        try:
-            magic_mime = magic.from_buffer(content_bytes, mime=True)
-        except Exception:
-            magic_mime = "application/octet-stream"
+        magic_mime = stamp_mime.classify_safe(content_bytes)
 
         # Only try decompression for explicit gzip MIME types
         if magic_mime in ("application/gzip", "application/x-gzip"):
@@ -153,10 +153,7 @@ def detect_and_decompress_svg(content_bytes, block_index=None):
     # Return original for all other cases (preserves consensus)
     # Use cached magic_mime if available, otherwise detect it
     if magic_mime is None:
-        try:
-            magic_mime = magic.from_buffer(content_bytes, mime=True)
-        except Exception:
-            magic_mime = "application/octet-stream"
+        magic_mime = stamp_mime.classify_safe(content_bytes)
     return content_bytes, False, magic_mime
 
 
@@ -180,10 +177,7 @@ def get_processed_content_and_mime(content_bytes, block_index=None):
     # Dev branch calls enhanced_mime_detection which does HTML detection + magic
     if block_index is not None and block_index < ENHANCED_MIME_DETECTION:
         # Match dev branch's enhanced_mime_detection behavior for historical blocks
-        try:
-            magic_mime = magic.from_buffer(content_bytes, mime=True)
-        except Exception:
-            magic_mime = "application/octet-stream"
+        magic_mime = stamp_mime.classify_safe(content_bytes)
 
         # Dev branch also does HTML detection
         if is_legitimate_html(content_bytes):
@@ -200,10 +194,7 @@ def get_processed_content_and_mime(content_bytes, block_index=None):
     content_to_analyze = processed_content
 
     # Try standard magic detection
-    try:
-        magic_mime = magic.from_buffer(content_to_analyze, mime=True)
-    except Exception:
-        magic_mime = "application/octet-stream"
+    magic_mime = stamp_mime.classify_safe(content_to_analyze)
 
     # Enhanced detection for specific types
     if is_legitimate_html(content_to_analyze):

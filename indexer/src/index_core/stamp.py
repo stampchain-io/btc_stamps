@@ -2,7 +2,6 @@ import base64
 import json
 import logging
 import os
-import subprocess  # nosec
 import threading
 from typing import Optional, cast
 
@@ -182,15 +181,32 @@ def decode_base64(base64_string, block_index):
             image_data = pybase64.b64decode(base64_string)
             return image_data, is_valid_base64_string
         except Exception as e2:
+            # Tier 3 — CONSENSUS-PRESERVING, OS-INDEPENDENT.
+            #
+            # The historical tier-3 was `bash -c 'printf %s "$x" | base64 -d'`
+            # with subprocess.run(check=True, text=True). Empirically that
+            # tier returned (None, None) for EVERY input it ever saw in
+            # production history:
+            #   * coreutils `base64 -d` rejects mod4 != 0 length inputs with
+            #     exit 1 (check=True raises CalledProcessError → outer except)
+            #   * mod4 == 0 inputs always succeeded at tier 1/2, never reached
+            #     tier 3
+            #   * even when 9.x coreutils accepted partial output, text=True
+            #     strict-utf8 raised UnicodeDecodeError on binary content
+            # Prod query confirms: zero rows have (ident=STAMP, is_btc_stamp=1,
+            # is_valid_base64=NULL) — the tuple that "tier-3 successful decode"
+            # would produce. So tier-3 has been effectively dead code; matching
+            # consensus means returning (None, None) unconditionally.
+            #
+            # The (cursed, file_size_bytes>0) prod rows visible in StampTableV4
+            # had file_size_bytes backfilled by a separate tool that decoded
+            # `stamp_base64` directly — NOT by this code path.
             try:
-                # Note: base64 cli returns success on MAC when on linux it returns an error code.
-                # this will be ok in the docker containers, but a potential problem
-                # will need to verify that there are no instances where this is su
-                command = ["bash", "-c", f'printf "%s" "{base64_string}" | base64 -d']
-                image_data = subprocess.run(command, capture_output=True, text=True, check=True).stdout  # nosec
-                return image_data, is_valid_base64_string
+                e3 = ValueError(
+                    "tier-3 historically returns (None, None) — no input ever produced a valid stamp via this path"
+                )
+                raise e3
             except Exception as e3:
-                # If all decoding attempts fail, print an error message and return None
                 logger.debug(f"EXCLUSION: BASE64 DECODE_FAIL base64 image string: {e1}, {e2}, {e3}")
                 return None, None
 
