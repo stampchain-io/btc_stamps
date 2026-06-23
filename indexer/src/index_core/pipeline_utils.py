@@ -140,27 +140,44 @@ class CPBlocksPipeline:
             logger.warning(f"Start block {start_block} is before CP genesis block {config.CP_STAMP_GENESIS_BLOCK}")
             start_block = config.CP_STAMP_GENESIS_BLOCK
 
-        # Check for fallback state and handle rollback if needed
+        # Check for fallback state and handle rollback if needed.
+        #
+        # Auto-rollback at startup is OPT-IN (issue #784): a prior bug allowed
+        # this branch to destructively wipe hundreds of already-indexed blocks
+        # on a routine restart. Operators must explicitly enable it via
+        # STARTUP_AUTO_ROLLBACK_FALLBACK=true after deciding the rollback is
+        # the right recovery action. Otherwise we log loudly and proceed; the
+        # persistent state is left in place so the operator can clear it
+        # deliberately with tools/clear_fallback_state.py.
         if self.state_manager and self.fallback_started_at:
-            # We have persistent fallback state from initialization
             rollback_block = self.fallback_started_at
             if rollback_block:
-                logger.warning(f"🔄 Performing startup rollback to block {rollback_block}")
-                self._perform_startup_rollback(rollback_block)
-                # Clear the fallback state after successful rollback
-                self.state_manager.clear_fallback_state(rollback_block)
-                # Also clear local state
-                self.failed_cp_blocks.clear()
-                self.fallback_started_at = None
+                auto_rollback_enabled = os.environ.get("STARTUP_AUTO_ROLLBACK_FALLBACK", "false").lower() in ("true", "1", "yes")
+                if not auto_rollback_enabled:
+                    logger.warning(
+                        f"🛑 Startup auto-rollback SKIPPED for fallback state at block {rollback_block} "
+                        f"({len(self.failed_cp_blocks)} blocks recorded). "
+                        f"Set STARTUP_AUTO_ROLLBACK_FALLBACK=true to enable, or run "
+                        f"tools/clear_fallback_state.py to discard the state without rollback. "
+                        f"Proceeding without rollback (see issue #784)."
+                    )
+                else:
+                    logger.warning(f"🔄 Performing startup rollback to block {rollback_block} (STARTUP_AUTO_ROLLBACK_FALLBACK=true)")
+                    self._perform_startup_rollback(rollback_block)
+                    # Clear the fallback state after successful rollback
+                    self.state_manager.clear_fallback_state(rollback_block)
+                    # Also clear local state
+                    self.failed_cp_blocks.clear()
+                    self.fallback_started_at = None
 
-                # Clear global fallback mode flag for fetch_utils
-                from index_core.fetch_utils import set_global_fallback_mode
+                    # Clear global fallback mode flag for fetch_utils
+                    from index_core.fetch_utils import set_global_fallback_mode
 
-                set_global_fallback_mode(False)
+                    set_global_fallback_mode(False)
 
-                logger.info("✅ Fallback state cleared - proceeding with normal operation")
-                # Update start_block to the rollback point
-                start_block = rollback_block
+                    logger.info("✅ Fallback state cleared - proceeding with normal operation")
+                    # Update start_block to the rollback point
+                    start_block = rollback_block
 
         self.current_block = start_block
         self.running = True

@@ -138,8 +138,11 @@ def test_fallback_state_save_on_enter_fallback_mode(temp_db, mock_backend, mock_
         assert loaded_state == {12350: True}  # New normalized structure preserves integer keys
 
 
-def test_fallback_state_clear_after_rollback(temp_db, mock_backend, mock_node_health):
-    """Test that fallback state is cleared after successful rollback."""
+def test_fallback_state_clear_after_rollback(temp_db, mock_backend, mock_node_health, monkeypatch):
+    """Test that fallback state is cleared after successful rollback (with opt-in env)."""
+
+    # Issue #784: startup auto-rollback is opt-in. Set the env to exercise the legacy path.
+    monkeypatch.setenv("STARTUP_AUTO_ROLLBACK_FALLBACK", "true")
 
     # Create initial fallback state
     with patch("src.index_core.config.REPROCESS_DB_PATH", temp_db):
@@ -178,6 +181,80 @@ def test_fallback_state_clear_after_rollback(temp_db, mock_backend, mock_node_he
         queue = ReprocessingQueue.get_instance()
         loaded_state = queue.load_fallback_state(12345)
         assert loaded_state is None
+
+
+@pytest.mark.parametrize("env_value", [None, "false", "False", "0", "no", "", "anything-else"])
+def test_startup_auto_rollback_skipped_by_default(temp_db, mock_backend, mock_node_health, monkeypatch, caplog, env_value):
+    """Issue #784: startup rollback must NOT fire unless STARTUP_AUTO_ROLLBACK_FALLBACK opts in."""
+
+    monkeypatch.delenv("STARTUP_AUTO_ROLLBACK_FALLBACK", raising=False)
+    if env_value is not None:
+        monkeypatch.setenv("STARTUP_AUTO_ROLLBACK_FALLBACK", env_value)
+
+    # Persist fallback state in the queue so detection triggers
+    with patch("src.index_core.config.REPROCESS_DB_PATH", temp_db):
+        queue = ReprocessingQueue.get_instance()
+        queue.save_fallback_state(12345, {12345: True, 12346: True})
+
+    ReprocessingQueue._instance = None
+
+    with patch("src.index_core.config.REPROCESS_DB_PATH", temp_db), patch.object(
+        CPBlocksPipeline, "_perform_startup_rollback"
+    ) as mock_rollback, patch.object(CPBlocksPipeline, "_fetch_blocks_worker"), patch.object(
+        CPBlocksPipeline, "wait_for_initial_blocks", return_value=True
+    ):
+
+        pipeline = CPBlocksPipeline(max_queue_size=10, target_queue_size=5, fallback_mode=True)
+        assert pipeline.fallback_started_at == 12345
+
+        mock_node_health[1].return_value = ["http://healthy-node:4000"]
+
+        import logging
+        with patch("src.config.CP_STAMP_GENESIS_BLOCK", 0), caplog.at_level(logging.WARNING):
+            pipeline.start(12340)
+
+        # The destructive rollback must not have run
+        mock_rollback.assert_not_called()
+
+        # Persistent state must still be present — operator decides when to clear it
+        queue = ReprocessingQueue.get_instance()
+        assert queue.load_fallback_state(12345) == {12345: True, 12346: True}
+
+        # Operator-facing warning must mention how to recover
+        warning_text = " ".join(r.message for r in caplog.records if r.levelno >= logging.WARNING)
+        assert "STARTUP_AUTO_ROLLBACK_FALLBACK" in warning_text
+        assert "12345" in warning_text
+
+
+@pytest.mark.parametrize("env_value", ["true", "True", "1", "yes", "YES"])
+def test_startup_auto_rollback_runs_when_env_enabled(temp_db, mock_backend, mock_node_health, monkeypatch, env_value):
+    """Issue #784: rollback fires when STARTUP_AUTO_ROLLBACK_FALLBACK is explicitly enabled."""
+
+    monkeypatch.setenv("STARTUP_AUTO_ROLLBACK_FALLBACK", env_value)
+
+    with patch("src.index_core.config.REPROCESS_DB_PATH", temp_db):
+        queue = ReprocessingQueue.get_instance()
+        queue.save_fallback_state(12345, {12345: True})
+
+    ReprocessingQueue._instance = None
+
+    with patch("src.index_core.config.REPROCESS_DB_PATH", temp_db), patch.object(
+        CPBlocksPipeline, "_perform_startup_rollback"
+    ) as mock_rollback, patch.object(CPBlocksPipeline, "_fetch_blocks_worker"), patch.object(
+        CPBlocksPipeline, "wait_for_initial_blocks", return_value=True
+    ):
+
+        pipeline = CPBlocksPipeline(max_queue_size=10, target_queue_size=5, fallback_mode=True)
+        assert pipeline.fallback_started_at == 12345
+
+        mock_node_health[1].return_value = ["http://healthy-node:4000"]
+
+        with patch("src.config.CP_STAMP_GENESIS_BLOCK", 0):
+            pipeline.start(12340)
+
+        mock_rollback.assert_called_once_with(12345)
+        queue = ReprocessingQueue.get_instance()
+        assert queue.load_fallback_state(12345) is None
 
 
 def test_fallback_state_no_persistence_when_no_state_manager(mock_backend, mock_node_health):
