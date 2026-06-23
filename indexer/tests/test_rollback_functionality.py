@@ -287,9 +287,10 @@ def test_rollback_refreshes_current_block_index(clean_singleton):
     # after initialize_database() ran but before a rollback is triggered.
     util.CURRENT_BLOCK_INDEX = 955065
 
-    with patch("src.index_core.database.DatabaseManager") as mock_db_manager_class, patch(
-        "src.index_core.database.last_db_index", return_value=12000
-    ) as mock_last_db_index:
+    with (
+        patch("src.index_core.database.DatabaseManager") as mock_db_manager_class,
+        patch("src.index_core.database.last_db_index", return_value=12000) as mock_last_db_index,
+    ):
         mock_db_manager = Mock()
         mock_conn = Mock()
         mock_db_manager.connect.return_value = mock_conn
