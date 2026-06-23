@@ -152,7 +152,11 @@ class CPBlocksPipeline:
         if self.state_manager and self.fallback_started_at:
             rollback_block = self.fallback_started_at
             if rollback_block:
-                auto_rollback_enabled = os.environ.get("STARTUP_AUTO_ROLLBACK_FALLBACK", "false").lower() in ("true", "1", "yes")
+                auto_rollback_enabled = os.environ.get("STARTUP_AUTO_ROLLBACK_FALLBACK", "false").lower() in (
+                    "true",
+                    "1",
+                    "yes",
+                )
                 if not auto_rollback_enabled:
                     logger.warning(
                         f"🛑 Startup auto-rollback SKIPPED for fallback state at block {rollback_block} "
@@ -162,7 +166,9 @@ class CPBlocksPipeline:
                         f"Proceeding without rollback (see issue #784)."
                     )
                 else:
-                    logger.warning(f"🔄 Performing startup rollback to block {rollback_block} (STARTUP_AUTO_ROLLBACK_FALLBACK=true)")
+                    logger.warning(
+                        f"🔄 Performing startup rollback to block {rollback_block} (STARTUP_AUTO_ROLLBACK_FALLBACK=true)"
+                    )
                     self._perform_startup_rollback(rollback_block)
                     # Clear the fallback state after successful rollback
                     self.state_manager.clear_fallback_state(rollback_block)

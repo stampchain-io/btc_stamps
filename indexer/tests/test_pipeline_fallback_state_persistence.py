@@ -210,6 +210,7 @@ def test_startup_auto_rollback_skipped_by_default(temp_db, mock_backend, mock_no
         mock_node_health[1].return_value = ["http://healthy-node:4000"]
 
         import logging
+
         with patch("src.config.CP_STAMP_GENESIS_BLOCK", 0), caplog.at_level(logging.WARNING):
             pipeline.start(12340)
 

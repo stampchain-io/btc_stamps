@@ -34,15 +34,13 @@ def _list_sessions(queue: ReprocessingQueue) -> list[tuple[int, int]]:
     """Return [(start_block_index, failed_block_count), ...] for every session."""
     with queue.lock:
         cur = queue.conn.cursor()
-        cur.execute(
-            """
+        cur.execute("""
             SELECT s.start_block_index, COUNT(f.block_index)
             FROM fallback_sessions s
             LEFT JOIN failed_blocks f ON f.session_id = s.id
             GROUP BY s.start_block_index
             ORDER BY s.start_block_index
-            """
-        )
+            """)
         return cur.fetchall()
 
 
