@@ -25,7 +25,6 @@ test/CI infrastructure, not part of the production indexer code path.
 from __future__ import annotations
 
 import hashlib
-import io
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List
@@ -112,6 +111,64 @@ class PublicNodeBackend:
     def deserialize(self, tx_hex: str) -> CTransaction:
         """Return a CTransaction parsed from hex. Mirrors Backend.deserialize."""
         return CTransaction.deserialize(bytes.fromhex(tx_hex))
+
+    def serialize(self, ctx: CTransaction) -> bytes:
+        """Mirrors Backend.serialize — needed by transaction_utils when it
+        round-trips a parsed tx to compute fees / dedup."""
+        return ctx.serialize()
+
+    # ------------------------------------------------------------------
+    # Prevout lookups (transaction_utils.get_tx_info needs these for
+    # multi-input ARC4 SRC-20 stamps — the ARC4 key is derived from the
+    # first input's prevout txid). blockstream.info serves these via
+    # /tx/{txid}/hex.
+    # ------------------------------------------------------------------
+
+    def getrawtransaction(
+        self,
+        tx_hash: str,
+        verbose: bool = False,
+        skip_missing: bool = False,
+        current_block: Any = None,
+    ) -> str:
+        """Return the raw transaction hex for ``tx_hash``. Mirrors the prod
+        Backend signature — verbose mode is intentionally NOT implemented
+        because the reparse validator only consumes hex."""
+        if verbose:
+            raise NotImplementedError("PublicNodeBackend.getrawtransaction(verbose=True) not implemented")
+        try:
+            body = _http_get(f"{self.base}/tx/{tx_hash}/hex")
+        except urllib.error.HTTPError as e:
+            if e.code == 404 and skip_missing:
+                return ""
+            raise
+        return body.decode().strip()
+
+    def getrawtransaction_batch(
+        self,
+        txhash_list: List[str],
+        verbose: bool = False,
+        skip_missing: bool = False,
+        _retry: int = 0,
+        max_retries: int = 3,
+        current_block: Any = None,
+    ) -> Dict[str, str]:
+        """Batch version. blockstream.info has no batch endpoint so we issue
+        N sequential requests. CI fixture sizes (a few txs per block) keep
+        this tolerable; if a future fixture exercises a huge prevout fan-out
+        we can parallelize."""
+        if verbose:
+            raise NotImplementedError("PublicNodeBackend.getrawtransaction_batch(verbose=True) not implemented")
+        out: Dict[str, str] = {}
+        for txid in txhash_list:
+            try:
+                out[txid] = self.getrawtransaction(txid, verbose=False, skip_missing=skip_missing)
+            except Exception:
+                if skip_missing:
+                    out[txid] = ""
+                else:
+                    raise
+        return out
 
     # ------------------------------------------------------------------
     # Safety net: anything else fails loudly rather than silently
