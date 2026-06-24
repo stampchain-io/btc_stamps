@@ -899,7 +899,6 @@ def follow(
     cp_pipeline=True,
     update_cpids=True,
     single_block=False,
-    reparse_mode=False,
 ):
     """
     Continuously follows the blockchain, parsing and indexing new blocks
@@ -913,7 +912,6 @@ def follow(
         cp_pipeline: Whether to use CP pipeline
         update_cpids: Whether to update CPIDs
         single_block: Whether to process just one block and exit
-        reparse_mode: Whether running in reparse mode
     """
     # Register for shutdown notifications
     shutdown_requested = [False]  # Use list for mutable reference in callback
@@ -946,11 +944,10 @@ def follow(
         profiler = None
 
         # Initial database setup
-        if not reparse_mode:
-            initialize(db)
-            rebuild_balances(db)
-            rebuild_owners(db)
-            # update_src20_token_stats(db)  # Now handled by async holder updater
+        initialize(db)
+        rebuild_balances(db)
+        rebuild_owners(db)
+        # update_src20_token_stats(db)  # Now handled by async holder updater
 
         # Progress watchdog: pages ops if the main loop stalls (no block
         # processed for OPS_ALERT_STALL_SEC, default 30 min) — catches the
@@ -1071,7 +1068,7 @@ def follow(
         blocks_behind = block_tip - block_index if block_tip > block_index else 0
         market_data_threshold = 100  # Only start market data jobs when within 100 blocks of tip
 
-        if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block and not reparse_mode:
+        if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block:
             if blocks_behind <= market_data_threshold:
                 # Defer starting until first block is processed to avoid overwhelming endpoints on startup
                 logger.info(
@@ -1196,7 +1193,6 @@ def follow(
                     and first_block_processed
                     and config.ENABLE_MARKET_DATA_SCHEDULER
                     and not single_block
-                    and not reparse_mode
                 ):
                     blocks_behind = block_tip - block_index if block_tip > block_index else 0
                     market_data_threshold = 100  # Start when within 100 blocks of tip
@@ -1540,65 +1536,64 @@ def follow(
                         logger.debug(f"Block {block_index} has no stamp issuances - this is normal")
 
                     # Check for orphan blocks
-                    if not reparse_mode:
-                        requires_rollback = False
-                        while True:
-                            if block_index == config.BLOCK_FIRST:
-                                break
-                            logger.debug(f"Checking that block {block_index} is not orphan.")
-                            # Invalidate blockcount cache to ensure we have latest chain data for orphan check
-                            backend_instance.invalidate_blockcount_cache()
-                            current_hash = backend_instance.getblockhash(block_index)
-                            block_header = backend_instance.getblockheader(current_hash)
-                            backend_parent = block_header["previousblockhash"]
-                            cursor = db.cursor()
-                            block_query = """
-                            SELECT * FROM blocks WHERE block_index = %s
-                            """
-                            cursor.execute(block_query, (block_index - 1,))
-                            blocks = cursor.fetchall()
-                            columns = [desc[0] for desc in cursor.description]
-                            cursor.close()
-                            blocks_dict = [dict(zip(columns, row)) for row in blocks]
-                            if len(blocks_dict) != 1:
-                                break
-                            db_parent = blocks_dict[0]["block_hash"]
+                    requires_rollback = False
+                    while True:
+                        if block_index == config.BLOCK_FIRST:
+                            break
+                        logger.debug(f"Checking that block {block_index} is not orphan.")
+                        # Invalidate blockcount cache to ensure we have latest chain data for orphan check
+                        backend_instance.invalidate_blockcount_cache()
+                        current_hash = backend_instance.getblockhash(block_index)
+                        block_header = backend_instance.getblockheader(current_hash)
+                        backend_parent = block_header["previousblockhash"]
+                        cursor = db.cursor()
+                        block_query = """
+                        SELECT * FROM blocks WHERE block_index = %s
+                        """
+                        cursor.execute(block_query, (block_index - 1,))
+                        blocks = cursor.fetchall()
+                        columns = [desc[0] for desc in cursor.description]
+                        cursor.close()
+                        blocks_dict = [dict(zip(columns, row)) for row in blocks]
+                        if len(blocks_dict) != 1:
+                            break
+                        db_parent = blocks_dict[0]["block_hash"]
 
-                            if not isinstance(db_parent, str):
-                                raise TypeError("db_parent must be a string")
-                            if not isinstance(backend_parent, str):
-                                raise TypeError("backend_parent must be a string")
-                            if db_parent == backend_parent:
-                                break
-                            else:
-                                block_index -= 1
-                                requires_rollback = True
-
-                        if requires_rollback:
-                            logger.warning(f"Blockchain reorganization at block {block_index}.")
+                        if not isinstance(db_parent, str):
+                            raise TypeError("db_parent must be a string")
+                        if not isinstance(backend_parent, str):
+                            raise TypeError("backend_parent must be a string")
+                        if db_parent == backend_parent:
+                            break
+                        else:
                             block_index -= 1
+                            requires_rollback = True
 
-                            if check_rollback_loop(block_index):
-                                logger.error("Exiting due to rollback loop detection")
-                                handle_rollback_loop_failure(
-                                    error_message=f"Detected rollback loop at block {block_index}", block_index=block_index
-                                )
+                    if requires_rollback:
+                        logger.warning(f"Blockchain reorganization at block {block_index}.")
+                        block_index -= 1
 
-                            log_reorg_event(
-                                db,
-                                block_index=block_index,
-                                old_block_hash=db_parent,
-                                new_block_hash=backend_parent,
-                                rollback_depth=0,
-                                detection_method="orphan_block_check",
+                        if check_rollback_loop(block_index):
+                            logger.error("Exiting due to rollback loop detection")
+                            handle_rollback_loop_failure(
+                                error_message=f"Detected rollback loop at block {block_index}", block_index=block_index
                             )
-                            block_index = rollback_to_block(db, block_index, "Chain reorganization detected")
-                            if cp_pipeline_instance:
-                                logger.info(f"Resetting CP pipeline after chain reorg to block {block_index}")
-                                cp_pipeline_instance.reset(block_index)
-                            stamp_issuances_list = None
-                            time.sleep(60)  # delay waiting for CP to catch up
-                            continue
+
+                        log_reorg_event(
+                            db,
+                            block_index=block_index,
+                            old_block_hash=db_parent,
+                            new_block_hash=backend_parent,
+                            rollback_depth=0,
+                            detection_method="orphan_block_check",
+                        )
+                        block_index = rollback_to_block(db, block_index, "Chain reorganization detected")
+                        if cp_pipeline_instance:
+                            logger.info(f"Resetting CP pipeline after chain reorg to block {block_index}")
+                            cp_pipeline_instance.reset(block_index)
+                        stamp_issuances_list = None
+                        time.sleep(60)  # delay waiting for CP to catch up
+                        continue
 
                     # Get block hash and verify
                     block_hash = backend_instance.getblockhash(block_index)
@@ -1656,7 +1651,7 @@ def follow(
                     # Check if we're at or near the chain tip (where hash mismatches are more likely during sync)
                     near_tip = block_index >= block_tip - 2
 
-                    if xcp_hash and xcp_hash != block_hash and not reparse_mode:
+                    if xcp_hash and xcp_hash != block_hash:
                         if near_tip:
                             # For blocks near the tip, log as warning but continue - this is likely due to XCP lag
                             logger.warning(f"Hash mismatch at block {block_index} near chain tip - this is likely temporary")
