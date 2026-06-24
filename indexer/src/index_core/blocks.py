@@ -327,11 +327,27 @@ class BlockProcessor:
         # Only validate ledger hash if both valid_src20_str and new_ledger_hash are non-empty
         if valid_src20_str and new_ledger_hash:
             if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
-                # Only raise LedgerMismatchError if FORCE is not enabled
-                if not config.FORCE:
-                    raise LedgerMismatchError(block_index)
-                else:
-                    logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
+                # Real consensus divergence (stampscan returned the exact requested
+                # block with a different hash). Surface as a high-signal alert and
+                # keep indexing — crashing here would block recovery and the
+                # background validator can re-check once stampscan is consistent.
+                # Alert failure must NOT crash the main loop, so wrap the import+notify.
+                try:
+                    from index_core.ops_alerter import notify as ops_notify
+
+                    ops_notify(
+                        "critical",
+                        f"SRC-20 ledger mismatch at block {block_index}",
+                        (
+                            f"Local SRC-20 ledger_hash differs from stampscan for block {block_index}. "
+                            f"This indicates a real consensus divergence in SRC-20 processing. "
+                            f"Indexer is continuing; investigate the affected block immediately."
+                        ),
+                        dedup_key=f"src20-mismatch-{block_index}",
+                    )
+                except Exception as alert_err:
+                    logger.error(f"ops_alerter notify failed for block {block_index}: {alert_err}")
+                logger.error(f"SRC-20 LEDGER MISMATCH at block {block_index} — alert sent; continuing")
 
         stamps_in_block = len(self.valid_stamps_in_block)
         src20_in_block = len(self.processed_src20_in_block)

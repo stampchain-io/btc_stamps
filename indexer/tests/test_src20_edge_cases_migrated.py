@@ -266,34 +266,35 @@ class TestSrc20EdgeCases:
 
     @patch("index_core.src20.requests.get")
     def test_ledger_validation_edge_cases(self, mock_get):
-        """Test edge cases in ledger validation."""
-        # Test API timeout
+        """Test edge cases in ledger validation.
+
+        Under the #782 algorithm, any stampscan response the indexer can't
+        authoritatively confirm — connection error, malformed payload,
+        missing/wrong block_index — is a *deferral* (returns True, enqueued
+        for the background validator), not a hard failure.
+        """
+        # API timeout / connection error → API_ERROR → deferred (True)
         mock_get.side_effect = Exception("Connection timeout")
+        assert validate_src20_ledger_hash(1000, "expected_hash", "valid_str") is True
 
-        result = validate_src20_ledger_hash(1000, "expected_hash", "valid_str")
-        assert result is False
-
-        # Test malformed API response
+        # Malformed payload (no `data`, no `msg`) → API_ERROR → deferred (True)
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"malformed": "response"}
         mock_response.raise_for_status = Mock()
+        mock_get.side_effect = None
         mock_get.return_value = mock_response
+        assert validate_src20_ledger_hash(1000, "expected_hash", "valid_str") is True
 
-        result = validate_src20_ledger_hash(1000, "expected_hash", "valid_str")
-        assert result is False
-
-        # Test Unicode in tick names
+        # Schema we don't recognize → API_ERROR → deferred (True)
         mock_response.json.return_value = {"ledger": [{"address": "addr1", "balance": "100"}], "tick": "TEST🚀"}
         mock_get.return_value = mock_response
+        assert validate_src20_ledger_hash(1000, "hash", "valid_str") is True
 
-        # Should handle unicode in API responses
-        result = validate_src20_ledger_hash(1000, "hash", "valid_str")
-
-        # Test empty ledger
+        # Empty ledger / unknown schema → API_ERROR → deferred (True)
         mock_response.json.return_value = {"ledger": [], "tick": "TEST"}
         mock_get.return_value = mock_response
-
-        result = validate_src20_ledger_hash(1000, "hash", "valid_str")
+        assert validate_src20_ledger_hash(1000, "hash", "valid_str") is True
 
     @patch("index_core.src20.update_balance_table")
     def test_database_transaction_atomicity(self, mock_update_balance, mock_db_manager):

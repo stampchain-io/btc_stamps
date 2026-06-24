@@ -448,6 +448,12 @@ SRC_VALIDATION_API2 = (
 )
 SRC_VALIDATION_SECRET_API2: Optional[str] = os.environ.get("SRC_VALIDATION_SECRET_API2", None)
 
+# HTTP timeout (seconds) for each stampscan request inside fetch_api_ledger_data.
+try:
+    STAMPSCAN_REQUEST_TIMEOUT = int(os.environ.get("STAMPSCAN_REQUEST_TIMEOUT", "15"))
+except ValueError:
+    STAMPSCAN_REQUEST_TIMEOUT = 15
+
 # Enable background validation of SRC-20 blocks processed with FORCE=True
 ENABLE_SRC20_BACKGROUND_VALIDATION = bool(os.environ.get("ENABLE_SRC20_BACKGROUND_VALIDATION", "true").lower() == "true")
 

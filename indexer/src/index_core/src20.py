@@ -7,6 +7,7 @@ import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
+from enum import Enum
 from typing import List, Optional, TypedDict, Union
 
 import requests
@@ -1248,7 +1249,30 @@ def clear_zero_balances(db):
     return
 
 
-def fetch_api_ledger_data(block_index: int):
+class LedgerFetchStatus(Enum):
+    # Stampscan returned data for the exact requested block.
+    OK = "ok"
+    # Stampscan returned data for an earlier block (M < requested) — its
+    # "shadow" behavior for blocks not yet indexed, or blocks with no SRC-20
+    # activity. From the indexer's POV this is a deferral, not a divergence.
+    BLOCK_INDEX_MISMATCH = "block_index_mismatch"
+    # Stampscan explicitly reports it has not indexed the block yet.
+    NOT_INDEXED = "not_indexed"
+    # Any HTTP / JSON / timeout / empty-validation failure.
+    API_ERROR = "api_error"
+
+
+# Named tuple so callers can still unpack three fields naturally.
+LedgerFetchResult = namedtuple("LedgerFetchResult", ["status", "hash", "validation"])
+
+
+def fetch_api_ledger_data(block_index: int) -> "LedgerFetchResult":
+    """Fetch the canonical SRC-20 ledger hash for ``block_index`` from stampscan.
+
+    Returns a ``LedgerFetchResult`` whose ``status`` distinguishes the four
+    possible outcomes (see ``LedgerFetchStatus``). Never mutates
+    ``config.FORCE`` — control flow is purely via the returned status.
+    """
     urls = []
     # if SRC_VALIDATION_API1:
     #     urls.append(SRC_VALIDATION_API1 + str(block_index))  # OKX diverges on hashes at 856444 due to their sci notation in strings
@@ -1256,135 +1280,111 @@ def fetch_api_ledger_data(block_index: int):
         urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
 
     if not urls:
-        return None, None
+        return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
     max_retries = 5
     backoff_time = 3
-    retry_count = 0
 
     def fetch_url(url):
         try:
-            response = requests.get(url, timeout=15)
-            logger.debug(f"Fetching URL: {url}")
-            logger.debug(f"Response status code: {response.status_code}")
-            logger.debug(f"Response headers: {response.headers}")
-            logger.debug(f"Raw response text: {response.text}")
+            response = requests.get(url, timeout=config.STAMPSCAN_REQUEST_TIMEOUT)
+            logger.debug(f"Fetching URL: {url} → status {response.status_code}")
 
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    logger.debug(f"Parsed JSON data: {data}")
-
-                    if "data" in data:
-                        data = data["data"]
-                        logger.debug(f"Data field: {data}")
-
-                        api_ledger_hash = data.get("hash")
-                        api_ledger_validation = data.get("balance_data")
-
-                        logger.debug(f"api_ledger_hash: {api_ledger_hash}")
-                        logger.debug(f"api_ledger_validation: {api_ledger_validation}")
-
-                        if not api_ledger_validation:
-                            logger.error("api_ledger_validation is empty")
-                            return None, None
-
-                        if retry_count > 0:
-                            logger.debug(f"Successfully fetched ledger data after {retry_count} retries")
-
-                        return api_ledger_hash, api_ledger_validation
-                    else:
-                        logger.error("No 'data' key in response JSON")
-                        return None, None
-                except JSONDecodeError as e:
-                    logger.error(f"JSONDecodeError: {e}")
-                    logger.debug(f"Response content: {response.content}")
-                    return None, None
-                except Exception as e:
-                    logger.error(f"Unexpected error parsing JSON: {e}")
-                    return None, None
-            else:
-                # Log 404 specifically at debug level during retries
+            if response.status_code != 200:
                 if response.status_code == 404:
                     logger.debug(f"Non-200 response code: {response.status_code} from URL: {url} (Will retry)")
                 else:
                     logger.warning(f"Non-200 response code: {response.status_code} from URL: {url}")
-                return None, None
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            try:
+                payload = response.json()
+            except JSONDecodeError as e:
+                logger.error(f"JSONDecodeError: {e}; raw={response.content!r}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+            except Exception as e:
+                logger.error(f"Unexpected error parsing JSON: {e}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            # Explicit "not_indexed" sentinel (no `data` key in this case).
+            if payload.get("msg") == "not_indexed":
+                logger.debug(f"Stampscan reports block {block_index} not_indexed")
+                return LedgerFetchResult(LedgerFetchStatus.NOT_INDEXED, None, None)
+
+            inner = payload.get("data")
+            if not isinstance(inner, dict):
+                logger.error(f"No usable 'data' field in response JSON: {payload}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            api_hash = inner.get("hash")
+            api_validation = inner.get("balance_data")
+            api_block_index_raw = inner.get("block_index")
+
+            if not api_validation:
+                logger.warning(f"Stampscan returned empty balance_data for block {block_index}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            # Stampscan returns the nearest preceding block when ours isn't
+            # yet indexed (or had no SRC-20 activity). Detect that explicitly
+            # via the embedded block_index — it is NOT a consensus mismatch.
+            try:
+                api_block_index = int(api_block_index_raw)
+            except (TypeError, ValueError):
+                logger.error(f"Stampscan response missing/invalid block_index: {api_block_index_raw!r}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            if api_block_index != block_index:
+                logger.debug(
+                    f"Stampscan returned shadow for block {block_index}: "
+                    f"got block_index={api_block_index} (defer to background)"
+                )
+                return LedgerFetchResult(LedgerFetchStatus.BLOCK_INDEX_MISMATCH, api_hash, api_validation)
+
+            return LedgerFetchResult(LedgerFetchStatus.OK, api_hash, api_validation)
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed for URL {url}: {e}")
-            return None, None
+            return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
-    for attempt in range(max_retries):
-        retry_count = attempt
+    # Retry only on API_ERROR. OK / NOT_INDEXED / BLOCK_INDEX_MISMATCH are
+    # definitive answers from stampscan; retrying them just adds latency.
+    for _ in range(max_retries):
         with ThreadPoolExecutor() as executor:
             future_to_url = {executor.submit(fetch_url, url): url for url in urls}
             for future in as_completed(future_to_url):
                 result = future.result()
-                if result != (None, None):
+                if result.status != LedgerFetchStatus.API_ERROR:
                     return result
 
         time.sleep(backoff_time)
         backoff_time *= 2
 
-    # Set FORCE to True when API retrieval fails after max retries
-    config.FORCE = True
-    logger.warning(f"Failed to retrieve from the API after {max_retries} retries. Setting FORCE=True to continue processing.")
-    return None, None
+    logger.warning(f"Failed to retrieve from stampscan after {max_retries} retries for block {block_index}")
+    return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
 
-def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
-    # Reset FORCE to False at the beginning of each validation
-    was_force_enabled = config.FORCE
-    config.FORCE = False
-
+def _enqueue_for_background_validation(block_index: int, ledger_hash: str, valid_src20_str: str, reason: str) -> None:
+    """Enqueue this block for later validation when stampscan can't authoritatively
+    confirm it right now (tip-lag, not-indexed, API error, or unexpected exception).
+    Queue failures are logged but never raised — the main indexer loop must keep moving.
+    """
     try:
-        logger.debug(f"\n{'=' * 50}")
-        logger.debug(f"Validating ledger hash for block {block_index}")
-        logger.debug(f"Local ledger hash: {ledger_hash}")
+        from index_core.validation_queue import ValidationQueueManager
 
-        api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
+        ValidationQueueManager.get_instance().add_to_queue(block_index, ledger_hash, valid_src20_str)
+        logger.info(f"Added block {block_index} to validation queue for later checking ({reason})")
+    except Exception as e:
+        logger.error(f"Failed to add block {block_index} to validation queue: {e}")
 
-        # If fetch_api_ledger_data failed and set FORCE to True, we should return True
-        # to allow processing to continue
-        if config.FORCE and not was_force_enabled:
-            logger.warning(
-                f"FORCE was enabled due to API retrieval failure for block {block_index}. Continuing with processing."
-            )
 
-            # Add to validation queue for later checking
-            try:
-                from index_core.validation_queue import ValidationQueueManager
-
-                queue_manager = ValidationQueueManager.get_instance()
-                queue_manager.add_to_queue(block_index, ledger_hash, valid_src20_str)
-                logger.info(f"Added block {block_index} to validation queue for later checking")
-            except Exception as e:
-                logger.error(f"Failed to add block {block_index} to validation queue: {e}")
-
-            return True
-
-        config.FORCE = was_force_enabled
-
-        if api_ledger_validation is None:
-            logger.error(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
-            raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
-
-        logger.debug(f"API ledger hash: {api_ledger_hash}")
-
-        # Quick comparison of hashes - if they match, we can return immediately
-        if api_ledger_hash == ledger_hash:
-            logger.debug(f"Ledger hashes match for block {block_index}. Skipping detailed comparison.")
-            logger.debug(f"{'=' * 50}\n")
-            return True
-
-        # If we get here, hashes don't match - perform detailed comparison for debugging
-        logger.debug(f"Ledger hashes DON'T match for block {block_index}. Performing detailed comparison.")
-        logger.debug(f"Local ledger string: {valid_src20_str}")
-        logger.debug(f"API ledger string: {api_ledger_validation}")
-
-        # Parse and compare balances
-        local_balances = parse_balances(valid_src20_str)
-        api_balances = parse_balances(api_ledger_validation)
+def _log_balance_diff(local_str: Optional[str], api_str: Optional[str]) -> None:
+    """Pretty-print SRC-20 balance differences at DEBUG level. Diagnostic aid
+    for real-mismatch investigation; never raises."""
+    if not local_str or not api_str:
+        return
+    try:
+        local_balances = parse_balances(local_str)
+        api_balances = parse_balances(api_str)
 
         logger.debug("Local balances:")
         for tick, addresses in local_balances.items():
@@ -1398,26 +1398,57 @@ def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_s
             for addr, bal in addresses.items():
                 logger.debug(f"    {addr}: {bal}")
 
-        # Compare string formats
-        local_entries = set(valid_src20_str.split(";"))
-        api_entries = set(api_ledger_validation.split(";"))
-
-        logger.debug("String format comparison:")
-        logger.debug(f"  Local entries count: {len(local_entries)}")
-        logger.debug(f"  API entries count: {len(api_entries)}")
-
+        local_entries = set(local_str.split(";"))
+        api_entries = set(api_str.split(";"))
+        logger.debug(f"String entries: local={len(local_entries)} api={len(api_entries)}")
         differences = local_entries.symmetric_difference(api_entries)
         if differences:
-            logger.debug("Found differences in entries:")
+            logger.debug("Differences:")
             for diff in differences:
                 logger.debug(f"  {diff}")
+    except Exception as e:
+        logger.debug(f"Balance-diff helper failed (non-fatal): {e}")
 
-        logger.debug(f"{'=' * 50}\n")
-        return False  # Return False as hashes don't match
+
+def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str) -> bool:
+    """Validate this block's SRC-20 ledger hash against stampscan.
+
+    Returns:
+        ``True`` when validation passed OR was deferred (stampscan tip-lag,
+        not_indexed, API error, unexpected exception). The caller treats True
+        as "keep indexing".
+        ``False`` ONLY when stampscan returned data for the exact requested
+        block AND the hashes differ — a real consensus divergence. The caller
+        is expected to alert (ops_alerter) and continue indexing (no crash).
+    """
+    try:
+        logger.debug(f"\n{'=' * 50}")
+        logger.debug(f"Validating ledger hash for block {block_index}")
+        logger.debug(f"Local ledger hash: {ledger_hash}")
+
+        result = fetch_api_ledger_data(block_index)
+
+        if result.status == LedgerFetchStatus.OK:
+            if result.hash == ledger_hash:
+                logger.debug(f"Ledger hashes match for block {block_index}.")
+                logger.debug(f"{'=' * 50}\n")
+                return True
+
+            # Real divergence. Log diagnostic detail; caller alerts.
+            logger.error(f"SRC-20 ledger hash MISMATCH at block {block_index}: local={ledger_hash} stampscan={result.hash}")
+            _log_balance_diff(valid_src20_str, result.validation)
+            logger.debug(f"{'=' * 50}\n")
+            return False
+
+        # Any non-OK status is a deferral — enqueue for background validator.
+        _enqueue_for_background_validation(block_index, ledger_hash, valid_src20_str, result.status.value)
+        return True
 
     except Exception as e:
-        logger.error(f"Error validating ledger hash: {e}")
-        return False
+        # Last-resort safety net. Defer to background; never crash the indexer.
+        logger.error(f"Unexpected error validating ledger hash for block {block_index}: {e}")
+        _enqueue_for_background_validation(block_index, ledger_hash, valid_src20_str, "exception")
+        return True
 
 
 def parse_balances(balance_str):
