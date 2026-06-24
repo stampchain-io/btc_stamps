@@ -84,6 +84,12 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").lower() == "true"
 DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
+# OPP-3 (#793): pre-warm Backend.deserialize cache via the Rust parser's
+# rayon-parallel batch_parse_transactions during get_tx_list. Cuts per-tx
+# wall-clock by ~2-4x on multi-core hosts for stamp-bearing blocks. Pure-
+# additive — any failure in the pre-warm path falls back to the existing
+# per-tx lazy deserialize. Set to false to disable.
+PREWARM_DESERIALIZE_CACHE = os.environ.get("PREWARM_DESERIALIZE_CACHE", "true").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
 # Consensus error handling
