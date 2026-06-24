@@ -16,7 +16,7 @@ import threading
 import time
 import urllib.parse
 from collections import namedtuple
-from typing import List
+from typing import List, Optional
 
 import pymysql as mysql
 import requests
@@ -729,6 +729,76 @@ def rollback_and_clear_caches(db: Connection, error_type: str = "general") -> No
         # Continue anyway - rollback is more important than cache clearing
 
 
+def verify_recent_chain_integrity(db: Connection, depth: int) -> Optional[int]:
+    """Compare the last ``depth`` stored ``block_hash`` values against bitcoind's
+    canonical chain. Defense in depth for the post-#728 scenario (issue #779):
+    if the indexer ever crashes mid-reorg and restarts after the tip has
+    advanced beyond the orphan-check window, stale-row drift would otherwise
+    persist indefinitely (as happened at block 945,189 on 2026-04-15).
+
+    Returns:
+        ``None`` if the last ``depth`` blocks match bitcoind exactly.
+        Otherwise the OLDEST mismatching ``block_index`` — caller should
+        rollback to ``divergence - 1`` so the divergent block (and everything
+        after it) gets re-fetched and re-processed.
+
+    Logs at WARNING when a divergence is found, INFO on clean pass.
+    Never raises — any backend / DB error is logged and treated as
+    inconclusive (returns None) so a transient bitcoind hiccup at startup
+    cannot block the indexer from coming up.
+    """
+    if depth <= 0:
+        return None
+
+    try:
+        with db.cursor() as cursor:
+            cursor.execute(
+                "SELECT block_index, block_hash FROM blocks ORDER BY block_index DESC LIMIT %s",
+                (depth,),
+            )
+            rows = cursor.fetchall()
+    except Exception as e:
+        logger.warning(f"Startup chain-integrity check skipped (DB read failed): {e}")
+        return None
+
+    if not rows:
+        logger.debug("Startup chain-integrity check skipped (no stored blocks)")
+        return None
+
+    # Iterate oldest → newest so the first mismatch we find is the divergence
+    # point. Returning the OLDEST diverging block (rather than the newest) is
+    # important: if a reorg replaced blocks N..N+k, every one of N..N+k will
+    # mismatch — we need to roll back to N - 1 so all of them get re-fetched.
+    rows_sorted = sorted(rows, key=lambda r: r[0])
+    divergence: Optional[int] = None
+    checked = 0
+    for block_index, stored_hash in rows_sorted:
+        try:
+            canonical_hash = backend_instance.getblockhash(block_index)
+        except Exception as e:
+            logger.warning(
+                f"Startup chain-integrity check inconclusive at block {block_index} "
+                f"(bitcoind getblockhash failed: {e}); skipping remaining checks"
+            )
+            return divergence  # may be None — accept best-effort findings so far
+        checked += 1
+        if canonical_hash != stored_hash:
+            divergence = block_index
+            break
+
+    if divergence is None:
+        logger.info(f"Startup chain-integrity check: last {checked} blocks match bitcoind ✓")
+        return None
+
+    newest_in_window = rows_sorted[-1][0]
+    logger.warning(
+        f"Startup chain-integrity check: divergence detected at block {divergence} "
+        f"(checked range {rows_sorted[0][0]}..{newest_in_window}); "
+        f"will roll back to {divergence - 1} and re-process"
+    )
+    return divergence
+
+
 def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
     """Roll back the database to a specific block index with full cleanup."""
     # Calculate rollback depth based on error type
@@ -898,6 +968,25 @@ def follow(
         # follow() with a stale value (the prior incident drove
         # is_prev_block_parsed into an iterative destructive purge cascade).
         util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+        # Issue #779: startup chain-integrity check. Catches stale-row drift
+        # from any post-#728 crash-during-reorg-then-restart-after-tip-moved
+        # scenario (same failure mode as the 945,189 incident from 2026-04-15).
+        # Runs once per startup; on divergence triggers a normal rollback,
+        # then re-reads the tip so the main loop resumes from the correct
+        # block_index. Gated by STARTUP_CHAIN_INTEGRITY_DEPTH (default 100;
+        # set to 0 to disable).
+        try:
+            divergence_block = verify_recent_chain_integrity(db, config.STARTUP_CHAIN_INTEGRITY_DEPTH)
+        except Exception as chain_check_err:
+            # Belt-and-suspenders — function already swallows its own errors,
+            # but a totally unexpected failure must not block startup.
+            logger.warning(f"Startup chain-integrity check raised unexpectedly: {chain_check_err}")
+            divergence_block = None
+        if divergence_block is not None:
+            rollback_to_block(db, divergence_block - 1, f"Startup chain-integrity divergence at {divergence_block}")
+            util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
         block_tip = backend_instance.getblockcount()
         if util.CURRENT_BLOCK_INDEX == 0:
             logger.warning("New database.")
