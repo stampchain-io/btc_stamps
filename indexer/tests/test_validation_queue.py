@@ -412,5 +412,59 @@ class TestSrc20Integration:
         assert mock_sleep.call_count == 0
 
 
+class TestValidatorThreadLifecycle:
+    """Regression cover for #782 part 2 — validator must survive in its own
+    daemon thread with its own asyncio loop, not be cancelled by an
+    asyncio.run() teardown the way the legacy `asyncio.run(validator.start())`
+    pattern silently did."""
+
+    def test_validation_loop_runs_in_daemon_thread(self):
+        """Spawn `_validation_loop` in the same pattern server.py uses and
+        verify it actually executes (processes the mocked queue) before
+        being asked to stop."""
+        import asyncio
+        import threading
+        import time
+
+        # Independent ValidationQueueManager isolation
+        ValidationQueueManager._instance = None
+
+        mock_queue_manager = Mock(spec=ValidationQueueManager)
+        mock_queue_manager.get_pending_validations = Mock(return_value=[])
+        mock_queue_manager.get_validation_stats = Mock(return_value={})
+
+        with patch.object(ValidationQueueManager, "get_instance", return_value=mock_queue_manager):
+            validator = BackgroundValidator(check_interval=1)
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(validator._validation_loop())
+            finally:
+                loop.close()
+
+        validator.is_running = True
+        thread = threading.Thread(target=_run, name="test-validator", daemon=True)
+        thread.start()
+
+        # Give the loop one tick to call get_pending_validations.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if mock_queue_manager.get_pending_validations.called:
+                break
+            time.sleep(0.05)
+
+        # Ask the loop to exit
+        validator.is_running = False
+        thread.join(timeout=3.0)
+
+        # The legacy pattern (asyncio.run + start()) cancelled the task
+        # before it ever ran; under the fix the loop must have ticked at
+        # least once and the thread must have exited cleanly.
+        assert mock_queue_manager.get_pending_validations.called
+        assert not thread.is_alive()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
