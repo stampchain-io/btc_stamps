@@ -75,15 +75,20 @@ def test_invalid_env_falls_back_to_default():
 async def test_pagination_uses_configured_limit_100():
     """The verbose-safe pagination function must pass the live
     ``config.CP_VERBOSE_PAGINATION_LIMIT`` to every CP API call — guards
-    against a regression that re-hardcodes 25."""
-    import config
-    from index_core.fetch_utils import _fetch_block_transactions_verbose_safe_pagination
+    against a regression that re-hardcodes 25.
+
+    Patches via ``fetch_utils.config`` (the exact module object the
+    function reads from) rather than the test's separate ``import config``,
+    in case any sys.path quirk in CI causes those to resolve to distinct
+    module objects.
+    """
+    from index_core import fetch_utils
 
     mock_response = {"result": [], "next_cursor": None}
 
-    with patch.object(config, "CP_VERBOSE_PAGINATION_LIMIT", 100):
-        with patch("index_core.fetch_utils.fetch_xcp_async", new=AsyncMock(return_value=mock_response)) as mock_fetch:
-            await _fetch_block_transactions_verbose_safe_pagination(900000)
+    with patch.object(fetch_utils.config, "CP_VERBOSE_PAGINATION_LIMIT", 100):
+        with patch.object(fetch_utils, "fetch_xcp_async", new=AsyncMock(return_value=mock_response)) as mock_fetch:
+            await fetch_utils._fetch_block_transactions_verbose_safe_pagination(900000)
 
     params = mock_fetch.call_args.args[1]
     assert params["limit"] == "100"
@@ -93,16 +98,15 @@ async def test_pagination_uses_configured_limit_100():
 @pytest.mark.asyncio
 async def test_pagination_passes_lower_limit_when_overridden():
     """If an operator dials limit down (e.g. for a misbehaving upstream),
-    the lower value reaches the API call. Uses direct attribute patch
-    rather than env+reload to be robust under pytest-xdist parallelism."""
-    import config
-    from index_core.fetch_utils import _fetch_block_transactions_verbose_safe_pagination
+    the lower value reaches the API call. Patches via ``fetch_utils.config``
+    for the same module-identity reasons as the test above."""
+    from index_core import fetch_utils
 
     mock_response = {"result": [], "next_cursor": None}
 
-    with patch.object(config, "CP_VERBOSE_PAGINATION_LIMIT", 25):
-        with patch("index_core.fetch_utils.fetch_xcp_async", new=AsyncMock(return_value=mock_response)) as mock_fetch:
-            await _fetch_block_transactions_verbose_safe_pagination(900000)
+    with patch.object(fetch_utils.config, "CP_VERBOSE_PAGINATION_LIMIT", 25):
+        with patch.object(fetch_utils, "fetch_xcp_async", new=AsyncMock(return_value=mock_response)) as mock_fetch:
+            await fetch_utils._fetch_block_transactions_verbose_safe_pagination(900000)
 
     params = mock_fetch.call_args.args[1]
     assert params["limit"] == "25"
