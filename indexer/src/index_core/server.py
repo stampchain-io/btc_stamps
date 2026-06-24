@@ -375,16 +375,52 @@ def start_all(db: Connection) -> None:
         else:
             logger.info("Async holder count updater is disabled via ENABLE_ASYNC_HOLDER_UPDATES=false")
 
-        # Start the SRC-20 validation background service
+        # Start the SRC-20 validation background service.
+        #
+        # The legacy `asyncio.run(validator.start())` did not work: start()
+        # only schedules `_validation_loop` as a task on the new loop and
+        # returns immediately, after which asyncio.run() tears the loop
+        # down and cancels the task. The queue accepted writes but its
+        # consumer never ran — `Block X validated successfully` /
+        # `VALIDATION MISMATCH` log lines were absent for the entire
+        # service uptime.
+        #
+        # Run the validator in its own daemon thread with its own event
+        # loop, mirroring the existing daemon-thread pattern used by
+        # ops_alerter.ProgressWatchdog / async_upload / async_holder_updater.
+        # Daemon=True so the thread doesn't block process shutdown — the
+        # finally block below sets is_running=False to ask the loop to
+        # exit cleanly first.
         if config.ENABLE_SRC20_BACKGROUND_VALIDATION:
             try:
                 import asyncio
+                import threading
 
                 from index_core.background_validator import get_background_validator
 
                 validator = get_background_validator()
-                logger.info("Starting SRC-20 background validator...")
-                asyncio.run(validator.start())
+
+                def _run_validator_loop():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(validator._validation_loop())
+                    except Exception as loop_err:
+                        logger.error(f"SRC-20 background validator loop crashed: {loop_err}")
+                    finally:
+                        try:
+                            loop.close()
+                        except Exception:
+                            pass
+
+                validator.is_running = True
+                validator_thread = threading.Thread(
+                    target=_run_validator_loop,
+                    name="src20-bg-validator",
+                    daemon=True,
+                )
+                validator_thread.start()
+                logger.info("Background validator started (daemon thread)")
             except Exception as e:
                 logger.error(f"Failed to start background validator: {e}")
                 # Continue without background validation
@@ -398,13 +434,18 @@ def start_all(db: Connection) -> None:
             shutdown_flag.set()
         logger.info("Server shutdown initiated.")
 
-        # Stop the background validator if it's running
+        # Stop the background validator if it's running. The thread is a
+        # daemon, so process exit will kill it regardless — this path just
+        # asks the loop to exit cleanly on its next check_interval tick.
         if validator and config.ENABLE_SRC20_BACKGROUND_VALIDATION:
             try:
                 logger.info("Stopping SRC-20 background validator...")
-                import asyncio
-
-                asyncio.run(validator.stop())
+                validator.is_running = False
+                # Best-effort shutdown of the internal ThreadPoolExecutor too.
+                try:
+                    validator.executor.shutdown(wait=False)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"Error stopping background validator: {e}")
 
