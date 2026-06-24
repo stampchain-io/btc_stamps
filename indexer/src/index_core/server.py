@@ -473,9 +473,3 @@ def start_all(db: Connection) -> None:
         # Ensure proper cleanup
         if executor:
             executor.shutdown(wait=True)
-
-
-def reparse(db, block_index=None, quiet=True):
-    """Reparse from a specific block index."""
-    connect_to_backend()  # This sets the global backend_instance
-    blocks.reparse(db, block_index=block_index, quiet=quiet)

@@ -515,32 +515,6 @@ class TestStartAll:
                         )
 
 
-class TestReparse:
-    """Test reparse function."""
-
-    def test_reparse(self, mock_backend):
-        """Test reparse function."""
-        from index_core.server import reparse
-
-        mock_db = mock.MagicMock()
-
-        with mock.patch("index_core.server.blocks") as mock_blocks:
-            reparse(mock_db, block_index=12345, quiet=False)
-
-            mock_blocks.reparse.assert_called_once_with(mock_db, block_index=12345, quiet=False)
-
-    def test_reparse_default_params(self, mock_backend):
-        """Test reparse with default parameters."""
-        from index_core.server import reparse
-
-        mock_db = mock.MagicMock()
-
-        with mock.patch("index_core.server.blocks") as mock_blocks:
-            reparse(mock_db)
-
-            mock_blocks.reparse.assert_called_once_with(mock_db, block_index=None, quiet=True)
-
-
 class TestGlobalVariables:
     """Test global variables and their usage."""
 
