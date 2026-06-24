@@ -452,6 +452,42 @@ class Backend:
     def serialize(self, ctx):
         return CTransaction.serialize(ctx)
 
+    def _prewarm_deserialize_cache(self, raw_transactions):
+        """Pre-warm the per-tx ``deserialize`` cache for this block by calling
+        the Rust parser's ``batch_parse_transactions`` (rayon-parallel under
+        the hood). Subsequent ``deserialize(tx_hex)`` calls for stamp-candidate
+        txs in this block then hit the cache instead of re-doing the per-tx
+        Rust call serially.
+
+        Implementation notes (#793, the OPP-3 wiring):
+        - ``batch_parse_transactions`` returns only the ``should_include``
+          subset, but it processes EVERY input tx through the same per-tx
+          pipeline first — so the parallel work happens for all txs; the
+          cache simply gets populated for the stamp candidates. Non-candidates
+          fall through to the existing lazy per-tx path on demand (status quo).
+        - Pure-additive: any exception is logged at DEBUG and swallowed.
+          The block keeps being processed with the same correctness as
+          before — only the perf benefit is forfeited.
+        """
+        if self._parser is None or not raw_transactions:
+            return
+        try:
+            tx_hex_list = list(raw_transactions.values())
+            # txid → tx_hex lookup so we can key the cache by tx_hex
+            # (matching ``deserialize``'s cache key), not by txid.
+            txid_to_tx_hex = dict(raw_transactions.items())
+            tx_infos = self._parser.batch_parse_transactions(tx_hex_list)
+            cached = 0
+            for info in tx_infos:
+                tx_hex = txid_to_tx_hex.get(info.txid)
+                if tx_hex is not None:
+                    self.deserialized_tx_cache.set(tx_hex, info)
+                    cached += 1
+            logger.debug(f"Pre-warmed deserialize cache with {cached} stamp-candidate txs of {len(tx_hex_list)} in block")
+        except Exception as e:
+            # Non-fatal — the per-tx lazy path stays as the fallback.
+            logger.debug(f"batch deserialize pre-warm failed (continuing with per-tx fallback): {e}")
+
     def get_tx_list(self, block_hash):
         """Get transaction list from block using Rust parser if available."""
         if self._parser is not None:
@@ -459,6 +495,14 @@ class Backend:
                 block_data = self.rpc("getblock", [block_hash, 0])  # Get raw block hex
                 # The Rust parser now returns a tuple directly
                 tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits = self._parser.parse_block(block_data)
+                # OPP-3 (#793): batch-parse the per-tx data in parallel and
+                # pre-populate the deserialize cache. Subsequent per-tx
+                # deserialize calls from transaction_utils / block_validation
+                # then hit the cache instead of re-doing the per-tx Rust call
+                # serially. Gated by config.PREWARM_DESERIALIZE_CACHE so
+                # operators can disable if it ever regresses.
+                if getattr(config, "PREWARM_DESERIALIZE_CACHE", True):
+                    self._prewarm_deserialize_cache(raw_transactions)
                 return (
                     tx_hash_list,
                     raw_transactions,
