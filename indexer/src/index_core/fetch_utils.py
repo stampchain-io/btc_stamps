@@ -1315,18 +1315,28 @@ async def _fetch_block_transactions_verbose_safe_pagination(
     This workaround addresses the Counterparty API bug where verbose=true fails
     with limit >= 26, while preserving the complete event data structure.
     """
-    logger.debug(f"Fetching block {block_index} transactions with verbose=true safe pagination (limit=25)")
+    # Per-page limit is env-overridable via CP_VERBOSE_PAGINATION_LIMIT (#756 item 2).
+    # Legacy default was 25 to dodge a CP v11.0.1 verbose=true bug that triggered
+    # at limit>=26; v11.1.0+ fixes it, so the default is now 100 to cut per-block
+    # round-trips ~4x. On any per-page failure the existing fallback to the
+    # 2-step workaround is still in effect — so the bump is safe even if
+    # upstream regresses for a specific block.
+    page_limit = config.CP_VERBOSE_PAGINATION_LIMIT
+    logger.debug(f"Fetching block {block_index} transactions with verbose=true safe pagination (limit={page_limit})")
 
     all_transactions: List[Dict[str, Any]] = []
     next_cursor = None
     page_count = 0
-    max_pages = 1000  # Increased safety limit (25 txs/page * 1000 pages = 25,000 max txs per block)
+    # Safety cap: limit * max_pages must stay well above any plausible per-block tx count.
+    # At limit=100 (default), max_pages=1000 ⇒ 100,000 max txs per block (vs Bitcoin's
+    # typical 2-3k); at limit=25 (legacy), 25,000. Scale the page cap inversely so the
+    # absolute cap stays roughly stable across limit choices.
+    max_pages = max(250, 25000 // max(page_limit, 1))
 
     while page_count < max_pages:
         page_count += 1
 
-        # Use limit=25 (safe limit for verbose=true)
-        params = {"verbose": "true", "limit": "25", "show_unconfirmed": "false"}  # Safe limit that works with verbose=true
+        params = {"verbose": "true", "limit": str(page_limit), "show_unconfirmed": "false"}
 
         if next_cursor:
             params["cursor"] = next_cursor
