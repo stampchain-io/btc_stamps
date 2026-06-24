@@ -71,3 +71,40 @@ jobs:
         run: |
           python3 indexer/ci/ci_validate_consensus.py \
             --baseline indexer/snapshots/ci_consensus_hashes.json
+
+      # ---- Tier 3 subprocess reparse runner (#770 Option B) ----
+      # Runs the curated baseline through a fresh Python subprocess per block,
+      # exercising the full indexer parser pipeline (Rust parser + reparse
+      # validator) instead of just the block-bytes hash check above. The
+      # subprocess boundary gives state isolation across blocks, avoiding the
+      # in-process cache-pollution problem documented in #775.
+      #
+      # Needs the indexer venv (poetry install) because the smoke driver
+      # imports index_core.* directly. Rust toolchain is needed because
+      # poetry install builds the Rust parser via maturin.
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: indexer/src/rust_parser
+          key: rust-${{ runner.os }}-${{ hashFiles('indexer/src/rust_parser/rust-toolchain.toml') }}-${{ hashFiles('indexer/src/rust_parser/Cargo.lock') }}
+          save-if: ${{ false }}
+      - name: Install Poetry + indexer deps
+        working-directory: ./indexer
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          poetry config virtualenvs.in-project true
+          poetry install
+
+      - name: Tier 3 — subprocess reparse over curated baseline
+        working-directory: ./indexer
+        # continue-on-error at the job level already makes this advisory; the
+        # step itself fails loudly on any new regression so reviewers see
+        # which block(s) diverged in the PR check summary.
+        run: |
+          poetry run python ci/ci_reparse_subprocess.py \
+            --baseline snapshots/ci_consensus_hashes.json \
+            --timeout 120
