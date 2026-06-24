@@ -46,6 +46,7 @@ from index_core.database import (  # update_src20_token_stats,  # Now handled by
     insert_into_stamp_table,
     insert_transactions,
     is_prev_block_parsed,
+    last_db_index,
     log_reorg_event,
     next_tx_index,
     purge_block_db,
@@ -873,7 +874,14 @@ def follow(
 
         progress_watchdog.start()
 
-        # Get index of last block and current tip
+        # Get index of last block and current tip.
+        # Safety belt for issue #784: refresh the in-process tip from the DB
+        # before deriving block_index. perform_complete_rollback() already
+        # refreshes this global; this is defense in depth so a future caller
+        # that purges blocks without going through that function cannot strand
+        # follow() with a stale value (the prior incident drove
+        # is_prev_block_parsed into an iterative destructive purge cascade).
+        util.CURRENT_BLOCK_INDEX = last_db_index(db)
         block_tip = backend_instance.getblockcount()
         if util.CURRENT_BLOCK_INDEX == 0:
             logger.warning("New database.")
@@ -918,6 +926,32 @@ def follow(
                 fallback_mode=config.CP_FALLBACK_MODE,
             )
             cp_pipeline_instance.start(block_index)
+            # Issue #784: CPBlocksPipeline.start() may run perform_complete_rollback
+            # (startup auto-rollback when STARTUP_AUTO_ROLLBACK_FALLBACK is set). That
+            # rollback executes via a *separate* DB connection and purges blocks
+            # beyond the rollback target. Two things follow that break the
+            # processing loop unless we reset:
+            #   1. follow()'s `db` connection holds a REPEATABLE-READ snapshot
+            #      from before the rollback — last_db_index(db) and
+            #      is_prev_block_parsed(db, ...) would still report the
+            #      pre-rollback tip. Commit to end the snapshot and force a
+            #      fresh read on the next query.
+            #   2. The local `block_index` was derived from the pre-rollback
+            #      tip and would drive is_prev_block_parsed() into a
+            #      destructive iterative cascade. Recompute from
+            #      util.CURRENT_BLOCK_INDEX (a Python int — no MySQL isolation;
+            #      refreshed inside perform_complete_rollback).
+            try:
+                db.commit()
+            except Exception as commit_err:
+                logger.debug(f"Post-pipeline commit (snapshot reset) failed harmlessly: {commit_err}")
+            new_block_index = config.BLOCK_FIRST if util.CURRENT_BLOCK_INDEX == 0 else util.CURRENT_BLOCK_INDEX + 1
+            if new_block_index != block_index:
+                logger.warning(
+                    f"Pipeline init reset block_index: {block_index} → {new_block_index} "
+                    f"(util.CURRENT_BLOCK_INDEX now {util.CURRENT_BLOCK_INDEX} — rollback fired during pipeline init)"
+                )
+                block_index = new_block_index
             stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
 
             # Log fallback mode status
