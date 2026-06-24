@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from index_core.src20 import (
+    LedgerFetchStatus,
     compare_balances,
     fetch_api_ledger_data,
     parse_balances,
@@ -42,48 +43,60 @@ class TestSrc20LedgerValidation:
     @patch("index_core.src20.SRC_VALIDATION_SECRET_API2", "test-secret")
     @patch("index_core.src20.requests.get")
     def test_fetch_api_ledger_data_success(self, mock_get):
-        """Test successful API ledger data fetch."""
+        """Successful fetch returns LedgerFetchResult(status=OK, hash, validation).
+
+        Stampscan response must include `block_index` matching the requested
+        block — otherwise it's a BLOCK_INDEX_MISMATCH (shadow / tip-lag).
+        """
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"data": {"hash": "test_hash", "balance_data": "TEST,addr1,100.5;TEST,addr2,200.25"}}
+        mock_response.json.return_value = {
+            "data": {
+                "block_index": 1000,
+                "hash": "test_hash",
+                "balance_data": "TEST,addr1,100.5;TEST,addr2,200.25",
+            }
+        }
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         result = fetch_api_ledger_data(1000)
 
-        # fetch_api_ledger_data returns a tuple (hash, validation_data)
-        assert result[0] == "test_hash"  # hash
-        assert result[1] == "TEST,addr1,100.5;TEST,addr2,200.25"  # validation_data
+        assert result.status == LedgerFetchStatus.OK
+        assert result.hash == "test_hash"
+        assert result.validation == "TEST,addr1,100.5;TEST,addr2,200.25"
         mock_get.assert_called()
 
-    @patch("index_core.src20.config.FORCE", False)
     def test_fetch_api_ledger_data_retry_logic(self):
-        """Test retry logic in API fetch."""
-        # When APIs are not configured, it returns (None, None)
-        # The actual retry logic is internal to the function and hard to test directly
-        # Let's test that it handles the no-API case correctly
+        """With no API URLs configured, returns API_ERROR immediately."""
         with patch("index_core.src20.SRC_VALIDATION_API2", None):
             with patch("index_core.src20.SRC_VALIDATION_SECRET_API2", None):
                 result = fetch_api_ledger_data(1000)
-                assert result == (None, None)
+                assert result.status == LedgerFetchStatus.API_ERROR
+                assert result.hash is None
+                assert result.validation is None
 
-    @patch("index_core.src20.config.FORCE", False)
     def test_fetch_api_ledger_data_max_retries_exceeded(self):
-        """Test behavior when max retries exceeded."""
-        # Test the no-API configured case
-        with patch("index_core.src20.SRC_VALIDATION_API2", None):
-            with patch("index_core.src20.SRC_VALIDATION_SECRET_API2", None):
-                result = fetch_api_ledger_data(1000)
-                # When no APIs configured, returns (None, None)
-                assert result == (None, None)
+        """No API configured → API_ERROR; never mutates config.FORCE."""
+        import config as global_config
+
+        original_force = global_config.FORCE
+        try:
+            global_config.FORCE = False
+            with patch("index_core.src20.SRC_VALIDATION_API2", None):
+                with patch("index_core.src20.SRC_VALIDATION_SECRET_API2", None):
+                    result = fetch_api_ledger_data(1000)
+                    assert result.status == LedgerFetchStatus.API_ERROR
+                    assert global_config.FORCE is False
+        finally:
+            global_config.FORCE = original_force
 
     @patch("index_core.src20.SRC_VALIDATION_API2", "http://test-api.com/{block_index}?secret={secret}")
     @patch("index_core.src20.SRC_VALIDATION_SECRET_API2", "test-secret")
     @patch("index_core.src20.time.sleep")  # Mock sleep to speed up test
     @patch("index_core.src20.requests.get")
     def test_fetch_api_ledger_data_malformed_response(self, mock_get, mock_sleep):
-        """Test handling of malformed API responses."""
-        # Test one malformed response - missing data field
+        """Missing `data` field → API_ERROR after retries (deferred)."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"tick": "TEST"}  # Missing 'data' field
@@ -91,8 +104,9 @@ class TestSrc20LedgerValidation:
         mock_get.return_value = mock_response
 
         result = fetch_api_ledger_data(1000)
-        # Should handle gracefully without crashing - returns (None, None) for malformed responses
-        assert result == (None, None)
+        assert result.status == LedgerFetchStatus.API_ERROR
+        assert result.hash is None
+        assert result.validation is None
 
     def test_parse_balances(self):
         """Test parsing balance strings."""
@@ -220,20 +234,24 @@ class TestSrc20LedgerValidation:
     @patch("index_core.src20.SRC_VALIDATION_SECRET_API2", "test-secret")
     @patch("index_core.src20.requests.get")
     def test_api_ledger_special_characters_handling(self, mock_get):
-        """Test API response with special characters in addresses."""
+        """Special characters in balance_data are preserved on OK status."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "data": {"hash": "test_hash", "balance_data": "TEST,addr with spaces,100;TEST,addr\\nwith\\nnewlines,200"}
+            "data": {
+                "block_index": 1000,
+                "hash": "test_hash",
+                "balance_data": "TEST,addr with spaces,100;TEST,addr\\nwith\\nnewlines,200",
+            }
         }
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         result = fetch_api_ledger_data(1000)
 
-        # fetch_api_ledger_data returns a tuple
-        assert result[0] == "test_hash"
-        assert "addr with spaces" in result[1]
+        assert result.status == LedgerFetchStatus.OK
+        assert result.hash == "test_hash"
+        assert "addr with spaces" in result.validation
 
     def test_ledger_validation_performance_with_large_datasets(self):
         """Test ledger validation performance with large balance sets."""

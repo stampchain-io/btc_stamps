@@ -655,13 +655,11 @@ class TestLedgerValidationSecurity(unittest.TestCase):
 
     @patch("index_core.src20.fetch_api_ledger_data")
     def test_ledger_hash_validation_mismatch(self, mock_fetch):
-        """Test ledger hash validation detects mismatches."""
-        # Mock API response
-        mock_fetch.return_value = {"ledger_hash": "different_hash", "balances_str": "api_balances"}
+        """OK status + different hashes = real consensus mismatch → returns False."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus
 
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.OK, "different_hash", "api_balances")
         result = validate_src20_ledger_hash(block_index=800000, ledger_hash="local_hash", valid_src20_str="local_balances")
-
-        # Should detect mismatch
         self.assertFalse(result)
 
     @patch("index_core.src20.SRC_VALIDATION_API2", "https://test-api.com/{block_index}/{secret}")
@@ -669,27 +667,26 @@ class TestLedgerValidationSecurity(unittest.TestCase):
     @patch("index_core.src20.time.sleep")  # Mock sleep to speed up test
     @patch("index_core.src20.requests.get")
     def test_api_timeout_handling(self, mock_get, mock_sleep):
-        """Test API timeout handling in ledger validation."""
+        """Timeouts on every retry must return API_ERROR via the new enum
+        (never touch ``config.FORCE``)."""
         from requests.exceptions import Timeout
+
+        from index_core.src20 import LedgerFetchStatus, fetch_api_ledger_data
 
         mock_get.side_effect = Timeout("Request timed out")
         mock_sleep.return_value = None  # Skip actual sleep delays
 
-        # Should handle timeout gracefully
-        from index_core.src20 import fetch_api_ledger_data
-
         result = fetch_api_ledger_data(800000)
 
-        # Function returns tuple (ledger_hash, balances_str), both should be None on timeout
-        self.assertEqual(result, (None, None))
+        self.assertEqual(result.status, LedgerFetchStatus.API_ERROR)
+        self.assertIsNone(result.hash)
+        self.assertIsNone(result.validation)
 
         # Verify it attempted retries (max_retries=5, each submits 1 request via ThreadPoolExecutor).
         # Use assertGreaterEqual because ThreadPoolExecutor thread scheduling can
         # occasionally cause an extra call when thread teardown overlaps with the
         # next iteration's submission.
         self.assertGreaterEqual(mock_get.call_count, 5)
-
-        # Verify sleep was called for backoff between retries
         self.assertGreaterEqual(mock_sleep.call_count, 5)
 
 

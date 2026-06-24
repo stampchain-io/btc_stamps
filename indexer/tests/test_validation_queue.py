@@ -1,8 +1,7 @@
 import asyncio
 import os
 import tempfile
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -214,25 +213,28 @@ class TestBackgroundValidator:
         validator.queue_manager.get_pending_validations.assert_called()
 
     def test_should_run_validation(self, validator):
-        """Test validation run conditions."""
-        # Should not run when FORCE is True
-        with patch("index_core.background_validator.config.FORCE", True):
-            assert not validator._should_run_validation()
+        """Validation is always permitted at the queue level under #782.
 
-        # Should run when FORCE is False
-        with patch("index_core.background_validator.config.FORCE", False):
-            assert validator._should_run_validation()
+        Stampscan availability is now determined per-request via
+        ``LedgerFetchStatus``; the legacy ``config.FORCE`` gate has been
+        removed from ``_should_run_validation``.
+        """
+        assert validator._should_run_validation() is True
 
     @patch("index_core.background_validator.fetch_api_ledger_data")
     def test_process_validations_success(self, mock_fetch, validator):
         """Test processing validations successfully."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus
+
         pending = [(906394, "hash1", "src20_data1"), (906395, "hash2", "src20_data2")]
 
-        # Mock API returns matching hashes
-        mock_fetch.side_effect = [("hash1", {"some": "data"}), ("hash2", {"some": "data"})]
+        # Mock API returns matching hashes (status OK = block_index matches)
+        mock_fetch.side_effect = [
+            LedgerFetchResult(LedgerFetchStatus.OK, "hash1", "balance_data_1"),
+            LedgerFetchResult(LedgerFetchStatus.OK, "hash2", "balance_data_2"),
+        ]
 
-        with patch("index_core.background_validator.config.FORCE", False):
-            validator._process_validations(pending)
+        validator._process_validations(pending)
 
         # Should mark both as validated
         assert validator.queue_manager.mark_validated.call_count == 2
@@ -241,35 +243,36 @@ class TestBackgroundValidator:
 
     @patch("index_core.background_validator.fetch_api_ledger_data")
     def test_process_validations_mismatch(self, mock_fetch, validator):
-        """Test processing validations with mismatch."""
+        """Real consensus mismatch — status OK + hashes differ — must alert and mark invalid."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus
+
         pending = [(906394, "local_hash", "src20_data")]
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.OK, "api_hash", "balance_data")
 
-        # Mock API returns different hash
-        mock_fetch.return_value = ("api_hash", {"some": "data"})
+        with patch("index_core.background_validator.logger") as mock_logger:
+            validator._process_validations(pending)
 
-        with patch("index_core.background_validator.config.FORCE", False):
-            with patch("index_core.background_validator.logger") as mock_logger:
-                validator._process_validations(pending)
-
-                # Should log error for mismatch
-                mock_logger.error.assert_called()
-                assert "VALIDATION MISMATCH" in mock_logger.error.call_args[0][0]
+            # Should log error for mismatch
+            mock_logger.error.assert_called()
+            assert any("VALIDATION MISMATCH" in call.args[0] for call in mock_logger.error.call_args_list)
 
         validator.queue_manager.mark_validated.assert_called_with(906394, "api_hash", False)
 
     @patch("index_core.background_validator.fetch_api_ledger_data")
     def test_process_validations_api_error(self, mock_fetch, validator):
-        """Test processing validations when API is unavailable."""
+        """Non-OK status — block stays in queue, marked with the deferral reason."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus
+
         pending = [(906394, "hash1", "src20_data")]
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
-        # Mock API returns None (unavailable)
-        mock_fetch.return_value = (None, None)
+        validator._process_validations(pending)
 
-        with patch("index_core.background_validator.config.FORCE", False):
-            validator._process_validations(pending)
-
-        # Should mark as API error
-        validator.queue_manager.mark_api_error.assert_called_with(906394, "API unavailable during background validation")
+        validator.queue_manager.mark_api_error.assert_called_once()
+        call_args = validator.queue_manager.mark_api_error.call_args
+        assert call_args.args[0] == 906394
+        assert "deferred" in call_args.args[1]
+        assert "api_error" in call_args.args[1]
 
     def test_get_status(self, validator):
         """Test getting validator status."""
@@ -289,42 +292,124 @@ class TestSrc20Integration:
 
     @patch("index_core.validation_queue.ValidationQueueManager")
     @patch("index_core.src20.fetch_api_ledger_data")
-    @patch("index_core.src20.config")
-    def test_validate_with_force_adds_to_queue(self, mock_config, mock_fetch, mock_queue_class):
-        """Test that blocks processed with FORCE are added to validation queue."""
-        from index_core.src20 import validate_src20_ledger_hash
+    def test_validate_api_error_enqueues_and_continues(self, mock_fetch, mock_queue_class):
+        """API_ERROR / NOT_INDEXED / BLOCK_INDEX_MISMATCH paths all enqueue
+        the block for the background validator and return True so indexing
+        continues. ``config.FORCE`` is no longer touched by this path."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus, validate_src20_ledger_hash
 
-        # Setup mocks
-        # Initial state: FORCE is False
-        mock_config.FORCE = False
-        mock_config.ENABLE_SRC20_BACKGROUND_VALIDATION = True  # Enable background validation
-
-        # Mock fetch_api_ledger_data to simulate API failure that sets FORCE=True
-        def mock_fetch_side_effect(*args):
-            # Simulate API failure that enables FORCE
-            mock_config.FORCE = True
-            return (None, None)
-
-        mock_fetch.side_effect = mock_fetch_side_effect
-
-        # Mock the ValidationQueueManager singleton
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
         mock_queue_instance = Mock()
         mock_queue_instance.add_to_queue = Mock()
         mock_queue_class.get_instance.return_value = mock_queue_instance
 
-        # Run validation
         block_index = 906394
         ledger_hash = "test_hash"
         valid_src20_str = "test_data"
 
-        result = validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str)
+        assert validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str) is True
 
-        # Should return True to continue processing when FORCE gets enabled
-        assert result is True
-
-        # Should get singleton instance and add to queue
         mock_queue_class.get_instance.assert_called_once()
         mock_queue_instance.add_to_queue.assert_called_once_with(block_index, ledger_hash, valid_src20_str)
+
+    @patch("index_core.validation_queue.ValidationQueueManager")
+    @patch("index_core.src20.fetch_api_ledger_data")
+    def test_validate_block_index_mismatch_enqueues(self, mock_fetch, mock_queue_class):
+        """Stampscan shadow response (block_index < requested) also defers."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus, validate_src20_ledger_hash
+
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.BLOCK_INDEX_MISMATCH, "shadow_hash", "shadow_data")
+        mock_queue_instance = Mock()
+        mock_queue_class.get_instance.return_value = mock_queue_instance
+
+        assert validate_src20_ledger_hash(906394, "test_hash", "test_data") is True
+        mock_queue_instance.add_to_queue.assert_called_once_with(906394, "test_hash", "test_data")
+
+    @patch("index_core.src20.fetch_api_ledger_data")
+    def test_validate_real_mismatch_returns_false(self, mock_fetch):
+        """OK status + hashes differ = real consensus divergence → False.
+        The caller (blocks.py) is expected to emit an ops_alerter notification."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus, validate_src20_ledger_hash
+
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.OK, "stampscan_hash", "balance_data")
+        assert validate_src20_ledger_hash(906394, "local_hash", "src20_data") is False
+
+    @patch("index_core.src20.fetch_api_ledger_data")
+    def test_validate_ok_matching_hashes(self, mock_fetch):
+        """OK status + matching hashes = success path."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus, validate_src20_ledger_hash
+
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.OK, "same_hash", "balance_data")
+        assert validate_src20_ledger_hash(906394, "same_hash", "src20_data") is True
+
+    @patch("index_core.src20.requests.get")
+    def test_fetch_api_does_not_mutate_force(self, mock_get):
+        """Even after max retries on API errors, fetch_api_ledger_data
+        must NOT mutate ``config.FORCE``. Control flow is via the
+        returned ``LedgerFetchStatus`` only."""
+        import config as global_config
+        from index_core.src20 import LedgerFetchStatus, fetch_api_ledger_data
+
+        original_force = global_config.FORCE
+        try:
+            global_config.FORCE = False
+            mock_get.side_effect = Exception("boom")
+            result = fetch_api_ledger_data(123456)
+            assert result.status == LedgerFetchStatus.API_ERROR
+            assert global_config.FORCE is False
+        finally:
+            global_config.FORCE = original_force
+
+    @patch("index_core.validation_queue.ValidationQueueManager")
+    @patch("index_core.src20.fetch_api_ledger_data")
+    def test_validate_not_indexed_enqueues(self, mock_fetch, mock_queue_class):
+        """NOT_INDEXED status defers to background validator without raising."""
+        from index_core.src20 import LedgerFetchResult, LedgerFetchStatus, validate_src20_ledger_hash
+
+        mock_fetch.return_value = LedgerFetchResult(LedgerFetchStatus.NOT_INDEXED, None, None)
+        mock_queue_instance = Mock()
+        mock_queue_class.get_instance.return_value = mock_queue_instance
+
+        assert validate_src20_ledger_hash(906394, "local_hash", "test_data") is True
+        mock_queue_instance.add_to_queue.assert_called_once_with(906394, "local_hash", "test_data")
+
+    @patch("index_core.src20.SRC_VALIDATION_API2", "https://test-api.com/{block_index}/{secret}")
+    @patch("index_core.src20.SRC_VALIDATION_SECRET_API2", "test-secret")
+    @patch("index_core.src20.time.sleep")
+    @patch("index_core.src20.requests.get")
+    def test_fetch_api_not_indexed_short_circuits_retries(self, mock_get, mock_sleep):
+        """NOT_INDEXED is a definitive answer — must NOT retry. Guards against
+        a future refactor reintroducing the legacy retry-on-any-failure loop."""
+        from index_core.src20 import LedgerFetchStatus, fetch_api_ledger_data
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"msg": "not_indexed"}
+        mock_get.return_value = response
+
+        result = fetch_api_ledger_data(800000)
+        assert result.status == LedgerFetchStatus.NOT_INDEXED
+        assert mock_get.call_count == 1
+        assert mock_sleep.call_count == 0
+
+    @patch("index_core.src20.SRC_VALIDATION_API2", "https://test-api.com/{block_index}/{secret}")
+    @patch("index_core.src20.SRC_VALIDATION_SECRET_API2", "test-secret")
+    @patch("index_core.src20.time.sleep")
+    @patch("index_core.src20.requests.get")
+    def test_fetch_api_block_index_mismatch_short_circuits_retries(self, mock_get, mock_sleep):
+        """BLOCK_INDEX_MISMATCH (stampscan shadow) is also definitive."""
+        from index_core.src20 import LedgerFetchStatus, fetch_api_ledger_data
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"data": {"hash": "shadow_hash", "balance_data": "shadow_data", "block_index": "799995"}}
+        mock_get.return_value = response
+
+        result = fetch_api_ledger_data(800000)
+        assert result.status == LedgerFetchStatus.BLOCK_INDEX_MISMATCH
+        assert result.hash == "shadow_hash"
+        assert mock_get.call_count == 1
+        assert mock_sleep.call_count == 0
 
 
 if __name__ == "__main__":
