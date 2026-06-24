@@ -55,6 +55,18 @@ MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservativ
 # Bug details: https://github.com/CounterpartyXCP/counterparty-core/issues (see counterparty_api_error.md)
 CP_API_USE_VERBOSE_WORKAROUND = os.environ.get("CP_API_USE_VERBOSE_WORKAROUND", "true").lower() == "true"
 
+# Per-page limit for the verbose=true safe-pagination path
+# (`_fetch_block_transactions_verbose_safe_pagination`). The legacy default
+# was 25 to dodge the v11.0.1 verbose=true bug that triggered at limit>=26;
+# the bug is fixed in v11.1.0+ which prod runs. Bumping to 100 cuts the
+# per-block round-trip count ~4x for typical blocks while staying well
+# below the limit ceiling and preserving the existing fallback chain
+# (verbose-safe → 2-step workaround) on any per-page failure. Issue #756.
+try:
+    CP_VERBOSE_PAGINATION_LIMIT = int(os.environ.get("CP_VERBOSE_PAGINATION_LIMIT", "100"))
+except ValueError:
+    CP_VERBOSE_PAGINATION_LIMIT = 100
+
 # Production-optimized batch sizes for database operations
 # Larger batches reduce network round-trips to RDS - optimized defaults for production
 DB_TRANSACTION_BATCH_SIZE = int(os.environ.get("DB_TRANSACTION_BATCH_SIZE", "15000"))  # Optimized for RDS
