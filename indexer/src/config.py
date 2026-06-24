@@ -85,11 +85,21 @@ DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").
 DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 # OPP-3 (#793): pre-warm Backend.deserialize cache via the Rust parser's
-# rayon-parallel batch_parse_transactions during get_tx_list. Cuts per-tx
-# wall-clock by ~2-4x on multi-core hosts for stamp-bearing blocks. Pure-
-# additive — any failure in the pre-warm path falls back to the existing
-# per-tx lazy deserialize. Set to false to disable.
-PREWARM_DESERIALIZE_CACHE = os.environ.get("PREWARM_DESERIALIZE_CACHE", "true").lower() == "true"
+# rayon-parallel batch_parse_transactions during get_tx_list. **DISABLED BY
+# DEFAULT** — observed net perf regression for typical Bitcoin blocks
+# (dev catch-up of 90 blocks took 33 minutes / ~22s/block).
+#
+# Why it regresses: batch_parse_transactions runs the per-tx pipeline on
+# every tx in the block but only RETURNS the should_include subset (stamp
+# candidates). For excluded txs (typically >99% of a block) the cache is
+# never populated, so the subsequent per-tx Backend.deserialize() call
+# re-parses → net double work for the vast majority of txs.
+#
+# Re-enable conditions: either (a) Rust's batch_parse_transactions is
+# changed to return ALL parses (not just should_include), or (b) a
+# separate batch_parse_all entry point is added that returns the full
+# set so the cache can be fully pre-warmed.
+PREWARM_DESERIALIZE_CACHE = os.environ.get("PREWARM_DESERIALIZE_CACHE", "false").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
 # Consensus error handling
