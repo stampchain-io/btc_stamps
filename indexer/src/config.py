@@ -454,6 +454,17 @@ try:
 except ValueError:
     STAMPSCAN_REQUEST_TIMEOUT = 15
 
+# Depth of the startup chain-integrity check (issue #779). On every indexer
+# start, the last N stored block_hash values are compared against bitcoind's
+# canonical chain. If any mismatch is found the indexer rolls back to the
+# divergence point - 1 and resumes from there. Set to 0 to disable (not
+# recommended in production — this is defense in depth against post-crash
+# stale-row scenarios like the 945,189 incident from 2026-04-15).
+try:
+    STARTUP_CHAIN_INTEGRITY_DEPTH = int(os.environ.get("STARTUP_CHAIN_INTEGRITY_DEPTH", "100"))
+except ValueError:
+    STARTUP_CHAIN_INTEGRITY_DEPTH = 100
+
 # Enable background validation of SRC-20 blocks processed with FORCE=True
 ENABLE_SRC20_BACKGROUND_VALIDATION = bool(os.environ.get("ENABLE_SRC20_BACKGROUND_VALIDATION", "true").lower() == "true")
 
