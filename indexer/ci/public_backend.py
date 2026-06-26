@@ -188,13 +188,26 @@ def install_public_backend() -> PublicNodeBackend:
     Returns the installed backend so callers can keep a reference.
     """
     backend = PublicNodeBackend()
-    # The production code reads ``backend_instance`` from a few modules; patch
-    # them all so reparse.validator and block_validation pick up our shim.
+    # The production code reads ``backend_instance`` from several modules. Each
+    # `from index_core.X import backend_instance` creates an INDEPENDENT name
+    # binding in the importing module, so patching only the canonical source is
+    # not enough — every module that imported the name by value must be patched.
+    #
+    # The canonical instance lives in ``index_core.blocks`` (``backend_instance =
+    # Backend()``); ``index_core.reparse.validator`` does
+    # ``from index_core.blocks import backend_instance``, so its line-270
+    # ``backend_instance.getblockhash`` resolves to validator's OWN binding. If
+    # that one is missed, reparse falls through to the real bitcoind RPC at
+    # 127.0.0.1:8332 (absent in CI) and every non-checkpoint block times out.
     import index_core.backend as _backend_mod
     import index_core.block_validation as _bv_mod
+    import index_core.blocks as _blocks_mod
+    import index_core.reparse.validator as _validator_mod
     import index_core.transaction_utils as _tu_mod
 
     _backend_mod.backend_instance = backend
     _bv_mod.backend_instance = backend
+    _blocks_mod.backend_instance = backend
+    _validator_mod.backend_instance = backend
     _tu_mod.backend_instance = backend
     return backend
