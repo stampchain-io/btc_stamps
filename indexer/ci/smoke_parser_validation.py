@@ -58,12 +58,18 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
+    # Install the public-endpoint backend override BEFORE importing index_core
+    # modules, so their import-time ``backend_instance = Backend()`` globals pick
+    # it up through the production injection seam (no monkey-patching, no
+    # import-order fragility). Doing this inside main() — rather than mutating
+    # os.environ at module import — keeps importing this module side-effect-free,
+    # so unit tests can import it without polluting Backend() for the suite.
     from public_backend import install_public_backend  # type: ignore
-
-    from index_core.reparse.validator import ReparseValidator
 
     backend = install_public_backend()
     print(f"Installed PublicNodeBackend ({backend.base}) for block {args.block}")
+
+    from index_core.reparse.validator import ReparseValidator
 
     # Resolve the snapshot path relative to this script so it works regardless
     # of caller cwd.

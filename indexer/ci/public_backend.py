@@ -25,7 +25,6 @@ test/CI infrastructure, not part of the production indexer code path.
 from __future__ import annotations
 
 import hashlib
-import io
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List
@@ -113,6 +112,64 @@ class PublicNodeBackend:
         """Return a CTransaction parsed from hex. Mirrors Backend.deserialize."""
         return CTransaction.deserialize(bytes.fromhex(tx_hex))
 
+    def serialize(self, ctx: CTransaction) -> bytes:
+        """Mirrors Backend.serialize — needed by transaction_utils when it
+        round-trips a parsed tx to compute fees / dedup."""
+        return ctx.serialize()
+
+    # ------------------------------------------------------------------
+    # Prevout lookups (transaction_utils.get_tx_info needs these for
+    # multi-input ARC4 SRC-20 stamps — the ARC4 key is derived from the
+    # first input's prevout txid). blockstream.info serves these via
+    # /tx/{txid}/hex.
+    # ------------------------------------------------------------------
+
+    def getrawtransaction(
+        self,
+        tx_hash: str,
+        verbose: bool = False,
+        skip_missing: bool = False,
+        current_block: Any = None,
+    ) -> str:
+        """Return the raw transaction hex for ``tx_hash``. Mirrors the prod
+        Backend signature — verbose mode is intentionally NOT implemented
+        because the reparse validator only consumes hex."""
+        if verbose:
+            raise NotImplementedError("PublicNodeBackend.getrawtransaction(verbose=True) not implemented")
+        try:
+            body = _http_get(f"{self.base}/tx/{tx_hash}/hex")
+        except urllib.error.HTTPError as e:
+            if e.code == 404 and skip_missing:
+                return ""
+            raise
+        return body.decode().strip()
+
+    def getrawtransaction_batch(
+        self,
+        txhash_list: List[str],
+        verbose: bool = False,
+        skip_missing: bool = False,
+        _retry: int = 0,
+        max_retries: int = 3,
+        current_block: Any = None,
+    ) -> Dict[str, str]:
+        """Batch version. blockstream.info has no batch endpoint so we issue
+        N sequential requests. CI fixture sizes (a few txs per block) keep
+        this tolerable; if a future fixture exercises a huge prevout fan-out
+        we can parallelize."""
+        if verbose:
+            raise NotImplementedError("PublicNodeBackend.getrawtransaction_batch(verbose=True) not implemented")
+        out: Dict[str, str] = {}
+        for txid in txhash_list:
+            try:
+                out[txid] = self.getrawtransaction(txid, verbose=False, skip_missing=skip_missing)
+            except Exception:
+                if skip_missing:
+                    out[txid] = ""
+                else:
+                    raise
+        return out
+
     # ------------------------------------------------------------------
     # Safety net: anything else fails loudly rather than silently
     # ------------------------------------------------------------------
@@ -126,18 +183,35 @@ class PublicNodeBackend:
 
 
 def install_public_backend() -> PublicNodeBackend:
-    """Monkey-patch index_core modules to use a PublicNodeBackend instance.
+    """Install a PublicNodeBackend through the production injection seam.
+
+    ``index_core.backend.Backend`` is a singleton; ``set_backend_override``
+    makes every ``Backend()`` call — including the import-time
+    ``backend_instance = Backend()`` module globals across index_core — return
+    our shim. This replaces the old per-module monkey-patching, which had to
+    enumerate every module that imported ``backend_instance`` by value and
+    silently fell through to the real bitcoind RPC (127.0.0.1:8332) whenever a
+    module was missed.
+
+    NOTE: this is the explicit-setter path, for callers that import all of
+    index_core *before* installing. For import-order-independent installation
+    (e.g. so import-time globals also pick up the shim), set the
+    ``BTC_STAMPS_BACKEND_OVERRIDE=public_backend:PublicNodeBackend`` env var
+    before importing index_core — ``Backend.__new__`` resolves it lazily on the
+    first instantiation. ``smoke_parser_validation.py`` uses the env-var path.
 
     Returns the installed backend so callers can keep a reference.
     """
-    backend = PublicNodeBackend()
-    # The production code reads ``backend_instance`` from a few modules; patch
-    # them all so reparse.validator and block_validation pick up our shim.
-    import index_core.backend as _backend_mod
-    import index_core.block_validation as _bv_mod
-    import index_core.transaction_utils as _tu_mod
+    from index_core.backend import Backend, set_backend_override
 
-    _backend_mod.backend_instance = backend
-    _bv_mod.backend_instance = backend
-    _tu_mod.backend_instance = backend
+    # Idempotent: if the env-var path already installed a PublicNodeBackend,
+    # return that exact instance (the one the import-time module globals
+    # captured) rather than creating a second one.
+    current = Backend()
+    if isinstance(current, PublicNodeBackend):
+        return current
+
+    backend = PublicNodeBackend()
+    set_backend_override(backend)
+    assert Backend() is backend, "backend override did not take effect"
     return backend

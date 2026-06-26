@@ -71,3 +71,40 @@ jobs:
         run: |
           python3 indexer/ci/ci_validate_consensus.py \
             --baseline indexer/snapshots/ci_consensus_hashes.json
+
+      # ---- Tier 3 subprocess reparse runner (#770 Option B) ----
+      # Spawns a fresh Python subprocess per curated block, exercising the
+      # full reparse validator (Rust parser + reparse pipeline) instead of
+      # just the block-bytes hash check above. Subprocess boundary = state
+      # isolation across blocks, avoiding #775's in-process cache pollution.
+      #
+      # By default skips the 18 blocks listed in TIER3_KNOWN_FAILURES (the
+      # `InMemoryBlockProcessor` divergences from production `StampProcessor`
+      # tracked by #775). Runs the remaining 20 blocks cleanly — as #775
+      # sub-bugs land, the skip list shrinks automatically.
+      #
+      # Needs the indexer venv (poetry install) and the Rust parser build
+      # because smoke_parser_validation imports index_core.* directly.
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: indexer/src/rust_parser
+          key: rust-${{ runner.os }}-${{ hashFiles('indexer/src/rust_parser/rust-toolchain.toml') }}-${{ hashFiles('indexer/src/rust_parser/Cargo.lock') }}
+          save-if: ${{ false }}
+      - name: Install Poetry + indexer deps
+        working-directory: ./indexer
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          poetry config virtualenvs.in-project true
+          poetry install
+
+      - name: Tier 3 — subprocess reparse over curated baseline
+        working-directory: ./indexer
+        run: |
+          poetry run python ci/ci_reparse_subprocess.py \
+            --baseline snapshots/ci_consensus_hashes.json \
+            --timeout 120

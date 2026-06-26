@@ -2,6 +2,7 @@ import collections
 import concurrent.futures
 import functools
 import gc
+import importlib
 import json
 import logging
 import os
@@ -36,8 +37,33 @@ class Backend:
     # Singleton instance
     _instance = None
 
+    # Optional drop-in replacement. When set, every ``Backend()`` call returns
+    # this object instead of the real bitcoind-RPC singleton. This is the
+    # injection seam used by CI/tests to validate consensus against public
+    # endpoints with no local bitcoind (see indexer/ci/public_backend.py).
+    #
+    # In production this is always None and the branch below is a no-op, so the
+    # real singleton is returned exactly as before. The override is resolved
+    # lazily from the BTC_STAMPS_BACKEND_OVERRIDE env var ("module:ClassName")
+    # on the FIRST instantiation, so even import-time module-level
+    # ``backend_instance = Backend()`` globals pick it up — no import-order
+    # fragility and no per-module monkey-patching. Production code never imports
+    # the override module unless the env var explicitly points at it.
+    _override = None
+
     def __new__(cls):
-        """Ensure only one instance of Backend exists."""
+        """Return the override if one is installed, else the real singleton."""
+        if cls._override is None:
+            spec = os.environ.get("BTC_STAMPS_BACKEND_OVERRIDE")
+            if spec:
+                mod_name, _, cls_name = spec.partition(":")
+                if not cls_name:
+                    raise ValueError(f"BTC_STAMPS_BACKEND_OVERRIDE must be 'module:ClassName', got {spec!r}")
+                cls._override = getattr(importlib.import_module(mod_name), cls_name)()
+        if cls._override is not None:
+            # Returning a non-Backend instance means __init__ is NOT invoked on
+            # it (CPython contract), so the override is used as-is.
+            return cls._override
         if cls._instance is None:
             cls._instance = super(Backend, cls).__new__(cls)
             cls._instance._initialized = False
@@ -618,3 +644,21 @@ class Backend:
                     raise BackendRPCError(f"Error fetching transactions: {str(e)}")
 
         return {tx_hash: cached_results.get(tx_hash) for tx_hash in txhash_list}
+
+
+def set_backend_override(obj: Any) -> None:
+    """Install a drop-in replacement returned by every subsequent ``Backend()``.
+
+    Intended for CI/tests that need to substitute a non-bitcoind backend (e.g.
+    the public-endpoint reparse shim). Prefer the BTC_STAMPS_BACKEND_OVERRIDE
+    env var when import order is not controlled — it resolves lazily on first
+    instantiation and so also reaches import-time ``backend_instance = Backend()``
+    module globals. This setter is for callers that construct the backend after
+    all index_core modules are imported. Pass None to clear.
+    """
+    Backend._override = obj
+
+
+def clear_backend_override() -> None:
+    """Remove any installed backend override (restores the real singleton)."""
+    Backend._override = None
