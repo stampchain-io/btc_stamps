@@ -74,6 +74,15 @@ updates:
 
   # GitHub Actions — tj-actions/changed-files compromise (March 2025) made this
   # a real supply-chain vector; cooldown is essential here.
+  #
+  # PIN REQUIREMENT (#768): every third-party (non-actions/*) action in
+  # .github/workflows/ MUST be pinned to a full 40-char commit SHA with the
+  # version tag kept as a trailing comment, e.g.
+  #     uses: docker/build-push-action@<sha> # v7
+  # Mutable major tags (@v7, @v2) let a publisher re-point them at any commit;
+  # SHA pins + the cooldown below are the hardened posture. Dependabot proposes
+  # new SHAs here weekly. actions/*-namespace actions are GitHub-owned and left
+  # at tags by convention. When adding a new third-party action, SHA-pin it.
   - package-ecosystem: "github-actions"
     directory: "/"
     target-branch: "dev"

@@ -32,17 +32,17 @@ jobs:
         uses: actions/checkout@v5
       
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
       
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: btcstamps
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: btcstamps/indexer
           tags: |
@@ -50,7 +50,7 @@ jobs:
             type=sha,prefix=,suffix=,format=short
       
       - name: Build and push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: ./indexer
           push: true
@@ -60,7 +60,7 @@ jobs:
           cache-to: type=gha,mode=max
       
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: 'btc_stamps/indexer:${{ inputs.tag }}'
           format: 'table'
@@ -69,7 +69,7 @@ jobs:
           skip-files: 'app/bootstrap/srcbackground.csv,/usr/src/app/files/**'
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           format: spdx-json
           artifact-name: sbom.spdx.json

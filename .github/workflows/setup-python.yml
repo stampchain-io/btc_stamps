@@ -40,7 +40,7 @@ jobs:
         working-directory: ./indexer
 
       - name: Setup Rust and build parser
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
 
       - name: Build Rust parser
         working-directory: ./indexer
