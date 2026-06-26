@@ -180,3 +180,26 @@ def reset_coordinator():
 
     # Reset after test
     BackgroundCoordinator._instance = None
+
+
+@pytest.fixture(autouse=True)
+def reset_backend_override():
+    """Guarantee no CI/test backend override leaks into the unit suite.
+
+    ``index_core.backend.Backend`` supports a drop-in override (used by the
+    reparse-consensus CI to swap in a public-endpoint shim) via
+    ``Backend._override`` and the ``BTC_STAMPS_BACKEND_OVERRIDE`` env var. If a
+    test imports a CI runner or that env var is exported in the shell, every
+    subsequent ``Backend()`` would return the shim and break tests that need the
+    real backend. Clear both before and after each test so the override can
+    never bleed across test boundaries.
+    """
+    from index_core.backend import Backend
+
+    os.environ.pop("BTC_STAMPS_BACKEND_OVERRIDE", None)
+    Backend._override = None
+
+    yield
+
+    os.environ.pop("BTC_STAMPS_BACKEND_OVERRIDE", None)
+    Backend._override = None

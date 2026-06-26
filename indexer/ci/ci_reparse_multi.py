@@ -49,9 +49,6 @@ os.environ.setdefault("TESTING", "1")
 # Public CP endpoint — used by reparse.validator via fetch_xcp_blocks_concurrent.
 os.environ.setdefault("CP_PRIMARY_NODE_URL", "https://api.counterparty.io:4000")
 os.environ.setdefault("CP_FALLBACK_NODE_URL", "https://api.counterparty.io:4000")
-# Route every index_core ``Backend()`` through the public-endpoint shim via the
-# production injection seam, before importing index_core (see backend.py).
-os.environ.setdefault("BTC_STAMPS_BACKEND_OVERRIDE", "public_backend:PublicNodeBackend")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -137,9 +134,17 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    # Heavy imports come AFTER env-var setup so config picks up the public
-    # CP URL and the mock-DB mode.
+    # Install the public-endpoint backend override BEFORE importing index_core
+    # modules, so their import-time ``backend_instance = Backend()`` globals pick
+    # it up through the production injection seam (no monkey-patching, no
+    # import-order fragility). Doing this inside main() — rather than mutating
+    # os.environ at module import — keeps importing this module side-effect-free,
+    # so unit tests (test_ci_reparse_multi) can import it without polluting
+    # Backend() for the rest of the suite.
     from public_backend import install_public_backend  # type: ignore
+
+    backend = install_public_backend()
+    print(f"PublicNodeBackend installed ({backend.base})")
 
     from index_core.reparse.validator import ReparseValidator
 
@@ -149,9 +154,6 @@ def main() -> int:
     if not targets:
         print(f"::error::{args.ci_baseline} has no 'hashes' or 'blocks' key", file=sys.stderr)
         return 1
-
-    backend = install_public_backend()
-    print(f"PublicNodeBackend installed ({backend.base})")
 
     validator = ReparseValidator(snapshot_path=os.path.normpath(args.reference))
     ref_hashes = validator.snapshot_manager.load_snapshot().get("hashes", {})

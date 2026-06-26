@@ -38,11 +38,6 @@ os.environ.setdefault("TESTING", "1")
 # which honours these env vars.
 os.environ.setdefault("CP_PRIMARY_NODE_URL", "https://api.counterparty.io:4000")
 os.environ.setdefault("CP_FALLBACK_NODE_URL", "https://api.counterparty.io:4000")
-# Route every index_core ``Backend()`` — including import-time module globals —
-# through the public-endpoint shim via the production injection seam. Set BEFORE
-# importing index_core so the first instantiation (during validator import)
-# resolves the override lazily; no monkey-patching, no import-order fragility.
-os.environ.setdefault("BTC_STAMPS_BACKEND_OVERRIDE", "public_backend:PublicNodeBackend")
 
 # Push the indexer/ci dir on path so we can import public_backend, and
 # indexer/src so we can import index_core directly (mirrors how poetry's
@@ -63,12 +58,18 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
+    # Install the public-endpoint backend override BEFORE importing index_core
+    # modules, so their import-time ``backend_instance = Backend()`` globals pick
+    # it up through the production injection seam (no monkey-patching, no
+    # import-order fragility). Doing this inside main() — rather than mutating
+    # os.environ at module import — keeps importing this module side-effect-free,
+    # so unit tests can import it without polluting Backend() for the suite.
     from public_backend import install_public_backend  # type: ignore
-
-    from index_core.reparse.validator import ReparseValidator
 
     backend = install_public_backend()
     print(f"Installed PublicNodeBackend ({backend.base}) for block {args.block}")
+
+    from index_core.reparse.validator import ReparseValidator
 
     # Resolve the snapshot path relative to this script so it works regardless
     # of caller cwd.
