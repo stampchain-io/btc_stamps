@@ -49,6 +49,9 @@ os.environ.setdefault("TESTING", "1")
 # Public CP endpoint — used by reparse.validator via fetch_xcp_blocks_concurrent.
 os.environ.setdefault("CP_PRIMARY_NODE_URL", "https://api.counterparty.io:4000")
 os.environ.setdefault("CP_FALLBACK_NODE_URL", "https://api.counterparty.io:4000")
+# Route every index_core ``Backend()`` through the public-endpoint shim via the
+# production injection seam, before importing index_core (see backend.py).
+os.environ.setdefault("BTC_STAMPS_BACKEND_OVERRIDE", "public_backend:PublicNodeBackend")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)

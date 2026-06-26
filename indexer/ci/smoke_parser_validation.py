@@ -38,6 +38,11 @@ os.environ.setdefault("TESTING", "1")
 # which honours these env vars.
 os.environ.setdefault("CP_PRIMARY_NODE_URL", "https://api.counterparty.io:4000")
 os.environ.setdefault("CP_FALLBACK_NODE_URL", "https://api.counterparty.io:4000")
+# Route every index_core ``Backend()`` — including import-time module globals —
+# through the public-endpoint shim via the production injection seam. Set BEFORE
+# importing index_core so the first instantiation (during validator import)
+# resolves the override lazily; no monkey-patching, no import-order fragility.
+os.environ.setdefault("BTC_STAMPS_BACKEND_OVERRIDE", "public_backend:PublicNodeBackend")
 
 # Push the indexer/ci dir on path so we can import public_backend, and
 # indexer/src so we can import index_core directly (mirrors how poetry's

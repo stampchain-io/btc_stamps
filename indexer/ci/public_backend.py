@@ -183,31 +183,35 @@ class PublicNodeBackend:
 
 
 def install_public_backend() -> PublicNodeBackend:
-    """Monkey-patch index_core modules to use a PublicNodeBackend instance.
+    """Install a PublicNodeBackend through the production injection seam.
+
+    ``index_core.backend.Backend`` is a singleton; ``set_backend_override``
+    makes every ``Backend()`` call — including the import-time
+    ``backend_instance = Backend()`` module globals across index_core — return
+    our shim. This replaces the old per-module monkey-patching, which had to
+    enumerate every module that imported ``backend_instance`` by value and
+    silently fell through to the real bitcoind RPC (127.0.0.1:8332) whenever a
+    module was missed.
+
+    NOTE: this is the explicit-setter path, for callers that import all of
+    index_core *before* installing. For import-order-independent installation
+    (e.g. so import-time globals also pick up the shim), set the
+    ``BTC_STAMPS_BACKEND_OVERRIDE=public_backend:PublicNodeBackend`` env var
+    before importing index_core — ``Backend.__new__`` resolves it lazily on the
+    first instantiation. ``smoke_parser_validation.py`` uses the env-var path.
 
     Returns the installed backend so callers can keep a reference.
     """
-    backend = PublicNodeBackend()
-    # The production code reads ``backend_instance`` from several modules. Each
-    # `from index_core.X import backend_instance` creates an INDEPENDENT name
-    # binding in the importing module, so patching only the canonical source is
-    # not enough — every module that imported the name by value must be patched.
-    #
-    # The canonical instance lives in ``index_core.blocks`` (``backend_instance =
-    # Backend()``); ``index_core.reparse.validator`` does
-    # ``from index_core.blocks import backend_instance``, so its line-270
-    # ``backend_instance.getblockhash`` resolves to validator's OWN binding. If
-    # that one is missed, reparse falls through to the real bitcoind RPC at
-    # 127.0.0.1:8332 (absent in CI) and every non-checkpoint block times out.
-    import index_core.backend as _backend_mod
-    import index_core.block_validation as _bv_mod
-    import index_core.blocks as _blocks_mod
-    import index_core.reparse.validator as _validator_mod
-    import index_core.transaction_utils as _tu_mod
+    from index_core.backend import Backend, set_backend_override
 
-    _backend_mod.backend_instance = backend
-    _bv_mod.backend_instance = backend
-    _blocks_mod.backend_instance = backend
-    _validator_mod.backend_instance = backend
-    _tu_mod.backend_instance = backend
+    # Idempotent: if the env-var path already installed a PublicNodeBackend,
+    # return that exact instance (the one the import-time module globals
+    # captured) rather than creating a second one.
+    current = Backend()
+    if isinstance(current, PublicNodeBackend):
+        return current
+
+    backend = PublicNodeBackend()
+    set_backend_override(backend)
+    assert Backend() is backend, "backend override did not take effect"
     return backend
