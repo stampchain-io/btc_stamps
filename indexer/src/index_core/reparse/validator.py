@@ -322,6 +322,18 @@ class ReparseValidator:
             orig_checkpoint = None
             if block_index in check_mod.CHECKPOINTS_MAINNET:
                 orig_checkpoint = check_mod.CHECKPOINTS_MAINNET.pop(block_index)
+            # Consensus rule (#775): at SRC-20 genesis+1, check.consensus_hash
+            # requires the *previous* ledger hash to be unset and seeds it to
+            # shash_string("") itself; a truthy previous_consensus_hash raises a
+            # ConsensusError. Production passes a falsy previous_ledger_hash here,
+            # but the validator otherwise feeds the prior block's snapshot hash
+            # (or the zero-hash default), which is truthy — so it must mirror
+            # production and pass "" for the ledger previous at this one block.
+            # Only the ledger previous is special-cased; txlist/messages still
+            # chain normally.
+            prev_ledger_hash = prev_hashes["ledger_hash"]
+            if block_index == _cfg.CP_SRC20_GENESIS_BLOCK + 1:
+                prev_ledger_hash = ""
             try:
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                     mock_db,
@@ -329,7 +341,7 @@ class ReparseValidator:
                     block_processor.valid_stamps_in_block,
                     block_processor.processed_src20_in_block,
                     txhash_list,
-                    prev_hashes["ledger_hash"],
+                    prev_ledger_hash,
                     prev_hashes["txlist_hash"],
                     prev_hashes["messages_hash"],
                 )
