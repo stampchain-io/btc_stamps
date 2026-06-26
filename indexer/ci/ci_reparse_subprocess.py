@@ -69,9 +69,14 @@ DEFAULT_PER_BLOCK_TIMEOUT = 120
 # 18 of 38 blocks failed (16 `'bytes' object has no attribute 'get'` errors
 # from OLGA payload extraction + 1 `ConsensusError` at block 788042 + 1
 # generic InMemoryBlockProcessor crash). See #775.
+#
+# 2026-06-26: block 788042 (the `ConsensusError`) fixed — the validator now
+# mirrors production by treating the previous ledger hash as unset at SRC-20
+# genesis+1 (validator.compute_block_hashes). It validates cleanly and was
+# removed from this list. 17 known failures remain (all `InMemoryBlockProcessor`
+# divergences tracked by #775).
 TIER3_KNOWN_FAILURES: Set[int] = {
     784551,
-    788042,
     789624,
     792369,
     792370,
