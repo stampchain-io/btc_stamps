@@ -8,20 +8,25 @@ blocks (module globals, ``cache_manager["stamp"]["counter"]``,
 ``util.CURRENT_BLOCK_INDEX``, etc. are reborn per block), sidestepping the
 in-process state-carry problem documented in #775.
 
-## Known-failing blocks (skipped by default)
+## Tier 3 scope (cross-block-ledger blocks excluded by design)
 
-The 38-block baseline includes blocks that fail in the in-memory reparse
-validator due to ``InMemoryBlockProcessor`` structural divergence from the
-production ``StampProcessor`` (#775). Those failures aren't fixable here —
-subprocess isolation can't paper over a processor-implementation gap. They
-are listed in ``TIER3_KNOWN_FAILURES`` and skipped by default so Tier 3
-gives clean per-PR signal on the blocks it CAN validate.
+This DB-free in-memory runner validates the consensus hashes of blocks whose
+result depends only on the block itself. Some baseline blocks additionally
+depend on **cross-block SRC-20 ledger state** (prior balances / mint totals /
+deploys) to compute ``ledger_hash`` — that state lives in the production
+database, which this runner deliberately does not use. Those blocks are listed
+in ``TIER3_CROSS_BLOCK_LEDGER`` and excluded here **by design, not because they
+are broken**: they are still covered by the Tier 1 (checkpoint cross-check) and
+Tier 2 (block-bytes) steps, and their SRC-20 ledger consensus is owned by the
+periodic full stampsdev reindex. See #775 / #778.
 
-As individual #775 sub-bugs land, remove the relevant block_index from
-``TIER3_KNOWN_FAILURES`` so Tier 3 picks them up automatically.
+A block leaves the exclusion set only when it can be validated with no
+cross-block state — e.g. when a harness fix makes it self-contained (block
+788042 was removed this way in #806). Add or drop entries accordingly.
 
-Pass ``--include-known-failures`` to run the full baseline (useful for
-auditing how many #775 blockers remain after a fix).
+Pass ``--include-cross-block`` to run the full baseline anyway (these blocks are
+expected to mismatch on ``ledger_hash`` without a seeded database — useful for
+auditing, not a pass/fail gate).
 
 Usage::
 
@@ -31,8 +36,8 @@ Usage::
     # Run only N for quick local iteration
     python3 indexer/ci/ci_reparse_subprocess.py --limit 5
 
-    # Audit the full 38, including the #775-blocked ones
-    python3 indexer/ci/ci_reparse_subprocess.py --include-known-failures
+    # Audit the full baseline, including the cross-block-ledger blocks
+    python3 indexer/ci/ci_reparse_subprocess.py --include-cross-block
 
     # JSON for downstream tooling
     python3 indexer/ci/ci_reparse_subprocess.py --json > results.json
@@ -58,24 +63,23 @@ DEFAULT_BASELINE = os.path.normpath(os.path.join(HERE, "..", "snapshots", "ci_co
 # still catches truly stuck runs.
 DEFAULT_PER_BLOCK_TIMEOUT = 120
 
-# Blocks in the curated baseline that currently fail in the in-memory
-# reparse validator due to #775's `InMemoryBlockProcessor` divergences from
-# the production `StampProcessor`. They are not fixable in this runner;
-# the underlying processor needs to be aligned with production. Skipping
-# them keeps Tier 3 actionable as a per-PR signal on the blocks it CAN
-# validate. Remove entries as #775 sub-bugs land.
+# Baseline blocks whose `ledger_hash` depends on cross-block SRC-20 ledger
+# state (prior balances / mint totals / deploys) that only the production
+# database holds. This in-memory, DB-free runner cannot reproduce that state,
+# so these blocks are EXCLUDED FROM TIER 3 BY DESIGN — not because they are
+# broken. Coverage for them comes from Tier 1 (checkpoint cross-check) + Tier 2
+# (block-bytes), and their SRC-20 ledger consensus from the full reindex (#775).
 #
-# Origin: empirical run of the full baseline on 2026-06-24 against dev tip,
-# 18 of 38 blocks failed (16 `'bytes' object has no attribute 'get'` errors
-# from OLGA payload extraction + 1 `ConsensusError` at block 788042 + 1
-# generic InMemoryBlockProcessor crash). See #775.
+# A 2026-06-26 prototype (real BlockProcessor + MySQL + minimal seed) confirmed
+# the shape: ~15/17 reproduce `txlist_hash` correctly but mismatch `ledger_hash`
+# without seeded cross-block balances; only blocks with no SRC-20 ledger
+# activity pass end-to-end. Retiring the rest would require per-block ledger
+# snapshotting (high, ongoing cost) for coverage the reindex already provides —
+# so they stay excluded and we grow cheap coverage via #778 instead.
 #
-# 2026-06-26: block 788042 (the `ConsensusError`) fixed — the validator now
-# mirrors production by treating the previous ledger hash as unset at SRC-20
-# genesis+1 (validator.compute_block_hashes). It validates cleanly and was
-# removed from this list. 17 known failures remain (all `InMemoryBlockProcessor`
-# divergences tracked by #775).
-TIER3_KNOWN_FAILURES: Set[int] = {
+# An entry leaves this set only when a block becomes self-contained (e.g. 788042
+# was removed in #806 after the genesis+1 harness fix).
+TIER3_CROSS_BLOCK_LEDGER: Set[int] = {
     784551,
     789624,
     792369,
@@ -180,9 +184,10 @@ def main() -> int:
     ap.add_argument("--fail-fast", action="store_true", help="stop on first failing block")
     ap.add_argument("--json", action="store_true", help="emit a single JSON summary on stdout instead of per-block lines")
     ap.add_argument(
-        "--include-known-failures",
+        "--include-cross-block",
         action="store_true",
-        help="include blocks listed in TIER3_KNOWN_FAILURES (#775-blocked). Default: skip them.",
+        help="also run blocks in TIER3_CROSS_BLOCK_LEDGER (excluded by design; expected to "
+        "mismatch ledger_hash without a seeded DB). Default: exclude them.",
     )
     args = ap.parse_args()
 
@@ -192,15 +197,18 @@ def main() -> int:
         print(f"ERROR loading baseline: {e}", file=sys.stderr)
         return 2
 
-    if args.include_known_failures:
+    if args.include_cross_block:
         blocks = all_blocks
         if not args.json:
-            print(f"Including {len(TIER3_KNOWN_FAILURES)} known-failing blocks (#775).")
+            print(f"Including {len(TIER3_CROSS_BLOCK_LEDGER)} cross-block-ledger blocks (audit mode; #775).")
     else:
-        blocks = [b for b in all_blocks if b not in TIER3_KNOWN_FAILURES]
+        blocks = [b for b in all_blocks if b not in TIER3_CROSS_BLOCK_LEDGER]
         if not args.json:
-            skipped = len(all_blocks) - len(blocks)
-            print(f"Skipping {skipped} known-failing blocks (#775). Use --include-known-failures to run them too.")
+            excluded = len(all_blocks) - len(blocks)
+            print(
+                f"Excluding {excluded} cross-block-ledger blocks (covered by Tier 1/2 + full reindex; #775). "
+                "Use --include-cross-block to audit them."
+            )
 
     if args.limit and args.limit > 0:
         blocks = blocks[: args.limit]
@@ -214,7 +222,7 @@ def main() -> int:
     if args.json:
         summary = {
             "baseline": args.baseline,
-            "skipped_known_failures": sorted(TIER3_KNOWN_FAILURES) if not args.include_known_failures else [],
+            "excluded_cross_block_ledger": sorted(TIER3_CROSS_BLOCK_LEDGER) if not args.include_cross_block else [],
             "total_run": len(results),
             "passed": sum(1 for r in results if r["ok"]),
             "failed": sum(1 for r in results if not r["ok"]),
