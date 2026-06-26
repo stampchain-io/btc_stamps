@@ -68,7 +68,7 @@ def main() -> int:
             installed = None
 
         if declared is None:
-            failures.append(f"{pkg}: not exact-pinned in pyproject.toml (must be a bare `\"x.y.z\"`)")
+            failures.append(f'{pkg}: not exact-pinned in pyproject.toml (must be a bare `"x.y.z"`)')
             print(f"  ✗ {pkg}: no exact pin found in pyproject")
             continue
         if installed is None:
@@ -91,8 +91,10 @@ def main() -> int:
         print("\nCONSENSUS PIN DRIFT DETECTED:")
         for f in failures:
             print(f"  - {f}")
-        print("\nFix: pin the package to an exact version in indexer/pyproject.toml and "
-              "`poetry lock` so the installed version matches. See #759.")
+        print(
+            "\nFix: pin the package to an exact version in indexer/pyproject.toml and "
+            "`poetry lock` so the installed version matches. See #759."
+        )
         return 1
 
     print("\nAll consensus-critical packages are exact-pinned and match. ✓")
