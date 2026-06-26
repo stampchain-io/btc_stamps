@@ -19,6 +19,7 @@ import importlib.util
 import json  # for debug dump of hash dicts
 import logging
 import time  # for measuring validation duration
+from contextlib import contextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -109,6 +110,42 @@ def main() -> None:
         reparse_caching.cache_manager.check_memory_pressure()
     logging.info("All blocks validated successfully")
     sys.exit(0)
+
+
+@contextmanager
+def _force_post_genesis_filter():
+    """Force ``filter_block_transactions`` to take its post-genesis branch.
+
+    ``block_validation.filter_block_transactions`` gates on
+    ``block_index < config.BTC_SRC20_GENESIS_BLOCK``: pre-genesis it keeps only
+    stamp-issuance txs, post-genesis it routes EVERY tx through the Rust parser.
+    For deterministic in-memory reparse we want the post-genesis behaviour for
+    every block (uniform parsing, no pre-genesis special-casing), so this
+    temporarily lowers the threshold to ``CP_STAMP_GENESIS_BLOCK``.
+
+    NOTE: this repurposes the ``BTC_SRC20_GENESIS_BLOCK`` config value as a
+    filter-mode toggle — it does NOT relocate the actual SRC-20-on-Bitcoin
+    genesis, which is unchanged for every other consumer. The value is restored
+    in ``finally`` so a transient bitcoind / CP-core error can't leak the
+    mutated threshold into later blocks for the process lifetime.
+
+    The restore-on-exit/exception behaviour is pinned by
+    ``test_force_post_genesis_filter``. The toggle is also correct today only
+    because no non-issuance tx in the CP era (779,652–793,067) carries a payload
+    the Rust parser classifies as protocol traffic; that empirical invariant is
+    guarded at integration level by the Tier-3 reparse of the CP-era curated
+    blocks — a leak would surface there as a consensus-hash mismatch. The toggle
+    goes away entirely once the Rust parser does CP/stamp pre-detection and every
+    block is decoded uniformly (#754). See #774.
+    """
+    import config as _cfg
+
+    orig = _cfg.BTC_SRC20_GENESIS_BLOCK
+    _cfg.BTC_SRC20_GENESIS_BLOCK = _cfg.CP_STAMP_GENESIS_BLOCK
+    try:
+        yield
+    finally:
+        _cfg.BTC_SRC20_GENESIS_BLOCK = orig
 
 
 class ValidationError(Exception):
@@ -253,19 +290,13 @@ class ReparseValidator:
     ) -> Dict[str, str]:
         """Compute hashes for a block using the same logic as production."""
         try:
-            # Sync util and config so that filtering treats our reparse genesis as post-genesis
+            # Sync util so that filtering treats our reparse genesis as post-genesis
             util.CURRENT_BLOCK_INDEX = block_index
             import config as _cfg
 
-            # Temporarily align BTC_SRC20_GENESIS_BLOCK to our CP_STAMP_GENESIS_BLOCK.
-            # The try/finally ensures the global is restored even if an inner
-            # call (getblock / fetch_xcp / filter_block_transactions) raises —
-            # otherwise a transient bitcoind / CP-core hiccup leaks the mutated
-            # value into every subsequent block's filtering for the lifetime of
-            # the process. Same pattern is already used below for CHECKPOINTS_MAINNET.
-            _orig_gen = _cfg.BTC_SRC20_GENESIS_BLOCK
-            _cfg.BTC_SRC20_GENESIS_BLOCK = _cfg.CP_STAMP_GENESIS_BLOCK
-            try:
+            # See _force_post_genesis_filter: force every tx through the Rust
+            # parser (post-genesis filter branch) for uniform in-memory reparse.
+            with _force_post_genesis_filter():
                 # Get block data from Bitcoin node
                 block_hash = backend_instance.getblockhash(block_index)
                 block_data = backend_instance.getblock(block_hash, 2)
@@ -285,8 +316,6 @@ class ReparseValidator:
                         for issuance in stamp_issuances
                         if issuance.get("tx_hash") in raw_transactions
                     }
-            finally:
-                _cfg.BTC_SRC20_GENESIS_BLOCK = _orig_gen
 
             # Process transactions using BlockProcessor if not provided
             # Initialize an in-memory processor if none provided
