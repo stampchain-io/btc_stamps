@@ -14,6 +14,15 @@ name: Reparse Consensus Validation
 # Without this, every Bucket A bump needs a manual 24-48h reindex for signal.
 # This gets us a per-PR signal at boundary blocks in <5 min on CI.
 #
+# What each tier validates (all run on the matrix 3.10/3.11/3.12):
+#   Tier 1  Cross-check CHECKPOINTS_MAINNET vs reference_hashes.json   (all baseline blocks)
+#   Tier 2  Block-bytes hash verification against the baseline          (all baseline blocks)
+#   Tier 3  Full in-memory reparse (txlist/messages/ledger hashes)      (self-contained blocks only)
+# Tier 3 is DB-free, so blocks whose ledger_hash depends on cross-block SRC-20
+# state (TIER3_CROSS_BLOCK_LEDGER in ci_reparse_subprocess.py) are excluded
+# there by design — they remain covered by Tiers 1-2 and by the periodic full
+# stampsdev reindex (which owns SRC-20 ledger consensus). See #775 / #778.
+#
 # To refresh the baseline after an intentional consensus change:
 #   ./indexer/ci/refresh-consensus-hashes.sh
 #   git add indexer/snapshots/ci_consensus_hashes.json
@@ -88,10 +97,10 @@ jobs:
       # just the block-bytes hash check above. Subprocess boundary = state
       # isolation across blocks, avoiding #775's in-process cache pollution.
       #
-      # By default skips the 18 blocks listed in TIER3_KNOWN_FAILURES (the
-      # `InMemoryBlockProcessor` divergences from production `StampProcessor`
-      # tracked by #775). Runs the remaining 20 blocks cleanly — as #775
-      # sub-bugs land, the skip list shrinks automatically.
+      # Excludes the cross-block-ledger blocks (TIER3_CROSS_BLOCK_LEDGER) by
+      # design — their ledger_hash needs prior SRC-20 state this DB-free runner
+      # doesn't have; they're covered by Tiers 1-2 + the full reindex (#775).
+      # Runs the self-contained blocks fully and cleanly.
       #
       # Needs the indexer venv (poetry install) and the Rust parser build
       # because smoke_parser_validation imports index_core.* directly.
