@@ -32,6 +32,7 @@ on:
       - 'indexer/snapshots/ci_consensus_hashes.json'
       - 'indexer/snapshots/reference_hashes.json'
       - 'indexer/src/config.py'
+      - 'indexer/ci/**'
       - '.github/workflows/reparse-validate.yml'
   workflow_dispatch:
 
@@ -40,17 +41,26 @@ permissions:
 
 jobs:
   reparse-validate:
-    name: Reparse Consensus Validation
+    name: Reparse Consensus Validation (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     # Advisory on first land — promote to required after one bake cycle.
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # Validate consensus on every Python the project supports. Prod runs
+        # 3.10; the dev container runs 3.12. A code audit (#803) proved the
+        # consensus hashes are version-invariant across this range *today* —
+        # this matrix is the per-PR guard against a future code change
+        # reintroducing Python-version sensitivity.
+        python-version: ['3.10', '3.11', '3.12']
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Cross-check CHECKPOINTS_MAINNET against reference_hashes.json
         # Catches the "someone edited check.py without refreshing
@@ -101,6 +111,14 @@ jobs:
           curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
           poetry config virtualenvs.in-project true
           poetry install
+
+      # Consensus-critical packages (regex, PyNaCl, pybase64) must be exact-
+      # pinned and install identically on every matrix Python — a version flip
+      # can silently change indexer output (#759). Runs per Python version, so
+      # it also proves the same versions resolve on 3.10 / 3.11 / 3.12.
+      - name: Consensus package pin guard
+        working-directory: ./indexer
+        run: poetry run python ci/check_consensus_pkg_pins.py
 
       - name: Tier 3 — subprocess reparse over curated baseline
         working-directory: ./indexer
