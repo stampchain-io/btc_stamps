@@ -30,6 +30,7 @@ import index_core.util as util
 from index_core.backend import Backend
 from index_core.block_validation import (
     create_check_hashes,
+    fetch_cp_blocks_skipping_empty,
     filter_block_transactions,
     validate_block_against_production,
 )
@@ -62,7 +63,6 @@ from index_core.exceptions import (
     LedgerMismatchError,
 )
 from index_core.fetch_utils import (
-    fetch_xcp_blocks_concurrent,
     get_xcp_assets_by_cpids,
     get_xcp_block_hash,
     is_valid_counterparty_asset,
@@ -1403,7 +1403,11 @@ def follow(
                                 if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
                                     break
 
-                                stamp_issuances_list = fetch_xcp_blocks_concurrent(
+                                # Issue #756 item 3: when CP_SKIP_NO_COUNTERPARTY_BLOCKS is on, this
+                                # elides the CP API call for blocks the #754 predicate marks CP-free
+                                # (substituting the empty-fetch shape). Default off -> identical to
+                                # fetch_xcp_blocks_concurrent.
+                                stamp_issuances_list = fetch_cp_blocks_skipping_empty(
                                     block_index, end_block, progress_indicator=(block_index + 1 == block_tip)
                                 )
 

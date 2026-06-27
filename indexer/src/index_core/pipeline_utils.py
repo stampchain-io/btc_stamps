@@ -11,7 +11,8 @@ import time
 
 import config
 from index_core.backend import Backend
-from index_core.fetch_utils import fetch_xcp_blocks_concurrent, wait_for_cp_block_processed
+from index_core.block_validation import fetch_cp_blocks_skipping_empty
+from index_core.fetch_utils import wait_for_cp_block_processed
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
 from index_core.reprocess_safety import (
     ReprocessSafetyError,
@@ -1422,9 +1423,12 @@ class CPBlocksPipeline:
                     except Exception as e:
                         logger.warning(f"Failed to update healthy nodes on retry: {e}")
 
-                # Use fetch_xcp_blocks_concurrent from fetch_utils
-                # This handles pagination, block formatting and concurrent fetching
-                blocks_data = fetch_xcp_blocks_concurrent(start_block, end_block)
+                # Use fetch_xcp_blocks_concurrent from fetch_utils (via the #756
+                # skip wrapper). This handles pagination, block formatting and
+                # concurrent fetching. When CP_SKIP_NO_COUNTERPARTY_BLOCKS is on,
+                # the wrapper elides the CP API call for blocks the #754 predicate
+                # marks CP-free; default off -> identical pass-through.
+                blocks_data = fetch_cp_blocks_skipping_empty(start_block, end_block)
 
                 if start_block <= 781141 <= end_block:
                     if 781141 in blocks_data:

@@ -51,7 +51,7 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
             patch("index_core.pipeline_utils.backend_instance"),
             patch("index_core.pipeline_utils.config.CP_STAMP_GENESIS_BLOCK", 100000),
             patch("index_core.pipeline_utils.update_healthy_nodes"),
-            patch("index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}),
+            patch("index_core.pipeline_utils.fetch_cp_blocks_skipping_empty", return_value={}),
             patch("index_core.pipeline_utils.is_shutdown_requested", return_value=False),
             patch("index_core.node_health.get_healthy_nodes", return_value=[]),
             patch("index_core.node_health.update_healthy_nodes"),
@@ -72,7 +72,7 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
             "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
         ), patch(
-            "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
+            "index_core.pipeline_utils.fetch_cp_blocks_skipping_empty", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
         ), patch.object(
@@ -147,7 +147,7 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
             "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
         ), patch(
-            "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
+            "index_core.pipeline_utils.fetch_cp_blocks_skipping_empty", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
         ), patch.object(
@@ -204,7 +204,7 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
             "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
         ), patch(
-            "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
+            "index_core.pipeline_utils.fetch_cp_blocks_skipping_empty", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
         ), patch.object(
@@ -272,7 +272,7 @@ class TestPipelineExecutorLifecycle(unittest.TestCase):
         ), patch("index_core.pipeline_utils.update_healthy_nodes"), patch(
             "index_core.pipeline_utils.get_healthy_nodes", return_value=[{"name": "test_node", "url": "http://test:4000/v2"}]
         ), patch(
-            "index_core.pipeline_utils.fetch_xcp_blocks_concurrent", return_value={}
+            "index_core.pipeline_utils.fetch_cp_blocks_skipping_empty", return_value={}
         ), patch(
             "index_core.pipeline_utils.is_shutdown_requested", return_value=False
         ), patch.object(

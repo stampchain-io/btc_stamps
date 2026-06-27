@@ -14,7 +14,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import List
+from typing import Any, Dict, List, Tuple
 
 import config
 import index_core.check as check
@@ -250,3 +250,135 @@ def filter_block_transactions(block_data, stamp_issuances=None):
 
     logger.debug(f"Final transaction count: {len(raw_transactions)} filtered, {len(tx_hash_list)} total for hash")
     return tx_hash_list, raw_transactions
+
+
+# ---------------------------------------------------------------------------
+# Issue #756 item 3 — skip the CP API fetch for blocks with no Counterparty data
+# ---------------------------------------------------------------------------
+#
+# Consumes #754's over-approximating ``TransactionInfo.has_counterparty_data``.
+# That signal is SOUND for skipping: it is a strict over-approximation that
+# never yields a false negative, so a block it reports as CP-free genuinely
+# carries no Counterparty data and the CP API call can be elided without ever
+# dropping an issuance (which would corrupt MAX(stamp)+1 numbering).
+#
+# Gated by ``config.CP_SKIP_NO_COUNTERPARTY_BLOCKS`` (default False); when the
+# flag is off everything below is a thin pass-through and behavior is byte-
+# identical to a normal fetch.
+
+
+def _empty_cp_block_data(block_index: int) -> Dict[str, Any]:
+    """Return the exact ``block_data`` shape a real CP fetch yields for a block
+    with zero Counterparty transactions.
+
+    Verified against ``fetch_utils`` — a CP-free block flows through
+    ``_fetch_block_transactions_verbose_safe_pagination`` with an empty
+    ``all_transactions`` list, producing::
+
+        {"block_index": n, "xcp_block_hash": None, "transactions": [], "issuances": []}
+
+    (``xcp_block_hash`` is taken from ``all_transactions[0]`` which is absent, so
+    it is ``None``.) Downstream consumers (blocks.py xcp_hash resolution,
+    filter_block_transactions) read exactly these keys, so the substitute is
+    behavior-identical to a real empty fetch.
+    """
+    return {"block_index": block_index, "xcp_block_hash": None, "transactions": [], "issuances": []}
+
+
+def txs_have_counterparty_data(raw_parser: Any, tx_hexes: List[str]) -> bool:
+    """Return True if ANY transaction hex carries Counterparty data.
+
+    Pure helper over the raw Rust ``FastTransactionParser`` (the inner parser,
+    NOT the ``Parser`` wrapper whose ``deserialize_transaction`` converts to a
+    ``CTransaction`` and drops the ``has_counterparty_data`` field). Short-
+    circuits on the first CP-bearing tx.
+
+    Fail-safe: if the parser predates #754 and a parsed tx lacks the
+    ``has_counterparty_data`` attribute, we cannot soundly skip, so we report
+    True (treat the block as CP-bearing -> fetch as normal).
+    """
+    for tx_hex in tx_hexes:
+        info = raw_parser.deserialize_transaction(tx_hex)
+        if not hasattr(info, "has_counterparty_data"):
+            return True
+        if info.has_counterparty_data:
+            return True
+    return False
+
+
+def block_has_counterparty_data(block_index: int) -> bool:
+    """Over-approximating predicate: does Bitcoin block ``block_index`` contain
+    any Counterparty transaction?
+
+    Sound for the #756 skip (never a false negative). Parses every transaction
+    in the block via the Rust parser's ``has_counterparty_data`` (issue #754).
+    The raw block is fetched from bitcoind here; the same block is fetched again
+    at processing time — an acceptable, cheap local RPC cost on this perf-gated
+    path.
+
+    Fail-safe: on ANY error or when the parser is unavailable, returns True so
+    the caller fetches from the CP API as normal (never skips on uncertainty).
+    """
+    parser_wrapper = getattr(backend_instance, "_parser", None)
+    raw_parser = getattr(parser_wrapper, "_parser", None)
+    if raw_parser is None:
+        return True
+    try:
+        block_hash = backend_instance.getblockhash(block_index)
+        block_hex = backend_instance.rpc("getblock", [block_hash, 0])
+        _tx_hash_list, raw_transactions, *_ = raw_parser.parse_block(block_hex)
+        return txs_have_counterparty_data(raw_parser, list(raw_transactions.values()))
+    except Exception as e:
+        logger.warning(
+            f"CP-skip predicate failed for block {block_index} ({e}); "
+            f"treating as CP-bearing and fetching from CP API to stay safe"
+        )
+        return True
+
+
+def _contiguous_runs(indices: List[int]) -> List[Tuple[int, int]]:
+    """Group a list of block indices into contiguous (start, end) inclusive runs."""
+    runs: List[List[int]] = []
+    for idx in sorted(indices):
+        if runs and idx == runs[-1][1] + 1:
+            runs[-1][1] = idx
+        else:
+            runs.append([idx, idx])
+    return [(a, b) for a, b in runs]
+
+
+def fetch_cp_blocks_skipping_empty(
+    start_block: int, end_block: int, progress_indicator: bool = False
+) -> Dict[int, Dict[str, Any]]:
+    """Fetch CP block data for ``[start_block, end_block]``, eliding the CP API
+    call for blocks that carry no Counterparty data (issue #756 item 3).
+
+    When ``config.CP_SKIP_NO_COUNTERPARTY_BLOCKS`` is False (default), this is a
+    direct pass-through to ``fetch_xcp_blocks_concurrent`` — byte-identical to
+    the prior behavior. When True, each block in the range is classified via
+    ``block_has_counterparty_data`` (the sound #754 predicate); CP-free blocks
+    get the exact empty-fetch shape substituted (no API call), and the CP-
+    bearing blocks are fetched in contiguous runs to preserve the concurrent
+    range-fetch contract and ordering.
+    """
+    # Lazy import to avoid a module-load import cycle (fetch_utils -> ... -> here).
+    from index_core.fetch_utils import fetch_xcp_blocks_concurrent
+
+    if not getattr(config, "CP_SKIP_NO_COUNTERPARTY_BLOCKS", False):
+        return fetch_xcp_blocks_concurrent(start_block, end_block, progress_indicator=progress_indicator)
+
+    cp_bearing: List[int] = []
+    results: Dict[int, Dict[str, Any]] = {}
+    for idx in range(start_block, end_block + 1):
+        if block_has_counterparty_data(idx):
+            cp_bearing.append(idx)
+        else:
+            logger.info(f"Block {idx}: no Counterparty data (issue #756) — skipping CP API fetch")
+            results[idx] = _empty_cp_block_data(idx)
+
+    for run_start, run_end in _contiguous_runs(cp_bearing):
+        fetched = fetch_xcp_blocks_concurrent(run_start, run_end, progress_indicator=progress_indicator)
+        if fetched:
+            results.update(fetched)
+
+    return results
