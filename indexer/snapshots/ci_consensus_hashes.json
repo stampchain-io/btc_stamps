@@ -22,6 +22,58 @@
       "stamp_counter_before": 1,
       "txlist_hash": "4d39ca3a889353d1ebc4eb0e53fa60346d04a9c5f89817dc3110e11cb1805144"
     },
+    "779708": {
+      "block_hash": "00000000000000000000ccd62cba5ad786f7e8b6563e23eb4bddc7b734087e76",
+      "ledger_hash": "",
+      "messages_hash": "6d74acd9f67b8209765da55dd7903e90759a646596aac6631e4ca7cbfed9b803",
+      "prev_block_hash": "000000000000000000008ef4fedac55d4b748013896a79780f6a78475656a2ff",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "e33b119b0b2340c4e4f83db2f6232eb0a520ea6ac20090b111db0c8ecd8526e8",
+      "prev_txlist_hash": "129509a6bbbc50d5eb8855ff1adf30bcf64c3b40c8ac8a77b5293121a6a3dc10",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "91ecb3f899986be97465c8984ee476e923537cfc1081906ce8bef263961d05b2"
+    },
+    "781033": {
+      "block_hash": "0000000000000000000042a6a5b65e4e1d654065f87c4b5eee52708ff498ee6c",
+      "ledger_hash": "",
+      "messages_hash": "6067e6bdc716cae782f97ec362bd1d8c6972c919386d3643a1a0479c931fae88",
+      "prev_block_hash": "00000000000000000005ba6e7d851d51cbcb8d9bc6aea22251756391d9d01b2e",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "d8d4436906d257a35662b89cae7d79c47c6c018932336433ca1badb69d3c3c5d",
+      "prev_txlist_hash": "7fe8458eeba4d5861be31f84801c345c44225504b9056ed98a39b47b9d148e69",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "cd3fc608406e0a304ef2a919ed7aa49d307e3f00e856c0a4594dcf0fe30fa391"
+    },
+    "782214": {
+      "block_hash": "000000000000000000018d75b2981e181614c8fca59b29af4bf8bf8bffb6b573",
+      "ledger_hash": "",
+      "messages_hash": "2005ad29fe9402b181e859fa69cd5ee2e9a5833c67083e482474d865d95b56d8",
+      "prev_block_hash": "00000000000000000005292c9c5916f236819d9d7b37e3f83302c68c791ac1ea",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "2b16a87d6d5aef2124c9dafb14ff04d00a04f68c21eae78faa0ecca2cfec54a9",
+      "prev_txlist_hash": "4fe3bb0cd201228ff0699106ee470ee33ac7f62035108321e948ac083c2a00b9",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "f198ce4ad9bbcf580f913a5fbba9634a9f61b0a2d388788ad9af80ad83fb693d"
+    },
+    "783513": {
+      "block_hash": "0000000000000000000273f14a4dbf7e55f903c745379663835351b18c22757d",
+      "ledger_hash": "",
+      "messages_hash": "a1d3b095381482653cdd41cf19cfc7b84ce1986b277ce4a3cb6a5759612e4584",
+      "prev_block_hash": "0000000000000000000394ce4d4e4acc93ea9c8efa80281d22fcbdf2159a8b01",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "450c593c6cb3bda8575c240aa45c3833604fbfe1f7cf3dcf58063e67a94b735d",
+      "prev_txlist_hash": "9a43452edcf16f4b6eac39b0dd51039af03c4ef5dc6a9ad0c3fb3969555e9e90",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "abddf3b0a76a214025c9f252cdb908453f84ba378efb45eb04222c81c01d9b4b"
+    },
     "784549": {
       "block_hash": "00000000000000000000d8769488071c99279cfcf9d65d2e224b6db7449b11a5",
       "ledger_hash": "",
@@ -60,6 +112,58 @@
       "source": "reference_hashes.json",
       "stamp_counter_before": 16807,
       "txlist_hash": "b0bf710a68f2c9337578f8d10ea67e4f654f214c3e97304fdc19fc657491ac35"
+    },
+    "784671": {
+      "block_hash": "0000000000000000000199e750ffda83203c3e49271ce8247c6097de9aa5ec7b",
+      "ledger_hash": "",
+      "messages_hash": "f5392f29f2cdd6eb7374a93f5e8268d51ae7cb97acdbaeba2356e47a004e0060",
+      "prev_block_hash": "00000000000000000005a5b0406d19a4921548e8be1631c45315c2d4613d7828",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "c98b1e381498575f096fbaf1e3614e098bb04defe5e21732358d72a2e7ccebe1",
+      "prev_txlist_hash": "5c916f4ea33fb142a8d069129b018a000597f6211dc6ad40a2a589d66768fa34",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "7108513c57c7c8b863d5d8ba2a541f84f6b7b36b95352700bb594651fa6887d4"
+    },
+    "786047": {
+      "block_hash": "00000000000000000000a9405bed99c51b73fe471e652651d3914e2ccab82394",
+      "ledger_hash": "",
+      "messages_hash": "00a7c8ffdd248af94625da79bc734eb0d24c534eb0972bf3108955b45ff1365d",
+      "prev_block_hash": "000000000000000000033737c2e4df2f006137525c32874d48da4255ea2f57b9",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "117f8bd172eb400abffea940fcf2230f41d73574d9000d53744cd52e05829fc1",
+      "prev_txlist_hash": "89f942eef0fdfd6575d83bd978760561f57310852b30544bcd524b61556acc87",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "11db170f115ce57a514cfa0dc70f990b9df6ba4f76c313dafa27f85b9c62987e"
+    },
+    "786944": {
+      "block_hash": "0000000000000000000174f57cba88b38d6590c1145f10990a18607a87f25efb",
+      "ledger_hash": "",
+      "messages_hash": "2eb49ac0bbaa6660a1714a851ae865a9824f9cafc806884c1892edb7058519a1",
+      "prev_block_hash": "000000000000000000021ecf08a42aeaefbe13f76b9d6992734c1a5290d46e52",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "0a7154a84fdc7381aae8422853f6294dc50509fcdb47802b65b35d7b940922de",
+      "prev_txlist_hash": "104a868a8e2f05503c69e7fac3851dea23c065a8fdaa8ae316f193302bde4383",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "2b95624583a3d6ed6225f1a3ca8bf68bf68a699cf24cdfea71d04d5db9457f24"
+    },
+    "787953": {
+      "block_hash": "00000000000000000002a65143d866d03bebfcfd5ee4d1e215f662b8874dc31a",
+      "ledger_hash": "",
+      "messages_hash": "aad71919df3ea46f0a1d9b66e45a5f453633be5958af993d33bffacec04b1a97",
+      "prev_block_hash": "000000000000000000014fdd079b56f7bda0929c8fe15a9dba1607d151f898a3",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "823be42ddffb777bcd2503fa591b61e12a36726ddd9c797232b2ac59cdf28300",
+      "prev_txlist_hash": "a734b6a82dbf1ba901e54f62149a18c093e94ef12fc90efaa33cd4a1c3ca2981",
+      "reason": "random-sample epoch1 (pre-SRC20 / CP_STAMP era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "df8f2d18f3cbb0c898b5c4e0a20cd423b406e927792351353832446b6a8d3d3f"
     },
     "788040": {
       "block_hash": "000000000000000000020469ca235e21bf6b9cdc8f42406932aa86fc7320c617",
@@ -100,6 +204,45 @@
       "stamp_counter_before": 18516,
       "txlist_hash": "2d5b29efe550d8d2c5f114e875f8f5557e160353dc073904ec81b149abc30ec4"
     },
+    "788095": {
+      "block_hash": "00000000000000000002754093f5cdcbf85e0285f7725ab52ac813b3744c4386",
+      "ledger_hash": "",
+      "messages_hash": "efd6bc396876e38b1dcc6c0d3af3eb698231a767c24e76a8add40eef10f865d9",
+      "prev_block_hash": "00000000000000000002aa175a70f3b236038348ba1605c4fd8a41707568d720",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "2a6e30237c234312971f2300bd15419578368568a1fe6f60ce93ffd183a5fe08",
+      "prev_txlist_hash": "63b4e90fc4bef5ce8c3b0862dbddddcd7fa3111dc2c9a51d95d613873ba89e09",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "bf5a9c9ad8a3d794a097cddbf2499f955b173bbf5b228a0c18d8b586f7b8b647"
+    },
+    "788427": {
+      "block_hash": "00000000000000000001b759140231cfa848ca3e5498f25add6819e80c8d2049",
+      "ledger_hash": "",
+      "messages_hash": "b9f97066fefaca06f1b6305c925e045e10804923c132e71347563c4b6910a969",
+      "prev_block_hash": "0000000000000000000460bd97c2aa8659c229263df3760c01e59d2f73299560",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "829321bf5d27b11189042acd7370806c332e172f1ee3b71b2e7a553b091fc9e4",
+      "prev_txlist_hash": "59c6186a8c5b2ea9d2d940a7722143a0bec81157561f020400d0e3145c3735f8",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "382fc1758b9111402a95e322396066c2aa667b2d148dcf2a856f0653b8e47b37"
+    },
+    "788812": {
+      "block_hash": "00000000000000000002285407e220001a672e940ad50d9ecc13499c188250c0",
+      "ledger_hash": "",
+      "messages_hash": "9e47145ca8946613767e18042e3f6bb84ea73b2ad898433adf5010c9f653e3f0",
+      "prev_block_hash": "00000000000000000005bddc4dda6b98d1aca3b2820e17a9325cfd5bb3f49c24",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "056fafe118c36b7d97e414863234db5fb823424f48aaa64fb6b0e2a79206b78f",
+      "prev_txlist_hash": "188883f59abbf695e8c5299afa1298946f5f8bf9c38508ceb0dd31c316735660",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "7ef2a2a014f4ddd7651830e6253863b3291c7e7584d5ffd9fc1aa89e5dd2838a"
+    },
     "789624": {
       "block_hash": "00000000000000000004a71a41a74d1c8d57cb6e5c710b9bdc83534d10e9c65e",
       "ledger_hash": "5960428199e65cb94fa38b278b9c29cae06fffd96d1480f4a8e16b1832c556bd",
@@ -112,6 +255,58 @@
       "source": "reference_hashes.json",
       "stamp_counter_before": 27248,
       "txlist_hash": "0bfc3ed12f003dc432a70bf0395aeab74b8f6f35d5891fc2784bb1b6483bf2ab"
+    },
+    "789949": {
+      "block_hash": "00000000000000000001377e80c923f9431a8ec348af8765466a9275bfcf39f2",
+      "ledger_hash": "",
+      "messages_hash": "86d44ee6cfac174d6578cdaad54aac98be1438f8dbe1fa7dcc7c2396d16d44c1",
+      "prev_block_hash": "00000000000000000005702ec89a7bdbac0308337e6bc2cc73df44ead0351b12",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "b795d47b87af5973e467342819fd98f12890a18643a7e3e7732d9571763718e8",
+      "prev_txlist_hash": "f7090effc90cabc5a5c24e6be57c96d9e3fe66fdc8d6f8f9d5deab1e6c9ba78b",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "2c35aa14df362744194e43c7236ea7a2dd765761e58b3b987570ce72e81eaddc"
+    },
+    "790337": {
+      "block_hash": "0000000000000000000109c0e16da586ba4158eb5f8b09fac76ef77bb784ca30",
+      "ledger_hash": "",
+      "messages_hash": "ee3553179a69a2525b2891dc685e0765438d5812a949650c07dbf2a56ccd36e0",
+      "prev_block_hash": "000000000000000000057a72e86a92b8a963ff8dda19a8272db66feb82ab04f3",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "3553c8a74e79082c6ccda4416fc4c20036550bdfe1ba9d2ea3147a8f95d2c0fa",
+      "prev_txlist_hash": "9fd27093846564cd7d43f10be19f1249932000d7b05e4862249a4774fe279821",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "c284ca7914e461cb0ed0ff98cdc29ba43ac30211ff1c93f57d39ee9a6b1d1ef7"
+    },
+    "790893": {
+      "block_hash": "000000000000000000022cce9496b671d4850eb7597848d49aac2369da42f064",
+      "ledger_hash": "",
+      "messages_hash": "42d51d52ef7e8692e1b629675127c91b19d0f29fdd52276ac960173072f3622c",
+      "prev_block_hash": "0000000000000000000568b2be5dcd604ed61125b28375253f2ce4eee9604a3f",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "d7b9ec41bb553c6cb40b83349e54711478bf987d64500b13182c96445f0f54df",
+      "prev_txlist_hash": "5d5386f84db4a9915864c766bc8d7c1dd739486bd0d2b374781d3a47a5446ecd",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "8a5597cffc9220238b9a52916070b43e7760a56e58c21775a6d4e85532689208"
+    },
+    "792051": {
+      "block_hash": "00000000000000000004bc24f35f6c5c4220ab021b0f9e266f58f255d29984e6",
+      "ledger_hash": "",
+      "messages_hash": "1ac887ad9ad21980e8e908f774c9bccc18539a2d745983a5dfc7fdd0fdbd6154",
+      "prev_block_hash": "00000000000000000001d36b2fb95be3580cda71b075ba5b7089fb12ac123d39",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "07279bffe2e76e9f806afc05b7e974ea8c217aa17d98a170cb5fb5aa4af2fb52",
+      "prev_txlist_hash": "42734d868cffec7f319b61a45fecf9774e4aad714eb838284352ed17307e715a",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "1a4e6fd10d09f91b8a2eff2db6ada5e035afa0b5d95f6e8998d6324231f87a12"
     },
     "792369": {
       "block_hash": "00000000000000000004c85fbea191170734e4ebbe01e7cd192a7d224b8b4d59",
@@ -152,6 +347,19 @@
       "stamp_counter_before": 56980,
       "txlist_hash": "caa0dceb1c2b8a7b47f6f2eb31b255f831c9a14e9a3f380ac55baae4e8b0979d"
     },
+    "792992": {
+      "block_hash": "00000000000000000003218bd5acef236ff913bbe21092c621aff3a3d5b80ff5",
+      "ledger_hash": "",
+      "messages_hash": "f302be05cca3999f982412a9ddc750491b05c64ba15666492f0d02639ea87ae6",
+      "prev_block_hash": "000000000000000000034785368fdb54a7f3c033ce9c8b2ef51461d2385352e2",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "142d71dd86b5283207df40cc74264384e9723cd3d50190a462f5980146caf60e",
+      "prev_txlist_hash": "3f1332d4f92aa69a40bc907fbb331d75860907633861de07c55b02c4243251d3",
+      "reason": "random-sample epoch2 (CP-SRC20 era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "eb3f05489811001f1380632c740a2d9e97871e0f295ede60efa599a630f45f61"
+    },
     "793067": {
       "block_hash": "00000000000000000000abb48f21f9cf3b7749eeeac9f3a22b1549beec606817",
       "ledger_hash": "",
@@ -190,6 +398,19 @@
       "source": "reference_hashes.json",
       "stamp_counter_before": 64343,
       "txlist_hash": "8213c68c4fa0e181faacc224ee66e9ba747b694ebc40a4546cb7016819486212"
+    },
+    "793162": {
+      "block_hash": "0000000000000000000071454112e04f82456cb324605e4d9717e1c9471f1c40",
+      "ledger_hash": "",
+      "messages_hash": "8f2b1806744555059a490224985f133f6e6c26a26cf9b176cb0d0ae672a8f368",
+      "prev_block_hash": "000000000000000000049af5d6e1bbae6a9f5099d9d9564d24951235afd19094",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "4f02b65ce5bd05d24fcbccd544a3ad3e7815e87f26f9797b27005c1d8bd119ee",
+      "prev_txlist_hash": "5fea67b43f661dc2e0a73efab13059dec0e0aaaedb2e7172bafabae96f92ab02",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "2d7f5f298d1d22c94a140cd64d76547bf41495f3ffec086e851932973332b6d5"
     },
     "795999": {
       "block_hash": "00000000000000000000a542c5846d1ac451d870da00761df4a6a743e0d2ca15",
@@ -230,6 +451,71 @@
       "stamp_counter_before": 67928,
       "txlist_hash": "da66502f5b3466b4db006cb81a9d85aa26069ec55f1e27f64892bc592e824e86"
     },
+    "799790": {
+      "block_hash": "000000000000000000008c7ab6fc8b72992bec116dc9380fb0b922091923d6ec",
+      "ledger_hash": "",
+      "messages_hash": "d871fa2d532831400a8275ffd872802a6afe5fd3a1bbdab5b9a6bd40d30e7458",
+      "prev_block_hash": "000000000000000000007480f2e635641d7a79494c122fbfb69f9b7156ab0308",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "eea029843299a4ad1de2b4e5e795cf17de3b6e8c555902fb080fbe4a3e9b8256",
+      "prev_txlist_hash": "12a6a5fe7790e2f6f219c25ebf8d22979eee12ef15195889348b82c2fbd6b4c8",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "0ca24058a9037cdf2f71831868112862cedcc70917da858e40e33326e3e85a75"
+    },
+    "802942": {
+      "block_hash": "00000000000000000000f933cda28526c4ed7c6ed4b6c650a6bdff3f0e613bd0",
+      "ledger_hash": "",
+      "messages_hash": "6e5e7783084a018213b6639c3f6ca0b172bb20b2584f24444da548c7be15f282",
+      "prev_block_hash": "00000000000000000000965e711e805c9bf5ee080eb757cbea3e4fcb5e73ae66",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "2ac54c39c9f7f03d0781ba1552d4c883f56d60fdcdc4db27563ac443319a7da8",
+      "prev_txlist_hash": "71b4b243070609d71e0277cd7a751c8cccd35e20e393da6ad207a88ad9959eb0",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "59f01ead505c71a7c307be9efdcf620430f50c41780b00081a89e8a86b6445d0"
+    },
+    "806242": {
+      "block_hash": "000000000000000000005af4c2f80a184fcc94e4c59898b40a07c13dfe1113a6",
+      "ledger_hash": "",
+      "messages_hash": "32fc9bb70ef4dae5e76162a8c1b5ff8c87247cb99ebf7d5485cf2a758d559f47",
+      "prev_block_hash": "00000000000000000004749dcd54322e7c956f9cb3c02482ffbd97723595df7e",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "4d70d986f2999049025638d364bf99fbab8ca87a6a2a393261b9ff31310e8713",
+      "prev_txlist_hash": "63c5734a7034bfdab392cb3bffe7b797f4435822aaa481bcee81491feb189156",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "958eaa998da93a4e5f0d14a3c52d062b7272200d769a6d7a7d7e9bb58005de68"
+    },
+    "809442": {
+      "block_hash": "000000000000000000011c0de52aded1481e8299b7b81d6903725f0359c6a1d8",
+      "ledger_hash": "",
+      "messages_hash": "e704823a49a2a9103eb5e31e7ffeeb75fe376b62edc19177b1069d528fbf6fdf",
+      "prev_block_hash": "000000000000000000019839cb490a216659a18ebdf0980462ec953deee1112b",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "e3af10e0652bd72c896465646ac1d5f555e5579588e76e7258c5c553ff2116e2",
+      "prev_txlist_hash": "bb5c94c7469c9d3e0de7bc08c0086cbc3ae0d322e58ef443a0f9dc20aaa91b9f",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "a278745eb9718faf5f5764c3c8913f33ba01fc6f651fa529784869a6014b840c"
+    },
+    "812709": {
+      "block_hash": "00000000000000000004166309a59a41759e36ff0081538f7a71d8b55871f754",
+      "ledger_hash": "",
+      "messages_hash": "e22e3bdce61ce67f6db33106cfafe6c2fcca64cd9b60806610d097496a7daea7",
+      "prev_block_hash": "000000000000000000019a81a9bdac254c01a254e9b542b7e9ccc5698d905817",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "4e6b107170c8920f8cef7909ad08891675d61369184c72b9ec53b3f8af7a951a",
+      "prev_txlist_hash": "f08502d309adcb543dd3b56cc0a67b5a578d75dc87bd2d8f0d654cace28b34e1",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "d1838260f2c95f7bc1b0e30287fc969dfaa7a980de18e2af4c9aceb0fa3e77c3"
+    },
     "815129": {
       "block_hash": "00000000000000000001d6296f5cd50850ebff475dc70bfaba6189de78ecb954",
       "ledger_hash": "",
@@ -268,6 +554,19 @@
       "source": "reference_hashes.json",
       "stamp_counter_before": 75350,
       "txlist_hash": "583a51fadcb7b217783bf55f3241794854eb9209383eaa77b96d763473a12d95"
+    },
+    "818525": {
+      "block_hash": "0000000000000000000348c1a9e8e99dc4d6df4e0ad430aea39ef00573878a7b",
+      "ledger_hash": "",
+      "messages_hash": "82a07118ffcddc5ce431f9a51b9f7039c985e8d13460d948df5581c5bdcdd4f0",
+      "prev_block_hash": "00000000000000000000a37286687bed998d7bb7dea9029b9719c1c06f9d0ab5",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "c2e7f8a5aa649e52d42b5459523fd8708b0a69dfdb1bd4e95e965148d1394557",
+      "prev_txlist_hash": "66a295c9a1d38230515e2c3b956f78179f059028c0cd12ff878b55f6cbdeee39",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "9839cc44ab7cae9401008f8681a4bba3bcf7f414861913fc124a03a6bfaa7942"
     },
     "832999": {
       "block_hash": "000000000000000000020bf22c8c68669c114ec017ac3fdef306d5b17e074ca7",
@@ -308,6 +607,19 @@
       "stamp_counter_before": 335966,
       "txlist_hash": "25a55727e588ca992b727b62840cbba65641e6dac24c463216861ae6f1ef6a23"
     },
+    "864840": {
+      "block_hash": "00000000000000000000b04d6bb125a5e274dcc539d5af654ac175f2d8b21a9d",
+      "ledger_hash": "",
+      "messages_hash": "fcdd24cf3463310f45f65bd0a319ca44c432bf555142d09422466b4ed519fdbd",
+      "prev_block_hash": "00000000000000000001c395ddf261bdde57229f29e15343ec32b0a1d08f0d57",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "f802a2a3bc8cf6da8e97e834a594621c7881fe1a31b058216e21205c71053168",
+      "prev_txlist_hash": "dd9ff3191618f16525ed4ce7ab41a385a1aeb7662fd6b9eb4867040580dcbfff",
+      "reason": "random-sample epoch3 (BTC-SRC20 pre-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "13e0bb4389cad9276cd1ee3683d7a3cea1e9b0848b22131f32052233fb6f6fc2"
+    },
     "864999": {
       "block_hash": "000000000000000000026cee28ae5600e377aceff891304004446bcc311230b4",
       "ledger_hash": "e2cc1474719de4b1175af77d68c87c5ab9f1234fb6441ee1500b175822aedb69",
@@ -346,6 +658,110 @@
       "source": "reference_hashes.json",
       "stamp_counter_before": 751656,
       "txlist_hash": "7092085cf1cfdb7df550d861a0fb0d04ea64b4c6316566504eba8a43cde860e6"
+    },
+    "865089": {
+      "block_hash": "000000000000000000027b41fd5b22ca7aea790b8e88466d0e708154d2aca374",
+      "ledger_hash": "",
+      "messages_hash": "bfda36ec93ae4181c34eab8c47eeef62054d7b313e59136c53d18915509af266",
+      "prev_block_hash": "000000000000000000018c7c5652d3ceadc8906fd46cb4a2112b56e951dacf14",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "01cedb2235f2dc751df7085e4636a8b31fb0f42c9a449655d72296ec90280d68",
+      "prev_txlist_hash": "5c68e65f816b67e902094795cdfefdfc76d38cf9f287c5d51854f38f2a041b30",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "008500f1a051d827216a7983a8ca2cff0f3dffaccd0fb048a75987478dc6d9b4"
+    },
+    "866581": {
+      "block_hash": "00000000000000000002e4f6a7777f53b2fc52814ca5dab86f6378cc399b8f64",
+      "ledger_hash": "",
+      "messages_hash": "a31a65a9f2724d2fd4085a859060dcbc4d813a07f87fbafe648bd03a2a3296e8",
+      "prev_block_hash": "0000000000000000000223214d58fd70a0c46bf757c778fb9af7928506b6d618",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "b77a01c01bbae5247e9a6f8721dcddba1624a0ca124742a29f794936bf871363",
+      "prev_txlist_hash": "16540f8661f2e491ee613c501da953b0ed84a6db2d9d228df3bef6802704e43f",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "51c37c013e1a3a8ba211fedde02611f4cd59a6b15f57d262de613325aca2cb4e"
+    },
+    "867020": {
+      "block_hash": "00000000000000000000c465fa6809be59ed7e8704292df2a7d150cc3c2a1528",
+      "ledger_hash": "",
+      "messages_hash": "6c9a9f22ba8cd321b71ce295989e97c90190a4b8fd027d04f998622a2045dc2d",
+      "prev_block_hash": "00000000000000000000930bf88515e5cec745610d66b6fb3775382efc6f6de9",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "7d2b7402162438f18b728b3ed3e083139e80b9f2afddb7bc2e50c2d4bebede8f",
+      "prev_txlist_hash": "0108256caaeffac4e3e33a452bd3bdfd045f707201cc2bb88d110ae0a94d1d78",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "d10ca1feca94f876cbe70bc8d790938f6e1bb105b4c79c4263bc966674d1655d"
+    },
+    "868008": {
+      "block_hash": "000000000000000000028393d5f8a42b5e1cd0164ad0831d89fb085a65339855",
+      "ledger_hash": "",
+      "messages_hash": "c65006259c9ae48d19455d359c2b7443a850756fd86a73dff8bfbdd0efcade32",
+      "prev_block_hash": "000000000000000000029ae6bc29ac67f8495ad1c4c89e1301da138a2b5ef377",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "5a36f9a97b1e2a913178dbd9eaa38f8333d03122af5356c4c75651cd9dffb061",
+      "prev_txlist_hash": "ed23864d4c42d791930490b89b4bf684f383c0439038944671ae20489ad744ac",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "e4febf769a3baccd501e1082d0da8223bb5f8d88ef16f6d1cfcdd7af69fc5c4e"
+    },
+    "868583": {
+      "block_hash": "00000000000000000002b0157365f0719d858d6503a79060f8e32136192ccfb0",
+      "ledger_hash": "",
+      "messages_hash": "04510a6025d0069a84749d289dea1368920e300d42c9054839930123d39c55ad",
+      "prev_block_hash": "000000000000000000014501f92ff90e041d63ea27817bcec87a8bfeb51671a6",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "c9acbd9604c4f5e47a6231003e0a19fe419fae6d01f17f0d5b8fa2fd12ebde53",
+      "prev_txlist_hash": "d23d2aac4d17bdd0c02187a5b5be8dd457a374ad6d85092af3d34486633647c7",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "bb70dfb16511b25d539dc8a3ca00fe3371c0fddc05f08723199314b854228af8"
+    },
+    "869162": {
+      "block_hash": "000000000000000000025f25bef23034c602dea8612a4de7a04b36e5b7d35020",
+      "ledger_hash": "",
+      "messages_hash": "6c3fdc8b05c72774966db5a42271cc2de532301bc3cf87fc9abc672dbe7e8c06",
+      "prev_block_hash": "00000000000000000001aa8bf5f9fe8d66ca1d12ffe0654f338b2c2225ddf8b5",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "abf3d2ef7219534d9b69efc0688507c17131e0c142a89897088833f2651fbdfb",
+      "prev_txlist_hash": "f7a56ad05a1ce8cd62c4e19e0ea3e85da6568aae56fb05d1c3393c8e305e201a",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "4a425f340e8ee5b2a1348d86165a160dd11c0e06fd92390f2018d1cbe9ae0231"
+    },
+    "869616": {
+      "block_hash": "00000000000000000002aae0619051bede4fc251684f9af1c21375a04f021f06",
+      "ledger_hash": "",
+      "messages_hash": "fe97abad4ca2b7fae76afb252e532cb3fbd9e062705d768b2fc64d9d1e7c4918",
+      "prev_block_hash": "0000000000000000000254f989e63ea7fb74b6577357a4e174101147280efacd",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "6ae8642c2a5519b3c2de6332f2f37d4964df31b59d8042457acaa4840139d3a9",
+      "prev_txlist_hash": "542207ece9bfc56f81fe619771afdd775e127b062e41d114edbb66349222099e",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "e39ac3c4aca66683b4600ce83649b60e66945e92f15a8f14d1ca8bcac8284fc8"
+    },
+    "870480": {
+      "block_hash": "00000000000000000001df8f954e4d987a56bd6434f076132295020cf8a40fc2",
+      "ledger_hash": "",
+      "messages_hash": "29def3dca4b3ff0bf892fe6399f17d671af46f7121164be3788df56bb583c42e",
+      "prev_block_hash": "00000000000000000001332dd83f2cf3d15d94dbfd48e2e283c7411551457681",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "ca5929de15cabe767a82644703b2af2786b6dc9087e0da66f6a402acdfbc5daf",
+      "prev_txlist_hash": "8e69ed2fa3eb41cd842bb4094b3d1ef433605a4c995bbeecbba0b1b525cefdad",
+      "reason": "random-sample epoch4 (OLGA era)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "adf86d6b6a50b33d242ce3771dcd131c95da9d2fde95fb0dd8547fcdaaa504ed"
     },
     "870651": {
       "block_hash": "0000000000000000000188bb07702942cb5d879ff3ea2ad2710bbd0422d20eb6",
@@ -386,6 +802,19 @@
       "stamp_counter_before": 791737,
       "txlist_hash": "2d8fcb36ea0af532adc8594d1485a4da541104e2662c7903ea21e3dbf2383c02"
     },
+    "870905": {
+      "block_hash": "000000000000000000005c0dbe059f6d6a2ca3d8dca59f3afc5b7934d3718bdd",
+      "ledger_hash": "",
+      "messages_hash": "1b93fb783b223ee90488318eba23d59d67a6c10dd2070e40f04953719a067280",
+      "prev_block_hash": "0000000000000000000014f7cdedc807b88357b4aba1fa7fcb5bad4db52d8c2f",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "b7784a663c10ead37e532e946777a7c232a4118383ca555fdc2186f29af964eb",
+      "prev_txlist_hash": "b7588abddd09aeef56259bfb58e6e9fc2e6e9f2904f0ed53dbf3455fa7c954ab",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "92e7e94868c372607dd9a493d1a85f4a0abb949056379481c5491f4654191a90"
+    },
     "872000": {
       "block_hash": "0000000000000000000250f0fe84990abf2da54fec27f890d3fd03b3dce4beb7",
       "ledger_hash": "d969dcfcc58f8e8117cde6a5c7a520543f5c0a99baf641af22219a4a9d976cab",
@@ -412,6 +841,19 @@
       "stamp_counter_before": 967661,
       "txlist_hash": "011c812279e9de4457ffacab8428249195cffaa9ec1991c6145ca0f286099dbd"
     },
+    "892434": {
+      "block_hash": "00000000000000000000a5c97ea3e58d069a9bb8c1dff615bb17bfdb4ed56a4e",
+      "ledger_hash": "",
+      "messages_hash": "a9a14bfae95f00bc013b8ec2fd839cef725f145505207ec9ca5c5a225d6199e9",
+      "prev_block_hash": "000000000000000000007b15d9f3513c8358e27cd5b7499d907715ba1d7305f2",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "9b2b29813bfe957d430880ce4ecea9374b5df378808204c2be5339c9e8de9223",
+      "prev_txlist_hash": "2f7b792d25069bc837f19898e24b81f28f64be9e8e5a572ea7c48628c988d74b",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "6924dd7af12caff075d6c1d5db035479f22077561f9389e6e3c0e221247977b7"
+    },
     "900000": {
       "block_hash": "000000000000000000010538edbfd2d5b809a33dd83f284aeea41c6d0d96968a",
       "ledger_hash": "cb8ef6b287fae844009bdb51de425e9f2d7221d6bc90b0888a5f36424f26068b",
@@ -420,8 +862,8 @@
       "prev_ledger_hash": "204aa342aa503bd5b4ed06fa6f23d0da42a49fb27e572f0341b39e9b9291aabb",
       "prev_messages_hash": "a95dced9ecfb33d5cbc973fca3cc4d238137f884f8f815dc0a3d549385115b29",
       "prev_txlist_hash": "ae75bb7a8e0f6faaf965894839e42911f02256783309f31626e56b2a8f2fbd74",
-      "reason": "OLGA-era anchor (from prod RDS)",
-      "source": "prod RDS",
+      "reason": "OLGA-era anchor (reference_hashes.json)",
+      "source": "reference_hashes.json",
       "stamp_counter_before": 1088725,
       "txlist_hash": "c3350aab20cee4250c4e62affef05232b0436593977451929a3e27c66e06da91"
     },
@@ -433,10 +875,23 @@
       "prev_ledger_hash": "f6d221928e608611d36b7b5dfaa649c9404a8d0d1ca23a144ef59c0af56e8d7b",
       "prev_messages_hash": "d27c80697c24afbc6da73baffd7b83eeba5ad37fb142c883cc453d95955fd06c",
       "prev_txlist_hash": "fc13f36ebc92b97f57ea2309a00a4ac4c4cd05ad855b9ebaf77e00739a8ac147",
-      "reason": "OLGA-era anchor (from prod RDS)",
-      "source": "prod RDS",
+      "reason": "OLGA-era anchor (reference_hashes.json)",
+      "source": "reference_hashes.json",
       "stamp_counter_before": 1207121,
       "txlist_hash": "9747c34a27c140ab908632788ee6ed62bc87d49b0d715602983bb9613e0a6e92"
+    },
+    "913619": {
+      "block_hash": "00000000000000000000fb1630496c7e34e063b71d939ab902e384e9efb99f59",
+      "ledger_hash": "",
+      "messages_hash": "ea64e59aca43fa1a813777e689664a22d62fbcbb06bab5b6c4e4a0286d3ddf59",
+      "prev_block_hash": "00000000000000000000ad14c729a8d4bbc6396f1f53a1fa854fac9b38dbedb2",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "21068879edb57791f3e0d43fc09f134f6b56ca282bb0325f530f46789eefafdf",
+      "prev_txlist_hash": "b45d09b7a87065b1bb44bd07dbad0ae33380ad285a4cbc17226488f958a54b69",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "349f22f0a1133f61b78c90b0426f41804ec0eb95f3be7a67149295a983ef0419"
     },
     "920000": {
       "block_hash": "000000000000000000005e9de5d9e008d923ced659896d9ad012e347882bdc87",
@@ -446,10 +901,23 @@
       "prev_ledger_hash": "",
       "prev_messages_hash": "2d32cf558ffc99e116d3be56d45fdcf28d13c0eab53b0afa07a28ba981e59820",
       "prev_txlist_hash": "8c7bfa04647d2821aa2cc04c0e1e9bb96be1b7ea1d9e5ab3b421b9e8c37d271f",
-      "reason": "OLGA-era anchor (from prod RDS)",
-      "source": "prod RDS",
+      "reason": "OLGA-era anchor (reference_hashes.json)",
+      "source": "reference_hashes.json",
       "stamp_counter_before": 1275268,
       "txlist_hash": "457793493e518571554ec72851f60aa0c515f56353ff3a628a1765cfab4c6657"
+    },
+    "922757": {
+      "block_hash": "00000000000000000000567730e854b2fc5766e3108bf2da8d08f42d94b38bc1",
+      "ledger_hash": "",
+      "messages_hash": "6150eb8a8957907d23dbc7bc32acc7340f40198c4e0bc428bb6c62ed694b8ff1",
+      "prev_block_hash": "00000000000000000000b0891cd3f95ccbf1cd8aa1ab0253445ce72f8fcce982",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "118f2bf1478666f90fecb26c5b9ddc8793fc7eb2b77a632eef9ea5d094cc25cb",
+      "prev_txlist_hash": "72b61292b3db7fe02672c3fdee3856c795d4988afe1efe164177033399738505",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "24dd75b51ac30cabfce95c5b73212a2a9b5194aebd1cfaf92bee45d4f2a58c7f"
     },
     "930000": {
       "block_hash": "00000000000000000000df0f80044130bb616de91fb0a1d61f27cdcf20458233",
@@ -459,10 +927,36 @@
       "prev_ledger_hash": "e7dae3fff7b830fd807e4614e7b4b1ec7161c575e0a81ee48e08024a3b77f533",
       "prev_messages_hash": "005464b1b29726145c1d3796d5cc81d2253e36bb67026b96fb3606d13b4cc9b7",
       "prev_txlist_hash": "dcabbedf043a54cd7f47acf37b243b57294f8970bfbe55e3e538bdb270f7e27a",
-      "reason": "OLGA-era anchor (from prod RDS)",
-      "source": "prod RDS",
+      "reason": "OLGA-era anchor (reference_hashes.json)",
+      "source": "reference_hashes.json",
       "stamp_counter_before": 1370726,
       "txlist_hash": "9819ca1bcb722a0a07e64b1cd1dda8281b3679092b07a6179c0249138d03eae1"
+    },
+    "932828": {
+      "block_hash": "000000000000000000006c0e08a3512b1dab1d4c9e2610123187733624cae1b9",
+      "ledger_hash": "",
+      "messages_hash": "c4fde8ffcb923ea828b5eee488225b74a25280101d163f357cae26484875c58b",
+      "prev_block_hash": "00000000000000000000c15a6397a07f6989c68a944c515dbf3f9d2396501a80",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "211e9c90f50786649661fecddfd5a1b814dc38a0a928d8bf3c26563d013d32a0",
+      "prev_txlist_hash": "0dadfacfb6b9ec4d56d2b6275db0c030166b436b401e6b349d14cc0a59a4c577",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "c7f3fd8d53f08428da816bd5509ad014064fa95ffe0d7f7e7c316e67f643bb45"
+    },
+    "938074": {
+      "block_hash": "00000000000000000000509ebcde347207bddeca0ca348cf4ef815569a1b8157",
+      "ledger_hash": "",
+      "messages_hash": "228af02d3202184d0fa51bdbd9cde7fef441f7090f7616665713552f95462e13",
+      "prev_block_hash": "000000000000000000014a0305931a1a12218059a0dd8a79633c27b3e9153172",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "f6c1dec68d69856c9562ffe13c39d22cf60ea9bc5df5273814cd1f1ea47c9057",
+      "prev_txlist_hash": "89ecc9a9ee07000b6802288f0d5e68a878a48f05cc9da3cd7c506b42a80e2666",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "2719534a077680632d50f073e1bc5eb60b6bbe176260d805c7627f51ada627ed"
     },
     "940000": {
       "block_hash": "000000000000000000002afe1e2f7e176047529419532b2a6773c45623a02c12",
@@ -472,27 +966,53 @@
       "prev_ledger_hash": "917a0fa781f0982276b58ca8aa59cf82f882efa9de7b7ba2d466e5d94b46fe10",
       "prev_messages_hash": "ac89f93faf966e8c050e4f96338e136e51387cf721d76a06f0f49d49920fd01a",
       "prev_txlist_hash": "a15091025522f8680938c140a8202e7eb008e861e985ed13863e804af19bbffa",
-      "reason": "BTC_SRC101_OLGA_BLOCK (from prod RDS)",
-      "source": "prod RDS",
+      "reason": "BTC_SRC101_OLGA_BLOCK (reference_hashes.json)",
+      "source": "reference_hashes.json",
       "stamp_counter_before": 1404365,
       "txlist_hash": "0bebe1bff46d720216ed15b9086720d0af4df7c7dd4c4ee0d4bdd62a8446e352"
+    },
+    "945614": {
+      "block_hash": "00000000000000000001feb31db2a69751f62cdfd03194cbf88b6583ee9cdd37",
+      "ledger_hash": "",
+      "messages_hash": "8fa58a673d390dbb1d3840ff3d30661259fc16e6b0d85f64e55d75626a48e399",
+      "prev_block_hash": "00000000000000000002051360f65fe35b2c890c014cab485306c2f1b127e113",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "0191f3b7f6471b2253e5a52eea8d425cfa2fd0213abaf4a9396fd6bb69affe57",
+      "prev_txlist_hash": "d4c02f90a6fe7aa52469ce25594132c1250169bc3d09c5eefdf5aa951e21d999",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "8b6cfdeba8667b54599e256c22e954723c2f3c469d4b51db447df1f8056b3073"
     },
     "950000": {
       "block_hash": "000000000000000000010b93c9ea1c29fea277383f0f7d1f26de8b5802e885ff",
       "ledger_hash": "",
-      "messages_hash": "4eff1929756ea2dca0f6aba9b6ee43463642524f8dfc35eac9e3ee73a33a2a54",
+      "messages_hash": "e1f20434a65f10cf03619c16e27bdb22f622aca4d6f8ffedca2902203367fc04",
       "prev_block_hash": "00000000000000000000df842728edc58cf64288ca21433257700f3d5b45f286",
       "prev_ledger_hash": "",
-      "prev_messages_hash": "8efc2f9c7b0ad96252b45d552fb2a7895790371ed34e640423b1fd77c8bf40f2",
+      "prev_messages_hash": "39ece3f8f6f404e78e37470bee0ad6470eb1f21cac25f56dec49bbe8b3e4fb9a",
       "prev_txlist_hash": "4c915219fd4e4e8aae210007345af752f04c5d772e44492821c1bbbd7ca9bdcf",
-      "reason": "Recent tip-side anchor (from prod RDS)",
-      "source": "prod RDS",
+      "reason": "Recent tip-side anchor (reference_hashes.json)",
+      "source": "reference_hashes.json",
       "stamp_counter_before": 1450988,
       "txlist_hash": "fb981ea18d630321841c3ff51c2de04ea1fe1739de3eb1cd7a82dc106731e972"
+    },
+    "955042": {
+      "block_hash": "00000000000000000001407feb48a2612d76810c933934cb19e0a879378f1b54",
+      "ledger_hash": "",
+      "messages_hash": "faa11ac4b0fcb9cd0e65ed5aa4872801a9065ef0c8e855e0180d325630536100",
+      "prev_block_hash": "0000000000000000000049ed16150d272dfb345fb5b140d34002e231a7608f93",
+      "prev_ledger_hash": "",
+      "prev_messages_hash": "5f801075170421cfd98db81dcddb0cf2f205ae2017a30d6207ba540d9f12a0f5",
+      "prev_txlist_hash": "a3fb91ef410d72bc426b685046da528b9865bd2eafbd1003270d8c0257cc320d",
+      "reason": "random-sample epoch5 (SRC-101 / post-OLGA)",
+      "source": "reference_hashes.json",
+      "stamp_counter_before": 0,
+      "txlist_hash": "17634bbfc61ec1e6f0f05f8824b690f31cb314d67957ddad8d6d7d146ddfdd07"
     }
   },
   "metadata": {
     "rpc": "http://127.0.0.1:8332/",
-    "source": "refresh-consensus-hashes.sh"
+    "source": "refresh-consensus-hashes.sh (reference_hashes.json; prod-RDS fallback unset)"
   }
 }

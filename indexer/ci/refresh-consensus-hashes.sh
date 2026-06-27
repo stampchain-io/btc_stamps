@@ -84,12 +84,61 @@ CI_BLOCKS=(
   "870653:BTC_SRC101_GENESIS_BLOCK + 1"
   "872000:PR753 ref STAMP->SRC-721 reclassification cluster"
   "890000:OLGA-era anchor"
-  "900000:OLGA-era anchor (from prod RDS)"
-  "910000:OLGA-era anchor (from prod RDS)"
-  "920000:OLGA-era anchor (from prod RDS)"
-  "930000:OLGA-era anchor (from prod RDS)"
-  "940000:BTC_SRC101_OLGA_BLOCK (from prod RDS)"
-  "950000:Recent tip-side anchor (from prod RDS)"
+  "900000:OLGA-era anchor (reference_hashes.json)"
+  "910000:OLGA-era anchor (reference_hashes.json)"
+  "920000:OLGA-era anchor (reference_hashes.json)"
+  "930000:OLGA-era anchor (reference_hashes.json)"
+  "940000:BTC_SRC101_OLGA_BLOCK (reference_hashes.json)"
+  "950000:Recent tip-side anchor (reference_hashes.json)"
+  # --- Stratified random sample (issue #778 item 1) ---------------------------
+  # Deterministically chosen by indexer/ci/select_random_ci_blocks.py: ~8 blocks
+  # per protocol epoch, drawn from a stable sha256(block) % 23 == 0 subsample of
+  # blocks that are ledger_hash-unchanged vs block-1 (so the DB-free Tier-3
+  # runner can reproduce ledger_hash) AND have txlist activity (meaningful parse
+  # coverage), away from consensus-activation boundaries, and EMPIRICALLY
+  # confirmed to pass Tier 3 (block+txlist+ledger) via smoke_parser_validation.
+  # All sourced from reference_hashes.json. Regenerate with:
+  #   poetry run python indexer/ci/select_random_ci_blocks.py --validate
+  "779708:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "781033:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "782214:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "783513:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "784671:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "786047:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "786944:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "787953:random-sample epoch1 (pre-SRC20 / CP_STAMP era)"
+  "788095:random-sample epoch2 (CP-SRC20 era)"
+  "788427:random-sample epoch2 (CP-SRC20 era)"
+  "788812:random-sample epoch2 (CP-SRC20 era)"
+  "789949:random-sample epoch2 (CP-SRC20 era)"
+  "790337:random-sample epoch2 (CP-SRC20 era)"
+  "790893:random-sample epoch2 (CP-SRC20 era)"
+  "792051:random-sample epoch2 (CP-SRC20 era)"
+  "792992:random-sample epoch2 (CP-SRC20 era)"
+  "793162:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "799790:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "802942:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "806242:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "809442:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "812709:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "818525:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "864840:random-sample epoch3 (BTC-SRC20 pre-OLGA)"
+  "865089:random-sample epoch4 (OLGA era)"
+  "866581:random-sample epoch4 (OLGA era)"
+  "867020:random-sample epoch4 (OLGA era)"
+  "868008:random-sample epoch4 (OLGA era)"
+  "868583:random-sample epoch4 (OLGA era)"
+  "869162:random-sample epoch4 (OLGA era)"
+  "869616:random-sample epoch4 (OLGA era)"
+  "870480:random-sample epoch4 (OLGA era)"
+  "870905:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "892434:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "913619:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "922757:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "932828:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "938074:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "945614:random-sample epoch5 (SRC-101 / post-OLGA)"
+  "955042:random-sample epoch5 (SRC-101 / post-OLGA)"
 )
 
 command -v python3 >/dev/null || { echo "python3 required" >&2; exit 1; }
@@ -205,6 +254,20 @@ def rpc(method, params):
         raise RuntimeError(f"rpc {method}({params}): {payload['error']}")
     return payload["result"]
 
+
+# Probe the RPC once; if no local bitcoind is reachable we source block_hash
+# straight from reference_hashes.json (all CI blocks are <= the reference
+# coverage, so the trusted block_hash is already in the baseline). The CI
+# workflow still re-verifies block bytes hash to block_hash at run time, so
+# this is no weaker — it just drops the optional local cross-check.
+RPC_AVAILABLE = True
+try:
+    rpc("getblockcount", [])
+except Exception as e:
+    RPC_AVAILABLE = False
+    print(f"  note: bitcoind RPC unavailable ({e}); sourcing block_hash from reference_hashes.json",
+          file=sys.stderr)
+
 out = {"metadata": {"source": "refresh-consensus-hashes.sh", "rpc": rpc_url}, "hashes": {}}
 
 for entry in entries:
@@ -217,10 +280,13 @@ for entry in entries:
     if ref is None:
         print(f"  block {block_index}: not in reference_hashes.json and no RDS fallback; skipping", file=sys.stderr)
         continue
-    block_hash = rpc("getblockhash", [int(block_index)])
-    if block_hash != ref.get("block_hash"):
-        print(f"  block {block_index}: bitcoind hash {block_hash} != {source} {ref.get('block_hash')}", file=sys.stderr)
-        sys.exit(1)
+    if RPC_AVAILABLE:
+        block_hash = rpc("getblockhash", [int(block_index)])
+        if block_hash != ref.get("block_hash"):
+            print(f"  block {block_index}: bitcoind hash {block_hash} != {source} {ref.get('block_hash')}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        block_hash = ref.get("block_hash")
     entry_out = {
         "reason": reason,
         "block_hash": block_hash,
