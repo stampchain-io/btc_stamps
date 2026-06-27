@@ -35,7 +35,7 @@ from index_core.blocks import (
     backend_instance,
 )
 from index_core.fetch_utils import fetch_xcp_blocks_concurrent
-from index_core.transaction_utils import process_tx
+from index_core.transaction_utils import prefetch_source_prevouts, process_tx
 
 # Load .env from project root, falling back to .env.sample
 root_dir = Path(__file__).resolve().parents[3]
@@ -322,6 +322,10 @@ class ReparseValidator:
             if block_processor is None:
                 block_processor = InMemoryBlockProcessor()
                 tx_results = []
+                # Pre-warm the raw-transaction cache so each candidate's vin[0]
+                # source lookup in get_tx_info is a cache hit (one batched RPC per
+                # block instead of N serial round-trips). Output-neutral.
+                prefetch_source_prevouts(raw_transactions)
                 for tx_hash in raw_transactions.keys():
                     result = process_tx(None, tx_hash, block_index, stamp_issuances, raw_transactions)
                     if getattr(result, "data", None) is not None:

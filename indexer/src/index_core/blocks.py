@@ -93,7 +93,7 @@ from index_core.src20 import (
 from index_core.src20_holder_updater import get_holder_updater
 from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
-from index_core.transaction_utils import process_tx
+from index_core.transaction_utils import prefetch_source_prevouts, process_tx
 from index_core.zmq_utils import ZMQNotifier
 
 D = decimal.Decimal
@@ -1758,6 +1758,11 @@ def follow(
                         continue
 
                     tx_results = []
+
+                    # Pre-warm the raw-transaction cache so each candidate's vin[0]
+                    # source lookup in get_tx_info is a cache hit (one batched RPC
+                    # per block instead of N serial round-trips). Output-neutral.
+                    prefetch_source_prevouts(raw_transactions)
 
                     # Process transactions in parallel
                     futures = []
