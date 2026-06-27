@@ -4,6 +4,11 @@ use std::collections::HashSet;
 // Define the PREFIX constant to match the Python implementation
 pub const PREFIX: &[u8] = b"stamp:";
 
+// Counterparty message prefix (CNTRPRTY). Used by the over-approximating
+// Counterparty-transaction detector (issue #754) to flag txs that carry
+// Counterparty data via any of CP's on-chain encodings.
+pub const CNTRPRTY: &[u8] = b"CNTRPRTY";
+
 // Define the BURNKEYS list to match the Python implementation
 lazy_static! {
     pub static ref BURNKEYS: HashSet<&'static str> = {

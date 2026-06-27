@@ -50,6 +50,7 @@ def serialize_transaction_info(info: Any) -> Dict[str, Any]:
         "has_valid_data": info.has_valid_data,
         "keyburn": info.keyburn,
         "should_include": info.should_include,
+        "has_counterparty_data": info.has_counterparty_data,
         "inputs": [
             {
                 "prev_txid": inp.prev_txid,

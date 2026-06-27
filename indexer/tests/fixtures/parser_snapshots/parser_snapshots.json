@@ -7,6 +7,7 @@
     {
       "block_height": 789352,
       "expected": {
+        "has_counterparty_data": true,
         "has_valid_data": false,
         "has_valid_pattern": false,
         "inputs": [
@@ -80,6 +81,7 @@
     {
       "block_height": 797973,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -143,6 +145,7 @@
     {
       "block_height": 831460,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -206,6 +209,7 @@
     {
       "block_height": 845869,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -259,6 +263,7 @@
     {
       "block_height": 790383,
       "expected": {
+        "has_counterparty_data": true,
         "has_valid_data": false,
         "has_valid_pattern": false,
         "inputs": [
@@ -322,6 +327,7 @@
     {
       "block_height": 877807,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": true,
         "inputs": [
@@ -395,6 +401,7 @@
     {
       "block_height": null,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -468,6 +475,7 @@
     {
       "block_height": 792483,
       "expected": {
+        "has_counterparty_data": true,
         "has_valid_data": false,
         "has_valid_pattern": false,
         "inputs": [
@@ -541,6 +549,7 @@
     {
       "block_height": 873710,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": true,
         "inputs": [
@@ -614,6 +623,7 @@
     {
       "block_height": 853693,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -667,6 +677,7 @@
     {
       "block_height": 790606,
       "expected": {
+        "has_counterparty_data": true,
         "has_valid_data": false,
         "has_valid_pattern": false,
         "inputs": [
@@ -730,6 +741,7 @@
     {
       "block_height": 855228,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -773,6 +785,7 @@
     {
       "block_height": 824110,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -826,6 +839,7 @@
     {
       "block_height": 790918,
       "expected": {
+        "has_counterparty_data": true,
         "has_valid_data": false,
         "has_valid_pattern": false,
         "inputs": [
@@ -899,6 +913,7 @@
     {
       "block_height": 872140,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": true,
         "inputs": [
@@ -977,6 +992,7 @@
     {
       "block_height": 874824,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -1045,6 +1061,7 @@
     {
       "block_height": 827140,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -1098,6 +1115,7 @@
     {
       "block_height": 827629,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -1171,6 +1189,7 @@
     {
       "block_height": null,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
@@ -1234,6 +1253,7 @@
     {
       "block_height": 824112,
       "expected": {
+        "has_counterparty_data": false,
         "has_valid_data": true,
         "has_valid_pattern": false,
         "inputs": [
