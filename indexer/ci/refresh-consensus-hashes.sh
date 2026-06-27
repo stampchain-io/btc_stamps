@@ -157,13 +157,21 @@ entries = sys.argv[3:]
 with open(reference_path) as f:
     reference = json.load(f).get("hashes", {})
 
-# Optional prod RDS fallback for blocks past reference_hashes.json coverage.
-# Reads ST3_HOSTNAME / ST3_USER / ST3_PASSWORD (or RDS_* in the prod tree)
-# and queries btc_stamps.blocks for consensus hashes. Skipped if creds not set.
-rds_host = os.environ.get("ST3_HOSTNAME") or os.environ.get("RDS_HOSTNAME") or ""
-rds_user = os.environ.get("ST3_USER") or os.environ.get("RDS_USER") or ""
-rds_secret = os.environ.get("ST3_PASSWORD") or os.environ.get("RDS_PASSWORD") or ""
-rds_db = os.environ.get("RDS_DATABASE", "btc_stamps")
+# Prod-RDS fallback for blocks past reference_hashes.json coverage. DISABLED BY
+# DEFAULT and gated behind CI_ALLOW_PROD_RDS=1. reference_hashes.json is the
+# source of truth and currently covers every CI block, so this path is normally
+# dead. The gate matters because this script auto-sources .env.local, whose
+# ST3_* creds point at PRODUCTION RDS (stamps-*.rds.amazonaws.com) — an un-gated
+# fallback would silently query prod. Enable ONLY when knowingly sourcing a
+# tip-side block not yet in reference_hashes.json (then refresh reference first).
+if os.environ.get("CI_ALLOW_PROD_RDS") == "1":
+    rds_host = os.environ.get("ST3_HOSTNAME") or os.environ.get("RDS_HOSTNAME") or ""
+    rds_user = os.environ.get("ST3_USER") or os.environ.get("RDS_USER") or ""
+    rds_secret = os.environ.get("ST3_PASSWORD") or os.environ.get("RDS_PASSWORD") or ""
+    rds_db = os.environ.get("RDS_DATABASE", "btc_stamps")
+else:
+    rds_host = rds_user = rds_secret = ""
+    rds_db = "btc_stamps"
 rds_conn = None
 if rds_host and rds_user and rds_secret:
     try:

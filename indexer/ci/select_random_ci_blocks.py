@@ -175,27 +175,31 @@ def evenly_spaced_indices(length: int, count: int) -> List[int]:
 
 def validate_block(n: int, retries: int = 6) -> str:
     """Run the Tier-3 runner. Returns one of:
-      'pass'  — block fully reproduces (block + txlist + ledger)
-      'fail'  — clean, deterministic Tier-3 failure (hash mismatch / parse error)
-      'infra' — could not be validated (rate-limit / network exhaustion) after
-                retries; the block is NOT classified, must not be silently kept.
+    'pass'  — block fully reproduces (block + txlist + ledger)
+    'fail'  — clean, deterministic Tier-3 failure (hash mismatch / parse error)
+    'infra' — could not be validated (rate-limit / network exhaustion) after
+              retries; the block is NOT classified, must not be silently kept.
     """
     for attempt in range(retries):
         proc = subprocess.run(
             [sys.executable, SMOKE, "--block", str(n)],
-            capture_output=True, text=True, cwd=os.path.join(REPO, "indexer"),
+            capture_output=True,
+            text=True,
+            cwd=os.path.join(REPO, "indexer"),
         )
         out = proc.stdout + proc.stderr
         if proc.returncode == 0 and f"validate_block({n}) = True" in out:
             return "pass"
         # A real Tier-3 divergence reported by the validator.
-        if f"validate_block({n}) = False" in out or "Hash mismatch for block" in out \
-                or "'bytes' object has no attribute" in out:
+        if (
+            f"validate_block({n}) = False" in out
+            or "Hash mismatch for block" in out
+            or "'bytes' object has no attribute" in out
+        ):
             return "fail"
         # Otherwise treat as infra (rate-limit exhaustion / transient network).
         wait = 20 * (attempt + 1)
-        print(f"    block {n}: infra/rate-limit (attempt {attempt + 1}); backing off {wait}s",
-              file=sys.stderr)
+        print(f"    block {n}: infra/rate-limit (attempt {attempt + 1}); backing off {wait}s", file=sys.stderr)
         time.sleep(wait)
     return "infra"
 
@@ -234,8 +238,7 @@ def select_epoch(stream: List[int], validate: bool, pace: float) -> List[int]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--validate", action="store_true",
-                    help="run the Tier-3 runner per candidate; keep only full-pass blocks")
+    ap.add_argument("--validate", action="store_true", help="run the Tier-3 runner per candidate; keep only full-pass blocks")
     ap.add_argument("--pace", type=float, default=2.0, help="seconds to sleep between validations")
     args = ap.parse_args()
 
@@ -245,8 +248,10 @@ def main() -> int:
     all_chosen: List[Tuple[int, str]] = []
     for lo, hi, label in EPOCHS:
         stream = candidate_stream(ref, lo, hi, skip)
-        print(f"# {label}: {len(stream)} offline candidates "
-              f"(K={SAMPLE_MODULUS}, ledger-unchanged + txactivity)", file=sys.stderr)
+        print(
+            f"# {label}: {len(stream)} offline candidates " f"(K={SAMPLE_MODULUS}, ledger-unchanged + txactivity)",
+            file=sys.stderr,
+        )
         picks = select_epoch(stream, args.validate, args.pace)
         for n in picks:
             all_chosen.append((n, label))

@@ -70,7 +70,7 @@ def _http_get(url: str, timeout: int = 30, retries: int = 10) -> bytes:
             time.sleep(min(45, 3 * (attempt + 1)))
         except urllib.error.URLError as e:  # type: ignore[attr-defined]
             last_err = e
-            time.sleep(min(30, 2 ** attempt))
+            time.sleep(min(30, 2**attempt))
         finally:
             _last_request_at[0] = time.monotonic()
     raise RuntimeError(f"GET {url} failed after {retries} attempts: {last_err}")
@@ -95,7 +95,8 @@ if _RPC_URL:
 
     _rpc_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
     _rpc_mgr.add_password(
-        None, _RPC_URL,
+        None,
+        _RPC_URL,
         os.environ.get("CI_BITCOIN_RPC_USER", "rpc"),
         os.environ.get("CI_BITCOIN_RPC_PASSWORD", ""),
     )
