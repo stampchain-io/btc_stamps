@@ -13,7 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 use crate::arc4::{arc4_decrypt_chunk, init_arc4};
-use crate::constants::{BURNKEYS, PREFIX};
+use crate::constants::{BURNKEYS, CNTRPRTY, PREFIX};
 
 // Add a simple LRU cache implementation
 struct LruCache<K, V> {
@@ -786,6 +786,11 @@ pub struct TransactionInfo {
     pub keyburn: u32,
     #[pyo3(get)]
     pub should_include: bool,
+    // Over-approximating signal (issue #754): true if this tx carries Counterparty
+    // (CNTRPRTY) data via any of CP's on-chain encodings. Additive / consensus-neutral:
+    // it does NOT affect should_include or any existing field.
+    #[pyo3(get)]
+    pub has_counterparty_data: bool,
 }
 
 #[pyclass]
@@ -938,6 +943,10 @@ impl TransactionInfo {
         // 2. A valid OP_CHECKMULTISIG with keyburn and valid data
         let should_include = (keyburn == 1 || has_valid_pattern) && has_valid_data;
 
+        // Over-approximating Counterparty (CNTRPRTY) detection (issue #754).
+        // Additive only: independent of should_include and all existing fields.
+        let has_counterparty_data = tx_has_counterparty_data(tx);
+
         TransactionInfo {
             version: tx.version.0,
             txid: txid.to_string(),
@@ -947,8 +956,127 @@ impl TransactionInfo {
             has_valid_data,
             keyburn,
             should_include,
+            has_counterparty_data,
         }
     }
+}
+
+/// ARC4/RC4 helper: encrypt/decrypt `data` under `key` (RC4 is symmetric).
+fn arc4_apply(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut cipher = init_arc4(key);
+    arc4_decrypt_chunk(data, &mut cipher)
+}
+
+/// Over-approximating detector for Counterparty (CNTRPRTY) transactions (issue #754).
+///
+/// Replicates the authoritative detection rules from `counterparty-rs`
+/// (`indexer/src/indexer/bitcoin_client.rs` `parse_vout`). It is a strict
+/// OVER-approximation: it may over-report, but must NEVER miss a real CP tx
+/// (a false negative would cause permanent consensus divergence in #756, which
+/// consumes this signal to skip the CP API for CP-free blocks).
+///
+/// RC4 key = the first input's prevout txid bytes in DISPLAY/big-endian order
+/// (same key derivation the stamp multisig path uses). Coinbase / empty-input
+/// txs have no key and are skipped (RC4 panics on an empty key). All checks run
+/// at EVERY height (CP's height gates are dropped — running every check early
+/// only adds false positives, which are safe, never false negatives).
+///
+/// P2SH / segwit / P2WSH need no scan here: CP surfaces witness/taproot CP txs
+/// via the OP_RETURN `CNTRPRTY` marker (covered by check 1).
+fn tx_has_counterparty_data(tx: &Transaction) -> bool {
+    use bitcoin::blockdata::opcodes::all::{OP_CHECKMULTISIG, OP_CHECKSIG};
+    use bitcoin::blockdata::script::Instruction;
+
+    // Skip coinbase / empty-input txs: no first-input prevout txid -> no RC4 key.
+    if tx.is_coinbase() || tx.input.is_empty() {
+        return false;
+    }
+
+    // RC4 key = first input's prevout txid bytes in display/big-endian order.
+    // `txid.to_string()` yields display (reversed) order, matching the stamp path.
+    let key = match tx.input.first() {
+        Some(input) => hex::decode(input.previous_output.txid.to_string()).unwrap_or_default(),
+        None => return false,
+    };
+    // init_arc4 / Rc4::new panics on an empty key (modulo by zero), so guard.
+    if key.is_empty() {
+        return false;
+    }
+
+    for output in &tx.output {
+        let script = &output.script_pubkey;
+
+        // If the script does not decode cleanly, skip this output (don't panic).
+        let instructions = match script.instructions().collect::<Result<Vec<_>, _>>() {
+            Ok(ins) => ins,
+            Err(_) => continue,
+        };
+
+        // 1. OP_RETURN: plaintext `CNTRPRTY` marker (taproot/witness reveal) OR
+        //    arc4(key, pushdata) starts with the prefix at offset 0.
+        if script.is_op_return() {
+            if let [Instruction::Op(_), Instruction::PushBytes(pb)] = instructions.as_slice() {
+                let bytes = pb.as_bytes();
+                if bytes == CNTRPRTY {
+                    return true;
+                }
+                let dec = arc4_apply(&key, bytes);
+                if dec.len() >= CNTRPRTY.len() && dec[..CNTRPRTY.len()] == *CNTRPRTY {
+                    return true;
+                }
+            }
+            continue;
+        }
+
+        let last_opcode = instructions.last().and_then(|ins| ins.opcode());
+
+        // 2. OP_CHECKSIG / pubkeyhash: arc4(key, instructions[2]) has the prefix at
+        //    offset 1 (byte 0 is a length byte).
+        if last_opcode == Some(OP_CHECKSIG) {
+            if instructions.len() >= 3 {
+                if let Some(Instruction::PushBytes(pb)) = instructions.get(2) {
+                    let dec = arc4_apply(&key, pb.as_bytes());
+                    if dec.len() > CNTRPRTY.len() && dec[1..1 + CNTRPRTY.len()] == *CNTRPRTY {
+                        return true;
+                    }
+                }
+            }
+            continue;
+        }
+
+        // 3. OP_CHECKMULTISIG / bare multisig: take the pubkey pushes for ALL chunks
+        //    except the last; strip the first+last byte of each; concatenate;
+        //    arc4(key, concat) has the prefix at offset 1.
+        //
+        //    NOTE: distinct from the stamp keyburn path (BURNKEYS, first 2 pubkeys,
+        //    prefix at offset 2). The pubkey pushes sit between the leading `m`
+        //    marker and the trailing `n` marker + OP_CHECKMULTISIG, i.e.
+        //    instructions[1 .. len-2].
+        if last_opcode == Some(OP_CHECKMULTISIG) && instructions.len() >= 3 {
+            let pubkeys: Vec<&[u8]> = instructions[1..instructions.len() - 2]
+                .iter()
+                .filter_map(|ins| match ins {
+                    Instruction::PushBytes(b) => Some(b.as_bytes()),
+                    _ => None,
+                })
+                .collect();
+            if pubkeys.len() >= 2 {
+                let mut enc = Vec::new();
+                for pk in pubkeys.iter().take(pubkeys.len() - 1) {
+                    if pk.len() >= 2 {
+                        enc.extend_from_slice(&pk[1..pk.len() - 1]);
+                    }
+                }
+                let dec = arc4_apply(&key, &enc);
+                if dec.len() > CNTRPRTY.len() && dec[1..1 + CNTRPRTY.len()] == *CNTRPRTY {
+                    return true;
+                }
+            }
+            continue;
+        }
+    }
+
+    false
 }
 
 impl InputInfo {
