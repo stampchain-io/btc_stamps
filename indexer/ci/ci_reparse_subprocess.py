@@ -79,8 +79,16 @@ DEFAULT_PER_BLOCK_TIMEOUT = 120
 #
 # An entry leaves this set only when a block becomes self-contained (e.g. 788042
 # was removed in #806 after the genesis+1 harness fix).
+# NOTE on 784551 — this block is excluded for a DIFFERENT reason than the rest
+# of this set. Its `ledger_hash` is empty (it predates SRC-20), so it has NO
+# cross-block ledger dependency. It fails Tier 3 because the in-memory processor
+# structurally diverges from production on `txlist_hash` at the
+# STOP_BASE64_REPAIR boundary (block 784550) — the #775 divergence (now closed),
+# not a ledger-state issue. It legitimately fails Tier 3, so it stays excluded,
+# but it is grouped here only for lack of a second exclusion bucket; do not cite
+# it as evidence of cross-block-ledger behaviour.
 TIER3_CROSS_BLOCK_LEDGER: Set[int] = {
-    784551,
+    784551,  # txlist-boundary divergence at STOP_BASE64_REPAIR (#775), NOT cross-block ledger
     789624,
     792369,
     792370,

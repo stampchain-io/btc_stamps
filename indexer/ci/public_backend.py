@@ -25,6 +25,8 @@ test/CI infrastructure, not part of the production indexer code path.
 from __future__ import annotations
 
 import hashlib
+import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List
@@ -36,16 +38,90 @@ from bitcoin.core import CBlock, CTransaction
 BLOCKSTREAM_BASE = "https://blockstream.info/api"
 
 
-def _http_get(url: str, timeout: int = 30) -> bytes:
+# Minimum spacing between *all* blockstream requests. A stamp-heavy block fans
+# out into many /tx/{hash}/hex prevout fetches; firing them back-to-back is what
+# trips blockstream's HTTP 429. Pacing every request to a steady, low rate keeps
+# us under the limit instead of bursting into it then backing off. Override via
+# CI_BLOCKSTREAM_MIN_INTERVAL for faster local runs against a trusted node.
+_MIN_INTERVAL = float(os.environ.get("CI_BLOCKSTREAM_MIN_INTERVAL", "0.6"))
+_last_request_at = [0.0]
+
+
+def _http_get(url: str, timeout: int = 30, retries: int = 10) -> bytes:
+    # blockstream.info rate-limits (HTTP 429). Two-pronged resilience: (1) a
+    # global min-interval throttle to avoid provoking 429 in the first place,
+    # and (2) capped exponential backoff that retries transient 429/503 hard so
+    # a single block's reparse survives rate-limiting instead of failing
+    # spuriously. Block bytes are still hash-verified by the caller, so this
+    # changes nothing about trust — only resilience.
     req = urllib.request.Request(url, headers={"User-Agent": "btc-stamps-ci/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    last_err: "Exception | None" = None
+    for attempt in range(retries):
+        gap = _MIN_INTERVAL - (time.monotonic() - _last_request_at[0])
+        if gap > 0:
+            time.sleep(gap)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:  # type: ignore[attr-defined]
+            last_err = e
+            if e.code not in (429, 503):
+                raise
+            time.sleep(min(45, 3 * (attempt + 1)))
+        except urllib.error.URLError as e:  # type: ignore[attr-defined]
+            last_err = e
+            time.sleep(min(30, 2**attempt))
+        finally:
+            _last_request_at[0] = time.monotonic()
+    raise RuntimeError(f"GET {url} failed after {retries} attempts: {last_err}")
 
 
 def _double_sha256_le_hex(data: bytes) -> str:
     """Bitcoin block hash: little-endian double-SHA256 of the 80-byte header."""
     digest = hashlib.sha256(hashlib.sha256(data).digest()).digest()
     return digest[::-1].hex()
+
+
+# Optional local-bitcoind fast path. When CI_BITCOIN_RPC_URL is set (e.g. a
+# trusted txindex node), block + tx bytes are sourced over JSON-RPC instead of
+# blockstream.info — no public rate limits, far faster for bulk validation.
+# Default (unset) keeps the pure-public blockstream path so CI needs no node.
+# Block bytes are still hash-verified by getblock(), so RPC vs HTTP is a trust-
+# neutral source swap. Auth uses urllib's basic-auth handler (never formats the
+# credential pair as a literal "user:value" string, which trips secret scanners).
+_RPC_URL = os.environ.get("CI_BITCOIN_RPC_URL", "").strip()
+if _RPC_URL:
+    import json as _json  # local import keeps the public-only path import-clean
+
+    _rpc_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    _rpc_mgr.add_password(
+        None,
+        _RPC_URL,
+        os.environ.get("CI_BITCOIN_RPC_USER", "rpc"),
+        os.environ.get("CI_BITCOIN_RPC_PASSWORD", ""),
+    )
+    _rpc_opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(_rpc_mgr))
+
+
+def _rpc(method: str, params: list, timeout: int = 30):
+    body = _json.dumps({"jsonrpc": "1.0", "method": method, "params": params, "id": 1}).encode()
+    req = urllib.request.Request(_RPC_URL, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with _rpc_opener.open(req, timeout=timeout) as resp:
+            payload = _json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        # bitcoind returns HTTP 500 for JSON-RPC errors (e.g. "No such mempool
+        # or blockchain transaction") with the error detail in the body. Surface
+        # it as RuntimeError so callers (getrawtransaction skip_missing) can
+        # treat a missing tx the same as blockstream's 404.
+        try:
+            payload = _json.loads(e.read())
+        except Exception:
+            raise
+    if payload.get("error"):
+        raise RuntimeError(f"rpc {method}({params}): {payload['error']}")
+    return payload["result"]
 
 
 class PublicNodeBackend:
@@ -69,6 +145,8 @@ class PublicNodeBackend:
     # ------------------------------------------------------------------
 
     def getblockhash(self, block_index: int) -> str:
+        if _RPC_URL:
+            return _rpc("getblockhash", [int(block_index)])
         body = _http_get(f"{self.base}/block-height/{int(block_index)}")
         return body.decode().strip()
 
@@ -76,7 +154,10 @@ class PublicNodeBackend:
         if verbosity != 2:
             raise NotImplementedError(f"PublicNodeBackend only supports verbosity=2 (got {verbosity})")
 
-        raw = _http_get(f"{self.base}/block/{block_hash}/raw")
+        if _RPC_URL:
+            raw = bytes.fromhex(_rpc("getblock", [block_hash, 0]))
+        else:
+            raw = _http_get(f"{self.base}/block/{block_hash}/raw")
         computed = _double_sha256_le_hex(raw[:80])
         if computed != block_hash:
             raise RuntimeError(f"blockstream block bytes for {block_hash} hash to {computed}; refusing to use")
@@ -136,6 +217,13 @@ class PublicNodeBackend:
         because the reparse validator only consumes hex."""
         if verbose:
             raise NotImplementedError("PublicNodeBackend.getrawtransaction(verbose=True) not implemented")
+        if _RPC_URL:
+            try:
+                return _rpc("getrawtransaction", [tx_hash])
+            except RuntimeError:
+                if skip_missing:
+                    return ""
+                raise
         try:
             body = _http_get(f"{self.base}/tx/{tx_hash}/hex")
         except urllib.error.HTTPError as e:
