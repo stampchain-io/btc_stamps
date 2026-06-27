@@ -35,16 +35,33 @@ DB connection: reads stamps DB creds from env (RDS_HOSTNAME / RDS_USER /
 RDS_PASSWORD / RDS_DATABASE) or from a `--db-host` CLI flag. Refuses to run if
 neither is configured — accidental "where does it point?" runs are bad.
 
+SOURCE-OF-TRUTH GUARD (write modes only):
+  `reference_hashes.json` must ONLY ever be (re)generated from a PROD-validated
+  chain state. In the dev tree, RDS_* points at the dev docker MySQL
+  (127.0.0.1:3306), so an unconfirmed `extend`/`rebuild` could silently bake a
+  wrong baseline from an unvalidated DB. To make "where does it point?"
+  impossible to get wrong by accident, `extend` and `rebuild`:
+    - print the resolved source DB host prominently before any write, and
+    - REFUSE to write unless `--confirm-source-host <host>` matches that host.
+  Only confirm a host that holds a prod-validated chain state. A validated dev
+  reindex IS a legitimate source: fully reindex dev, `compare_tables.py`-validate
+  it against prod with zero divergence, THEN extend from that dev DB (confirming
+  its host). `verify` is read-only and unguarded.
+
 Usage examples:
 
-  # Verify current state vs current DB (read-only sanity check)
+  # Verify current state vs current DB (read-only sanity check, no confirm needed)
   poetry run python tools/refresh_reference_hashes.py --mode verify
 
-  # Extend the baseline forward from chain-tip (after a clean reindex)
-  poetry run python tools/refresh_reference_hashes.py --mode extend
+  # Extend the baseline forward from chain-tip (after a prod-validated reindex).
+  # Must confirm the resolved source host (here: prod RDS).
+  poetry run python tools/refresh_reference_hashes.py --mode extend \
+      --confirm-source-host prod-rds.example.com
 
-  # Full rebuild (use sparingly — only after intentional consensus correction)
-  poetry run python tools/refresh_reference_hashes.py --mode rebuild
+  # Full rebuild (use sparingly — only after intentional consensus correction
+  # on a prod-validated source). Must confirm the resolved source host.
+  poetry run python tools/refresh_reference_hashes.py --mode rebuild \
+      --confirm-source-host prod-rds.example.com
 """
 
 from __future__ import annotations
@@ -286,6 +303,46 @@ def _cmd_rebuild(db_snapshot: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, 
     return dict(db_snapshot)
 
 
+# Write modes that (re)generate the consensus source of truth and therefore
+# require explicit source-host confirmation. `verify` is read-only and exempt.
+_WRITE_MODES = ("extend", "rebuild")
+
+
+def _require_confirmed_source(mode: str, db_host: str, confirm_source_host: Optional[str]) -> None:
+    """Gate write modes behind an explicit source-host acknowledgment.
+
+    `reference_hashes.json` is the consensus replay baseline; regenerating it
+    from an unvalidated DB (e.g. the dev docker MySQL that RDS_* points at in
+    the dev tree) could silently bake a wrong baseline. So for `extend`/`rebuild`
+    we print the resolved source host prominently and refuse to proceed unless
+    the operator passes `--confirm-source-host <host>` matching that host.
+
+    Read-only `verify` is exempt. Raises SystemExit on a missing/mismatched
+    confirmation; returns None when the source is confirmed.
+    """
+    if mode not in _WRITE_MODES:
+        return
+
+    banner = "=" * 72
+    print(banner, file=sys.stderr)
+    print(f"  SOURCE DB host : {db_host}", file=sys.stderr)
+    print(f"  mode           : {mode}  (WRITES reference_hashes.json)", file=sys.stderr)
+    print("  reference_hashes.json is the CONSENSUS SOURCE OF TRUTH. It must", file=sys.stderr)
+    print("  only be generated from a PROD-VALIDATED chain state (prod RDS, or a", file=sys.stderr)
+    print("  dev reindex validated against prod with ZERO divergence via", file=sys.stderr)
+    print("  compare_tables.py). Confirm this host ONLY if it meets that bar.", file=sys.stderr)
+    print(banner, file=sys.stderr)
+
+    if confirm_source_host != db_host:
+        raise SystemExit(
+            f"::error::refusing to write reference_hashes.json from {db_host} without "
+            f"--confirm-source-host {db_host} "
+            f"(got --confirm-source-host={confirm_source_host!r}). "
+            "Only confirm a host that holds a PROD-validated chain state."
+        )
+    logger.info("Source host %s confirmed for %s mode.", db_host, mode)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=("extend", "rebuild", "verify"), default="extend")
@@ -301,6 +358,15 @@ def main() -> int:
     p.add_argument("--db-user", default=os.environ.get("RDS_USER"))
     p.add_argument("--db-password", default=os.environ.get("RDS_PASSWORD"))
     p.add_argument("--db-name", default=os.environ.get("RDS_DATABASE", "btc_stamps"))
+    p.add_argument(
+        "--confirm-source-host",
+        default=None,
+        help=(
+            "Required for --mode extend/rebuild: must equal the resolved source DB "
+            "host. Acknowledges that this host holds a PROD-validated chain state "
+            "(reference_hashes.json is the consensus source of truth)."
+        ),
+    )
     p.add_argument("--start-block", type=int, default=779652, help="lowest block_index to fetch from DB")
     p.add_argument("--end-block", type=int, default=None, help="highest block_index to fetch (default: tip)")
     p.add_argument("--verbose", action="store_true")
@@ -311,6 +377,10 @@ def main() -> int:
     if not (args.db_host and args.db_user and args.db_password):
         print("::error::DB credentials not configured. Set RDS_HOSTNAME/RDS_USER/RDS_PASSWORD or pass --db-*", file=sys.stderr)
         return 2
+
+    # Source-of-truth guard: fast-fail BEFORE touching the DB if a write mode
+    # hasn't explicitly confirmed the resolved source host.
+    _require_confirmed_source(args.mode, args.db_host, args.confirm_source_host)
 
     snapshot_path = Path(args.snapshot_path)
     check_py_path = Path(args.check_py_path)

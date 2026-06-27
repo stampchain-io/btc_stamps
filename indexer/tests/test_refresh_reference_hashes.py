@@ -158,3 +158,40 @@ def test_validate_skips_empty_checkpoint_fields():
     checkpoints = {779700: {"ledger_hash": "", "txlist_hash": "T1"}}  # empty ledger_hash
     # Should not raise — empty checkpoint value is "don't check"
     m._validate_against_checkpoints(snapshot, checkpoints)
+
+
+# --- Source-of-truth guard (issue #814) -------------------------------------
+
+
+def test_verify_mode_is_exempt_from_source_confirmation():
+    """verify is read-only; it must never require --confirm-source-host."""
+    m = _load()
+    # No confirmation passed, any host — must not raise.
+    m._require_confirmed_source("verify", "127.0.0.1", None)
+
+
+@pytest.mark.parametrize("mode", ["extend", "rebuild"])
+def test_write_mode_aborts_without_confirmation(mode):
+    m = _load()
+    with pytest.raises(SystemExit) as exc:
+        m._require_confirmed_source(mode, "dev-mysql.local", None)
+    msg = str(exc.value)
+    assert "refusing to write reference_hashes.json" in msg
+    # The resolved host must be named so the operator can copy it.
+    assert "dev-mysql.local" in msg
+    assert "--confirm-source-host dev-mysql.local" in msg
+
+
+@pytest.mark.parametrize("mode", ["extend", "rebuild"])
+def test_write_mode_aborts_on_mismatched_confirmation(mode):
+    m = _load()
+    with pytest.raises(SystemExit) as exc:
+        m._require_confirmed_source(mode, "prod-rds.example.com", "wrong-host")
+    assert "prod-rds.example.com" in str(exc.value)
+
+
+@pytest.mark.parametrize("mode", ["extend", "rebuild"])
+def test_write_mode_accepts_matching_confirmation(mode):
+    m = _load()
+    # Matching host → no exception → proceed.
+    m._require_confirmed_source(mode, "prod-rds.example.com", "prod-rds.example.com")
