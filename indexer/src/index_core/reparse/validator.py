@@ -8,7 +8,7 @@ import sys
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 os.environ["TESTING"] = "1"
-from typing import TYPE_CHECKING, Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Iterator, Optional, Union
 from unittest.mock import MagicMock
 
 if TYPE_CHECKING:
@@ -113,7 +113,7 @@ def main() -> None:
 
 
 @contextmanager
-def _force_post_genesis_filter():
+def _force_post_genesis_filter() -> Iterator[None]:
     """Force ``filter_block_transactions`` to take its post-genesis branch.
 
     ``block_validation.filter_block_transactions`` gates on
