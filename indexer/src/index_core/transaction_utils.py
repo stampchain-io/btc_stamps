@@ -151,6 +151,59 @@ def calculate_total_inputs(ctx):
         return 0
 
 
+def prefetch_source_prevouts(raw_transactions):
+    """Pre-warm ``backend_instance.raw_transactions_cache`` for source derivation.
+
+    ``get_tx_info`` derives a stamp candidate's ``source`` address by fetching the
+    previous transaction referenced by the candidate's FIRST input (``vin[0]``) via
+    ``backend_instance.getrawtransaction`` (see ``get_tx_info``). That call is
+    cache-backed by ``raw_transactions_cache``; when invoked once per candidate it
+    becomes N serial RPC round-trips per block.
+
+    This helper warms that cache with a SINGLE batched RPC before per-tx processing,
+    so each later ``vin[0]`` prev-tx lookup is a cache hit. It is STRICTLY
+    output-neutral: it fetches the exact same bytes ``get_tx_info`` would otherwise
+    fetch serially, and it never alters any returned value. The only observable
+    effect is fewer/batched RPCs.
+
+    It is purely additive: any failure is logged at DEBUG and swallowed, leaving the
+    existing per-candidate serial fetch as the unchanged fallback.
+
+    Only the FIRST input of each tx is prefetched, because ``get_tx_info`` only ever
+    uses ``vin[0]`` for source derivation.
+
+    Args:
+        raw_transactions: The block's ``{tx_hash: tx_hex}`` mapping.
+    """
+    try:
+        hashes = []
+        seen = set()
+
+        for tx_hex in raw_transactions.values():
+            ctx = backend_instance.deserialize(tx_hex)
+
+            # Mirror the coinbase/null-hash guard in calculate_total_inputs.
+            if not hasattr(ctx, "vin") or not ctx.vin:
+                continue
+
+            vin = ctx.vin[0]
+            if not hasattr(vin, "prevout") or not vin.prevout:
+                continue
+            if hasattr(vin.prevout, "hash") and vin.prevout.hash == b"\x00" * 32:
+                continue
+
+            prev_tx_hash = util.ib2h(vin.prevout.hash)
+            if prev_tx_hash not in seen:
+                seen.add(prev_tx_hash)
+                hashes.append(prev_tx_hash)
+
+        if hashes:
+            # Warm the cache only; the return value is intentionally discarded.
+            backend_instance.getrawtransaction_batch(hashes, skip_missing=True)
+    except Exception as e:
+        logger.debug(f"prefetch_source_prevouts skipped (non-fatal): {e}")
+
+
 def serialize_transaction(ctx):
     """
     Serialize a transaction to get its raw byte representation.
