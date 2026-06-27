@@ -67,6 +67,19 @@ try:
 except ValueError:
     CP_VERBOSE_PAGINATION_LIMIT = 100
 
+# Issue #756 (item 3): skip the Counterparty API fetch for Bitcoin blocks that
+# carry NO Counterparty data at all. The predicate is the over-approximating
+# `TransactionInfo.has_counterparty_data` signal added in #754 — it is SOUND
+# (a strict over-approximation: it never reports "no CP data" when CP data is
+# present), so skipping a block it marks CP-free can never drop a real CP
+# issuance and therefore can never perturb MAX(stamp)+1 numbering.
+#
+# This is consensus-affecting, so it ships **default OFF** (behavior-neutral on
+# merge). It is enabled explicitly for the validating differential reindex —
+# run once ON, once OFF, and require byte-identical hashes at every checkpoint
+# (== prod) before the default is flipped on in a follow-up.
+CP_SKIP_NO_COUNTERPARTY_BLOCKS = os.environ.get("CP_SKIP_NO_COUNTERPARTY_BLOCKS", "false").lower() == "true"
+
 # Production-optimized batch sizes for database operations
 # Larger batches reduce network round-trips to RDS - optimized defaults for production
 DB_TRANSACTION_BATCH_SIZE = int(os.environ.get("DB_TRANSACTION_BATCH_SIZE", "15000"))  # Optimized for RDS

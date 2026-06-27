@@ -27,7 +27,7 @@ class TestCPReadinessIntegration:
         # Mock dependencies
         with patch("src.index_core.blocks.backend_instance") as mock_backend:
             with patch("src.index_core.blocks.CPBlocksPipeline") as mock_pipeline_class:
-                with patch("src.index_core.blocks.fetch_xcp_blocks_concurrent") as mock_fetch:
+                with patch("src.index_core.blocks.fetch_cp_blocks_skipping_empty") as mock_fetch:
                     with patch("src.index_core.fetch_utils.wait_for_cp_block_processed") as mock_wait_cp:
                         # Setup mocks
                         mock_backend.getblockcount.return_value = block_tip

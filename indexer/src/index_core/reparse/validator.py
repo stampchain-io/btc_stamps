@@ -33,8 +33,8 @@ from index_core.block_validation import (
 from index_core.blocks import (
     BlockProcessor,
     backend_instance,
-    fetch_xcp_blocks_concurrent,
 )
+from index_core.fetch_utils import fetch_xcp_blocks_concurrent
 from index_core.transaction_utils import process_tx
 
 # Load .env from project root, falling back to .env.sample

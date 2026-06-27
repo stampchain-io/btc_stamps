@@ -199,7 +199,7 @@ class TestBlockProcessingCPChecks:
             mock_pipeline_class.return_value = mock_pipeline
 
             # Mock fetch_xcp_blocks_concurrent to return data
-            with patch("src.index_core.blocks.fetch_xcp_blocks_concurrent") as mock_fetch:
+            with patch("src.index_core.blocks.fetch_cp_blocks_skipping_empty") as mock_fetch:
                 mock_fetch.return_value = {849990: {"issuances": []}}
 
                 # Simulate processing a block that's 10 blocks behind tip
