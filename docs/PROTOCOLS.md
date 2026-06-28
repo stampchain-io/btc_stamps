@@ -8,14 +8,15 @@ This document details all protocols supported by the Bitcoin Stamps indexer, inc
 ## Table of Contents
 
 1. [Common Concepts](#common-concepts)
-2. [Classic Stamps](#classic-stamps)
-3. [SRC-20 Tokens](#src-20-tokens)
-4. [SRC-721 NFTs](#src-721-nfts)
-5. [SRC-721r Recursive NFTs](#src-721r-recursive-nfts)
-6. [SRC-101 Domains](#src-101-domains)
-7. [OLGA Format](#olga-format)
-8. [Transaction Sources](#transaction-sources)
-9. [Transaction Detection](#transaction-detection)
+2. [Protocol Activation Heights](#protocol-activation-heights)
+3. [Classic Stamps](#classic-stamps)
+4. [SRC-20 Tokens](#src-20-tokens)
+5. [SRC-721 NFTs](#src-721-nfts)
+6. [SRC-721r Recursive NFTs](#src-721r-recursive-nfts)
+7. [SRC-101 Domains](#src-101-domains)
+8. [OLGA Format](#olga-format)
+9. [Transaction Sources](#transaction-sources)
+10. [Transaction Detection](#transaction-detection)
 
 ## Common Concepts
 
@@ -26,6 +27,31 @@ All Bitcoin Stamps protocols share certain common attributes:
 - **Transaction Validation**: Each protocol has specific validation rules
 - **Stamp ID**: Every valid stamp receives a unique sequential identifier
 - **Dual-Source Architecture**: Stamps can originate from direct Bitcoin transactions or Counterparty transactions (with SRC-20 Counterparty transactions discontinued after block 796000)
+
+## Protocol Activation Heights
+
+Every consensus boundary is a named constant in [`indexer/src/config.py`](../indexer/src/config.py).
+The table below is the single source of truth for this document — earlier prose that
+conflated the three distinct OLGA/P2WSH activations (stamps vs SRC-20 vs SRC-101) has
+been corrected to match these values.
+
+| Milestone | Constant (`config.py`) | Mainnet height |
+|-----------|------------------------|----------------|
+| Classic Stamp genesis (first stamp, on Counterparty) | `CP_STAMP_GENESIS_BLOCK` | 779652 |
+| SRC-20 genesis on Counterparty | `CP_SRC20_GENESIS_BLOCK` | 788041 |
+| SRC-721 genesis | `CP_SRC721_GENESIS_BLOCK` | 792370 |
+| SRC-20 genesis on direct Bitcoin (no CP encoding) | `BTC_SRC20_GENESIS_BLOCK` | 793068 |
+| Last block honoring Counterparty SRC-20 (CP SRC-20 ignored after) | `CP_SRC20_END_BLOCK` | 796000 |
+| Classic Stamps OLGA / P2WSH enabled | `CP_P2WSH_FEAT_BLOCK_START` | 833000 |
+| SRC-20 OLGA / P2WSH encoding | `BTC_SRC20_OLGA_BLOCK` | 865000 |
+| SRC-101 genesis | `BTC_SRC101_GENESIS_BLOCK` | 870652 |
+| SRC-101 image-optional | `BTC_SRC101_IMG_OPTIONAL_BLOCK` | 872200 |
+| SRC-101 OLGA / P2WSH encoding (~March 2026) | `BTC_SRC101_OLGA_BLOCK` | 940000 |
+
+> **OLGA is not a single height.** Classic Stamps adopted P2WSH/OLGA at block 833000
+> (`CP_P2WSH_FEAT_BLOCK_START`), SRC-20 at block 865000 (`BTC_SRC20_OLGA_BLOCK`), and
+> SRC-101 at block 940000 (`BTC_SRC101_OLGA_BLOCK`). Use the per-protocol constant — do
+> not assume one OLGA cutover applies to all protocols.
 
 ## Classic Stamps
 
@@ -266,7 +292,10 @@ Similar to SRC-721 but with additional code reference tracking.
 
 ## SRC-101 Domains
 
-SRC-101 is a domain name system native to Bitcoin Stamps.
+SRC-101 is a domain name system native to Bitcoin Stamps. It activates at block 870652
+(`BTC_SRC101_GENESIS_BLOCK`); images become optional at block 872200
+(`BTC_SRC101_IMG_OPTIONAL_BLOCK`); and it adopts P2WSH/OLGA encoding at block 940000
+(`BTC_SRC101_OLGA_BLOCK`, ~March 2026).
 
 ### Operations
 
@@ -342,9 +371,14 @@ OLGA uses P2WSH outputs to store data directly, as opposed to the older OP_MULTI
 4. Data is concatenated from all outputs
 5. PREFIX is identified in the concatenated data
 
-### Transition Point
+### Transition Points
 
-OLGA became the standard starting at block 833000.
+OLGA/P2WSH did not activate at one height for every protocol. Each protocol has its own
+constant in `config.py` (see [Protocol Activation Heights](#protocol-activation-heights)):
+
+- **Classic Stamps**: block 833000 (`CP_P2WSH_FEAT_BLOCK_START`)
+- **SRC-20**: block 865000 (`BTC_SRC20_OLGA_BLOCK`)
+- **SRC-101**: block 940000 (`BTC_SRC101_OLGA_BLOCK`, ~March 2026)
 
 ## Transaction Sources
 
@@ -401,111 +435,37 @@ The indexer maintains compatibility with both transaction types:
 
 ## Transaction Detection
 
-The indexer uses a multi-stage approach to detect protocol-relevant transactions:
+The indexer uses a multi-stage pipeline to detect protocol-relevant transactions.
+The pseudocode that previously lived here had drifted from the implementation; the
+authoritative entry points are listed below so this doc stays in sync with the code.
 
-### 1. Dual-Path Filtering
+### 1. Block-level filtering — `block_validation.filter_block_transactions`
 
-The indexer uses two different paths for transaction detection based on source:
+The first pass runs in
+[`indexer/src/index_core/block_validation.py`](../indexer/src/index_core/block_validation.py)
+(`filter_block_transactions`, imported and called from `blocks.py`). It walks the block's
+transactions and, when available, hands the raw hex to the high-performance Rust parser
+(`btc_stamps_parser`, wrapped by `index_core/fast_parser`) for pattern/prefix detection,
+falling back to the Python path when the Rust parser is unavailable.
 
-#### Direct Bitcoin Transaction Filtering (in blocks.py)
+### 2. Per-transaction decode — `transaction_utils.get_tx_info`
 
-```python
-# Pseudocode from filter_block_transactions
-for tx in block_data["tx"]:
-    # Try to filter with Rust parser first (for direct Bitcoin transactions)
-    if backend_instance._parser is not None:
-        parsed_txs = backend_instance._parser.batch_parse_transactions(tx_hexes)
-        # Process returned transactions (all should be included)
-    else:
-        # Use Python implementation
-        ctx = backend_instance.deserialize(tx["hex"])
-        filter_result = quick_filter_src20_transaction(ctx)
-        if filter_result:
-            raw_transactions[tx["txid"]] = tx["hex"]
-```
+The canonical decode/classification routine is
+[`get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None)`](../indexer/src/index_core/transaction_utils.py)
+in `indexer/src/index_core/transaction_utils.py`. This is the real path that extracts
+source/destination, data payload, keyburn, and OLGA/OP_MULTISIG encoding from a raw
+transaction. Refer to that function (not pseudocode) for exact detection semantics, since
+the encoding rules are version- and block-height dependent.
 
-#### Counterparty Transaction Retrieval
+### 3. Counterparty source
 
-```python
-# Pseudocode for Counterparty transaction retrieval
-def fetch_xcp_block_async(block_index):
-    if block_index < CP_STAMP_GENESIS_BLOCK:
-        return None  # Skip blocks before Counterparty stamps existed
-    
-    # Make API call to retrieve pre-processed Counterparty data
-    cp_data = make_xcp_api_call(f"/blocks/{block_index}")
-    
-    # Process all transactions, but filter out SRC-20 after cutoff block
-    transactions = []
-    for tx in cp_data.get("transactions", []):
-        # For SRC-20, ignore CP transactions after cutoff block
-        if block_index > CP_SRC20_END_BLOCK and is_src20_transaction(tx):
-            continue
-        # Still process classic stamp transactions after cutoff
-        transactions.append(tx)
-        
-    return process_cp_transactions(transactions)
-```
+Counterparty-sourced stamps are retrieved via the Counterparty API and processed by the
+backend in [`indexer/src/index_core/backend.py`](../indexer/src/index_core/backend.py).
+SRC-20 issued through Counterparty is honored only up to `CP_SRC20_END_BLOCK` (796000);
+classic stamps via Counterparty remain supported.
 
-### 2. Rust Parser Detection (for Direct Bitcoin Transactions)
+### 4. Protocol dispatch
 
-The Rust parser evaluates Bitcoin transactions based on:
-
-```rust
-// Simplified detection logic
-let has_valid_pattern = check_for_p2wsh_pattern() || check_for_multisig_pattern();
-let has_valid_data = check_for_prefix_in_decrypted_data();
-let keyburn = detect_keyburn_in_transaction();
-
-// Final determination
-let should_include = (has_valid_pattern && has_valid_data) || 
-                     (has_valid_data && keyburn == 1);
-
-// Only return transactions that should be included
-if should_include {
-    results.push(tx_info.clone());
-}
-```
-
-### 3. Unified Protocol-Specific Processing
-
-After transaction filtering/retrieval, each transaction is processed by unified protocol handlers regardless of source:
-
-```python
-# In BlockProcessor.process_transaction_results
-if stamp_data.pval_src20:
-    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block, self._lock)
-    with self._lock:
-        self.processed_src20_in_block.append(src20_dict)
-elif stamp_data.pval_src101:
-    _, src101_dict = parse_src101(
-        self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index, self._lock
-    )
-    with self._lock:
-        self.processed_src101_in_block.append(src101_dict)
-```
-
-### 4. Transaction Source Detection
-
-The system identifies transaction sources based on several factors:
-
-```python
-# Pseudocode for source detection
-def determine_transaction_source(tx_data, block_index):
-    # Check if it's a Counterparty transaction (has specific fields)
-    if "bindings" in tx_data and tx_data.get("status") == "valid":
-        # For SRC-20 after cutoff, reject Counterparty transactions
-        if block_index > CP_SRC20_END_BLOCK and is_src20_transaction(tx_data):
-            return None  # Reject CP SRC-20 after cutoff
-        return "counterparty"  # Accept CP classic stamps after cutoff
-        
-    # Check for OLGA P2WSH pattern (direct Bitcoin)
-    if has_p2wsh_pattern(tx_data) and block_index >= BTC_SRC20_OLGA_BLOCK:
-        return "direct_bitcoin"
-        
-    # Check for OP_MULTISIG pattern (direct Bitcoin)
-    if has_multisig_pattern(tx_data):
-        return "direct_bitcoin"
-        
-    return None  # Not a stamp transaction
-```
+Filtered/decoded transactions are dispatched to the protocol handlers
+(`stamp.py`, `src20.py`, `src721.py`, `src101.py`) by `BlockProcessor` in `blocks.py`.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full component map and data flow.

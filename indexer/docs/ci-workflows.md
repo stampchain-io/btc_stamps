@@ -1,221 +1,134 @@
 # CI/CD Workflows
 
-This document describes the continuous integration and deployment workflows for the BTC Stamps Indexer.
+This document describes the GitHub Actions workflows for the BTC Stamps Indexer. It is
+generated from the actual files in [`.github/workflows/`](../../.github/workflows/) — keep
+it in sync when workflows change.
+
+> **Python versions:** the project supports **3.10 / 3.11 / 3.12** (`pyproject.toml`:
+> `python = "^3.10"`). The unit-test matrix runs all three; there is no Python 3.9.
+
+## Workflow Index
+
+| File | Name | Trigger(s) |
+|------|------|-----------|
+| `python-check.yml` | CI | `pull_request`, `workflow_dispatch` |
+| `reparse-validate.yml` | Reparse Consensus Validation | `pull_request` (consensus paths), `workflow_dispatch` |
+| `freeze-drift.yml` | Freeze Drift Check | `pull_request` (dep paths), `workflow_dispatch` |
+| `coverage.yml` | Coverage Analysis | `pull_request` + `push` to `main`/`dev`, `workflow_dispatch` |
+| `docker-auto-publish.yml` | Docker Auto-Publish | `push` to `main`/`dev` (indexer/docker paths) |
+| `docker-publish.yml` | Docker Build and Publish | `workflow_dispatch` (tag + environment) |
+| `version-check.yml` | Version Format Check | `push` + `pull_request` to `main`/`dev` |
+| `bump-version.yml` | Bump Version | `push` to `dev`/`main`, `pull_request` closed, `workflow_dispatch` |
+| `build-test.yml` | Build Tests | `workflow_call` (reusable) |
+| `setup-python.yml` | Setup Python Environment | `workflow_call` (reusable) |
+| `claude.yml` | Claude Code | comment/issue triggers |
+| `claude-code-review.yml` | Claude Code Review | `pull_request`, `workflow_dispatch` |
 
 ## Core Workflows
 
-### 1. Build Tests (`build-test.yml`)
-A reusable workflow that provides build and test verification.
+### `python-check.yml` — CI
 
-**Implementation:**
-- Triggered via workflow_call
-- Supports environment specification
-- Matrix testing across Python versions (3.9, 3.10, 3.11, 3.12)
+The primary PR gate. Runs on every pull request and via manual dispatch. Three jobs:
 
-**Process:**
-1. Sets up Python environment using setup-python.yml
-2. Creates Python module structure
-3. Runs build tests
-4. Executes Rust parser tests
+1. **Rust Checks** (`rust`) — `rustfmt`, `clippy`, and Rust parser checks (Python 3.11 to
+   drive the build, with the Rust toolchain + cache).
+2. **Code Quality & Unit Tests** (`code-quality`) — **matrix `['3.10', '3.11', '3.12']`**.
+   Verifies `poetry.lock` is in sync with `pyproject.toml`, checks for stray debug flags,
+   then runs code-quality checks and the unit-test suite (isort, black, flake8, mypy,
+   bandit, pytest via the `run_checks` / taskipy tasks).
+3. **Integration Tests** (`integration`) — builds the Rust parser and runs the integration
+   suite (excluding tests that require a live Bitcoin node).
 
-### 2. Docker Build and Publish (`docker-publish.yml`)
-Handles Docker image building and publishing.
+The README status badges (Code Quality, Rust Checks, Integration) point at the
+corresponding jobs of this single workflow.
 
-**Triggers:**
-- Manual trigger (workflow_dispatch)
-- Requires:
-  - Tag specification
-  - Environment selection (production/staging)
-  - Optional test skip flag
+### `reparse-validate.yml` — Reparse Consensus Validation
 
-**Process:**
-1. Build Tests (conditional)
-   - Uses reusable setup and build-test workflows
-   - Can be skipped with skip_tests flag
-2. Docker Build & Push
-   - Builds multi-arch image
-   - Tags with specified version
-   - Pushes to Docker Hub
-   - Applies metadata and labels
+Per-PR validation that the indexer's consensus surface still matches the checked-in
+baseline (`indexer/snapshots/ci_consensus_hashes.json`). Triggered on PRs that touch
+consensus-relevant paths (`index_core/**`, `rust_parser/**`, `config.py`, `pyproject.toml`,
+`poetry.lock`, the snapshots, `ci/**`). Runs on the **matrix `['3.10', '3.11', '3.12']`**
+and is **advisory** on first land (`continue-on-error: true`).
 
-### 3. Python Check (`python-check.yml`)
-Comprehensive code quality and testing workflow.
+Three validation tiers (all run across the matrix):
 
-**Triggers:**
-- Pull requests to `dev` and `main` branches
-- Manual workflow dispatch
+- **Tier 1** — Cross-check `CHECKPOINTS_MAINNET` against `reference_hashes.json` (pure-Python
+  AST parse; catches check.py / reference drift) for all baseline blocks.
+- **Tier 2** — Block-bytes hash verification: each baseline block is fetched from a
+  bitcoind RPC (or the public blockstream.info node) and its bytes verified against the
+  expected `block_hash`.
+- **Tier 3** — Full in-memory reparse (Rust parser + reparse pipeline) in a fresh
+  subprocess per block, comparing `txlist_hash` / `messages_hash` / `ledger_hash` to the
+  baseline. Tier 3 is DB-free, so blocks whose ledger depends on cross-block SRC-20 state
+  (`TIER3_CROSS_BLOCK_LEDGER`) are excluded by design — they remain covered by Tiers 1–2
+  and the periodic full stampsdev reindex (#775 / #778).
 
-**Matrix Testing:**
-Tests across Python versions:
-- Python 3.9
-- Python 3.10
-- Python 3.11
-- Python 3.12
+Also runs a **consensus package pin guard** (`ci/check_consensus_pkg_pins.py`) on each
+matrix Python, proving consensus-critical packages (regex, PyNaCl, pybase64) resolve
+identically on 3.10 / 3.11 / 3.12 (#759 / #803). Refresh the baseline with
+`./indexer/ci/refresh-consensus-hashes.sh`.
 
-**Quality Checks:**
+### `freeze-drift.yml` — Freeze Drift Check
 
-1. Debug Flag Verification
-   - Ensures production-safe debug settings
+Verifies that the resolved Python packages **inside the production indexer Docker image**
+match the checked-in baseline `indexer/ci/freeze.prod.lock` (built with `PYTHON_VERSION=3.12`).
+`poetry.lock` guarantees lockfile-internal consistency but not what pip actually realizes
+inside the prod image; this catches base-image/platform wheel drift (the regex / PyNaCl
+drift in PR #753). Update the baseline intentionally with `./indexer/ci/refresh-freeze.sh`.
 
-2. Code Style and Formatting
-   - isort for import ordering
-   - Black for code formatting
-   - Flake8 for PEP 8 compliance
-     * Complexity limit: 10
-     * Line length limit: 127 characters
+### `coverage.yml` — Coverage Analysis
 
-3. Rust-specific Checks
-   - Rust formatting verification
-   - Clippy linting
+Runs on PRs and pushes to `main`/`dev` (and manual dispatch). Executes the test suite under
+coverage on **Python 3.11** (single version, matching integration tests) and uploads to
+Codecov (`codecov.yml` / the codecov badge).
 
-4. Static Analysis
-   - Mypy type checking
-   - Bandit security scanning
+## Docker Workflows
 
-5. Test Suites
-   The following test suites are executed as part of the CI process:
+### `docker-auto-publish.yml` — Docker Auto-Publish
 
-   **Block Processing Tests:**
-   - test_block_rollback.py
-     * Tests rollback functionality for block processing
-     * Validates balance updates during rollbacks
-     * Ensures transaction integrity after rollbacks
+On every push to `main`/`dev` that touches `indexer/**`, `docker/**`, or the workflow
+itself, builds and pushes the indexer image (has `packages: write` permission). This is the
+automated path that produces the `dev` and release images.
 
-   **Integration Tests:**
-   - test_integration_block_processing.py
-     * End-to-end block processing validation
-     * Tests SRC-20 parsing and validation
-     * Verifies database interactions
+### `docker-publish.yml` — Docker Build and Publish
 
-   **Parser Tests:**
-   - test_parser_comparison.py
-     * Compares Python and Rust parser outputs
-     * Validates parsing consistency
-     * Tests deploy operations and numeric handling
+Manual (`workflow_dispatch`) build/publish with inputs: `tag` (required),
+`environment` (`production` / `staging` choice), and optional `skip_tests`. When tests are
+not skipped it runs the build/test jobs first, then builds a multi-arch image and pushes it.
 
-   **Rollback Tests:**
-   - test_rollback_transactions_stamptable.py
-     * Tests transaction table rollbacks
-     * Validates StampTableV4 rollbacks
-     * Ensures database consistency after rollbacks
+## Versioning Workflows
 
-   **SRC-20 Tests:**
-   - test_src20_balance.py
-     * Tests balance calculation accuracy
-     * Validates amount normalization
-     * Handles decimal place restrictions
+### `version-check.yml` — Version Format Check
 
-   - test_src20_update_valid.py
-     * Tests transfer operations
-     * Validates mint operations
-     * Verifies balance updates
-     * Tests cache management
+On pushes and PRs to `main`/`dev`, validates the version-string format for consistency.
 
-   - test_src20_validator.py
-     * Tests SRC-20 validation rules
-     * Validates numeric conversions
-     * Tests error handling
+### `bump-version.yml` — Bump Version
 
-### 4. Integration Test (`integration-test.yml`)
-Handles end-to-end integration testing.
+Automates version bumps. Triggers on pushes to `dev`/`main`, on closed PRs to those
+branches, and manual dispatch with a `versionType` input (`major`/`minor`/`patch`/`build`/
+`release`) and a `preRelease` flag. Uses Python 3.10.
 
-## Support Workflows
+## Reusable / Support Workflows
 
-### 1. Setup Python (`setup-python.yml`)
-A reusable workflow for consistent Python environment setup across other workflows.
-- Sets up Python environment
-- Configures Poetry and dependencies
-- Builds Rust parser
-- Caches dependencies for faster builds
+### `setup-python.yml` — Setup Python Environment
 
-## Environment Variables
+Reusable (`workflow_call`) workflow that installs Python, configures Poetry + dependencies,
+builds the Rust parser, and caches dependencies. Consumed by other workflows.
 
-Required environment variables for tests:
-- `USE_TEST_TX_HEX`
-- `PYTHONPATH`
-- `DOCKERHUB_TOKEN` (for Docker publishing)
+### `build-test.yml` — Build Tests
 
-## Security Notes
+Reusable (`workflow_call`) build + test verification (Python 3.10), invoked by the Docker
+publish flow.
 
-- Tests run in isolated containers
-- Sensitive credentials managed via GitHub Secrets
-- Docker Hub authentication required for pushes
-- Environment-specific deployments
+## Assistant Workflows
 
-## Manual Triggers
+- **`claude.yml` — Claude Code**: responds to issue/PR comment triggers to run the Claude
+  Code assistant against the repo.
+- **`claude-code-review.yml` — Claude Code Review**: runs an automated Claude review on pull
+  requests (and manual dispatch).
 
-The following workflows can be triggered manually:
-1. Build Tests: For development verification
-2. Docker Publish: For custom deployments
-   - Requires tag specification
-   - Environment selection
-   - Optional test skip for emergencies
-3. Python Check: For code quality verification
+## Notes
 
-## Best Practices
-
-1. Always run tests before merging to dev/main
-2. Use semantic versioning for tags
-3. Document significant workflow changes
-4. Review logs after automated runs
-5. Maintain test environment parity
-
-## Future Implementation Plans
-
-### 1. Version Management Workflows
-These workflows will improve version control and consistency:
-
-1. **test-publish.yml**
-   - Purpose: Automate package testing and publishing
-   - Triggers: Tag pushes (v*) and release creation
-   - Key Features:
-     * Package testing before publishing
-     * Version verification
-     * Automated package publishing
-     * Release notes generation
-
-2. **bump-version.yml**
-   - Purpose: Automate version management
-   - Implementation Plan:
-     * Analyze commit messages for version increment type
-     * Update version in pyproject.toml and other files
-     * Create and push version tags
-     * Generate changelog entries
-
-3. **version-check.yml**
-   - Purpose: Ensure version consistency
-   - Implementation Plan:
-     * Check version numbers across all files
-     * Validate semantic versioning compliance
-     * Block PRs with version inconsistencies
-
-### 2. Enhanced Security Features
-Future security enhancements:
-
-1. **Vulnerability Scanning**
-   - Add container vulnerability scanning
-   - Implement dependency security audits
-   - Add SBOM generation for compliance
-
-2. **Code Quality Gates**
-   - Add code coverage requirements
-   - Implement complexity limits
-   - Add security-focused linting rules
-
-### 3. Testing Improvements
-Planned test enhancements:
-
-1. **Performance Testing**
-   - Add benchmarking workflows
-   - Implement performance regression detection
-   - Add load testing for critical paths
-
-2. **Integration Testing**
-   - Expand end-to-end test coverage
-   - Add cross-version compatibility tests
-   - Implement network resilience tests
-
-3. **Documentation Testing**
-   - Add documentation link validation
-   - Implement example code testing
-   - Add API documentation verification
+- Consensus-critical changes are gated by `reparse-validate.yml` + `freeze-drift.yml` in
+  addition to the standard `python-check.yml` CI; see `indexer/ci/README.md`.
+- Sensitive credentials (Docker Hub, optional bitcoind RPC) are provided via GitHub Secrets.
