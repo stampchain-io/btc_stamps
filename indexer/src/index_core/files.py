@@ -49,7 +49,7 @@ def store_files(db, filename, decoded_base64, mime_type):
         return file_obj_md5, filename
 
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
-    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME and config.AWS_S3_IMAGE_DIR:
+    if config.AWS_S3_ENABLED:
         if config.USE_ASYNC_UPLOADS:
             # Use the asynchronous version for non-blocking uploads
             async_check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)

@@ -207,15 +207,16 @@ AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", None)
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", None)
 
 try:
-    AWS_S3_CLIENT = (
-        boto3.client(
-            "s3",
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-        )
-        if boto3
-        else None
-    )
+    if boto3:
+        _s3_client_kwargs: Dict[str, str] = {}
+        if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+            _s3_client_kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
+            _s3_client_kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
+        # boto3's overloaded client() can't be resolved through **kwargs unpack;
+        # the call is valid (keys passed only when set, else default chain).
+        AWS_S3_CLIENT = boto3.client("s3", **_s3_client_kwargs)  # type: ignore[call-overload]
+    else:
+        AWS_S3_CLIENT = None
 except Exception:
     AWS_S3_CLIENT = None
 
@@ -234,6 +235,10 @@ ENABLE_BITMART_API = os.getenv("ENABLE_BITMART_API", "false").lower() == "true"
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID", None)
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)
+# S3 is enabled when storage is on and the bucket/dir targets are configured.
+# Credentials may come from explicit AWS_* keys OR the boto3 default chain
+# (EC2 instance role / ECS task role / SSO), so we DO NOT gate on key presence.
+AWS_S3_ENABLED = bool(STORE_FILES and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR)
 S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
 USE_ASYNC_UPLOADS = os.environ.get("USE_ASYNC_UPLOADS", "1") == "1"

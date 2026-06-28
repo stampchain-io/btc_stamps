@@ -343,7 +343,7 @@ def start_all(db: Connection) -> None:
         # Backend
         connect_to_backend()  # This sets the global backend_instance
         if config.STORE_FILES:
-            if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
+            if config.AWS_S3_ENABLED:
                 config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
                 # Start the async upload worker if async uploads are enabled
