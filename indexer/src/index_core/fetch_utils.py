@@ -1831,6 +1831,70 @@ def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_
     return False
 
 
+def wait_for_cp_block_ready_with_repoll(
+    block_index: int,
+    max_wait: Optional[float] = None,
+    repoll_interval: Optional[float] = None,
+    repoll_max: Optional[float] = None,
+) -> bool:
+    """
+    Actively re-poll CP readiness for a SINGLE pending block (issue #821).
+
+    Wraps ``wait_for_cp_block_processed`` in a bounded re-poll loop. On the ZMQ
+    tip path a transient "CP not ready" used to defer the block until the *next*
+    ZMQ notification arrived, costing a whole block interval (~14 min observed).
+    Because block processing is strictly in-order (we cannot index N+1 before N),
+    re-polling the SAME pending block is safe and lets us proceed as soon as CP
+    catches up.
+
+    The readiness gate itself (cp_height >= block AND db_caught_up) is unchanged:
+    this only changes the wait/retry cadence. Returns True as soon as the gate
+    passes, or False once the overall re-poll bound (``repoll_max``) is exhausted
+    so a genuinely stuck CP still surfaces to the caller.
+
+    Args:
+        block_index: The pending block to wait for.
+        max_wait: Per-attempt wait window. Defaults to ``config.CP_READY_MAX_WAIT``.
+        repoll_interval: Sleep between re-poll attempts. Defaults to
+            ``config.CP_READY_REPOLL_INTERVAL`` (kept modest; the CP node is shared).
+        repoll_max: Overall bound across all attempts. Defaults to
+            ``config.CP_READY_REPOLL_MAX``.
+
+    Returns:
+        True if CP became ready within the overall bound, False otherwise.
+    """
+    # Resolve config at call-time so env/test overrides are honored.
+    if max_wait is None:
+        max_wait = config.CP_READY_MAX_WAIT
+    if repoll_interval is None:
+        repoll_interval = config.CP_READY_REPOLL_INTERVAL
+    if repoll_max is None:
+        repoll_max = config.CP_READY_REPOLL_MAX
+
+    overall_start = time.time()
+    attempt = 0
+    while True:
+        attempt += 1
+        # Use the modest re-poll interval as the inner check cadence too, so total
+        # polling load stays at roughly one request per interval.
+        if wait_for_cp_block_processed(block_index, max_wait=max_wait, check_interval=repoll_interval):
+            return True
+
+        elapsed = time.time() - overall_start
+        if elapsed >= repoll_max:
+            logger.warning(
+                f"CP still not ready for block {block_index} after re-polling for {elapsed:.0f}s "
+                f"(bound={repoll_max}s, attempts={attempt}); surfacing to caller"
+            )
+            return False
+
+        logger.info(
+            f"CP not ready for block {block_index} (attempt {attempt}, {elapsed:.0f}s elapsed); "
+            f"re-polling same pending block in {repoll_interval}s"
+        )
+        time.sleep(repoll_interval)
+
+
 def get_xcp_block_hashes_batch(start_block: int, end_block: int) -> Dict[int, Optional[str]]:
     """Get block hashes for a range of blocks with caching and batching optimization."""
     results = {}

@@ -138,6 +138,18 @@ ZMQ_TX_PORT: int = int(ZMQ_PORT_MAINNET_TX)
 ZMQ_BLOCK_PORT: int = int(ZMQ_PORT_MAINNET_BLOCK)
 ZMQ_NOTIFICATION_DELAY = float(os.environ.get("ZMQ_NOTIFICATION_DELAY", "5.0"))  # Delay in seconds after ZMQ notification
 
+# CP-readiness gate (issue #821): how long the indexer waits for Counterparty to
+# finish processing a block at chain tip before proceeding. The ZMQ tip path now
+# actively re-polls the SAME pending block (processing is strictly in-order, so
+# this is safe) instead of deferring to the next ZMQ notification, so a transient
+# CP parse spike no longer costs a full block interval. The per-attempt window was
+# a fixed 25s, below observed real spikes (35s, 164s); it is now 60s and bounded
+# by an overall re-poll cap so a genuinely stuck CP still surfaces. Keep the
+# re-poll interval modest (>= a couple seconds): the CP node is shared.
+CP_READY_MAX_WAIT = float(os.environ.get("CP_READY_MAX_WAIT", "60.0"))  # per-attempt wait window (was a fixed 25s)
+CP_READY_REPOLL_INTERVAL = float(os.environ.get("CP_READY_REPOLL_INTERVAL", "5.0"))  # gap between re-poll attempts
+CP_READY_REPOLL_MAX = float(os.environ.get("CP_READY_REPOLL_MAX", "300.0"))  # overall bound so a stuck CP still surfaces
+
 # CP RPC Configuration
 # Configuration hierarchy (first non-empty wins):
 # 1. CP_NODE_POOL - Advanced: comma-separated list of name::url pairs for multiple nodes

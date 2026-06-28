@@ -2088,11 +2088,18 @@ def follow(
                                         )
                                         time.sleep(delay_seconds)
 
-                                        # Verify CP has actually processed the block
-                                        from index_core.fetch_utils import wait_for_cp_block_processed
+                                        # Verify CP has actually processed the block. Actively re-poll the
+                                        # SAME pending block (issue #821) instead of deferring to the next
+                                        # ZMQ notification on a transient miss: processing is in-order, so a
+                                        # short bounded re-poll cuts multi-minute tip latency. Only after the
+                                        # overall bound is exhausted do we fall back to the next notification.
+                                        from index_core.fetch_utils import wait_for_cp_block_ready_with_repoll
 
-                                        if not wait_for_cp_block_processed(block_tip, max_wait=25.0):
-                                            logger.warning(f"CP not ready for block {block_tip}, will retry")
+                                        if not wait_for_cp_block_ready_with_repoll(block_tip):
+                                            logger.warning(
+                                                f"CP still not ready for block {block_tip} after re-poll bound; "
+                                                "deferring to next notification"
+                                            )
                                             time.sleep(config.BACKEND_POLL_INTERVAL)
                                             continue
 
