@@ -30,10 +30,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, "src")
+from bitcoin.core import CBlock  # noqa: E402
+
 import config  # noqa: E402
 import index_core.arc4 as arc4  # noqa: E402
 import index_core.script as script  # noqa: E402
-from bitcoin.core import CBlock  # noqa: E402
 
 RPC_URL = os.environ.get("RPC_URL", f"http://{os.environ.get('RPC_IP', '127.0.0.1')}:{os.environ.get('RPC_PORT', '8332')}")
 RPC_AUTH = base64.b64encode(f"{os.environ.get('RPC_USER', 'rpc')}:{os.environ.get('RPC_PASSWORD', 'rpc')}".encode()).decode()
