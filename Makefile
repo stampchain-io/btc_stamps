@@ -1,68 +1,61 @@
-.PHONY: up down detect-arch
+.PHONY: dev up dup logs down fdown clean explorer prod prod-down config help
 
-ARCH := $(shell uname -m)
+# ==============================================================================
+# btc_stamps compose targets (canonical base + override structure)
+#
+#   dev / up   -> docker compose up                (base + override.yml, auto)
+#   explorer   -> dev stack + explorer/adminer profile
+#   prod       -> base + docker-compose.prod.yml    (managed RDS; NOT yet deployed)
+#
+# Validation:
+#   make config -> `docker compose config` parse/merge check (starts nothing)
+# ==============================================================================
 
-DOCKER_PLATFORM :=
-ifeq ($(ARCH),x86_64)
-  DOCKER_PLATFORM = linux/amd64
-else ifeq ($(ARCH),aarch64)
-  DOCKER_PLATFORM = linux/arm64
-else ifeq ($(ARCH),arm64)
-  DOCKER_PLATFORM = linux/arm64
-else
-  $(error Unsupported architecture: $(ARCH))
-endif
+help:
+	@echo "Targets:"
+	@echo "  make dev / make up   Start the local dev stack (indexer + mysql)"
+	@echo "  make dup             Same, detached"
+	@echo "  make logs            Follow indexer logs"
+	@echo "  make explorer        Dev stack + explorer/adminer (profile: explorer)"
+	@echo "  make down            Stop the stack"
+	@echo "  make fdown / clean   Stop, remove volumes, and clean local artifacts"
+	@echo "  make prod            Start the prod overlay (managed RDS; NOT deployed)"
+	@echo "  make config          Parse/merge check (does not start anything)"
 
-up:
-	@echo "Using arch: $(ARCH)"
-	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build
+# --- Development (default): base + auto-applied docker-compose.override.yml ---
+dev up:
+	docker compose up --build
 
 dup:
-	@echo "Using arch: $(ARCH)"
-	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d
+	docker compose up --build -d
 
-logs: dup
-	@cd docker && docker compose logs -f indexer
+logs:
+	docker compose logs -f indexer
 
-db: 
-	@echo "Using arch: $(ARCH)"
-	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d db adminer
-app: db 
-	@echo "Using arch: $(ARCH)"
-	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d app
-	@cd docker && docker compose logs -f app
-
-dev:
-	@echo "Using arch: $(ARCH)"
-	@echo "Using platform: $(DOCKER_PLATFORM)"
-	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) docker compose up --build -d indexer db adminer
-	@docker compose logs -f indexer db
+# Explorer (app) + adminer UI, opt-in via the `explorer` profile.
+explorer:
+	docker compose --profile explorer up --build -d
 
 down:
-	@cd docker && docker compose down
+	docker compose down
 
 fdown:
-	@cd docker && docker compose down -v
-	@rm -rf files || true
-	@rm -rf indexer/files || true
-	@rm -rf */__pycache__ || true
-	@rm -rf */*/__pycache__ || true
+	docker compose down -v
+	@rm -rf db_data || true
+	@rm -rf files indexer/files || true
 	@rm -rf indexer/log.file || true
-	@rm -rf docker/db_data || true
+	@rm -rf */__pycache__ */*/__pycache__ || true
 
 clean: fdown
-	@rm -rf files || true
-	@rm -rf indexer/files || true
-	@rm -rf */__pycache__ || true
-	@rm -rf */*/__pycache__ || true
-	@rm -rf indexer/log.file || true
-	@rm -rf docker/db_data || true
 
-fclean: clean
-	@cd docker && docker system prune -a -f
+# --- Production overlay (explicit; production currently runs via systemd) -----
+prod:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-redo: clean up
+prod-down:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+
+# --- Validation: parse/merge only, starts nothing -----------------------------
+config:
+	docker compose config
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml config

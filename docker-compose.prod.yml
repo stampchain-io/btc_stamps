@@ -1,0 +1,35 @@
+# ==============================================================================
+# btc_stamps — PRODUCTION overlay (explicit, NOT auto-applied)
+#
+# Use:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# !! NOT YET DEPLOYED !!
+# Production currently runs the indexer NATIVELY via systemd, not under Docker.
+# This file documents the FUTURE docker-prod topology and is provided for review.
+# It assumes a managed MySQL (RDS/Aurora) reached via env vars; no local mysql
+# container runs. Do NOT treat this as the live production deployment.
+#
+# Supply secrets/endpoints via the process environment (or ENV_FILE=.env.prod);
+# this file contains NO literal secrets.
+# ==============================================================================
+services:
+  # The local mysql service is disabled in prod (managed RDS/Aurora is used).
+  # It is shifted onto an unused profile so it is defined-but-never-selected.
+  mysql:
+    profiles: ["local-db-disabled"]
+
+  indexer:
+    image: ${IMAGE_NAME:-btcstamps/indexer:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      - DEBUG=${DEBUG:-0}
+      - STORE_FILES=${STORE_FILES:-true}
+      # Required in prod — fail fast if the managed-DB endpoint is unset.
+      - RDS_HOSTNAME=${RDS_HOSTNAME:?set RDS_HOSTNAME to your RDS/Aurora endpoint}
+      - RDS_PORT=${RDS_PORT:-3306}
+      - RDS_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - RDS_USER=${RDS_USER:?set RDS_USER}
+      - RDS_PASSWORD=${RDS_PASSWORD:?set RDS_PASSWORD}
+      - REPARSE_MODE=${REPARSE_MODE:-false}

@@ -1,0 +1,67 @@
+# ==============================================================================
+# btc_stamps — local DEVELOPMENT override (auto-applied by `docker compose up`)
+#
+# This file layers the local-dev specifics on top of docker-compose.yml so that
+# a plain `docker compose up` reproduces the validated dev stack:
+#   - persistent ./db_data bind mount + MySQL perf tuning
+#   - indexer DEBUG + STORE_FILES=false + resource caps
+#   - explorer (app) + adminer admin UI behind the `explorer` profile (opt-in)
+#
+# It is NOT applied when you select prod explicitly:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# ==============================================================================
+services:
+  mysql:
+    # Persistent local data + dev performance tuning.
+    command: >
+      --bind-address=0.0.0.0
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=3G
+      --tmp-table-size=268435456
+      --max-heap-table-size=268435456
+      --mysql-native-password=ON
+    volumes:
+      - ./db_data:/var/lib/mysql
+      - ./indexer/table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql:ro
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  indexer:
+    environment:
+      - DEBUG=1
+      - STORE_FILES=false
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ---------------------------------------------------------------------------
+  # Explorer + DB admin UI — opt-in only:
+  #   docker compose --profile explorer up
+  # (Requires the `app` explorer submodule to be checked out at ./app.)
+  # ---------------------------------------------------------------------------
+  app:
+    profiles: ["explorer"]
+    build:
+      context: ./app
+    env_file:
+      - path: ${ENV_FILE:-.env.local}
+        required: false
+    ports:
+      - "8080:8000"
+    depends_on:
+      - mysql
+
+  adminer:
+    profiles: ["explorer"]
+    image: adminer:latest
+    restart: unless-stopped
+    environment:
+      - ADMINER_DEFAULT_SERVER=mysql
+    ports:
+      - "8081:8080"
+    depends_on:
+      - mysql

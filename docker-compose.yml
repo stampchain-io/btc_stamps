@@ -1,0 +1,86 @@
+# ==============================================================================
+# btc_stamps — canonical base compose (indexer + MySQL)
+#
+# Layering model:
+#   dev  (default):  docker compose up
+#                    -> docker-compose.yml + docker-compose.override.yml (auto)
+#   prod (explicit): docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+#   explorer add-on: docker compose --profile explorer up   (dev only)
+#
+# This base holds ONLY what is common to every environment. There are NO literal
+# secrets here: connection details come from ${RDS_*} substitution and from
+# env_file: ${ENV_FILE:-.env.local}. The indexer image is built from the single
+# canonical indexer/Dockerfile.
+#
+# Environment-specific settings live in the override files:
+#   - docker-compose.override.yml -> local dev (persistent db_data, tuning,
+#     STORE_FILES=false, resource caps, explorer/adminer behind a profile)
+#   - docker-compose.prod.yml     -> managed MySQL (RDS/Aurora), no local mysql
+# ==============================================================================
+services:
+  mysql:
+    image: mysql:8.4
+    env_file:
+      # Optional: absent in environments that pass everything via env vars (prod).
+      - path: ${ENV_FILE:-.env.local}
+        required: false
+    environment:
+      - MYSQL_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - MYSQL_ROOT_PASSWORD=${RDS_PASSWORD:-root}
+      - MYSQL_USER=${RDS_USER:-admin}
+      - MYSQL_PASSWORD=${RDS_PASSWORD}
+      - MYSQL_ROOT_HOST=%
+    command: >
+      --bind-address=0.0.0.0
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --mysql-native-password=ON
+    volumes:
+      - ./indexer/table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql:ro
+    ports:
+      - "3306:3306"
+    # Gate the indexer's start until MySQL has pinged AND the init schema has
+    # loaded. (Historically the indexer raced schema_init, failed its first
+    # pymysql.connect() calls, then hung on later connects.)
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent && mysql -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD -e 'SHOW TABLES' $$MYSQL_DATABASE | grep -q blocks"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  indexer:
+    build:
+      context: ./indexer
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: "3.12"
+        INSTALL_DEV: "${INSTALL_DEV:-false}"
+    image: ${IMAGE_NAME:-btc_stamps/indexer:local-dev}
+    env_file:
+      - path: ${ENV_FILE:-.env.local}
+        required: false
+    environment:
+      - RDS_HOSTNAME=${RDS_HOSTNAME:-mysql}
+      - RDS_PORT=${RDS_PORT:-3306}
+      - RDS_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - RDS_USER=${RDS_USER}
+      - RDS_PASSWORD=${RDS_PASSWORD}
+      - REPARSE_MODE=${REPARSE_MODE:-false}
+      - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/app/snapshots/reference_hashes.json}
+      - REPARSE_STAGING_DB=${REPARSE_STAGING_DB:-btc_stamps_staging}
+    depends_on:
+      mysql:
+        condition: service_healthy
+        # required:false keeps the indexer startable against an external/managed
+        # MySQL (prod) where the local mysql service is not running.
+        required: false
+    volumes:
+      - ./indexer/snapshots:/app/snapshots:ro
+    # $$ escapes compose interpolation so REPARSE_MODE is dereferenced at runtime.
+    command:
+      - "sh"
+      - "-c"
+      - 'if [ "$$REPARSE_MODE" = "true" ]; then exec poetry run reparse; else exec poetry run indexer; fi'
