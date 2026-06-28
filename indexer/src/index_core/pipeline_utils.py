@@ -447,9 +447,7 @@ class CPBlocksPipeline:
                 del self.failed_fetch_blocks[failed_block]
                 stale_evicted += 1
         if stale_evicted:
-            logger.debug(
-                f"Dropped {stale_evicted} stale/dead block(s) from retry set (processor_at={processor_position})"
-            )
+            logger.debug(f"Dropped {stale_evicted} stale/dead block(s) from retry set (processor_at={processor_position})")
 
         # Summary of remaining failed blocks (DEBUG to avoid per-cycle log spam).
         if self.failed_fetch_blocks:
@@ -469,11 +467,7 @@ class CPBlocksPipeline:
                 # retrying. Escalate to fallback mode if configured (behavior preserved).
                 self._mark_block_dead(failed_block, attempts)
 
-                if (
-                    self.fallback_mode
-                    and self.fallback_started_at is None
-                    and attempts >= self.fallback_failure_threshold
-                ):
+                if self.fallback_mode and self.fallback_started_at is None and attempts >= self.fallback_failure_threshold:
                     logger.warning(
                         f"Block {failed_block} exceeded failure threshold "
                         f"({self.fallback_failure_threshold}) - triggering fallback mode"
@@ -1190,9 +1184,7 @@ class CPBlocksPipeline:
                     # Skip retry logic if we're already in fallback mode.
                     if self.fallback_started_at is None:
                         blocks_to_fetch_now.extend(
-                            self._prune_and_select_failed_blocks(
-                                processor_position, fetch_end_block, blocks_already_present
-                            )
+                            self._prune_and_select_failed_blocks(processor_position, fetch_end_block, blocks_already_present)
                         )
 
                 # CRITICAL: Always prioritize the current processor block if it's missing

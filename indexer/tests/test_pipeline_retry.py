@@ -93,9 +93,7 @@ class TestPipelineRetryStorm(unittest.TestCase):
         with patch("index_core.pipeline_utils.logger") as mock_logger:
             # First cycle: block hits max retries -> one ERROR.
             self.pipeline.failed_fetch_blocks = {1005: self.pipeline.max_fetch_retries}
-            self.pipeline._prune_and_select_failed_blocks(
-                processor_position, fetch_end_block, blocks_already_present=set()
-            )
+            self.pipeline._prune_and_select_failed_blocks(processor_position, fetch_end_block, blocks_already_present=set())
 
             # Subsequent cycles with the same block re-appearing: no further ERRORs,
             # because it is already in dead_blocks and evicted before logging.
@@ -105,9 +103,7 @@ class TestPipelineRetryStorm(unittest.TestCase):
                     processor_position, fetch_end_block, blocks_already_present=set()
                 )
 
-            permanent_failure_errors = [
-                call for call in mock_logger.error.call_args_list if "permanently failed" in str(call)
-            ]
+            permanent_failure_errors = [call for call in mock_logger.error.call_args_list if "permanently failed" in str(call)]
             self.assertEqual(
                 len(permanent_failure_errors),
                 1,
