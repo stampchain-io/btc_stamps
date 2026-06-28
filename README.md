@@ -50,7 +50,9 @@ Block 779652.
 A fair, accessible fungible token protocol where users only pay standard BTC
 miner fees. Inspired by BRC-20 but enhanced with the immutability guarantees of Stamps.
 
-**History**: The first SRC-20 Token, "KEVIN," was deployed by Reinamora in Block 788041.
+**History**: The first SRC-20 Token, "KEVIN," was deployed by Reinamora in Block 788041
+(on Counterparty). SRC-20 moved to direct Bitcoin transactions at Block 793068 and adopted
+the OLGA / P2WSH encoding at **Block 865000**.
 
 ### 🖼️ SRC-721 STAMPS
 An advanced NFT format that uses JSON manifests to construct complex, layered images from data
@@ -64,7 +66,8 @@ A technical breakthrough that eliminates Base64 encoding overhead, reducing
 transaction size by 50% and lowering costs by 60-70% compared to the original OP_MULTISIG format.
 OLGA maintains full functionality while being significantly more efficient.
 
-**History**: First deployed in Block 833000 and now the standard for new Classic Stamps.
+**History**: OLGA activated per-protocol — Classic Stamps at Block 833000, SRC-20 at Block
+865000, and SRC-101 at Block 940000. It is now the standard for new Classic Stamps.
 
 ### 🔄 SRC-721r STAMPS
 The next evolution of SRC-721, enabling complex recursive images created using
@@ -341,7 +344,7 @@ poetry run run_checks
 poetry run check-code     # Run only code quality checks
 poetry run check-rust     # Run only Rust checks
 poetry run check-integration  # Run only integration tests
-poetry run bandit         # Run security checks with bandit
+poetry run task bandit    # Run security checks with bandit
 ```
 
 3. **Build Rust Parser During Development**:

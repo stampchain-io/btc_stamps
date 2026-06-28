@@ -37,30 +37,61 @@ flowchart TD
 - Coordinates processing pipeline
 - Handles error recovery
 
-### 2. Transaction Filter (`filter_block_transactions`)
-- Orchestrates the transaction filtering process
+### 2. Transaction Filter (`indexer/src/index_core/block_validation.py`)
+- `filter_block_transactions()` orchestrates the transaction filtering process
+  (defined in `block_validation.py`, imported and called from `blocks.py`)
 - Handles Counterparty issuances and direct Bitcoin transactions
 - Coordinates with the Rust parser for efficient filtering
 - Prepares filtered protocol data for handlers
+- Per-transaction decode is delegated to `transaction_utils.get_tx_info()`
 
-### 3. Rust Parser (`indexer/src/rust_parser/src/lib.rs`)
+### 3. Rust Parser (`indexer/src/rust_parser/`)
 - High-performance transaction parsing (20-50x faster than Python)
-- Performs the actual filtering of raw Bitcoin transactions
-- Memory-efficient caching with LRU implementation
-- Pattern matching and prefix detection for stamp protocols
+- Built as a **PyO3 native extension named `btc_stamps_parser`**
+  (`Cargo.toml` / `src/rust_parser/src/lib.rs`, `#[pyo3(name = "btc_stamps_parser")]`)
+- Imported into the Python pipeline through the thin wrapper package
+  `indexer/src/index_core/fast_parser/` (`from btc_stamps_parser import FastTransactionParser, TransactionInfo`)
+- Built with `poetry run task build` (maturin); `index_core` falls back to the pure-Python
+  path when the extension is unavailable or `DISABLE_RUST_PARSER` is set
+- Memory-efficient LRU caching, pattern matching, and prefix detection
 
-### 4. Protocol Handlers
+### 4. Backend Injection Seam (`indexer/src/index_core/backend.py`)
+- `Backend()` is a singleton over the bitcoind RPC connection
+- **`set_backend_override()` / `clear_backend_override()`** and the
+  **`BTC_STAMPS_BACKEND_OVERRIDE` env var** (`"module:ClassName"`) let CI and tests inject
+  a drop-in backend (e.g. a public-endpoint shim) without a local bitcoind (#800 / #802)
+- In production the override is `None` and the real singleton is returned unchanged
+
+### 5. Protocol Handlers
 - **Stamp Processor** (`indexer/src/index_core/stamp.py`): Base layer for all protocols
 - **SRC-20 Processor** (`indexer/src/index_core/src20.py`): Fungible token handling
+- **SRC-721 Processor** (`indexer/src/index_core/src721.py`): Recursive/composite NFT handling
 - **SRC-101 Processor** (`indexer/src/index_core/src101.py`): Domain name system
 
-### 5. Database Layer (`indexer/src/index_core/database.py`)
-- Structured data storage in MySQL
-- Transaction management
-- Atomic state updates
-- Balance calculation and ownership tracking
+### 6. Database Layer
+- `indexer/src/index_core/database.py`: structured MySQL storage, inserts, rollback
+  (`purge_block_db()`, `rebuild_balances()`, `rebuild_owners()`, `perform_complete_rollback()`)
+- `indexer/src/index_core/database_manager.py`: `ConnectionPool` / `PooledConnection`
+  queue-based connection pooling
+- Atomic state updates, balance calculation, and ownership tracking
 
-### 6. Web Interface at https://github.com/stampchain-io/BTCStampsExplorer
+### 7. Reparse / Consensus Validation (`indexer/src/index_core/reparse/`)
+- `validator.py`, `snapshot.py`, `db_manager.py` — replays curated blocks and validates
+  `txlist_hash` / `ledger_hash` / `messages_hash` against checked-in baselines
+- Exposed via taskipy: `poetry run task reparse`, `save-snapshot`, `validate-snapshot`
+- Drives the `reparse-validate.yml` CI consensus checks
+
+### 8. Market Data & Caching
+- Market-data services: `market_data_service.py`, `market_data_jobs.py`,
+  `stamp_market_processor.py`, `src20_market_processor.py`, `source_reliability_service.py`,
+  `sales_history_processor.py` — populate the `*_market_data` / `stamp_sales_history` cache
+  tables to avoid live external API calls
+- Caching layer: `caching.py`, `cache_utils.py`, `cache_types.py`, plus `memory_manager.py`
+  and `resource_manager.py` for memory-aware processing
+- Background orchestration: `background_coordinator.py`, `background_validator.py`,
+  `validation_queue.py`, `reprocessing_queue.py`
+
+### 9. Web Interface at https://github.com/stampchain-io/BTCStampsExplorer
 - Deno/Fresh implementation
 - REST API for protocol data
 - User interface for exploration

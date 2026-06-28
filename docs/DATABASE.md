@@ -52,6 +52,49 @@ erDiagram
     }
 ```
 
+## Full Table Inventory
+
+The schema is defined in [`indexer/table_schema.sql`](../indexer/table_schema.sql) and
+currently contains **30 tables**. The list below is generated from that file (every
+`CREATE TABLE`), with a one-line purpose each. Detailed column references for the most
+important tables follow in the next sections.
+
+| # | Table | Purpose |
+|---|-------|---------|
+| 1 | `blocks` | Bitcoin block headers plus consensus hashes (`ledger_hash` / `txlist_hash` / `messages_hash`) and `indexed` flag |
+| 2 | `transactions` | All processed transactions: source/destination, data payload, fee, `keyburn`, `fee_rate_sat_vb` |
+| 3 | `StampTableV4` | Canonical stamp records — image data, mimetype, cpid, creator, supply, detected encoding method |
+| 4 | `srcbackground` | Background images / fonts used to render SRC-20 tokens (keyed by `tick` / `tick_hash`) |
+| 5 | `creator` | Maps a creator `address` to an optional display name |
+| 6 | `SRC20` | Raw (unvalidated) SRC-20 operations parsed from transactions |
+| 7 | `SRC20Valid` | Validated SRC-20 operations (deploy / mint / transfer) with `status` |
+| 8 | `balances` | Current SRC-20 token balances by address + tick |
+| 9 | `s3objects` | Tracks stamp files uploaded to S3 storage |
+| 10 | `collections` | Stamp collection definitions |
+| 11 | `collection_creators` | Maps collections to their creator addresses |
+| 12 | `collection_stamps` | Membership: which stamps belong to which collection |
+| 13 | `src20_metadata` | Descriptive/off-chain metadata for SRC-20 tokens (description, social links) |
+| 14 | `SRC101` | Raw (unvalidated) SRC-101 domain operations |
+| 15 | `SRC101Valid` | Validated SRC-101 operations (reg / transfer / renew) with `status` |
+| 16 | `owners` | Current SRC-101 domain ownership (`index`, `id`, `p`, `deploy_hash`, owner, expiry) |
+| 17 | `recipients` | SRC-101 recipient address records per operation |
+| 18 | `src101price` | SRC-101 registration pricing by name length per deploy |
+| 19 | `src20_token_stats` | Aggregated per-token SRC-20 stats (`total_minted`, `holders_count`) |
+| 20 | `stamp_views` | Per-stamp view counters |
+| 21 | `stamp_market_data` | Multi-source market-data cache per stamp (floor price, volume, holders) |
+| 22 | `stamp_holder_cache` | Cached per-stamp holder details for holder pages |
+| 23 | `market_data_sources` | Reliability / performance tracking of external market-data sources |
+| 24 | `src20_market_data` | Exchange-based market-data cache for SRC-20 tokens |
+| 25 | `collection_market_data` | Collection-level aggregated market data |
+| 26 | `stamp_sales_history` | Unified sales history across all stamp transactions |
+| 27 | `api_call_log` | Logs external (Counterparty) API calls for health / failure tracking |
+| 28 | `sales_history_checkpoints` | Checkpoints enabling incremental sales-history catchup |
+| 29 | `node_version_history` | Per-component indexer/node version history (`is_current` flag) |
+| 30 | `reorg_events` | Records blockchain reorganization events for observability / debugging |
+
+Tables 21–30 implement the market-data cache and operational/observability layers
+documented in [MARKET_DATA_CACHE_TABLES.md](./MARKET_DATA_CACHE_TABLES.md).
+
 ## Core Tables
 
 ### `blocks`
@@ -171,14 +214,23 @@ Store SRC-101 domain operations and validated domain operations.
 
 ### `owners`
 
-Tracks current domain ownership.
+Tracks current SRC-101 domain/token ownership. (Columns below match
+`table_schema.sql`; a `recipients` table holds per-operation recipient records.)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INT | Ownership ID (Primary Key) |
-| `name` | VARCHAR(63) | Domain name (Primary Key) |
-| `owner` | VARCHAR(64) | Owner address |
-| `exp_block` | INT | Expiration block height |
+| `id` | VARCHAR(255) | Ownership record ID (Primary Key) |
+| `index` | INT | Ordering index within the deploy |
+| `p` | VARCHAR(32) | Protocol identifier |
+| `deploy_hash` | VARCHAR(64) | Hash of the SRC-101 deploy |
+| `tokenid` | VARCHAR(255) | Domain/token identifier (hex) |
+| `tokenid_utf8` | VARCHAR(255) | UTF-8 form of the domain name |
+| `preowner` | VARCHAR(64) | Previous owner address |
+| `owner` | VARCHAR(64) | Current owner address |
+| `prim` | BOOLEAN | Whether this is the owner's primary name |
+| `address_btc` / `address_eth` | VARCHAR(255) | Resolver address records |
+| `expire_timestamp` | BIGINT UNSIGNED | Expiration (unix timestamp) |
+| `last_update` | INT | Block height of last update |
 
 ## Indexes
 
@@ -195,90 +247,63 @@ The database uses strategic indexes to optimize common query patterns:
 
 ## Common Database Operations
 
-### Reindexing Blocks
+### Reindexing / Rollback
 
-```sql
--- Replace @block_index with the target block
-SET @block_index = 850000;
-SET FOREIGN_KEY_CHECKS = 0;
+**Do not hand-write rollback SQL.** Rolling back a block range is consensus-sensitive
+(balances and domain ownership must be rebuilt deterministically), so it is implemented in
+[`indexer/src/index_core/database.py`](../indexer/src/index_core/database.py) and driven
+through the `rollback` CLI task:
 
--- Core tables
-DELETE FROM transactions WHERE block_index >= @block_index;
-DELETE FROM blocks WHERE block_index >= @block_index;
-
--- Stamp related
-DELETE FROM StampTableV4 WHERE block_index >= @block_index;
-
--- SRC-20 related
-DELETE FROM SRC20 WHERE block_index >= @block_index;
-DELETE FROM SRC20Valid WHERE block_index >= @block_index;
-DELETE FROM balances;  -- Will be rebuilt
-
--- SRC-101 related
-DELETE FROM SRC101 WHERE block_index >= @block_index;
-DELETE FROM SRC101Valid WHERE block_index >= @block_index;
-DELETE FROM owners;  -- Will be rebuilt
-
-SET FOREIGN_KEY_CHECKS = 1;
+```shell
+cd indexer
+poetry run rollback   # tools/rollback_db.py — interactive/target-block rollback
 ```
 
-### Rebuild Balances
+The relevant functions in `database.py` are:
 
-The `rebuild_balances` function recalculates token balances based on validated operations:
+| Function | Purpose |
+|----------|---------|
+| `purge_block_db(db, block_index)` | Delete all rows at/after `block_index` across the block-scoped tables |
+| `rebuild_balances(db, block_index=None)` | Recompute SRC-20 `balances` from `SRC20Valid` |
+| `rebuild_owners(db, block_index=None)` | Recompute SRC-101 `owners` from `SRC101Valid` |
+| `perform_complete_rollback(block_index, force=False)` | Full, atomic rollback orchestration |
 
-```python
-def rebuild_balances(db):
-    """Rebuild SRC-20 balances from validated operations."""
-    with db.cursor() as cursor:
-        # Clear existing balances
-        cursor.execute("TRUNCATE TABLE balances")
-        
-        # Get all valid mint and transfer operations
-        cursor.execute("""
-            SELECT op, tick, tick_hash, amt, creator, destination, block_index
-            FROM SRC20Valid
-            WHERE op in ('mint', 'transfer')
-            ORDER BY block_index, id
-        """)
-        
-        # Process operations in batches
-        batch_size = 1000
-        operations = []
-        balances = defaultdict(Decimal)
-        
-        for operation in cursor.fetchall():
-            # Process operation and update balances dictionary
-            # ...
-        
-        # Insert updated balances in batches
-        insert_query = """
-            INSERT INTO balances (address, tick, tick_hash, balance)
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE balance = VALUES(balance)
-        """
-        cursor.executemany(insert_query, balance_records)
-        db.commit()
-```
+For a full re-index from genesis, drop/recreate the schema with `table_schema.sql` and let
+the indexer replay from `BLOCK_FIRST_MAINNET` (`CP_STAMP_GENESIS_BLOCK` = 779652).
+
+### Rebuild Balances / Owners
+
+SRC-20 balances and SRC-101 owners are derived state, recomputed from the `*Valid` tables
+by `rebuild_balances(db, block_index=None)` and `rebuild_owners(db, block_index=None)` in
+[`indexer/src/index_core/database.py`](../indexer/src/index_core/database.py). Use those
+functions (or the `rollback` task above) rather than ad-hoc SQL, so the recomputation stays
+consistent with consensus.
 
 ### Database Connection Management
 
-The codebase uses a connection pool for efficient database access:
+Connection pooling is implemented in
+[`indexer/src/index_core/database_manager.py`](../indexer/src/index_core/database_manager.py).
+The real API is a `queue.Queue`-backed `ConnectionPool` that hands out `PooledConnection`
+wrappers (calling `.close()` on a wrapper returns the connection to the pool instead of
+closing it):
 
 ```python
-class DatabaseManager:
-    def __init__(self, **kwargs):
-        self.pool = pymysql.cursors.DictCursor(**kwargs)
-        
-    def connect(self):
-        """Get a connection from the pool."""
-        return self.pool.get_connection()
-        
-    def get_long_running_connection(self):
-        """Get a connection for long operations."""
-        conn = self.connect()
-        conn.ping(reconnect=True)
-        return conn
+# indexer/src/index_core/database_manager.py
+class ConnectionPool:
+    def __init__(self, **kwargs): ...          # min/max connections, timeout
+    def get_connection(self) -> PooledConnection: ...   # blocks up to `timeout`, else grows
+    def return_connection(self, connection): ...        # validates before reuse
+    def get_pool_size(self) -> int: ...
+    def close_all(self): ...
+
+class PooledConnection:
+    def close(self):                            # returns the conn to the pool
+        self.pool.return_connection(self.connection)
+    def __enter__(self): ...                     # usable as a context manager
+    def __exit__(self, *exc): ...
 ```
+
+There is **no** `DatabaseManager` class; refer to `ConnectionPool` / `PooledConnection`.
 
 ## Performance Considerations
 
