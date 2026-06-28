@@ -1,74 +1,102 @@
-# Bitcoin Stamps Indexer Guide
+# Bitcoin Stamps Indexer — Claude Guide
 
-## Documentation
-- **Architecture**: Reference `docs/ARCHITECTURE.md` for system overview and component relationships
-- **Protocols**: Reference `docs/PROTOCOLS.md` for detailed protocol specifications and transaction sources
-- **Database**: Reference `docs/DATABASE.md` for database schema and operations
-- **Development**: Reference `docs/DEVELOPMENT.md` for development workflow and standards
+Indexer for the Bitcoin Stamps protocol (SRC-20/SRC-721/STAMP). A **Rust transaction
+parser** (`indexer/src/rust_parser/`, PyO3 module `btc_stamps_parser`) feeds the Python
+ledger engine (`indexer/src/index_core/`). All commands run from `indexer/`.
 
-## Core Commands
-- `cd indexer && poetry run indexer` - Run the indexer
-- `cd indexer && poetry install` - Install dependencies
-- `cd indexer && poetry run task build` - Build Rust parser
-- `cd indexer && poetry run task build-dev` - Development build with debug symbols
+## Dev vs prod — READ FIRST
+- **Dev** = this docker stack at `/home/ubuntu/stampsdev/btc_stamps` (branch `dev`).
+  Containers `btc_stamps-indexer-1` + `btc_stamps-mysql-1` (MySQL 8.4 @ `127.0.0.1:3306`,
+  db `btc_stamps`). `RDS_*` env = the dev MySQL.
+- **Prod** = systemd service at `/home/ubuntu/btc_stamps` (Aurora MySQL). `ST3_*` env =
+  PROD Aurora (read-only compares only). **NEVER** touch/restart/reindex/write prod or `ST3_*`.
+- **Shared infra:** `bitcoind` + `counterparty-core` (`/home/ubuntu/counterparty-core`) are
+  shared with prod. Never stop/restart them; keep RPC load modest.
+- A long from-genesis reindex may be running in the dev docker stack. Stay read-only of
+  `db_data/`, `reindex_capture.log`, and compose files unless told otherwise.
+- **Python:** prod runs 3.10, dev container 3.12, `pyproject` `^3.10`. Consensus is
+  provably invariant across 3.10–3.12 (audited #803; CI runs the 3.10/3.11/3.12 matrix).
 
-## Test Commands
-- `cd indexer && poetry run pytest tests/` - Run all tests
-- `cd indexer && poetry run pytest tests/test_file.py -v` - Run specific test
-- `cd indexer && poetry run run_checks` - Run all checks
-- `cd indexer && poetry run check-code` - Code quality checks
-- `cd indexer && poetry run check-rust` - Rust checks
-- `cd indexer && poetry run lint` - Run only linters (isort, black, flake8, mypy, bandit)
-- `cd indexer && poetry run lint --auto-fix` - Run linters with auto-fix for isort and black
-- `cd indexer && poetry run lint --with-coverage` - Run linters and validate test coverage  
-- `cd indexer && poetry run coverage` - Run comprehensive coverage (55% threshold)
-- `cd indexer && poetry run coverage-quick` - Run quick coverage on unit tests only (50% threshold)
-- `cd indexer && poetry run coverage-quick --html` - Generate HTML coverage report
+## Build / test / lint (validate exactly as CI)
+```bash
+cd /home/ubuntu/stampsdev/btc_stamps/indexer
+poetry install
+poetry run task build           # build Rust ext (release); task build-dev = debug. Rerun if lib.rs/*.rs changed.
 
-## Debug Tools
-- `cd indexer && poetry run python tools/debug/debug_transaction_parser.py <txid> [--verbose]` - Debug transaction
-- `cd indexer && poetry run python tools/debug/test_block_transactions.py --block=<block_index>` - Test block processing
-- `cd indexer && poetry run python tools/debug/analyze_tx.py [txid]` - Detailed transaction analysis
-- Set logging level: `RUST_LOG=debug poetry run python tools/debug/script_name.py`
+# Linters (what CI runs; --check/--check-only forms):
+poetry run isort . --check-only
+poetry run black --check . --config=pyproject.toml
+poetry run flake8 src/ --count --statistics
+poetry run mypy src/ --explicit-package-bases
+poetry run task bandit          # bandit -r src/ tests/ tools/ -s B608 -lll
 
-## Database Operations
-- Use parameterized queries with `%s` placeholders to prevent SQL injection
-- Follow connection patterns from `database_manager.py`:
-  - Regular queries: `db_manager = DatabaseManager()` then `db = db_manager.connect()`
-  - Long-running: `db_manager = DatabaseManager()` then `db = db_manager.get_long_running_connection()`
-- Transaction pattern: `db.begin()`, `db.commit()`, `db.rollback()`
-- Always return connections to pool by calling `close()`
-- For detailed DB schema and operations, reference `docs/DATABASE.md`
+# Unit suite as CI runs it (~2 min, ~1870 tests):
+PYTHONPATH=src USE_TEST_TX_HEX=1 TESTING=1 USE_TEST_DB=1 MOCK_DB=1 CI_FIXTURE_MODE=true \
+  poetry run pytest -n auto -m "not requires_bitcoin_node and not integration"
+```
+- One-shot wrapper for the whole code-quality gate (lint + Rust build + unit tests):
+  `poetry run check-code`. Linters-only: `poetry run lint` (`--auto-fix` fixes isort/black).
+- black/isort/flake8/mypy line length = 127; flake8 ignores E203,W503,E402,E501,C901,E704.
+- Single test: `poetry run pytest tests/test_x.py -v`. Markers in `pyproject` /
+  `tests/README.md` (`integration`, `requires_bitcoin_node`, `requires_db`, …).
 
-## Code Style
-- **Format**: black (line length 127)
-- **Lint**: flake8 (ignoring E203, W503, E402, E501)
-- **Types**: mypy type checking
-- **Imports**: isort for import sorting
-- **Security**: bandit for vulnerability scanning
-- **Coverage**: pytest-cov with 70% minimum threshold
-- **All commands must be run from the /indexer directory**
+## CI gates (`.github/workflows/`)
+- **CI** (`python-check.yml`): Rust checks + Code Quality & Unit Tests on 3.10/3.11/3.12 +
+  Integration (no bitcoind). `poetry check --lock` must pass.
+- **Reparse Consensus Validation** (`reparse-validate.yml`, 3.10/3.11/3.12) — the
+  output-neutrality proof for any consensus-path change. 3 tiers over baseline
+  `indexer/snapshots/ci_consensus_hashes.json` (~78 blocks):
+  - Tier 1 cross-check `CHECKPOINTS_MAINNET` (`index_core/check.py`) vs `reference_hashes.json`.
+  - Tier 2 block-bytes hash verification (all baseline blocks).
+  - Tier 3 DB-free in-memory reparse (txlist/messages/ledger hashes) over self-contained
+    blocks only; `TIER3_CROSS_BLOCK_LEDGER` blocks are excluded by design (their
+    `ledger_hash` needs prior SRC-20 state) and covered by the full reindex instead.
+  - Local Tier 3: `poetry run python ci/ci_reparse_subprocess.py --limit 5`, or one block
+    `poetry run python ci/smoke_parser_validation.py --block N` (uses public backend; no bitcoind).
+- **Freeze Drift** (`freeze-drift.yml`): realized prod-image packages vs `indexer/ci/freeze.prod.lock`.
+  Consensus-critical pins (regex/PyNaCl/pybase64) also guarded by `ci/check_consensus_pkg_pins.py`.
+- The **full from-genesis stampsdev reindex** is the final pre-release consensus gate and
+  owns SRC-20 cross-block `ledger_hash`. User-triggered only — never start it unprompted.
 
-### Code Quality Tools Summary
-1. **isort** - Sorts and organizes imports
-2. **black** - Enforces consistent code formatting
-3. **flake8** - Checks PEP8 compliance and code style
-4. **mypy** - Static type checking
-5. **bandit** - Security vulnerability detection
-6. **pytest-cov** - Test coverage reporting (optional with --with-coverage)
+## Consensus model (the load-bearing invariant)
+- Three rolling hashes: **txlist_hash / ledger_hash / messages_hash**. Any change on the
+  decode/filter/parse path must be **output-neutral** OR **flag-gated, default OFF**, and
+  proven by Reparse Consensus Validation green (txlist+ledger identical).
+- Test/CI backend substitution uses the **backend injection seam** (`set_backend_override` /
+  `clear_backend_override`, or env `BTC_STAMPS_BACKEND_OVERRIDE="module:Class"`), refs
+  #800/#802. NEVER reassign `backend_instance` per-module — modules import `Backend` by
+  value and a miss silently hits real bitcoind. `conftest.py::reset_backend_override`
+  (autouse) clears it between tests.
 
-## Configuration Notes
-- **Async Holder Updates**: Set `ENABLE_ASYNC_HOLDER_UPDATES=false` during initial sync to prevent deadlocks
-  - Enable with `ENABLE_ASYNC_HOLDER_UPDATES=true` when near blockchain tip (within ~100 blocks)
-  - Deadlocks occur because async holder updates compete for database locks during bulk processing
-  - This is now the default in `.env.sample` to help new users
+## Conventions
+- Branch off `dev`; PRs base `dev`, set milestone (e.g. `v1.9.0`) + labels
+  (`consensus`/`ci`/`perf`/`supply-chain`/`documentation`). `v1.9.0` cuts via long-running
+  PR #495 (`dev`→`main`).
+- Version bumps are automated (`.bumpversion.cfg`, canary scheme `1.8.x+canary.N`) — do not
+  hand-edit `VERSION`/`pyproject` version/`config.py:VERSION_STRING`.
+- Commit trailer: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+  PR body footer: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
-## Development Notes
-- Python 3.10+ required
-- Use poetry for dependency management
-- Always use type hints
-- Implement robust error handling
-- Write tests for new features
-- NEVER allow special edge case transaction handling
-- Transaction sources include both direct Bitcoin and Counterparty (see `docs/PROTOCOLS.md`)
-- Rust parser is used within the Python transaction filter (see `docs/ARCHITECTURE.md`)
+## Gotchas / do-NOT
+- **Never `git add -A`** — stage explicitly. Untracked handoff/scratch/`.env.local*` files
+  and `indexer/tools/debug/*.py` get swept in otherwise.
+- **Test pollution:** suite runs `pytest -n auto`; several tests `importlib.reload(config)`.
+  Tests touching `config` must resolve it at call-time and `monkeypatch` values — never rely
+  on a module-level `import config` (goes stale after reload).
+- **`FORCE` mode** bypasses ONLY the SRC-20 ledger balance hash; it still halts on
+  txlist/stamp divergence — it is NOT a consensus override.
+- Flaky CI (re-run, not real failures): `Code Coverage Analysis` (live-backend RPC/SIGABRT)
+  and `Integration Tests` (hits live `api.counterparty.io`, intermittent 503); `freeze-drift`
+  can time out pulling the base image. `gh run rerun <run-id>`.
+- Never decide release-level things autonomously: #755 activation height, flipping
+  `CP_SKIP_NO_COUNTERPARTY_BLOCKS` on, cutting #495, or running the reindex — PARK for the user.
+
+## Orientation (where things live)
+- `indexer/src/index_core/` — ledger engine: `blocks.py`, `backend.py`, `transaction_utils.py`,
+  `check.py` (checkpoints), `src20.py`/`src101.py`/`src721.py`, `stamp.py`, `block_validation.py`,
+  `reparse/` (validator + snapshot).
+- `indexer/src/rust_parser/src/` — `lib.rs`, `arc4.rs`, `constants.rs`.
+- `indexer/ci/` — consensus/CI runners + guards. `indexer/snapshots/` — baselines.
+- `indexer/tools/` — ops/debug (`compare_tables.py`, `checkpoint_updater.py`, …).
+- Docs: `docs/ARCHITECTURE.md`, `PROTOCOLS.md`, `DATABASE.md`, `DEVELOPMENT.md`;
+  project state in `HANDOFF.md` + `AUTONOMOUS_OVERNIGHT_HANDOFF.md`.
