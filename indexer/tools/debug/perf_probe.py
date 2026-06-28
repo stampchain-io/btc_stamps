@@ -23,9 +23,10 @@ import sys
 import time
 
 sys.path.insert(0, "src")
+import pymysql  # noqa: E402
+
 import config  # noqa: E402
 import index_core.util as util  # noqa: E402
-import pymysql  # noqa: E402
 from index_core.block_validation import filter_block_transactions  # noqa: E402
 from index_core.transaction_utils import backend_instance as B  # noqa: E402
 from index_core.transaction_utils import get_tx_info  # noqa: E402

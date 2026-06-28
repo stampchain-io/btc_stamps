@@ -31,10 +31,11 @@ import urllib.request
 from collections import Counter
 
 sys.path.insert(0, "src")
+import pymysql  # noqa: E402
+
 import config  # noqa: E402
 import index_core.arc4 as arc4  # noqa: E402
 import index_core.script as script  # noqa: E402
-import pymysql  # noqa: E402
 from index_core.transaction_utils import backend_instance  # noqa: E402
 
 PREFIX = config.PREFIX
