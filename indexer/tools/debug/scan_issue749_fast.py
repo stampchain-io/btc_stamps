@@ -20,6 +20,7 @@ Per block:
 Usage:
   poetry run python tools/debug/scan_issue749_fast.py --start 865000 --end 955722
 """
+
 import argparse
 import base64
 import json
@@ -58,7 +59,13 @@ def rpc(method, params):
 
 
 def load_indexed_txids():
-    conn = pymysql.connect(host=os.environ.get("RDS_HOSTNAME", "127.0.0.1"), port=int(os.environ.get("RDS_PORT", "3306")), user=os.environ.get("RDS_USER", "root"), password=os.environ.get("RDS_PASSWORD", ""), database=os.environ.get("RDS_DATABASE", "btc_stamps"))
+    conn = pymysql.connect(
+        host=os.environ.get("RDS_HOSTNAME", "127.0.0.1"),
+        port=int(os.environ.get("RDS_PORT", "3306")),
+        user=os.environ.get("RDS_USER", "root"),
+        password=os.environ.get("RDS_PASSWORD", ""),
+        database=os.environ.get("RDS_DATABASE", "btc_stamps"),
+    )
     ids = set()
     with conn.cursor() as cur:
         cur.execute("SELECT tx_hash FROM transactions WHERE block_index >= %s", (OLGA,))

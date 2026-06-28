@@ -19,6 +19,7 @@ Strategy (see issue #749 analysis):
 Usage:
   poetry run python tools/debug/scan_issue749.py --start 865000 --end 870000 [--workers 1]
 """
+
 import argparse
 import base64
 import json

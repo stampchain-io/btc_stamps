@@ -15,6 +15,7 @@ measured here — that path is owned by the #754/#756 work.
 
 Usage: poetry run python tools/debug/probe_phases.py [block ...]
 """
+
 import hashlib
 import os
 import sys
@@ -37,24 +38,37 @@ def hashing_cost(txhash_list):
 
 
 def db_insert_cost(nrows):
-    conn = pymysql.connect(host=os.environ.get("RDS_HOSTNAME", "127.0.0.1"), port=int(os.environ.get("RDS_PORT", "3306")), user=os.environ.get("RDS_USER", "root"), password=os.environ.get("RDS_PASSWORD", ""), database=os.environ.get("RDS_DATABASE", "btc_stamps"))
+    conn = pymysql.connect(
+        host=os.environ.get("RDS_HOSTNAME", "127.0.0.1"),
+        port=int(os.environ.get("RDS_PORT", "3306")),
+        user=os.environ.get("RDS_USER", "root"),
+        password=os.environ.get("RDS_PASSWORD", ""),
+        database=os.environ.get("RDS_DATABASE", "btc_stamps"),
+    )
     with conn.cursor() as cur:
-        cur.execute(
-            """CREATE TEMPORARY TABLE _pp_tx (
+        cur.execute("""CREATE TEMPORARY TABLE _pp_tx (
                  tx_index BIGINT, tx_hash CHAR(64), block_index INT, block_hash CHAR(64),
                  block_time DATETIME, source VARCHAR(64), destination TEXT, btc_amount BIGINT,
-                 fee BIGINT, fee_rate_sat_vb DOUBLE, data BLOB, keyburn TINYINT)"""
-        )
+                 fee BIGINT, fee_rate_sat_vb DOUBLE, data BLOB, keyburn TINYINT)""")
         rows = [
-            (i, "%064x" % i, 900000, "%064x" % 0, "2024-01-01 00:00:00",
-             "bc1qexamplesource", "bc1qexampledest", 0, 1430, 5.0,
-             b'{"p":"src-20","op":"transfer","tick":"TEST","amt":"1000"}', 1)
+            (
+                i,
+                "%064x" % i,
+                900000,
+                "%064x" % 0,
+                "2024-01-01 00:00:00",
+                "bc1qexamplesource",
+                "bc1qexampledest",
+                0,
+                1430,
+                5.0,
+                b'{"p":"src-20","op":"transfer","tick":"TEST","amt":"1000"}',
+                1,
+            )
             for i in range(nrows)
         ]
         s = time.perf_counter()
-        cur.executemany(
-            "INSERT INTO _pp_tx VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", rows
-        )
+        cur.executemany("INSERT INTO _pp_tx VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", rows)
         conn.commit()
         ms = (time.perf_counter() - s) * 1000.0
         cur.execute("DROP TEMPORARY TABLE _pp_tx")

@@ -17,6 +17,7 @@ latency (non-destructive: a TEMPORARY table) to gauge memory-pressure impact.
 
 Usage: poetry run python tools/debug/perf_probe.py [block ...]
 """
+
 import os
 import sys
 import time
@@ -114,7 +115,13 @@ def probe_block(height):
 
 
 def db_latency():
-    conn = pymysql.connect(host=os.environ.get("RDS_HOSTNAME", "127.0.0.1"), port=int(os.environ.get("RDS_PORT", "3306")), user=os.environ.get("RDS_USER", "root"), password=os.environ.get("RDS_PASSWORD", ""), database=os.environ.get("RDS_DATABASE", "btc_stamps"))
+    conn = pymysql.connect(
+        host=os.environ.get("RDS_HOSTNAME", "127.0.0.1"),
+        port=int(os.environ.get("RDS_PORT", "3306")),
+        user=os.environ.get("RDS_USER", "root"),
+        password=os.environ.get("RDS_PASSWORD", ""),
+        database=os.environ.get("RDS_DATABASE", "btc_stamps"),
+    )
     out = {}
     with conn.cursor() as cur:
         s = time.perf_counter()
@@ -142,16 +149,20 @@ def main():
     blocks = [int(b) for b in sys.argv[1:]] or [867000, 920000, 951939, 955000]
     print(f"PREWARM_DESERIALIZE_CACHE config = {config.PREWARM_DESERIALIZE_CACHE}")
     sw0 = vmstat_swap()
-    print(f"\n{'block':>8} {'ntx':>5} {'cand':>4} {'fetch':>7} {'parse':>7} {'filter':>7} {'decode':>8} "
-          f"{'OFFtot':>7} {'ONtot':>7} {'prewarmΔ':>9}")
+    print(
+        f"\n{'block':>8} {'ntx':>5} {'cand':>4} {'fetch':>7} {'parse':>7} {'filter':>7} {'decode':>8} "
+        f"{'OFFtot':>7} {'ONtot':>7} {'prewarmΔ':>9}"
+    )
     rows = []
     for b in blocks:
         try:
             r = probe_block(b)
             rows.append(r)
-            print(f"{r['block']:>8} {r['ntx']:>5} {r['ncand']:>4} {r['fetch']:>7.0f} {r['parse_block']:>7.0f} "
-                  f"{r['filter']:>7.0f} {r['decode_all_cand']:>8.0f} {r['off_total']:>7.0f} {r['on_total']:>7.0f} "
-                  f"{r['prewarm_delta']:>+9.0f}")
+            print(
+                f"{r['block']:>8} {r['ntx']:>5} {r['ncand']:>4} {r['fetch']:>7.0f} {r['parse_block']:>7.0f} "
+                f"{r['filter']:>7.0f} {r['decode_all_cand']:>8.0f} {r['off_total']:>7.0f} {r['on_total']:>7.0f} "
+                f"{r['prewarm_delta']:>+9.0f}"
+            )
         except Exception as e:
             print(f"{b:>8} ERROR {e}")
     sw1 = vmstat_swap()
