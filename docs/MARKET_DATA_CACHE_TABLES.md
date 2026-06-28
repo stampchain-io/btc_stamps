@@ -209,6 +209,105 @@ Multi-source data tracking for transparency and source reliability analysis.
 4. Count unique holders across all stamps in collection
 5. Store results in **collection_market_data**
 
+## Background Population Architecture
+
+The cache tables above are populated by background jobs coordinated by
+`MarketDataJobScheduler` (`indexer/src/index_core/market_data_jobs.py`), started by the
+block indexer. Three independent job types run on configurable intervals (defaults below;
+intervals, batch sizes, and selection limits are tunable via the environment variables
+documented in [MARKET_DATA_OPTIMIZATION_PLAN.md](../indexer/docs/MARKET_DATA_OPTIMIZATION_PLAN.md)).
+
+### System architecture
+
+```mermaid
+graph TB
+    subgraph "Main Indexer (blocks.py)"
+        BI[Block Indexer]
+        MDS[Market Data Scheduler]
+        BI -->|Start background jobs| MDS
+    end
+
+    subgraph "Background Jobs (market_data_jobs.py)"
+        MDJS[MarketDataJobScheduler]
+        SJ[Stamp Jobs<br/>~15min]
+        SRC20J[SRC-20 Jobs<br/>~5min]
+        CJ[Collection Jobs<br/>~30min]
+        MDJS --> SJ
+        MDJS --> SRC20J
+        MDJS --> CJ
+    end
+
+    subgraph "Data Workers"
+        SW[StampWorker]
+        SRC20W[SRC20Worker]
+        SJ -->|Process batches| SW
+        SRC20J -->|Single worker| SRC20W
+    end
+
+    subgraph "External APIs"
+        CP[Counterparty API<br/>dispensers, balances]
+        KC[KuCoin API<br/>STAMP-USDT]
+        OS[OpenStamp API<br/>SRC-20 data]
+    end
+
+    subgraph "Cache Database Tables"
+        SMD[(stamp_market_data)]
+        SRC20MD[(src20_market_data)]
+        CMD[(collection_market_data)]
+        SHC[(stamp_holder_cache)]
+        MDS_TABLE[(market_data_sources)]
+    end
+
+    SW -->|API calls| CP
+    SW -->|Update cache| SMD
+    SW -->|Populate holders| SHC
+    SRC20W -->|One bulk call| OS
+    SRC20W -->|One call for STAMP| KC
+    SRC20W -->|Update all tokens| SRC20MD
+    CJ -->|Aggregate data| CMD
+    SW -->|Track sources| MDS_TABLE
+    SRC20W -->|Track sources| MDS_TABLE
+```
+
+### Processing sequence
+
+```mermaid
+sequenceDiagram
+    participant Indexer as Block Indexer
+    participant Scheduler as MarketDataJobScheduler
+    participant StampWorker as StampWorker
+    participant SRC20Worker as SRC20Worker
+    participant CP as Counterparty API
+    participant KuCoin as KuCoin API
+    participant OpenStamp as OpenStamp API
+    participant Cache as Cache Tables
+
+    Indexer->>Scheduler: start_market_data_jobs()
+    Scheduler->>Scheduler: Start background schedulers
+
+    loop Stamp jobs (~15 min)
+        Scheduler->>StampWorker: process stamp batches (limit ~10000, 100/batch)
+        StampWorker->>CP: Get dispensers, balances, sends
+        CP-->>StampWorker: Market data
+        StampWorker->>Cache: Update stamp_market_data + stamp_holder_cache
+    end
+
+    loop SRC-20 jobs (~5 min)
+        SRC20Worker->>OpenStamp: fetch_all_market_data() (one bulk call)
+        OpenStamp-->>SRC20Worker: All tokens
+        SRC20Worker->>KuCoin: Get STAMP-USDT price (one call)
+        SRC20Worker->>Cache: Update src20_market_data
+    end
+
+    loop Collection jobs (~30 min)
+        Scheduler->>Cache: Aggregate stamps -> collection_market_data
+    end
+```
+
+Key efficiency property: SRC-20 updates use only **two** external calls per cycle (one bulk
+OpenStamp fetch + one KuCoin call for STAMP), replacing the prior per-token fan-out. Stamp
+updates are batched (≈100 stamps/batch) with delays to respect Counterparty API rate limits.
+
 ## Performance Optimizations
 
 ### Query Optimization

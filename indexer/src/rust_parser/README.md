@@ -47,6 +47,16 @@ poetry run task build-dev
 poetry run task build
 ```
 
+### Dependencies
+
+The extension is built with [maturin](https://github.com/PyO3/maturin) and requires:
+
+- Rust toolchain (stable)
+- `maturin` (build backend / `poetry run task build*`)
+- `bitcoin` crate (transaction deserialization)
+- `pyo3` (Python bindings; module name `btc_stamps_parser`)
+- `rayon` (data-parallel chunk processing)
+
 ## Integration Points
 
 The Rust parser is integrated into the Bitcoin Stamps indexer at the following points:

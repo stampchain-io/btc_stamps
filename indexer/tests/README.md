@@ -75,6 +75,30 @@ def test_full_block_processing():
     # Test that uses database, network, and takes time
 ```
 
+## Test Strategy & Coverage Areas
+
+The suite's guiding principle: **optimizations (especially the Rust parser) must not change
+indexer consensus behavior.** Coverage is concentrated in these areas:
+
+- **Balance & ledger calculations** — unit tests for `blocks.py` finalize/commit paths and
+  SRC-20 balance normalization/updates (e.g. `test_src20_balance.py`,
+  `test_src20_update_valid.py`), validating ledger hashes and balance/owner tables around
+  consensus-changing blocks (`CP_SRC20_GENESIS_BLOCK`, `BTC_SRC20_GENESIS_BLOCK`, etc.).
+- **Python vs. Rust parser parity** — identical transaction data is fed to both the Python
+  and Rust parser paths and outputs are compared (`test_rust_parser*.py`,
+  `test_rust_filtering.py`). These tests are sensitive to `CURRENT_BLOCK_INDEX`: below
+  `BTC_SRC20_GENESIS_BLOCK` (793068) only stamp-issuance transactions are processed, so set
+  the block index appropriately when validating SRC-20 filtering.
+- **End-to-end block processing** — integration tests simulate full block processing,
+  rollbacks, and chain reorganizations, comparing against trusted "golden" fixtures.
+
+### Live vs. offline testing
+
+- **Offline (fixtures)**: block/transaction snapshots stored as fixtures make the bulk of CI
+  fast, deterministic, and infrastructure-free. Prefer these for regression coverage.
+- **Live**: dedicated test databases / Bitcoin RPC are used for integration tests that must
+  confirm real-world alignment (marked `requires_db` / `requires_network`).
+
 ## Running Tests
 
 ### CI Environment (Unit Tests Only)

@@ -1,5 +1,11 @@
 # Multi-Source Market Data Cache System Implementation
 
+> **Historical design document.** This captures the original design/implementation strategy
+> for the multi-source market data cache. For the current schema and background-population
+> architecture see [MARKET_DATA_CACHE_TABLES.md](./MARKET_DATA_CACHE_TABLES.md) and
+> [MARKET_DATA_OPTIMIZATION_PLAN.md](../indexer/docs/MARKET_DATA_OPTIMIZATION_PLAN.md). Kept
+> for context; details here may have drifted from the shipped implementation.
+
 ## Overview
 
 This document outlines the design and implementation strategy for a comprehensive pre-computed market data cache system to replace expensive real-time API calls that are causing performance issues. The system will cache **floor prices**, **holder counts**, and **multi-exchange data** using a unified background job infrastructure that supports multiple data sources including Counterparty API, external exchanges, and SRC-20 marketplaces.

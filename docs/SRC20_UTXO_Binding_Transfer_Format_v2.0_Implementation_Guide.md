@@ -1,5 +1,9 @@
 # SRC-20 UTXO Binding & Transfer Format v2.0 Implementation Guide
 
+> **SUPERSEDED.** This guide describes the SIP-0002 UTXO binding/transfer format, which has
+> been superseded by SIP-0001. Retained for historical reference only — do not implement
+> against this document.
+
 This document provides a step-by-step integration plan to support the new SRC-20 UTXO Binding & Transfer Format v2.0 in the Bitcoin Stamps Indexer.
 
 ---
