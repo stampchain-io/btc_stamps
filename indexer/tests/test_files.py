@@ -111,6 +111,7 @@ class TestFiles(unittest.TestCase):
             self.assertEqual(str(context.exception), "Disk full")
 
     @mock.patch("index_core.files.config.STORE_FILES", True)
+    @mock.patch("index_core.files.config.AWS_S3_ENABLED", True)
     @mock.patch("index_core.files.config.AWS_SECRET_ACCESS_KEY", "secret")
     @mock.patch("index_core.files.config.AWS_ACCESS_KEY_ID", "key")
     @mock.patch("index_core.files.config.AWS_S3_BUCKETNAME", "bucket")
@@ -135,6 +136,7 @@ class TestFiles(unittest.TestCase):
         self.assertEqual(call_args[3], md5_hash)
 
     @mock.patch("index_core.files.config.STORE_FILES", True)
+    @mock.patch("index_core.files.config.AWS_S3_ENABLED", True)
     @mock.patch("index_core.files.config.AWS_SECRET_ACCESS_KEY", "secret")
     @mock.patch("index_core.files.config.AWS_ACCESS_KEY_ID", "key")
     @mock.patch("index_core.files.config.AWS_S3_BUCKETNAME", "bucket")
