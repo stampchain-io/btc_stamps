@@ -271,6 +271,41 @@ The relevant functions in `database.py` are:
 For a full re-index from genesis, drop/recreate the schema with `table_schema.sql` and let
 the indexer replay from `BLOCK_FIRST_MAINNET` (`CP_STAMP_GENESIS_BLOCK` = 779652).
 
+#### Manual table clear (direct-SQL reindex prep)
+
+When preparing a **manual** reindex directly against the database (rather than via the
+`rollback` task), the block-scoped tables can be cleared from a chosen height. Set
+`@block_index` to the last block you want to **keep + 1** (i.e. the first block to purge).
+Derived tables (`balances`, `owners`) are truncated and rebuilt by the indexer. Prefer the
+`rollback` task above for consensus-sensitive rollbacks; use this only for a deliberate
+manual reindex:
+
+```sql
+SET @block_index = 854359;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- Core tables
+DELETE FROM transactions WHERE block_index >= @block_index;
+DELETE FROM blocks WHERE block_index >= @block_index;
+
+-- Stamp related
+DELETE FROM StampTableV4 WHERE block_index >= @block_index;
+
+-- SRC20 related
+DELETE FROM SRC20 WHERE block_index >= @block_index;
+DELETE FROM SRC20Valid WHERE block_index >= @block_index;
+DELETE FROM balances;  -- Will be rebuilt
+
+-- SRC101 related
+DELETE FROM SRC101 WHERE block_index >= @block_index;
+DELETE FROM SRC101Valid WHERE block_index >= @block_index;
+DELETE FROM src101price WHERE block_index >= @block_index;
+DELETE FROM recipients WHERE block_index >= @block_index;
+DELETE FROM owners;  -- Will be rebuilt
+
+SET FOREIGN_KEY_CHECKS = 1;
+```
+
 ### Rebuild Balances / Owners
 
 SRC-20 balances and SRC-101 owners are derived state, recomputed from the `*Valid` tables

@@ -1,5 +1,10 @@
 # Rust-Python Parser Interface Issues and Recommendations
 
+> **Historical document (status as of 2025-03-05).** This records the Rust/Python parser
+> interface issues investigation and is referenced by the test suite. The current parser
+> behavior is documented in [`indexer/src/rust_parser/README.md`](../src/rust_parser/README.md);
+> treat the analysis below as background history rather than the current state.
+
 ## Overview
 
 This document outlines potential issues identified in the Rust-Python parser interface of the Bitcoin Stamps indexer, along with recommendations for addressing them. The focus is on improving the reliability, performance, and maintainability of the code that handles the conversion between Rust and Python data structures, particularly in batch processing scenarios.

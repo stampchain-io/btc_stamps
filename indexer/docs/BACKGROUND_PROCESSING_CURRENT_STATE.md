@@ -161,4 +161,4 @@ Key metrics to watch:
 
 ## Future Enhancements
 
-The complex unified system from UNIFIED_BACKGROUND_PROCESSING.md could be implemented later if needed, but the simple coordinator approach should be sufficient for current needs.
+A more complex unified background-processing system was considered and could be implemented later if needed, but the simple coordinator approach should be sufficient for current needs.

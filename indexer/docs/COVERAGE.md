@@ -28,7 +28,7 @@ poetry run coverage-quick --html
 ### Available Commands
 
 #### Available Coverage Commands
-- `poetry run coverage` - Standard coverage command (55% threshold)
+- `poetry run coverage` - Standard coverage command (54% threshold)
 - `poetry run coverage-quick` - Quick unit tests only (50% threshold)
 - `poetry run coverage-local` - Enhanced local coverage with test groups
 
@@ -56,7 +56,7 @@ poetry run coverage-local --all-formats
 poetry run coverage-local --parallel --html
 ```
 
-#### 2. **coverage** (Standard coverage - 55% threshold)
+#### 2. **coverage** (Standard coverage - 54% threshold)
 Main coverage runner with flexible format options:
 
 ```bash
@@ -71,7 +71,16 @@ poetry run coverage --all-formats
 
 # With custom threshold
 poetry run coverage --fail-under 80
+
+# Exclude tests requiring infrastructure (e.g. a Bitcoin node)
+poetry run coverage --exclude-markers "requires_bitcoin_node"
+poetry run coverage --exclude-markers "integration or requires_bitcoin_node"
 ```
+
+The standard `coverage` command is **environment-aware**: tests whose
+infrastructure (database / Bitcoin node) is unavailable are skipped
+automatically, and `--exclude-markers` can drop marker groups explicitly. For CI,
+the coverage workflow runs `poetry run coverage --all-formats`.
 
 #### 3. **coverage-quick** (Development - 50% threshold)
 Quick coverage excluding integration tests:
@@ -92,11 +101,12 @@ Main coverage configuration:
 - Report exclusions
 - Output formats
 
-#### `pytest.ini`
-Pytest configuration:
+#### `pyproject.toml`
+Pytest and coverage settings live under the `[tool.pytest.ini_options]` /
+`[tool.coverage.*]` tables in `pyproject.toml` (there is no separate
+`pytest.ini`):
 - Test discovery settings
 - Coverage integration
-- Environment variables
 - Test markers
 
 ### Coverage Reports
