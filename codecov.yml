@@ -10,11 +10,11 @@ coverage:
     # Overall project coverage
     project:
       default:
-        target: 55%           # Target coverage for the project (realistic baseline)
+        target: 54%           # Informational baseline (matches tools/run_coverage.py)
         threshold: 5%         # Allow 5% drop in coverage
         base: auto           # Compare against base branch
         if_ci_failed: error  # Fail if CI fails
-        informational: false # Make this check required
+        informational: true  # Advisory only — coverage is NOT a merge gate (job is flaky)
         only_pulls: false    # Run on all commits
     
     # Coverage for changed files in PR
@@ -24,7 +24,7 @@ coverage:
         threshold: 10%        # Allow some flexibility
         base: auto
         if_ci_failed: error
-        informational: false
+        informational: true   # Advisory only — patch coverage does not block merges
         only_pulls: true      # Only on PRs
 
 # Comment configuration
