@@ -8,7 +8,6 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, cast
 
 import aiohttp
 import requests
-from ratelimit import limits, sleep_and_retry
 
 import config
 from index_core.base64_utils import parse_base64_from_description
@@ -167,13 +166,6 @@ def _parse_retry_after(value) -> float:
         return max(1.0, delta)
     except Exception:
         return 60.0
-
-
-@sleep_and_retry
-@limits(calls=config.CP_RATE_LIMIT, period=1)
-def rate_limited_request(url: str, method: str = "GET", **kwargs) -> requests.Response:
-    """Make a rate-limited request to the given URL."""
-    return requests.request(method, url, **kwargs)
 
 
 #########################################################################

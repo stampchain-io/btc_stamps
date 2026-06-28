@@ -445,7 +445,6 @@ APP_NAME: str = "app"
 CP_RPC_RETRY_COUNT = int(os.environ.get("CP_RPC_RETRY_COUNT", "5"))  # Increased for RDS resilience
 CP_RPC_RETRY_DELAY = int(os.environ.get("CP_RPC_RETRY_DELAY", "3"))  # Increased for RDS resilience
 CP_RPC_TIMEOUT = int(os.environ.get("CP_RPC_TIMEOUT", "45"))  # Increased for RDS latency
-CP_RATE_LIMIT = int(os.environ.get("CP_RATE_LIMIT", "2"))
 CP_MAX_RETRIES = int(os.environ.get("CP_MAX_RETRIES", "5"))
 CP_BASE_DELAY = int(os.environ.get("CP_BASE_DELAY", "1"))
 CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "75"))  # Increased for better throughput
