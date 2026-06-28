@@ -79,6 +79,13 @@ class CPBlocksPipeline:
         # PIPELINE_FETCH_TIMEOUT so operators can adjust without a code change.
         self.fetch_timeout = int(os.environ.get("PIPELINE_FETCH_TIMEOUT", "180"))
         self.failed_fetch_blocks = {}  # Track blocks that failed to fetch with retry count
+        # Issue #838: blocks that permanently exhausted their fetch retries. They are
+        # dropped from the retry queue (the MAIN parser loop fetches anything it truly
+        # needs via its own fallback path) and their failure is logged exactly ONCE,
+        # which prevents the per-cycle ERROR retry storm on the shared Counterparty node.
+        self.dead_blocks = set()  # Permanently-failed prefetch blocks; never retried
+        self.max_dead_blocks = 10000  # Bound memory for the dead-set
+        self.max_fetch_retries = 3  # Prefetch attempts before a block is marked dead
 
         # Fallback mode settings
         self.fallback_mode = fallback_mode
@@ -389,6 +396,94 @@ class CPBlocksPipeline:
             ranges = ranges[:5] + ["..."] + ranges[-5:]
 
         return ", ".join(ranges)
+
+    def _mark_block_dead(self, block, attempts):
+        """Mark a prefetch block as permanently failed (issue #838).
+
+        Logs the failure exactly ONCE and records the block in ``self.dead_blocks`` so
+        it is never re-queued for another retry cycle. The block is intentionally
+        DROPPED rather than retried: the main parser loop fetches any block it actually
+        needs via its own fallback path, so endlessly retrying a dead prefetch block
+        only wastes the shared Counterparty node and floods the logs.
+
+        Callers must hold ``self._blocks_fetch_lock`` (guards failed_fetch_blocks /
+        dead_blocks).
+        """
+        if block in self.dead_blocks:
+            return
+        self.dead_blocks.add(block)
+        logger.error(
+            f"❌ Block {block} permanently failed after {attempts} fetch attempts - "
+            f"dropping from prefetch queue (main loop will fetch on demand if still needed)"
+        )
+        # Bound memory: drop the oldest dead entries once we exceed the cap.
+        if len(self.dead_blocks) > self.max_dead_blocks:
+            for old in sorted(self.dead_blocks)[: self.max_dead_blocks // 2]:
+                self.dead_blocks.discard(old)
+
+    def _prune_and_select_failed_blocks(self, processor_position, fetch_end_block, blocks_already_present):
+        """Prune the retry set and return the failed blocks to retry this cycle (issue #838).
+
+        Pruning rules, applied before any retry is scheduled:
+          (a) blocks the main parser has already advanced PAST
+              (``failed_block < processor_position``) are evicted — they are no longer
+              needed, so retrying them is pure waste and log noise;
+          (b) blocks already marked permanently dead are evicted and never retried;
+          (c) blocks that have exhausted ``max_fetch_retries`` are marked dead (logged
+              once via ``_mark_block_dead``) and dropped from the retry set.
+
+        Returns the list of still-valid failed blocks (within the current fetch window)
+        that should be retried. Does NOT change which CP data is fetched for blocks the
+        parser actually needs — only stops futile retries.
+
+        Callers must hold ``self._blocks_fetch_lock``.
+        """
+        retry_blocks = []
+
+        # (a)/(b) Evict already-passed and permanently-dead blocks up front.
+        stale_evicted = 0
+        for failed_block in list(self.failed_fetch_blocks.keys()):
+            if failed_block < processor_position or failed_block in self.dead_blocks:
+                del self.failed_fetch_blocks[failed_block]
+                stale_evicted += 1
+        if stale_evicted:
+            logger.debug(
+                f"Dropped {stale_evicted} stale/dead block(s) from retry set (processor_at={processor_position})"
+            )
+
+        # Summary of remaining failed blocks (DEBUG to avoid per-cycle log spam).
+        if self.failed_fetch_blocks:
+            failed_summary = {
+                attempts: len([b for b, a in self.failed_fetch_blocks.items() if a == attempts])
+                for attempts in set(self.failed_fetch_blocks.values())
+            }
+            logger.debug(f"Failed blocks summary: {failed_summary} (total: {len(self.failed_fetch_blocks)})")
+
+        for failed_block, attempts in list(self.failed_fetch_blocks.items()):
+            if attempts < self.max_fetch_retries and failed_block not in blocks_already_present:
+                if processor_position <= failed_block <= fetch_end_block:
+                    retry_blocks.append(failed_block)
+                    logger.debug(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
+            elif attempts >= self.max_fetch_retries:
+                # (c) Max retries exceeded - mark permanently dead (logged once) and stop
+                # retrying. Escalate to fallback mode if configured (behavior preserved).
+                self._mark_block_dead(failed_block, attempts)
+
+                if (
+                    self.fallback_mode
+                    and self.fallback_started_at is None
+                    and attempts >= self.fallback_failure_threshold
+                ):
+                    logger.warning(
+                        f"Block {failed_block} exceeded failure threshold "
+                        f"({self.fallback_failure_threshold}) - triggering fallback mode"
+                    )
+                    self._enter_fallback_mode()
+
+                # Remove from the active retry set; it is now tracked in dead_blocks.
+                self.failed_fetch_blocks.pop(failed_block, None)
+
+        return retry_blocks
 
     def stop(self):
         """Stop the background worker thread"""
@@ -1090,40 +1185,15 @@ class CPBlocksPipeline:
                     blocks_already_present = self.blocks_being_fetched.union(existing_in_queue)
                     blocks_to_fetch_now = [b for b in potential_blocks if b not in blocks_already_present]
 
-                    # Add failed blocks that need retry (up to 3 attempts)
-                    # Skip retry logic if we're already in fallback mode
+                    # Add failed blocks that need retry (issue #838: drop already-passed and
+                    # permanently-dead blocks, log permanent failures once).
+                    # Skip retry logic if we're already in fallback mode.
                     if self.fallback_started_at is None:
-                        # Log summary of failed blocks
-                        if self.failed_fetch_blocks:
-                            failed_summary = {
-                                attempts: len([b for b, a in self.failed_fetch_blocks.items() if a == attempts])
-                                for attempts in set(self.failed_fetch_blocks.values())
-                            }
-                            logger.info(f"Failed blocks summary: {failed_summary} (total: {len(self.failed_fetch_blocks)})")
-
-                        for failed_block, attempts in list(self.failed_fetch_blocks.items()):
-                            if attempts < 3 and failed_block not in blocks_already_present:
-                                if failed_block >= processor_position and failed_block <= fetch_end_block:
-                                    blocks_to_fetch_now.append(failed_block)
-                                    logger.info(f"Adding failed block {failed_block} for retry (attempt #{attempts + 1})")
-                            elif attempts >= 3:
-                                # Max retries exceeded
-                                logger.error(f"Block {failed_block} failed {attempts} times - max retries exceeded")
-
-                                # Check if we should trigger fallback mode
-                                if self.fallback_mode and self.fallback_started_at is None:
-                                    if attempts >= self.fallback_failure_threshold:
-                                        logger.warning(
-                                            f"Block {failed_block} exceeded failure threshold ({self.fallback_failure_threshold}) - triggering fallback mode"
-                                        )
-                                        self._enter_fallback_mode()
-                                        # Don't delete from failed_fetch_blocks yet - let fallback handle it
-                                    else:
-                                        # Not at threshold yet, remove from retry list
-                                        del self.failed_fetch_blocks[failed_block]
-                                else:
-                                    # No fallback mode or already in fallback - just remove
-                                    del self.failed_fetch_blocks[failed_block]
+                        blocks_to_fetch_now.extend(
+                            self._prune_and_select_failed_blocks(
+                                processor_position, fetch_end_block, blocks_already_present
+                            )
+                        )
 
                 # CRITICAL: Always prioritize the current processor block if it's missing
                 # This prevents gaps where queue has future blocks but processor is stuck
