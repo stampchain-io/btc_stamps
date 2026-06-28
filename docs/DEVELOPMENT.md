@@ -188,6 +188,32 @@ def test_src20_token_validation():
     assert validator.is_valid
 ```
 
+### Substituting the backend in tests
+
+`index_core.backend.Backend` is a process-wide singleton, and it exposes a
+first-class **injection seam** for swapping in a non-bitcoind backend (e.g. the
+public-endpoint reparse shim) in tests and CI. **Use the seam — do not reassign
+`backend_instance` on individual modules** (any module the reassignment misses
+silently falls through to the real bitcoind RPC and times out).
+
+```python
+from index_core.backend import set_backend_override, clear_backend_override
+
+set_backend_override(MyTestBackend())  # every subsequent Backend() returns it
+clear_backend_override()               # restore the real singleton
+```
+
+Or, import-order-independent (resolves lazily on first `Backend()`):
+
+```bash
+BTC_STAMPS_BACKEND_OVERRIDE="module:ClassName"
+```
+
+The autouse `tests/conftest.py::reset_backend_override` fixture clears the
+override (and env var) before/after every test, so it can never leak across the
+suite. See the seam docstrings in `index_core/backend.py` and the note in
+`indexer/tests/README.md`. (Refs #800, #802.)
+
 ## Debugging Tools
 
 The project includes several debugging tools to analyze transactions:

@@ -131,6 +131,37 @@ The `apply_test_markers.py` tool detects test types based on:
 - Uses `@patch`, `MagicMock`, `Mock()`
 - No database or network patterns detected
 
+## Substituting the backend (test/CI backend override)
+
+`index_core.backend.Backend` is a process-wide singleton and exposes a
+first-class **injection seam** for substituting a non-bitcoind backend (e.g. the
+public-endpoint reparse shim) in tests and CI runners. **Use the seam — never
+reassign `backend_instance` on individual modules**: `Backend` is imported by
+value in many modules, and any module a per-module reassignment misses silently
+falls through to the real bitcoind RPC at `127.0.0.1:8332` and times out. (This
+is what took the Tier 3 reparse from 20/20 to 9/20 before the seam existed.)
+
+Two equivalent entry points:
+
+```python
+# Programmatic — preferred in tests when you control import order:
+from index_core.backend import set_backend_override, clear_backend_override
+
+set_backend_override(MyTestBackend())  # every subsequent Backend() returns it
+clear_backend_override()               # restore the real singleton
+```
+
+```bash
+# Env var — import-order-independent; resolves lazily on first Backend():
+BTC_STAMPS_BACKEND_OVERRIDE="module:ClassName"
+```
+
+The autouse `conftest.py::reset_backend_override` fixture clears `Backend._override`
+and the env var before/after every test, so an override can never leak across the
+suite. CI runner scripts (e.g. `smoke_parser_validation.py`) install the override
+inside `main()` before importing `index_core`, keeping import side-effect-free.
+See the seam docstrings in `index_core/backend.py`. (Refs #800, #802.)
+
 ## Maintaining Test Quality
 
 1. **Check for missing markers**: Run `poetry run python tools/apply_test_markers.py` regularly
