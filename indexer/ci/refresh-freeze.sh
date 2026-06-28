@@ -30,13 +30,19 @@ docker build \
 echo "Dumping resolved pip freeze from container..."
 # --exclude-editable skips the indexer itself (installed as -e /app); we only
 # want to track third-party version drift, not our own canary version bumps.
-# Also drop btc_stamps_parser: it's built locally from src/rust_parser, and
-# the resulting wheel's sha256 is not byte-reproducible until Item 2 of #759
-# (wheel distribution from a release artifact) lands. Its version is tracked
-# in src/rust_parser/Cargo.toml instead.
+#
+# freeze-filter.sh then narrows the dump to the production runtime closure that
+# `poetry install --without dev` actually pins (the poetry.lock main + arweave
+# groups), dropping the poetry/maturin BUILD toolchain that the `builder` stage
+# installs into the same site-packages. Those tooling deps (anyio, httpx, cleo,
+# dulwich, virtualenv, maturin, ...) are unpinned by poetry.lock and flapped on
+# nearly every CI run, making the Freeze Drift Check chronically red. The filter
+# also drops btc_stamps_parser (locally-built Rust wheel; sha256 not byte-
+# reproducible until #759 Item 2; version tracked in src/rust_parser/Cargo.toml).
+# The freeze-drift workflow applies this SAME filter to its live dump.
 docker run --rm "$IMAGE_TAG" pip freeze --all --exclude-editable \
-  | grep -vE '^btc[_-]stamps[_-]parser\b' \
-  | LC_ALL=C sort > "$OUTPUT"
+  | "$REPO_ROOT/indexer/ci/freeze-filter.sh" "$REPO_ROOT/indexer/poetry.lock" \
+  > "$OUTPUT"
 
 echo "Wrote $OUTPUT ($(wc -l < "$OUTPUT") lines)"
 echo "Review with: git diff $OUTPUT"
