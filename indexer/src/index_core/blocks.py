@@ -72,6 +72,7 @@ from index_core.market_data_jobs import start_market_data_jobs
 from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
 from index_core.node_health import is_shutdown_requested, register_shutdown_callback, set_shutdown_flag
+from index_core.perf_log import record_block_perf
 from index_core.pipeline_utils import CPBlocksPipeline
 from index_core.profiling import Profiler
 from index_core.resource_manager import cleanup_resources
@@ -1248,6 +1249,20 @@ def follow(
                     # Reset start_time to ensure accurate timing for each block
                     start_time = time.time()
 
+                    # Optional, consensus-neutral per-block perf logging (off by default).
+                    # All timers/counters are (re)initialised here so the emit path is
+                    # always well-defined regardless of which phases run for this block.
+                    perf_enabled = config.PERF_LOG
+                    if perf_enabled:
+                        perf_block_start = time.perf_counter()
+                        perf_t_fetch = 0.0
+                        perf_t_filter = 0.0
+                        perf_t_decode = 0.0
+                        perf_t_hash = 0.0
+                        perf_t_dbwrite = 0.0
+                        perf_n_txs = 0
+                        perf_n_candidates = 0
+
                     # Start profiling for this block
                     if profiler:
                         profiler.start_block_profiling()
@@ -1600,15 +1615,21 @@ def follow(
                         continue
 
                     # Get block hash and verify
+                    if perf_enabled:
+                        _perf_phase_start = time.perf_counter()
                     block_hash = backend_instance.getblockhash(block_index)
 
                     # Get full block data from backend
                     txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = (
                         backend_instance.get_tx_list(block_hash)
                     )
+                    if perf_enabled:
+                        perf_t_fetch = time.perf_counter() - _perf_phase_start
 
                     # Log transaction counts for debugging
                     bitcoin_tx_count = len(txhash_list_full)
+                    if perf_enabled:
+                        perf_n_txs = bitcoin_tx_count
                     cp_tx_count = 0
                     if (
                         block_index in stamp_issuances_list
@@ -1678,7 +1699,12 @@ def follow(
                     block_data = {
                         "tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]
                     }
+                    if perf_enabled:
+                        _perf_phase_start = time.perf_counter()
                     txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+                    if perf_enabled:
+                        perf_t_filter = time.perf_counter() - _perf_phase_start
+                        perf_n_candidates = len(raw_transactions)
 
                     util.CURRENT_BLOCK_INDEX = block_index
                     progress_watchdog.tick(label=f"block {block_index}")
@@ -1727,6 +1753,8 @@ def follow(
 
                     if block_index < config.BTC_SRC20_GENESIS_BLOCK and not stamp_issuances_list[block_index]:
                         valid_src20_str = ""
+                        if perf_enabled:
+                            _perf_phase_start = time.perf_counter()
                         new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                             db,
                             block_index,
@@ -1734,6 +1762,8 @@ def follow(
                             valid_src20_str,
                             txhash_list,
                         )
+                        if perf_enabled:
+                            perf_t_hash = time.perf_counter() - _perf_phase_start
 
                         stamp_issuances_list.pop(block_index, None)
                         log_block_info(
@@ -1747,7 +1777,27 @@ def follow(
                             0,
                             is_zmq_notification,
                         )
+                        if perf_enabled:
+                            _perf_block_index = block_index
+                            _perf_phase_start = time.perf_counter()
                         block_index = commit_and_update_block(db, block_index, block_tip, 0, block_hash)
+                        if perf_enabled:
+                            perf_t_dbwrite = time.perf_counter() - _perf_phase_start
+                            record_block_perf(
+                                config.PERF_LOG_PATH,
+                                {
+                                    "block_index": _perf_block_index,
+                                    "n_txs": perf_n_txs,
+                                    "n_candidates": perf_n_candidates,
+                                    "t_fetch_ms": round(perf_t_fetch * 1000, 3),
+                                    "t_filter_ms": round(perf_t_filter * 1000, 3),
+                                    "t_decode_ms": round(perf_t_decode * 1000, 3),
+                                    "t_hash_ms": round(perf_t_hash * 1000, 3),
+                                    "t_dbwrite_ms": round(perf_t_dbwrite * 1000, 3),
+                                    "t_total_ms": round((time.perf_counter() - perf_block_start) * 1000, 3),
+                                    "version": config.VERSION_STRING,
+                                },
+                            )
                         profiler.end_block_profiling()  # End profiling for this block
                         # Mark that we've successfully processed at least one block
                         if not first_block_processed:
@@ -1765,6 +1815,8 @@ def follow(
                     prefetch_source_prevouts(raw_transactions)
 
                     # Process transactions in parallel
+                    if perf_enabled:
+                        _perf_phase_start = time.perf_counter()
                     futures = []
                     for tx_hash in raw_transactions:  # Only process transactions we have raw data for
                         future = executor.submit(
@@ -1792,11 +1844,18 @@ def follow(
                     for i, result in enumerate(tx_results):
                         tx_results[i] = result._replace(tx_index=tx_index)
                         tx_index += 1
+                    if perf_enabled:
+                        perf_t_decode = time.perf_counter() - _perf_phase_start
 
                     try:
+                        if perf_enabled:
+                            _perf_phase_start = time.perf_counter()
                         block_processor = BlockProcessor(db)
                         block_processor.insert_transactions(tx_results)
                         block_processor.process_transaction_results(tx_results)
+                        if perf_enabled:
+                            perf_t_dbwrite = time.perf_counter() - _perf_phase_start
+                            _perf_phase_start = time.perf_counter()
 
                         (
                             new_ledger_hash,
@@ -1806,6 +1865,8 @@ def follow(
                             src20_in_block,
                             src101_in_block,
                         ) = block_processor.finalize_block(block_index, block_time, txhash_list, block_tip)
+                        if perf_enabled:
+                            perf_t_hash = time.perf_counter() - _perf_phase_start
 
                         stamp_issuances_list.pop(block_index, None)
                         log_block_info(
@@ -1819,7 +1880,27 @@ def follow(
                             src101_in_block,
                             is_zmq_notification,
                         )
+                        if perf_enabled:
+                            _perf_block_index = block_index
+                            _perf_phase_start = time.perf_counter()
                         block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block, block_hash)
+                        if perf_enabled:
+                            perf_t_dbwrite += time.perf_counter() - _perf_phase_start
+                            record_block_perf(
+                                config.PERF_LOG_PATH,
+                                {
+                                    "block_index": _perf_block_index,
+                                    "n_txs": perf_n_txs,
+                                    "n_candidates": perf_n_candidates,
+                                    "t_fetch_ms": round(perf_t_fetch * 1000, 3),
+                                    "t_filter_ms": round(perf_t_filter * 1000, 3),
+                                    "t_decode_ms": round(perf_t_decode * 1000, 3),
+                                    "t_hash_ms": round(perf_t_hash * 1000, 3),
+                                    "t_dbwrite_ms": round(perf_t_dbwrite * 1000, 3),
+                                    "t_total_ms": round((time.perf_counter() - perf_block_start) * 1000, 3),
+                                    "version": config.VERSION_STRING,
+                                },
+                            )
                         logger.debug(f"After commit: block_index now {block_index}, continuing to next iteration")
 
                         # Mark that we've successfully processed at least one block

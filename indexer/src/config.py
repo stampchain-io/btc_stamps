@@ -99,6 +99,12 @@ DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
 
+# Structured per-block performance logging (off by default, consensus-neutral).
+# When enabled, the follow() loop appends one JSON object per block to
+# PERF_LOG_PATH with per-phase timings for reproducible perf comparison.
+PERF_LOG = os.environ.get("PERF_LOG", "false").lower() == "true"
+PERF_LOG_PATH = os.environ.get("PERF_LOG_PATH", "perf_log.jsonl")
+
 # Consensus error handling
 MAX_CONSENSUS_RETRIES = int(os.environ.get("MAX_CONSENSUS_RETRIES", "3"))  # Maximum retries for consensus hash mismatches
 
