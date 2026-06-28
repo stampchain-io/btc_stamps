@@ -22,6 +22,7 @@ on:
       - 'indexer/poetry.lock'
       - 'indexer/Dockerfile'
       - 'indexer/ci/freeze.prod.lock'
+      - 'indexer/ci/freeze-filter.sh'
       - '.github/workflows/freeze-drift.yml'
   workflow_dispatch:
 
@@ -57,12 +58,19 @@ jobs:
         run: |
           # --exclude-editable skips the indexer itself (-e /app); we track
           # third-party version drift, not our own canary version bumps.
-          # Drop btc_stamps_parser too: it's a locally-built wheel whose
-          # sha256 is not byte-reproducible until #759 Item 2 (wheel
-          # distribution) lands. Its version lives in Cargo.toml.
+          #
+          # freeze-filter.sh narrows the dump to the production runtime closure
+          # that `poetry install --without dev` actually pins (poetry.lock main +
+          # arweave groups), dropping the poetry/maturin BUILD toolchain the
+          # `builder` stage installs into the same site-packages. Those tooling
+          # deps (anyio, httpx, cleo, dulwich, virtualenv, maturin, ...) are
+          # unpinned by poetry.lock and flapped on nearly every run. It also
+          # drops btc_stamps_parser (locally-built wheel; sha256 not byte-
+          # reproducible until #759 Item 2; version lives in Cargo.toml).
+          # refresh-freeze.sh applies this SAME filter to the baseline, so the
+          # two sides compare apples-to-apples.
           docker run --rm btc-stamps-freeze-baseline:tmp pip freeze --all --exclude-editable \
-            | grep -vE '^btc[_-]stamps[_-]parser\b' \
-            | LC_ALL=C sort > /tmp/freeze.actual.lock
+            | indexer/ci/freeze-filter.sh indexer/poetry.lock > /tmp/freeze.actual.lock
           wc -l /tmp/freeze.actual.lock indexer/ci/freeze.prod.lock || true
 
       - name: Diff freeze vs baseline
