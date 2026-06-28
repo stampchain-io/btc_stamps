@@ -24,15 +24,14 @@ This directory contains debug tools for troubleshooting and analyzing the Bitcoi
 | verify_olga_fix.py | Verifies OLGA protocol transition fix | `python verify_olga_fix.py` |
 | scan_issue749_fast.py | Scans the chain for consensus-divergent drops (#749: multisig stamp shadowed by a P2WSH output), using the Rust prefilter + DB diff | `python tools/debug/scan_issue749_fast.py --start 865000 --end 955722` |
 | scan_issue749.py | Slower standalone variant of the #749 scan (burnkey byte-scan + Python classify; no DB needed) | `python tools/debug/scan_issue749.py --start 865000 --end 870000` |
-| perf_probe.py | Per-block indexing profiler (fetch / parse_block / filter / get_tx_info decode) + PREWARM on/off A/B + swap/DB latency (#817) | `python tools/debug/perf_probe.py [block ...]` |
-| probe_phases.py | Fills the write/hash gap left by perf_probe (consensus-hash CPU + realistic DB insert cost via a TEMP table) (#817) | `python tools/debug/probe_phases.py [block ...]` |
+| probe_phases.py | Per-block consensus-hash CPU + realistic DB insert cost via a TEMP table (#817) | `python tools/debug/probe_phases.py [block ...]` |
 
 ### Research / evidence tools (#749, #817)
 
 These were written while diagnosing the #749 consensus bug and profiling per-block performance (#817). They read configuration from the standard environment variables (`RPC_USER`/`RPC_PASSWORD`/`RPC_IP`/`RPC_PORT`, `RDS_HOSTNAME`/`RDS_PORT`/`RDS_USER`/`RDS_PASSWORD`/`RDS_DATABASE`) — no credentials are hard-coded.
 
 - **scan_issue749_fast.py** — for each block, takes the Rust prefilter's accepted candidates, subtracts txids present in `transactions`, and classifies the remainder against the `get_tx_info` decode logic. Used to prove the #749 blast radius (one transaction across the post-OLGA range). Supports `--sleep` to throttle load on a shared bitcoind.
-- **perf_probe.py / probe_phases.py** — the profiling harness behind #817 (the `prev_tx` source-lookup hotspot, the redundant-parse finding, and the PREWARM net-negative result). Read-only; safe to run against a live node/DB.
+- **probe_phases.py** — part of the #817 profiling harness (per-block consensus-hash CPU + realistic DB insert cost). The #817 work surfaced the `prev_tx` source-lookup hotspot (now #818) and the PREWARM net-negative result (removed in #793). Read-only; safe to run against a live node/DB.
 
 ### Deprecated Scripts
 
