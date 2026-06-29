@@ -290,9 +290,7 @@ class TestConsensusHashPerfOptimizations(unittest.TestCase):
         self.assertEqual(found_passed, found_self)
 
         # No blocks SELECT issued when block_row is provided.
-        blocks_selects = [
-            c for c in cursor2.execute.call_args_list if "SELECT" in str(c) and "blocks" in str(c)
-        ]
+        blocks_selects = [c for c in cursor2.execute.call_args_list if "SELECT" in str(c) and "blocks" in str(c)]
         self.assertEqual(blocks_selects, [])
 
     def test_create_check_hashes_fetches_block_row_once(self):
