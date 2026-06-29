@@ -1,10 +1,9 @@
-.PHONY: dev up dup logs down fdown clean explorer prod prod-down config help
+.PHONY: dev up dup logs down fdown clean prod prod-down config help
 
 # ==============================================================================
 # btc_stamps compose targets (canonical base + override structure)
 #
 #   dev / up   -> docker compose up                (base + override.yml, auto)
-#   explorer   -> dev stack + explorer/adminer profile
 #   prod       -> base + docker-compose.prod.yml    (managed RDS; NOT yet deployed)
 #
 # Validation:
@@ -16,7 +15,6 @@ help:
 	@echo "  make dev / make up   Start the local dev stack (indexer + mysql)"
 	@echo "  make dup             Same, detached"
 	@echo "  make logs            Follow indexer logs"
-	@echo "  make explorer        Dev stack + explorer/adminer (profile: explorer)"
 	@echo "  make down            Stop the stack"
 	@echo "  make fdown / clean   Stop, remove volumes, and clean local artifacts"
 	@echo "  make prod            Start the prod overlay (managed RDS; NOT deployed)"
@@ -31,10 +29,6 @@ dup:
 
 logs:
 	docker compose logs -f indexer
-
-# Explorer (app) + adminer UI, opt-in via the `explorer` profile.
-explorer:
-	docker compose --profile explorer up --build -d
 
 down:
 	docker compose down

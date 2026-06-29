@@ -151,16 +151,13 @@ cp .env.example .env.local
 # edit .env.local — set RDS_USER / RDS_PASSWORD / RDS_DATABASE and node RPC creds
 ```
 
-> The explorer (optional, behind the `explorer` profile) additionally expects an
-> `app/` submodule checked out; it reuses the same `.env.local`.
-
 #### Step 2: Run the stack
 
 The compose setup uses one canonical base (`docker-compose.yml`) plus overrides:
 
 - **Development (default):** `docker-compose.override.yml` is applied
-  automatically and brings up the indexer + a local MySQL with persistent
-  `db_data`.
+  automatically and brings up the indexer (on host networking) + a local MySQL
+  with persistent `db_data`.
 - **Production:** `docker-compose.prod.yml` is selected explicitly and targets a
   managed MySQL (RDS/Aurora) with no local database. (Production currently runs
   natively via systemd; the docker-prod path is not yet deployed.)
@@ -172,9 +169,6 @@ docker compose up -d
 # View indexer logs
 docker compose logs -f indexer
 
-# Optional: also start the explorer + adminer admin UI (opt-in profile)
-docker compose --profile explorer up -d
-
 # Stop the stack
 docker compose down
 
@@ -183,7 +177,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 The same flows are available via `make` (`make dev`, `make logs`,
-`make explorer`, `make down`, `make prod`); run `make help` for the full list.
+`make down`, `make prod`); run `make help` for the full list.
 
 #### Development Container Management
 

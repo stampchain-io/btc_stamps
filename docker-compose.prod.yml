@@ -31,6 +31,8 @@ services:
       - RDS_PORT=${RDS_PORT:-3306}
       - RDS_DATABASE=${RDS_DATABASE:-btc_stamps}
       - RDS_USER=${RDS_USER:?set RDS_USER}
-      # RDS_PASSWORD is REQUIRED in prod — supply via process env or ENV_FILE=.env.prod (no literal here)
-      - RDS_PASSWORD=${RDS_PASSWORD}
+      # RDS_PASSWORD is REQUIRED in prod — fail fast if unset. Supply via process
+      # env or ENV_FILE=.env.prod (no literal secret here). The GitGuardian flag
+      # on this `:?` guard was a false positive, resolved on the dashboard.
+      - RDS_PASSWORD=${RDS_PASSWORD:?set RDS_PASSWORD}
       - REPARSE_MODE=${REPARSE_MODE:-false}

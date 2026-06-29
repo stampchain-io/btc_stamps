@@ -5,7 +5,6 @@
 #   dev  (default):  docker compose up
 #                    -> docker-compose.yml + docker-compose.override.yml (auto)
 #   prod (explicit): docker compose -f docker-compose.yml -f docker-compose.prod.yml up
-#   explorer add-on: docker compose --profile explorer up   (dev only)
 #
 # This base holds ONLY what is common to every environment. There are NO literal
 # secrets here: connection details come from ${RDS_*} substitution and from
@@ -13,8 +12,8 @@
 # canonical indexer/Dockerfile.
 #
 # Environment-specific settings live in the override files:
-#   - docker-compose.override.yml -> local dev (persistent db_data, tuning,
-#     STORE_FILES=false, resource caps, explorer/adminer behind a profile)
+#   - docker-compose.override.yml -> local dev (host networking, persistent
+#     db_data, tuning, STORE_FILES=false, resource caps)
 #   - docker-compose.prod.yml     -> managed MySQL (RDS/Aurora), no local mysql
 # ==============================================================================
 services:

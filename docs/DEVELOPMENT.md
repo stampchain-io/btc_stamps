@@ -49,9 +49,6 @@ This guide provides comprehensive information for developers working on the Bitc
    # and loads indexer/table_schema.sql automatically.
    docker compose up -d mysql
 
-   # Optionally also bring up the explorer + adminer admin UI
-   docker compose --profile explorer up -d
-
    # Or initialize an external MySQL manually
    mysql -u <username> -p < indexer/table_schema.sql
    ```
@@ -77,14 +74,11 @@ The stack uses one canonical base (`docker-compose.yml`) plus overrides:
 systemd).
 
 ```bash
-# Start the dev stack (indexer + local MySQL)
+# Start the dev stack (indexer on host networking + local MySQL)
 docker compose up -d        # or: make dev
 
 # View logs
 docker compose logs -f indexer   # or: make logs
-
-# Explorer + adminer UI (opt-in profile)
-docker compose --profile explorer up -d   # or: make explorer
 
 # Stop services
 docker compose down         # or: make down
