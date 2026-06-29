@@ -98,6 +98,12 @@ DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").
 DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
 DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
 DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
+# Mode for the every-1000-block inline consensus check (consensus-neutral; validation tooling only).
+# Only consulted when DEBUG_VALIDATION is enabled.
+#   "db"        -> heavy dev-vs-prod DB diff via tools/compare_tables.py (DEFAULT; preserves prior behavior)
+#   "reference" -> lightweight file-based check against snapshots/reference_hashes.json (no prod-DB dependency)
+#   "both"      -> run both paths and require BOTH to pass
+VALIDATION_MODE = os.getenv("VALIDATION_MODE", "db").lower()
 
 # Structured per-block performance logging (off by default, consensus-neutral).
 # When enabled, the follow() loop appends one JSON object per block to
