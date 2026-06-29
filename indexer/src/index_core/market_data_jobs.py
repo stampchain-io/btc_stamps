@@ -124,8 +124,8 @@ class MarketDataJobScheduler:
 
     def _check_and_start_sales_catchup(self):
         """Check if sales history catchup is needed and start it if necessary."""
-        # Check if sales history catchup is enabled
-        if not os.getenv("ENABLE_SALES_HISTORY_CATCHUP", "true").lower() == "true":
+        # Check if sales history catchup is enabled (single source of truth in config.py)
+        if not config.ENABLE_SALES_HISTORY_CATCHUP:
             logger.info("Sales history catchup is disabled via ENABLE_SALES_HISTORY_CATCHUP=false")
             return
 
@@ -1099,8 +1099,8 @@ def start_sales_history_catchup():
     This runs independently of the full market data scheduler to ensure
     we capture sales data from the beginning, not just when near the tip.
     """
-    # Check if sales history catchup is enabled
-    if not os.getenv("ENABLE_SALES_HISTORY_CATCHUP", "true").lower() == "true":
+    # Check if sales history catchup is enabled (single source of truth in config.py)
+    if not config.ENABLE_SALES_HISTORY_CATCHUP:
         logger.info("Sales history catchup is disabled via ENABLE_SALES_HISTORY_CATCHUP=false")
         return
 

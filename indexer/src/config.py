@@ -111,6 +111,12 @@ MAX_CONSENSUS_RETRIES = int(os.environ.get("MAX_CONSENSUS_RETRIES", "3"))  # Max
 # Market Data Configuration
 ENABLE_MARKET_DATA_SCHEDULER = os.getenv("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
 
+# Single source of truth for the sales-history catchup toggle. Both the sales
+# history processor and the market-data job scheduler read this value so their
+# behavior can never diverge. Public-safe default: disabled (prod sets it
+# explicitly via the ENABLE_SALES_HISTORY_CATCHUP env var).
+ENABLE_SALES_HISTORY_CATCHUP = os.environ.get("ENABLE_SALES_HISTORY_CATCHUP", "false").lower() == "true"
+
 # Logging display configuration
 # Options: "compact", "enhanced", "detailed", "flashy"
 LOG_DISPLAY_MODE = os.environ.get("LOG_DISPLAY_MODE", "enhanced")
