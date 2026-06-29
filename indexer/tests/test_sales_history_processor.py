@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
+import config
 from config import CP_STAMP_GENESIS_BLOCK as STAMPS_GENESIS_BLOCK
 from index_core.database_manager import DatabaseManager
 from index_core.sales_history_processor import SalesHistoryProcessor
@@ -539,10 +540,13 @@ class TestSalesHistoryProcessor:
         mock_cursor.fetchall.return_value = []
         mock_cursor.fetchone.return_value = (0,)
 
-        # Patch the module-level constants that cause early returns
-        with patch.dict(os.environ, {"TESTING": "0"}), patch(
-            "config.ENABLE_SALES_HISTORY_CATCHUP", True
-        ):
+        # Enable catchup explicitly so the FULL_CATCHUP path is exercised
+        # (#840 made the unified default False -> REALTIME unless the flag is
+        # set). Patch the config object the processor dereferences at call time
+        # via patch.object, not a string target: under ``pytest -n auto`` other
+        # tests reload ``config`` and a string target can resolve a different
+        # module object than the one the processor reads (see CLAUDE.md).
+        with patch.dict(os.environ, {"TESTING": "0"}), patch.object(config, "ENABLE_SALES_HISTORY_CATCHUP", True):
             # Start catchup with explicit FULL_CATCHUP mode
             processor.start_catchup_mode(mode="FULL_CATCHUP")
 

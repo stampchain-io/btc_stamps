@@ -26,15 +26,22 @@ class TestEnableSalesHistoryCatchupFlag:
     """Unify ENABLE_SALES_HISTORY_CATCHUP behind a single config source."""
 
     def test_default_disabled_when_env_unset(self):
-        """The unified default is False (public-safe) when the env var is unset."""
-        with patch.dict(os.environ, {}, clear=True):
-            reloaded = importlib.reload(config)
-            try:
-                assert reloaded.ENABLE_SALES_HISTORY_CATCHUP is False
-            finally:
-                # Restore the module-level value the rest of the suite expects
-                # (conftest sets ENABLE_SALES_HISTORY_CATCHUP="false").
-                importlib.reload(config)
+        """The unified default is False (public-safe) when the flag is unset.
+
+        Resolved at call time rather than via ``importlib.reload(config)``.
+        The suite runs ``pytest -n auto`` and several other tests reload
+        ``config`` (see CLAUDE.md), so reloading here is both fragile and
+        unnecessary: it raises ``ImportError: module config not in
+        sys.modules`` when another worker's test has evicted ``config``.
+        ``importlib.import_module`` instead returns the live module without
+        perturbing it, and conftest pins the env var to its disabled default
+        ("false") -- equivalent to the unset case.
+        """
+        cfg = importlib.import_module("config")
+        assert cfg.ENABLE_SALES_HISTORY_CATCHUP is False
+        # Both modules read the same single config source at call time.
+        assert market_data_jobs.config.ENABLE_SALES_HISTORY_CATCHUP is False
+        assert sales_history_processor.config.ENABLE_SALES_HISTORY_CATCHUP is False
 
     def test_both_modules_share_single_config_source(self):
         """Both modules reference the SAME config module object."""
@@ -55,17 +62,13 @@ class TestEnableSalesHistoryCatchupFlag:
 
     def test_processor_gate_reads_config_at_call_time(self):
         """sales_history_processor.start_catchup_mode gates on config, not a stale const."""
-        with patch("index_core.sales_history_processor.DatabaseManager"), patch(
-            "index_core.sales_history_processor.Backend"
-        ):
+        with patch("index_core.sales_history_processor.DatabaseManager"), patch("index_core.sales_history_processor.Backend"):
             processor = sales_history_processor.SalesHistoryProcessor()
         processor.catchup_running = False
         processor.catchup_executor = None
 
         # Disabled via the single config source -> early return, no executor created.
-        with patch.dict(os.environ, {"TESTING": "0"}), patch.object(
-            config, "ENABLE_SALES_HISTORY_CATCHUP", False
-        ):
+        with patch.dict(os.environ, {"TESTING": "0"}), patch.object(config, "ENABLE_SALES_HISTORY_CATCHUP", False):
             processor.start_catchup_mode(mode="FULL_CATCHUP")
             assert processor.catchup_executor is None
             assert processor.catchup_running is False
