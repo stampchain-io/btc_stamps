@@ -10,11 +10,12 @@ Functions:
     filter_block_transactions(): Filter transactions based on genesis status and patterns
 """
 
+import json
 import logging
 import os
 import subprocess
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import config
 import index_core.check as check
@@ -86,10 +87,29 @@ def create_check_hashes(
 
 
 def validate_block_against_production(block_index: int) -> bool:
-    """Run the compare_tables script to validate against production."""
+    """Dispatch the every-1000-block inline consensus check per VALIDATION_MODE.
+
+    Consensus-NEUTRAL: validation tooling only; does NOT change indexer
+    output/decode/hashes. Kept under the original name so the blocks.py call
+    site is unchanged. Halt-on-False semantics are preserved for every mode:
+      * "db"        -> compare_tables dev-vs-prod DB diff (DEFAULT; unchanged)
+      * "reference" -> lightweight file-based reference_hashes.json check
+      * "both"      -> run both paths and require BOTH to pass (logical AND)
+    Any unrecognized value falls back to the default "db" path.
+    """
     if not config.DEBUG_VALIDATION:
         return True
 
+    mode = getattr(config, "VALIDATION_MODE", "db")
+    if mode == "reference":
+        return validate_block_against_reference(block_index)
+    if mode == "both":
+        return _validate_block_against_production_db(block_index) and validate_block_against_reference(block_index)
+    return _validate_block_against_production_db(block_index)
+
+
+def _validate_block_against_production_db(block_index: int) -> bool:
+    """Run the compare_tables script to validate against production."""
     block_logger = logging.getLogger("validate_block")
     block_logger.info(f"Validating block {block_index} against production database...")
 
@@ -136,6 +156,127 @@ def validate_block_against_production(block_index: int) -> bool:
     except Exception as e:
         block_logger.error(f"Error running validation: {str(e)}")
         return True
+
+
+# ---------------------------------------------------------------------------
+# Optional file-based inline validation (consensus-NEUTRAL — validation tooling
+# only; does NOT change indexer output/decode/hashes).
+#
+# A lightweight alternative to the heavy dev-vs-prod compare_tables.py DB diff:
+# the every-1000-block check can instead compare the indexer's stored block
+# hashes against the ``snapshots/reference_hashes.json`` checkpoint file (the
+# same source validate_hashes.py uses), removing the prod-DB dependency so
+# validation can run off-host. Selected via ``config.VALIDATION_MODE``
+# (default "db" preserves the prior compare_tables behavior).
+# ---------------------------------------------------------------------------
+
+# Module-level cache for the parsed reference_hashes.json so it is read at most
+# once per process (mirrors the cheapness requirement of the 1000-block check).
+_REFERENCE_HASHES_CACHE: Optional[Dict[str, Dict[str, str]]] = None
+
+
+def _reference_hashes_path() -> str:
+    """Resolve snapshots/reference_hashes.json relative to the indexer root.
+
+    block_validation.py lives at ``indexer/src/index_core/`` so three dirname()
+    hops reach the indexer root — the same hop count compare_tables resolution
+    uses to find ``tools/``.
+    """
+    indexer_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    return os.path.join(indexer_root, "snapshots", "reference_hashes.json")
+
+
+def _load_reference_hashes() -> Dict[str, Dict[str, str]]:
+    """Load and cache the ``hashes`` map from reference_hashes.json (once)."""
+    global _REFERENCE_HASHES_CACHE
+    if _REFERENCE_HASHES_CACHE is None:
+        path = _reference_hashes_path()
+        with open(path, "r") as f:
+            data = json.load(f)
+        _REFERENCE_HASHES_CACHE = data.get("hashes", {})
+    return _REFERENCE_HASHES_CACHE
+
+
+def _read_block_hashes(block_index: int) -> Optional[Dict[str, Optional[str]]]:
+    """Read the stored consensus hashes for ``block_index`` from the dev DB.
+
+    Reuses the indexer's configured connection pool (no extra credentials) and
+    returns the same columns validate_hashes.py compares, or None if the block
+    row is absent.
+    """
+    # Lazy import to avoid any import-time coupling to the database pool.
+    from index_core.database import db_manager
+
+    db = db_manager.connect()
+    with db.cursor() as cursor:
+        cursor.execute(
+            "SELECT block_hash, ledger_hash, txlist_hash, messages_hash FROM blocks WHERE block_index = %s",
+            (block_index,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "block_hash": row[0],
+        "ledger_hash": row[1],
+        "txlist_hash": row[2],
+        "messages_hash": row[3],
+    }
+
+
+def validate_block_against_reference(block_index: int) -> bool:
+    """Validate a block's stored hashes against snapshots/reference_hashes.json.
+
+    Mirrors validate_hashes.py field handling (ledger_hash may be ""). Returns:
+      * True  on a full match,
+      * True  (non-fatal) when the block is absent from the reference file
+              (i.e. the tail beyond the snapshot) or absent from the dev DB,
+              logging a warning so the tail never false-halts,
+      * False on a real hash mismatch.
+    """
+    block_logger = logging.getLogger("validate_block")
+    block_logger.info(f"Validating block {block_index} against reference_hashes.json...")
+
+    try:
+        ref_hashes = _load_reference_hashes()
+    except Exception as e:
+        # Tooling failure must never false-halt a consensus reindex.
+        block_logger.warning(f"Could not load reference_hashes.json ({e}); skipping reference validation")
+        return True
+
+    expected = ref_hashes.get(str(block_index))
+    if expected is None:
+        block_logger.warning(
+            f"Block {block_index} not present in reference_hashes.json "
+            f"(beyond snapshot tail); skipping reference validation"
+        )
+        return True
+
+    actual = _read_block_hashes(block_index)
+    if actual is None:
+        block_logger.warning(f"Block {block_index} not found in dev blocks table; skipping reference validation")
+        return True
+
+    mismatches: List[Tuple[str, Optional[str], Optional[str]]] = []
+    # txlist_hash / messages_hash / block_hash are always present in the file;
+    # ledger_hash may be "" (genesis-era blocks) — only compared when non-empty.
+    for field in ("txlist_hash", "messages_hash", "block_hash"):
+        exp = expected.get(field)
+        if exp and exp != actual.get(field):
+            mismatches.append((field, exp, actual.get(field)))
+
+    exp_ledger = expected.get("ledger_hash")
+    if exp_ledger and exp_ledger != (actual.get("ledger_hash") or ""):
+        mismatches.append(("ledger_hash", exp_ledger, actual.get("ledger_hash")))
+
+    if mismatches:
+        block_logger.error(f"Reference validation failed at block {block_index}")
+        for field, exp, act in mismatches:
+            block_logger.error(f"  {field} mismatch: expected={exp} actual={act}")
+        return False
+
+    block_logger.info(f"Block {block_index} reference validation successful")
+    return True
 
 
 def filter_block_transactions(block_data, stamp_issuances=None):
