@@ -541,7 +541,7 @@ class TestSalesHistoryProcessor:
 
         # Patch the module-level constants that cause early returns
         with patch.dict(os.environ, {"TESTING": "0"}), patch(
-            "index_core.sales_history_processor.ENABLE_SALES_HISTORY_CATCHUP", True
+            "config.ENABLE_SALES_HISTORY_CATCHUP", True
         ):
             # Start catchup with explicit FULL_CATCHUP mode
             processor.start_catchup_mode(mode="FULL_CATCHUP")

@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
+import config
 from config import CP_STAMP_GENESIS_BLOCK
 from index_core.backend import Backend
 from index_core.database_manager import DatabaseManager
@@ -29,8 +30,8 @@ MAX_WORKERS = int(os.environ.get("SALES_HISTORY_MAX_WORKERS", "3"))  # Concurren
 MAX_PAGES = 30  # Stop after 30 pages for memory management
 RATE_LIMIT = float(os.environ.get("SALES_HISTORY_RATE_LIMIT", "1.0"))  # API requests per second
 
-# Enable/disable catchup process
-ENABLE_SALES_HISTORY_CATCHUP = os.environ.get("ENABLE_SALES_HISTORY_CATCHUP", "false").lower() == "true"
+# Enable/disable catchup process: read config.ENABLE_SALES_HISTORY_CATCHUP at
+# call time (single source of truth in config.py).
 
 # Force rebuild from genesis
 FORCE_SALES_HISTORY_REBUILD = os.environ.get("FORCE_SALES_HISTORY_REBUILD", "false").lower() == "true"
@@ -241,7 +242,7 @@ class SalesHistoryProcessor:
             logger.debug("Skipping sales history catchup in test environment")
             return
 
-        if not ENABLE_SALES_HISTORY_CATCHUP:
+        if not config.ENABLE_SALES_HISTORY_CATCHUP:
             logger.debug("Sales history catchup is disabled")
             return
 
