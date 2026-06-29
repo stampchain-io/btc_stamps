@@ -5,10 +5,12 @@ import warnings
 from unittest.mock import MagicMock, Mock, patch
 
 import config
+import index_core.util as util
 from index_core.check import (
     CHECKPOINTS_MAINNET,
     CHECKPOINTS_REGTEST,
     CHECKPOINTS_TESTNET,
+    CONSENSUS_HASH_VERSION_MAINNET,
     ConsensusError,
     VersionError,
     VersionUpdateRequiredError,
@@ -225,6 +227,98 @@ class TestConsensusHash(unittest.TestCase):
         calculated, found = consensus_hash(self.db, 800000, "ledger_hash", "previous_hash", "")
 
         self.assertEqual(calculated, "")
+
+
+class TestConsensusHashPerfOptimizations(unittest.TestCase):
+    """Output-neutrality tests for the consensus-hash perf optimizations (Refs #817).
+
+    Covers (a) dropping the no-op "".join(content), (b) the optional block_row
+    de-dup of the per-block blocks SELECT, and (c) create_check_hashes fetching
+    the block row once for all 3 per-block consensus_hash calls.
+    """
+
+    def setUp(self):
+        self.db = Mock()
+        self.cursor = Mock()
+        self.db.cursor.return_value = self.cursor
+
+    @patch("index_core.check.config.TESTNET", False)
+    @patch("index_core.check.config.REGTEST", False)
+    @patch("index_core.check.config.BLOCK_FIELDS_POSITION", {"txlist_hash": 5})
+    @patch("index_core.check.CHECKPOINTS_MAINNET", {})
+    def test_join_noop_is_byte_identical_for_string_content(self):
+        """(a) For string content (the only kind on the consensus path, #803),
+        "".join(content) == content, so the calculated hash is unchanged."""
+        content = str([{"stamp_number": 1}, {"stamp_number": 2}])
+        previous = "a" * 64
+        version = CONSENSUS_HASH_VERSION_MAINNET
+
+        # The exact pre-change vs post-change expression, with REAL hashing.
+        old_form = util.dhash_string(previous + "{}{}".format(version, "".join(content)))
+        new_form = util.dhash_string(previous + "{}{}".format(version, content))
+        self.assertEqual(old_form, new_form)
+
+        # And the function itself now produces that identical value.
+        self.cursor.fetchall.return_value = []  # no existing row -> save path
+        calculated, found = consensus_hash(self.db, 850000, "txlist_hash", previous, content)
+        self.assertEqual(calculated, new_form)
+        self.assertEqual(calculated, old_form)
+        self.assertIsNone(found)
+
+    @patch("index_core.check.config.TESTNET", False)
+    @patch("index_core.check.config.REGTEST", False)
+    @patch("index_core.check.config.BLOCK_FIELDS_POSITION", {"messages_hash": 6})
+    def test_block_row_matches_self_fetch_and_skips_select(self):
+        """(b) A passed block_row yields the same found_hash as the self-fetch
+        path and issues no blocks SELECT."""
+        row = [None] * 10
+        row[6] = "existing_messages_hash"
+        row = tuple(row)
+
+        with patch("index_core.check.util.dhash_string", return_value="calc"):
+            # Self-fetch path (backward-compatible: no block_row passed).
+            self.cursor.fetchall.return_value = [row]
+            _, found_self = consensus_hash(self.db, 800000, "messages_hash", "prev", "content")
+
+            # Passed-row path on a fresh cursor that returns nothing if queried.
+            cursor2 = Mock()
+            db2 = Mock()
+            db2.cursor.return_value = cursor2
+            _, found_passed = consensus_hash(db2, 800000, "messages_hash", "prev", "content", block_row=row)
+
+        self.assertEqual(found_self, "existing_messages_hash")
+        self.assertEqual(found_passed, found_self)
+
+        # No blocks SELECT issued when block_row is provided.
+        blocks_selects = [
+            c for c in cursor2.execute.call_args_list if "SELECT" in str(c) and "blocks" in str(c)
+        ]
+        self.assertEqual(blocks_selects, [])
+
+    def test_create_check_hashes_fetches_block_row_once(self):
+        """(c) create_check_hashes fetches the block row exactly once and shares
+        it across all 3 per-block consensus_hash calls."""
+        from index_core import block_validation
+
+        db = Mock()
+        cursor = Mock()
+        db.cursor.return_value = cursor
+        row = ("r",) * 10
+        cursor.fetchall.return_value = [row]
+
+        with patch.object(block_validation.check, "consensus_hash", return_value=("new", "found")) as mock_ch, patch.object(
+            block_validation, "update_block_hashes"
+        ):
+            block_validation.create_check_hashes(db, 800000, [], [], ["txhash"])
+
+        # Exactly one blocks SELECT for the whole block.
+        blocks_selects = [c for c in cursor.execute.call_args_list if "SELECT" in str(c) and "blocks" in str(c)]
+        self.assertEqual(len(blocks_selects), 1)
+
+        # All 3 calls share the same fetched row via block_row.
+        self.assertEqual(mock_ch.call_count, 3)
+        for call in mock_ch.call_args_list:
+            self.assertEqual(call.kwargs.get("block_row"), row)
 
 
 class TestCheckpoints(unittest.TestCase):

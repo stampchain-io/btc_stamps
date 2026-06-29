@@ -56,22 +56,31 @@ def create_check_hashes(
     Returns:
         tuple: A tuple containing the new ledger hash, transaction list hash, and messages hash.
     """
+    # Fetch the block row once and share it across the 3 per-block consensus_hash
+    # calls below. consensus_hash only reads found_hash (per-field) from this row;
+    # the per-call UPDATEs touch a different column than each call reads, so the row
+    # is byte-identical whether fetched once up front or 3x inline. Output-neutral.
+    cursor = db.cursor()
+    cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
+    block_results = cursor.fetchall()
+    block_row = block_results[0] if block_results else None
+
     # Filter out None values before sorting
     filtered_stamps = [stamp for stamp in valid_stamps_in_block if stamp is not None]
     sorted_valid_stamps = sorted(filtered_stamps, key=lambda x: x.get("stamp_number", 0))
     txlist_content = str(sorted_valid_stamps)
     new_txlist_hash, found_txlist_hash = check.consensus_hash(
-        db, block_index, "txlist_hash", previous_txlist_hash, txlist_content
+        db, block_index, "txlist_hash", previous_txlist_hash, txlist_content, block_row=block_row
     )
 
     ledger_content = str(processed_src20_in_block)
     new_ledger_hash, found_ledger_hash = check.consensus_hash(
-        db, block_index, "ledger_hash", previous_ledger_hash, ledger_content
+        db, block_index, "ledger_hash", previous_ledger_hash, ledger_content, block_row=block_row
     )
 
     messages_content = str(txhash_list)
     new_messages_hash, found_messages_hash = check.consensus_hash(
-        db, block_index, "messages_hash", previous_messages_hash, messages_content
+        db, block_index, "messages_hash", previous_messages_hash, messages_content, block_row=block_row
     )
 
     try:
