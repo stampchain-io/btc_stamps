@@ -110,52 +110,55 @@ def main():
         return
     print(f"processing {len(ticks)} tick(s)")
 
+    # Flush async uploads per tick: the unbounded upload queue would otherwise buffer the
+    # whole run (~1.2M SVGs) in memory. Per-tick commit also checkpoints progress.
+    flush_async = (not args.dry_run) and s3_enabled and config.USE_ASYNC_UPLOADS
     regenerated = 0
-    manifest = []
-    for tick in ticks:
-        cursor.execute(
-            "SELECT tx_hash, p, op, tick, amt, lim, max FROM SRC20Valid WHERE tick = %s",
-            (tick,),
-        )
-        rows = cursor.fetchall()
-        for tx_hash, p, op, row_tick, amt, lim, mx in rows:
-            svg = build_src20_svg_string(
-                db,
-                {
-                    "p": p.upper(),
-                    "op": op.upper(),
-                    "tick": row_tick.upper(),
-                    "amt": int(amt) if amt else amt,
-                    "lim": lim,
-                    "max": mx,
-                },
+    manifest_count = 0
+    manifest_f = open(args.manifest, "w")
+    try:
+        for i, tick in enumerate(ticks, 1):
+            cursor.execute(
+                "SELECT tx_hash, p, op, tick, amt, lim, max FROM SRC20Valid WHERE tick = %s",
+                (tick,),
             )
-            if isinstance(svg, str):
-                svg = svg.encode("utf-8")
-            filename = f"{tx_hash}.svg"
-            manifest.append(f"https://{config.DOMAINNAME}/stamps/{filename}")
-            if not args.dry_run:
-                file_obj_md5, _ = store_files(db, filename, svg, STAMP_MIMETYPE)
-                cursor.execute(
-                    "UPDATE StampTableV4 SET file_hash = %s, file_size_bytes = %s WHERE tx_hash = %s",
-                    (file_obj_md5, len(svg), tx_hash),
+            rows = cursor.fetchall()
+            for tx_hash, p, op, row_tick, amt, lim, mx in rows:
+                svg = build_src20_svg_string(
+                    db,
+                    {
+                        "p": p.upper(),
+                        "op": op.upper(),
+                        "tick": row_tick.upper(),
+                        "amt": int(amt) if amt else amt,
+                        "lim": lim,
+                        "max": mx,
+                    },
                 )
-            regenerated += 1
-        print(f"  {tick}: {len(rows)} stamp(s)")
-
-    if not args.dry_run:
-        db.commit()
-        # store_files queues async uploads on a background worker; flush them before exit,
-        # otherwise the process ends with uploads (and their s3objects updates) still pending.
-        if s3_enabled and config.USE_ASYNC_UPLOADS:
-            print("flushing async uploads...")
-            wait_for_uploads()
+                if isinstance(svg, str):
+                    svg = svg.encode("utf-8")
+                filename = f"{tx_hash}.svg"
+                manifest_f.write(f"https://{config.DOMAINNAME}/stamps/{filename}\n")
+                manifest_count += 1
+                if not args.dry_run:
+                    file_obj_md5, _ = store_files(db, filename, svg, STAMP_MIMETYPE)
+                    cursor.execute(
+                        "UPDATE StampTableV4 SET file_hash = %s, file_size_bytes = %s WHERE tx_hash = %s",
+                        (file_obj_md5, len(svg), tx_hash),
+                    )
+                regenerated += 1
+            if not args.dry_run:
+                db.commit()
+                if flush_async:
+                    wait_for_uploads()  # drain this tick's uploads before the next -> bounded memory
+            print(f"  [{i}/{len(ticks)}] {tick}: {len(rows)} stamp(s)  (total {regenerated})")
+    finally:
+        manifest_f.close()
+        if flush_async:
             stop_upload_worker()
-    with open(args.manifest, "w") as f:
-        f.write("\n".join(manifest) + ("\n" if manifest else ""))
-    db.close()
+        db.close()
     action = "would regenerate" if args.dry_run else "regenerated"
-    print(f"{action} {regenerated} SVG(s); wrote {len(manifest)} URLs to {args.manifest}")
+    print(f"{action} {regenerated} SVG(s); wrote {manifest_count} URLs to {args.manifest}")
     if not args.dry_run and s3_enabled:
         print("NEXT: purge these URLs (or the /stamps/ path) from Cloudflare so clients drop the immutable cache.")
 
