@@ -566,7 +566,10 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         # SRC-20 via MULTISIG
         # This prioritizes P2WSH over CHECKMULTISIG in a mixed transaction
         # To be deprecated in a future block height over P2WSH for all SRC-20 transactions
-        # Important: Continue to process MULTISIG data even if P2WSH data is present but invalid
+        # NOTE: this is `elif`, so once a P2WSH data chunk is present the MULTISIG branch is
+        # intentionally NOT attempted -- even when the P2WSH data fails its length check. That
+        # exclusion is consensus-load-bearing (matches the stampscan reference implementation);
+        # adding a MULTISIG fallback here would fork consensus. See issue #749 (WONTFIX).
         elif pubkeys_compiled:
             chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
             try:
