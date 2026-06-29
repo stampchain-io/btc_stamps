@@ -65,6 +65,12 @@ def parse_args():
         "Use when every targeted file changed (e.g. --all-webp) to avoid a full-bucket list.",
     )
     p.add_argument(
+        "--shard",
+        default=None,
+        help="process only shard i of M of the resolved ticks (e.g. 3/8). Lets several "
+        "processes run disjoint subsets in parallel against a robust DB.",
+    )
+    p.add_argument(
         "--manifest",
         default="update_bg_purge_urls.txt",
         help="file to write regenerated stamp URLs for the Cloudflare purge step",
@@ -84,9 +90,18 @@ def connect():
 
 def resolve_ticks(cursor, args):
     if args.all_webp:
-        cursor.execute("SELECT tick FROM srcbackground WHERE base64 LIKE 'image/webp%' AND p = 'SRC-20'")
-        return [r[0] for r in cursor.fetchall()]
-    return args.ticks
+        # ORDER BY so every shard sees the same ordering and the i::M slices partition cleanly.
+        cursor.execute("SELECT tick FROM srcbackground WHERE base64 LIKE 'image/webp%' AND p = 'SRC-20' ORDER BY tick")
+        ticks = [r[0] for r in cursor.fetchall()]
+    else:
+        ticks = list(args.ticks)
+    # de-dup (preserve order) so shards are strictly disjoint -- avoids two shards racing the same S3 keys.
+    ticks = list(dict.fromkeys(ticks))
+    if args.shard:
+        i, m = (int(x) for x in args.shard.split("/"))
+        ticks = ticks[i::m]
+        print(f"shard {i}/{m}: {len(ticks)} tick(s)")
+    return ticks
 
 
 def main():
