@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -47,7 +48,7 @@ _MIN_INTERVAL = float(os.environ.get("CI_BLOCKSTREAM_MIN_INTERVAL", "0.6"))
 _last_request_at = [0.0]
 
 
-def _http_get(url: str, timeout: int = 30, retries: int = 10) -> bytes:
+def _http_get(url: str, timeout: int = 60, retries: int = 10) -> bytes:
     # blockstream.info rate-limits (HTTP 429). Two-pronged resilience: (1) a
     # global min-interval throttle to avoid provoking 429 in the first place,
     # and (2) capped exponential backoff that retries transient 429/503 hard so
@@ -68,6 +69,15 @@ def _http_get(url: str, timeout: int = 30, retries: int = 10) -> bytes:
             if e.code not in (429, 503):
                 raise
             time.sleep(min(45, 3 * (attempt + 1)))
+        except (socket.timeout, TimeoutError, ConnectionError) as e:
+            # On py>=3.10 a socket read timeout raises bare TimeoutError
+            # (== socket.timeout), which is NOT a urllib URLError/HTTPError, so
+            # without this branch a transient read timeout would escape the
+            # retry loop and fail the whole reparse job (the recurring flaky
+            # "Reparse Consensus Validation" timeout). Retry it with the same
+            # capped exponential backoff as other transient network errors.
+            last_err = e
+            time.sleep(min(30, 2**attempt))
         except urllib.error.URLError as e:  # type: ignore[attr-defined]
             last_err = e
             time.sleep(min(30, 2**attempt))
