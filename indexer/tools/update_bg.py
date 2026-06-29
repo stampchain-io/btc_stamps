@@ -37,6 +37,7 @@ for _name in (".env.local", ".env"):
     load_dotenv(dotenv_path=os.path.join(_INDEXER_DIR, _name))
 
 import config  # noqa: E402
+from index_core.async_upload import stop_upload_worker, wait_for_uploads  # noqa: E402
 from index_core.aws import get_s3_objects  # noqa: E402
 from index_core.src20 import build_src20_svg_string  # noqa: E402
 from index_core.stamp import store_files  # noqa: E402
@@ -57,6 +58,12 @@ def parse_args():
         help="regenerate every tick whose srcbackground is now image/webp (the converted set)",
     )
     p.add_argument("--dry-run", action="store_true", help="report counts/sizes only; no S3 upload, no DB write")
+    p.add_argument(
+        "--no-s3-dedup",
+        action="store_true",
+        help="skip enumerating existing S3 objects; treat every file as new (overwrite). "
+        "Use when every targeted file changed (e.g. --all-webp) to avoid a full-bucket list.",
+    )
     p.add_argument(
         "--manifest",
         default="update_bg_purge_urls.txt",
@@ -92,7 +99,10 @@ def main():
     if not args.dry_run and not s3_enabled:
         print("WARNING: S3 storage is disabled (STORE_FILES/AWS_S3_* unset) -- will update DB only, no upload.")
     if not args.dry_run and s3_enabled:
-        config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
+        if args.no_s3_dedup:
+            config.S3_OBJECTS = {}  # every upload treated as new -> overwrite; no bucket enumeration
+        else:
+            config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
     ticks = resolve_ticks(cursor, args)
     if not ticks:
@@ -135,6 +145,12 @@ def main():
 
     if not args.dry_run:
         db.commit()
+        # store_files queues async uploads on a background worker; flush them before exit,
+        # otherwise the process ends with uploads (and their s3objects updates) still pending.
+        if s3_enabled and config.USE_ASYNC_UPLOADS:
+            print("flushing async uploads...")
+            wait_for_uploads()
+            stop_upload_worker()
     with open(args.manifest, "w") as f:
         f.write("\n".join(manifest) + ("\n" if manifest else ""))
     db.close()
