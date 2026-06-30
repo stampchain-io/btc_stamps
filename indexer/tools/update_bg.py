@@ -71,6 +71,13 @@ def parse_args():
         "processes run disjoint subsets in parallel against a robust DB.",
     )
     p.add_argument(
+        "--flush-every",
+        type=int,
+        default=500,
+        help="drain queued uploads every N stamps (bounds memory; the upload queue is unbounded "
+        "and the single worker drains slower than SVGs are produced). Default 500.",
+    )
+    p.add_argument(
         "--manifest",
         default="update_bg_purge_urls.txt",
         help="file to write regenerated stamp URLs for the Cloudflare purge step",
@@ -130,7 +137,7 @@ def main():
     flush_async = (not args.dry_run) and s3_enabled and config.USE_ASYNC_UPLOADS
     regenerated = 0
     manifest_count = 0
-    manifest_f = open(args.manifest, "w")
+    manifest_f = open(args.manifest, "w", buffering=1)  # line-buffered: real-time progress visibility
     try:
         for i, tick in enumerate(ticks, 1):
             cursor.execute(
@@ -162,11 +169,16 @@ def main():
                         (file_obj_md5, len(svg), tx_hash),
                     )
                 regenerated += 1
+                # Hard memory bound: drain the queue every N stamps regardless of tick size.
+                if flush_async and regenerated % args.flush_every == 0:
+                    db.commit()
+                    wait_for_uploads()
+                    print(f"  ...{regenerated} uploaded", flush=True)
             if not args.dry_run:
                 db.commit()
                 if flush_async:
-                    wait_for_uploads()  # drain this tick's uploads before the next -> bounded memory
-            print(f"  [{i}/{len(ticks)}] {tick}: {len(rows)} stamp(s)  (total {regenerated})")
+                    wait_for_uploads()  # drain remainder of this tick before the next
+            print(f"  [{i}/{len(ticks)}] {tick}: {len(rows)} stamp(s)  (total {regenerated})", flush=True)
     finally:
         manifest_f.close()
         if flush_async:
