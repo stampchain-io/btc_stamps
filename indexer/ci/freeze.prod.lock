@@ -68,6 +68,6 @@ six==1.17.0
 toml==0.10.2
 toolz==1.0.0
 types-python-dateutil==2.9.0.20241206
-typing_extensions==4.13.2
+typing_extensions==4.15.0
 urllib3==2.6.3
 yarl==1.20.0
