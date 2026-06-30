@@ -8,6 +8,7 @@ import logging
 import os
 import threading
 import time
+import weakref
 
 import config
 from index_core.backend import Backend
@@ -30,6 +31,15 @@ class CPBlocksPipeline:
 
     # Cleanup interval for stuck fetches (in seconds)
     CLEANUP_INTERVAL_SECONDS = 10
+
+    # Weak registry of all live pipeline instances. The background fetch worker
+    # runs as a daemon thread, so a pipeline that is started but never stopped
+    # (e.g. in a test) leaves that thread alive into interpreter shutdown, where
+    # it can do I/O on closed std streams and abort the process with SIGABRT
+    # (issue #842). This registry lets the test suite locate and stop any leaked
+    # pipelines at teardown. It is weak-referenced and never read in production,
+    # so it has no effect on indexing/consensus behavior.
+    _instances: "weakref.WeakSet" = weakref.WeakSet()
 
     def __init__(
         self,
@@ -139,6 +149,10 @@ class CPBlocksPipeline:
         self.last_health_check = 0  # Check every 30 seconds when in fallback
         self.health_check_interval = 30
 
+        # Track this instance so leaked background workers can be stopped at
+        # test teardown and never survive into interpreter shutdown (issue #842).
+        CPBlocksPipeline._instances.add(self)
+
     def start(self, start_block):
         """Start the background worker thread"""
         if start_block is None:
@@ -214,7 +228,7 @@ class CPBlocksPipeline:
         self.shutdown_flag.clear()
         self.initial_blocks_ready.clear()
 
-        self.worker_thread = threading.Thread(target=self._fetch_blocks_worker, daemon=True)
+        self.worker_thread = threading.Thread(target=self._fetch_blocks_worker, name="cp-blocks-fetch-worker", daemon=True)
         self.worker_thread.start()
         logger.debug(f"Started CP blocks pipeline from block {start_block}")
 

@@ -164,20 +164,25 @@ def test_fallback_state_clear_after_rollback(temp_db, mock_backend, mock_node_he
         mock_node_health[1].return_value = ["http://healthy-node:4000"]  # mock_get returns healthy nodes
 
         # Simulate starting the pipeline (which should trigger rollback)
-        with patch("src.config.CP_STAMP_GENESIS_BLOCK", 0):
-            pipeline.start(12340)
+        try:
+            with patch("src.config.CP_STAMP_GENESIS_BLOCK", 0):
+                pipeline.start(12340)
 
-        # Verify rollback was called
-        mock_rollback.assert_called_once_with(12345)
+            # Verify rollback was called
+            mock_rollback.assert_called_once_with(12345)
 
-        # Verify state was cleared (should remain cleared since we have healthy nodes now)
-        assert pipeline.fallback_started_at is None
-        assert pipeline.failed_cp_blocks == set()
+            # Verify state was cleared (should remain cleared since we have healthy nodes now)
+            assert pipeline.fallback_started_at is None
+            assert pipeline.failed_cp_blocks == set()
 
-        # Verify state was cleared from SQLite
-        queue = ReprocessingQueue.get_instance()
-        loaded_state = queue.load_fallback_state(12345)
-        assert loaded_state is None
+            # Verify state was cleared from SQLite
+            queue = ReprocessingQueue.get_instance()
+            loaded_state = queue.load_fallback_state(12345)
+            assert loaded_state is None
+        finally:
+            # start() launches a daemon fetch-worker thread; stop it so it cannot
+            # survive into interpreter shutdown and crash the suite (issue #842).
+            pipeline.stop()
 
 
 def test_fallback_state_no_persistence_when_no_state_manager(mock_backend, mock_node_health):
