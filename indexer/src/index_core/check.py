@@ -231,7 +231,12 @@ def handle_consensus_error(error_msg: str) -> None:
         raise ConsensusError(error_msg)
 
 
-def consensus_hash(db, block_index, field, previous_consensus_hash, content):
+# Sentinel distinguishing "block_row not provided" (self-fetch) from an
+# explicitly-passed row that may legitimately be None (block not in db).
+_BLOCK_ROW_NOT_PROVIDED = object()
+
+
+def consensus_hash(db, block_index, field, previous_consensus_hash, content, block_row=_BLOCK_ROW_NOT_PROVIDED):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
 
@@ -296,13 +301,18 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         calculated_hash = ""
     else:
         # For other hashes (messages, txlist), use the previous consensus hash in calculation
-        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
+        # content is always a string on the consensus path (#803), so "".join(content) == content.
+        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, content))
 
     # Verify hash (if already in database) or save hash (if not).
-    cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
-    results = cursor.fetchall()
-    if results:
-        found_hash = results[0][config.BLOCK_FIELDS_POSITION[field]]
+    # The block row is identical across the 3 per-block calls (txlist/ledger/messages),
+    # so callers may fetch it once and pass it in via block_row to avoid 3x SELECTs.
+    if block_row is _BLOCK_ROW_NOT_PROVIDED:
+        cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
+        results = cursor.fetchall()
+        block_row = results[0] if results else None
+    if block_row is not None:
+        found_hash = block_row[config.BLOCK_FIELDS_POSITION[field]]
     else:
         found_hash = None
     if found_hash and field != "messages_hash":

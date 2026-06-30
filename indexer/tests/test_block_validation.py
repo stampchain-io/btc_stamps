@@ -78,6 +78,12 @@ class TestBlockValidation:
         from index_core.block_validation import create_check_hashes
 
         mock_db = Mock()
+        # create_check_hashes fetches the block row once and shares it across the
+        # 3 consensus_hash calls; give the cursor a subscriptable row (>=9 cols to
+        # cover config.BLOCK_FIELDS_POSITION) so block_results[0] does not raise.
+        mock_cursor = Mock()
+        mock_db.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [(None,) * 10]
 
         with patch("index_core.check.consensus_hash") as mock_consensus_hash, patch(
             "index_core.block_validation.update_block_hashes"
@@ -100,6 +106,12 @@ class TestBlockValidation:
         from index_core.exceptions import BlockUpdateError
 
         mock_db = Mock()
+        # create_check_hashes fetches the block row once before the (mocked)
+        # consensus_hash calls; give the cursor a subscriptable row so
+        # block_results[0] does not raise before update_block_hashes errors.
+        mock_cursor = Mock()
+        mock_db.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [(None,) * 10]
 
         with patch("index_core.check.consensus_hash") as mock_consensus_hash, patch(
             "index_core.block_validation.update_block_hashes"
@@ -123,6 +135,12 @@ class TestBlockValidation:
         from index_core.block_validation import create_check_hashes
 
         mock_db = Mock()
+        # create_check_hashes fetches the block row once and shares it across the
+        # 3 consensus_hash calls; give the cursor a subscriptable row so
+        # block_results[0] does not raise.
+        mock_cursor = Mock()
+        mock_db.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [(None,) * 10]
 
         # Create stamps in non-sorted order
         valid_stamps = [
@@ -469,6 +487,12 @@ class TestBlockValidationEdgeCases:
         from index_core.block_validation import create_check_hashes
 
         mock_db = Mock()
+        # create_check_hashes fetches the block row once and shares it across the
+        # 3 consensus_hash calls; give the cursor a subscriptable row so
+        # block_results[0] does not raise.
+        mock_cursor = Mock()
+        mock_db.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [(None,) * 10]
 
         # Include None in the list (should be filtered out)
         valid_stamps = [
@@ -541,6 +565,12 @@ class TestBlockValidationEdgeCases:
         from index_core.block_validation import create_check_hashes
 
         mock_db = Mock()
+        # create_check_hashes fetches the block row once and shares it across the
+        # 3 consensus_hash calls; give the cursor a subscriptable row so
+        # block_results[0] does not raise.
+        mock_cursor = Mock()
+        mock_db.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [(None,) * 10]
 
         # Create stamps with missing stamp_number fields
         valid_stamps = [
