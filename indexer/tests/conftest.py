@@ -183,6 +183,39 @@ def reset_coordinator():
 
 
 @pytest.fixture(autouse=True)
+def stop_leaked_pipelines():
+    """Stop any backend fetch-worker daemon threads left running by a test.
+
+    ``CPBlocksPipeline.start()`` launches its block-prefetch worker as a *daemon*
+    thread (plus a ``ThreadPoolExecutor``). A test that starts a pipeline but
+    never calls ``stop()`` leaves those daemon threads alive after the test. In
+    the coverage/CI environment there is no bitcoind backend, so the leaked loop
+    spins raising ``BackendRPCError`` and, at interpreter shutdown, does I/O on
+    already-closed std streams -> ``_enter_buffered_busy`` fatal error /
+    ``ValueError: I/O operation on closed file`` -> ``SIGABRT`` and a spurious
+    red coverage check (issue #842).
+
+    This autouse fixture stops every live pipeline at teardown so no fetch-worker
+    daemon thread can survive into interpreter shutdown.
+    """
+    yield
+
+    try:
+        from index_core.pipeline_utils import CPBlocksPipeline
+    except Exception:
+        return
+
+    for pipeline in list(CPBlocksPipeline._instances):
+        try:
+            worker = getattr(pipeline, "worker_thread", None)
+            if worker is not None and worker.is_alive():
+                pipeline.stop()
+        except Exception:
+            # Best-effort cleanup: a teardown hiccup must never fail the test.
+            pass
+
+
+@pytest.fixture(autouse=True)
 def reset_backend_override():
     """Guarantee no CI/test backend override leaks into the unit suite.
 
