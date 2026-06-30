@@ -1,0 +1,66 @@
+# ==============================================================================
+# btc_stamps — local DEVELOPMENT override (auto-applied by `docker compose up`)
+#
+# This file layers the local-dev specifics on top of docker-compose.yml so that
+# a plain `docker compose up` reproduces the validated dev stack:
+#   - persistent ./db_data bind mount + MySQL perf tuning
+#   - indexer DEBUG + STORE_FILES=false + resource caps
+#   - HOST networking for the indexer (mirrors docker-compose.local.yml)
+#   - zero-config dev defaults so `docker compose up` works with no env file
+#
+# Networking note: the validated stack runs the indexer with host networking
+# (network_mode: host) and reaches MySQL on 127.0.0.1:3306 (the mysql service
+# publishes 3306 on the host). Host net is also how the indexer reaches the
+# cross-project, host-published bitcoind:8332 + Counterparty:4000 with no
+# host-gateway plumbing. This reproduces docker-compose.local.yml exactly.
+#
+# It is NOT applied when you select prod explicitly:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# ==============================================================================
+services:
+  mysql:
+    # Persistent local data + dev performance tuning.
+    command: >
+      --bind-address=0.0.0.0
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=3G
+      --tmp-table-size=268435456
+      --max-heap-table-size=268435456
+      --mysql-native-password=ON
+    # Zero-config dev defaults: a plain `docker compose up` (no env file) brings
+    # up MySQL with user admin / password root on db btc_stamps.
+    environment:
+      - MYSQL_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - MYSQL_ROOT_PASSWORD=${RDS_PASSWORD:-root}
+      - MYSQL_USER=${RDS_USER:-admin}
+      - MYSQL_PASSWORD=${RDS_PASSWORD:-root}
+      - MYSQL_ROOT_HOST=%
+    volumes:
+      - ./db_data:/var/lib/mysql
+      - ./indexer/table_schema.sql:/docker-entrypoint-initdb.d/table_schema.sql:ro
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  indexer:
+    # Host networking mirrors docker-compose.local.yml: the indexer reaches the
+    # local MySQL on 127.0.0.1:3306 (published by the mysql service above) and
+    # the host-published bitcoind:8332 / Counterparty:4000 with no extra plumbing.
+    network_mode: ${NETWORK_MODE:-host}
+    environment:
+      - DEBUG=1
+      - STORE_FILES=false
+      # Host net -> talk to MySQL on the host loopback (matches .env.local).
+      - RDS_HOSTNAME=${RDS_HOSTNAME:-127.0.0.1}
+      - RDS_PORT=${RDS_PORT:-3306}
+      # Zero-config dev defaults (admin / root) so `docker compose up` works
+      # without an env file; .env.local overrides these when present.
+      - RDS_DATABASE=${RDS_DATABASE:-btc_stamps}
+      - RDS_USER=${RDS_USER:-admin}
+      - RDS_PASSWORD=${RDS_PASSWORD:-root}
+    deploy:
+      resources:
+        limits:
+          memory: 4G

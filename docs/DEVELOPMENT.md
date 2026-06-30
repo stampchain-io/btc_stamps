@@ -34,23 +34,22 @@ This guide provides comprehensive information for developers working on the Bitc
 
 3. **Configure environment**
 
-   Create the following environment files:
-   
+   Create the env file the docker stack reads (`.env.local` by default):
+
    ```bash
-   cp indexer/.env.sample indexer/.env
-   cp docker/.env.mysql.sample docker/.env.mysql
+   cp .env.example .env.local
    ```
-   
-   Edit these files to include your Bitcoin node and database connection details.
+
+   Edit it to include your Bitcoin node and database connection details.
 
 4. **Initialize database**
 
    ```bash
-   # Using Docker (recommended)
-   cd docker
-   docker-compose up -d db adminer
-   
-   # Or manually
+   # Using Docker (recommended) — starts the local MySQL from the dev override
+   # and loads indexer/table_schema.sql automatically.
+   docker compose up -d mysql
+
+   # Or initialize an external MySQL manually
    mysql -u <username> -p < indexer/table_schema.sql
    ```
 
@@ -69,15 +68,23 @@ DEBUG=1 poetry run indexer
 
 ### Docker Mode
 
+The stack uses one canonical base (`docker-compose.yml`) plus overrides:
+`docker-compose.override.yml` (dev, auto-applied) and `docker-compose.prod.yml`
+(managed RDS/Aurora, explicit — not yet deployed; prod currently runs via
+systemd).
+
 ```bash
-# Start all services
-make dup
+# Start the dev stack (indexer on host networking + local MySQL)
+docker compose up -d        # or: make dev
 
 # View logs
-make logs
+docker compose logs -f indexer   # or: make logs
 
 # Stop services
-make down
+docker compose down         # or: make down
+
+# Production overlay (managed RDS/Aurora; not yet deployed)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d   # or: make prod
 ```
 
 ## Code Organization

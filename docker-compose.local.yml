@@ -1,3 +1,9 @@
+# ⚠️ DEPRECATED — superseded by docker-compose.yml + docker-compose.override.yml.
+#
+# This file is intentionally LEFT IN PLACE: the live from-genesis validation
+# reindex was started against it and its restart commands still reference it.
+# Do NOT delete or adopt the new base+override topology until that run completes
+# and the maintainer approves. New work should target docker-compose.yml.
 services:
   mysql:
     env_file:

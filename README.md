@@ -141,54 +141,43 @@ git clone https://github.com/stampchain-io/btc_stamps.git
 git switch main
 ```
 
-#### Step 1: Create & configure the env files
+#### Step 1: Create & configure the env file
 
-Create these three environment files from the provided templates:
-
-- `/app/.env.sample` - Explorer application environment variables [if submodule installed]
-- `/docker/.env.mysql.sample` - MySQL environment variables
-- `indexer/.env.sample` - Indexer environment variables
-
-Copy the sample files:
+The docker stack reads a single env file (`.env.local` by default). Create it
+from the template and fill in your Bitcoin node + database details:
 
 ```shell
-cp app/.env.sample app/.env
-cp docker/.env.mysql.sample docker/.env.mysql
-cp indexer/.env.sample indexer/.env
+cp .env.example .env.local
+# edit .env.local — set RDS_USER / RDS_PASSWORD / RDS_DATABASE and node RPC creds
 ```
 
 #### Step 2: Run the stack
 
-Choose one of these methods to run the services:
+The compose setup uses one canonical base (`docker-compose.yml`) plus overrides:
 
-##### Option 1: Using docker compose commands
+- **Development (default):** `docker-compose.override.yml` is applied
+  automatically and brings up the indexer (on host networking) + a local MySQL
+  with persistent `db_data`.
+- **Production:** `docker-compose.prod.yml` is selected explicitly and targets a
+  managed MySQL (RDS/Aurora) with no local database. (Production currently runs
+  natively via systemd; the docker-prod path is not yet deployed.)
 
 ```shell
-# Start all services
-cd docker && docker compose up -d
+# Development — indexer + local MySQL
+docker compose up -d
 
 # View indexer logs
 docker compose logs -f indexer
 
-# Shutdown services
+# Stop the stack
 docker compose down
+
+# Production overlay (managed RDS/Aurora; not yet deployed)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-##### Option 2: Using make commands
-
-```shell
-# Start the stack
-make dup
-
-# View logs
-make logs
-
-# Shutdown services
-make down
-
-# Shutdown and clean volumes
-make fdown
-```
+The same flows are available via `make` (`make dev`, `make logs`,
+`make down`, `make prod`); run `make help` for the full list.
 
 #### Development Container Management
 
