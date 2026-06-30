@@ -34,20 +34,20 @@ pyzmq = "^27.1.0"
 python-bitcoinlib = "0.12.2"
 python-bitcoinrpc = "1.0"
 regex = "2026.2.28"
-requests = "2.32.5"
+requests = "^2.33.0"
 pymysql = "1.1.1"
 cryptography = "^46.0.5"
 pybase64 = "1.4.3"
 boto3 = "^1.39.12"
-msgpack = "1.1.2"
+msgpack = "^1.2.1"
 python-dotenv = "1.2.2"
 colour-runner = "0.1.1"
-ecdsa = "0.19.1"
+ecdsa = "^0.19.2"
 toml = "^0.10.2"
 eth-account = "^0.13.3"
 psutil = ">=6.1.1"
 filelock = ">=3.29.4"
-aiohttp = "^3.13.3"
+aiohttp = "^3.14.1"
 ratelimit = "^2.2.1"
 redis = "^8.0.1"
 
@@ -68,10 +68,10 @@ termcolor = "^3.1.0"
 types-requests = "^2.32.4.20260107"
 types-PyMySQL = "^1.1.0"
 boto3-stubs = "^1.39.12"
-msgpack-types = "^0.7.0"
+msgpack-types = "^0.8.0"
 types-appdirs = "^1.4.3.5"
 flake8-pyproject = "^1.2.3"
-pytest = "^8.3.2"
+pytest = "^9.0.3"
 pytest-cov = "^6.1.1"
 pre-commit = "^4.1.0"
 types-toml = "^0.10.8"
@@ -175,23 +175,12 @@ module = "index_core.reparse.*"
 disallow_untyped_defs = true
 check_untyped_defs = true
 
-[tool.pytest]
+[tool.pytest.ini_options]
+addopts = "-v -p no:warnings --strict-markers --tb=short -ra --cov-config=.coveragerc"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-# Setting environment for tests
-env = [
-    "PYTHONPATH=src:.",
-    "USE_TEST_TX_HEX=1",
-    "TESTING=1",
-    "USE_TEST_DB=1",
-    "MOCK_DB=1"
-]
-
-[tool.pytest.ini_options]
-addopts = "-v -p no:warnings --strict-markers --tb=short -ra --cov-config=.coveragerc"
-testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
