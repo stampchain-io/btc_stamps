@@ -6,6 +6,7 @@ import importlib
 import json
 import logging
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -111,10 +112,54 @@ class Backend:
         # Initialize memory manager
         self.memory_manager = memory_manager
 
-        # Initialize optimized SSL session
+        # Initialize optimized SSL session.
+        # ``_session_lock`` guards rotation of the pooled session so that a
+        # bitcoind restart (which leaves stale CLOSE-WAIT sockets in the
+        # keep-alive pool) is healed by exactly one reconnect rather than every
+        # concurrent batch worker tearing the pool down at once.
+        self._session_lock = threading.Lock()
         self._session = self._create_optimized_session()
 
         self._initialized = True
+
+    @staticmethod
+    def _get_rpc_timeout():
+        """Return the (connect, read) timeout tuple for every bitcoind RPC call.
+
+        A bounded read timeout is what lets a wedged/half-open socket raise
+        instead of blocking the indexer indefinitely. Both bounds are
+        configurable via env (``RPC_CONNECT_TIMEOUT`` / ``RPC_TIMEOUT``) with the
+        previous hard-coded ``(5, 30)`` as the safe default.
+        """
+        connect_timeout = float(os.environ.get("RPC_CONNECT_TIMEOUT", 5))
+        read_timeout = float(os.environ.get("RPC_TIMEOUT", 30))
+        return (connect_timeout, read_timeout)
+
+    def _reset_session(self, stale_session=None):
+        """Drop the current RPC session and reconnect on a fresh connection pool.
+
+        After a bitcoind/backend restart the keep-alive pool can hold stale,
+        half-open (CLOSE-WAIT) sockets; reusing one makes the next RPC call hang.
+        Closing the session reaps those sockets and the replacement pool dials
+        brand-new connections, so the indexer self-heals without a manual
+        restart.
+
+        ``stale_session`` lets a caller pass the exact session it failed on so
+        that, under concurrent batch workers, only the first observer rotates the
+        pool and later threads (already holding the fresh session) skip the redundant reset.
+        """
+        with self._session_lock:
+            if stale_session is not None and stale_session is not self._session:
+                # Another worker already rotated the pool; nothing stale to drop.
+                return
+            old_session = getattr(self, "_session", None)
+            if old_session is not None:
+                try:
+                    old_session.close()
+                except Exception as e:
+                    logger.debug(f"Error closing stale RPC session: {e}")
+            self._session = self._create_optimized_session()
+            logger.warning("Reset bitcoind RPC session: dropped stale pooled connections and reconnecting.")
 
     def _should_collect_garbage(self, force_check: bool = False) -> bool:
         """
@@ -217,8 +262,9 @@ class Backend:
         else:
             session.ssl_context = ssl_context
 
-        # Configure session-wide timeout
-        session.request = functools.partial(session.request, timeout=(5, 30))
+        # Configure session-wide timeout (bounded so a stale socket raises
+        # instead of hanging the indexer forever)
+        session.request = functools.partial(session.request, timeout=self._get_rpc_timeout())
 
         logger.debug("Created optimized session handling both HTTP/HTTPS with connection pooling")
         return session
@@ -248,8 +294,14 @@ class Backend:
                 # Authentication is handled via API key in URL path
                 logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
 
-                response = self._session.post(
-                    url, data=json.dumps(payload), headers=headers, timeout=(5, 30)  # Separate connect and read timeouts
+                # Capture the session used for this attempt so that, on a
+                # connection failure, we only rotate this exact (stale) pool.
+                session = self._session
+                response = session.post(
+                    url,
+                    data=json.dumps(payload),
+                    headers=headers,
+                    timeout=self._get_rpc_timeout(),  # Bounded connect/read timeouts
                 )
                 if response.status_code == 200:
                     if i > 0:
@@ -275,10 +327,15 @@ class Backend:
                         time.sleep(wait_time)
                         continue  # Retry on non-200 status codes
                     # Last attempt failed, will exit loop and handle error below
-            except (Timeout, ConnectionError) as e:
+            except (Timeout, ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
                 logger.debug(
                     f"Could not connect to backend at `{util.clean_url_for_log(url)}`. Error: {str(e)} (Try {i + 1}/{TRIES})"
                 )
+                # A timeout / dropped or half-open (CLOSE-WAIT) connection means
+                # the pooled socket is unusable — e.g. after a bitcoind restart.
+                # Drop the stale pool and reconnect on a fresh session so the
+                # next attempt dials a brand-new socket and self-heals.
+                self._reset_session(stale_session=session)
                 # Exponential backoff for connection errors
                 wait_time = min(3 * (2**i), 30)  # Start at 3s, cap at 30s
                 time.sleep(wait_time)
