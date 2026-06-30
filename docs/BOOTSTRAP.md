@@ -1,9 +1,27 @@
 # Partner Bootstrap Bundle
 
 Partners can skip historical sync by loading a pre-built snapshot of the
-indexer's consensus tables through a target block height (e.g. 796,000).
+indexer's consensus tables through a target block height (e.g. 956,000).
 This document covers both sides: how to **export** a bundle from a fully-
 synced indexer, and how a partner indexer **imports** it on first start.
+
+## Live bootstrap artifacts
+
+Ready-to-use bundles published under `https://stampchain.io/stamps/bootstrap/`
+(each with a `.sha256` sidecar at the same path):
+
+| Target block | Artifact | Compressed size | SHA256 | Tables | Provenance |
+| --- | --- | --- | --- | --- | --- |
+| **956,000** (current, v1.9.0) | [`bootstrap_956000.sql.zst`](https://stampchain.io/stamps/bootstrap/bootstrap_956000.sql.zst) | 502.3 MiB (zstd -19) | `756247b9349dc34d5b63726fd7bf20e94e7fb2b2aab9889b7514e0e461f33686` | 12 (9 block-keyed + 3 reference) | Validated v1.9.0 from-genesis reindex — `txlist_hash` + `ledger_hash` identical to prod through 956,000, with the corrected STAMP→SRC-721 IDENT |
+| 796,000 (prior) | [`bootstrap_796000.sql.zst`](https://stampchain.io/stamps/bootstrap/bootstrap_796000.sql.zst) | 27.0 MiB (zstd -19) | `19b0cee69eedcbb177dcddb6f94c73200485d9816e1c6641c6906ea96d90af7d` | 12 (9 block-keyed + 3 reference) | Initial artifact exported from prod RDS |
+
+Verify integrity before importing:
+
+```bash
+wget https://stampchain.io/stamps/bootstrap/bootstrap_956000.sql.zst
+wget https://stampchain.io/stamps/bootstrap/bootstrap_956000.sql.zst.sha256
+sha256sum -c bootstrap_956000.sql.zst.sha256   # -> bootstrap_956000.sql.zst: OK
+```
 
 ## What's in (and out of) a bundle
 
@@ -43,17 +61,20 @@ Run from a fully-synced indexer host with read access to the production DB:
 cd indexer
 RDS_HOSTNAME=… RDS_USER=… RDS_PASSWORD=… RDS_DATABASE=btc_stamps \
 poetry run python tools/export_db_bootstrap.py \
-    --target-block 796000 \
-    --out bootstrap_796000.sql.zst
+    --target-block 956000 \
+    --out bootstrap_956000.sql.zst
 ```
 
-The output is a single `zstd`-compressed SQL stream — typically ~300-800 MB
-through block 796,000. Streaming is end-to-end: no multi-GB intermediate.
+> Requires a MySQL-8 `mysqldump` client (it passes `--column-statistics=0`)
+> and the `zstd` binary on `PATH`.
+
+The output is a single `zstd`-compressed SQL stream — ~500 MiB through
+block 956,000. Streaming is end-to-end: no multi-GB intermediate.
 
 Then distribute. Two reasonable hosts:
 
-- **S3** (current convention): `s3 cp bootstrap_796000.sql.zst s3://stampchain/stamps/bootstrap/`
-- **GitHub Releases**: attach as a release asset on a tag like `bootstrap-796000`
+- **S3** (current convention): `aws s3 cp bootstrap_956000.sql.zst s3://stampchain.io/stamps/bootstrap/ --content-type application/zstd` (publicly served as `https://stampchain.io/stamps/bootstrap/…`). Upload the `.sha256` sidecar alongside it.
+- **GitHub Releases**: attach as a release asset on a tag like `bootstrap-956000`
 
 Either way, the consuming indexer needs the bundle on a **local filesystem
 path** — the import path doesn't download. Partners pre-stage the file
@@ -65,7 +86,7 @@ Set two env vars in the indexer's `.env`:
 
 ```env
 BOOTSTRAP_ON_EMPTY=true
-BOOTSTRAP_FILE=/var/lib/btc_stamps/bootstrap_796000.sql.zst
+BOOTSTRAP_FILE=/var/lib/btc_stamps/bootstrap_956000.sql.zst
 ```
 
 On startup, the indexer:
