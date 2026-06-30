@@ -400,7 +400,7 @@ class NodeHealth:
 backend_instance = Backend()
 healthy_nodes_lock = Lock()
 node_health_tracker: Dict[str, NodeHealth] = {}
-healthy_nodes = []
+healthy_nodes: List[Dict[str, Any]] = []
 
 # Round-robin node selection
 _round_robin_index = 0
