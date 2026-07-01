@@ -61,6 +61,8 @@ RUN pip install target/wheels/*.whl
 FROM python:${PYTHON_VERSION}-slim
 
 ARG POETRY_VERSION=2.1.1
+# Re-declare in the runtime stage so ${PYTHON_VERSION} is usable in COPY paths below
+ARG PYTHON_VERSION=3.12
 
 ENV PYTHONPATH=/app:/app/src \
     POETRY_VERSION=${POETRY_VERSION} \
@@ -105,7 +107,7 @@ RUN useradd -m indexer && \
     chown -R indexer:indexer /app
 
 # Copy installed Python dependencies from builder
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/lib/python${PYTHON_VERSION}/site-packages /usr/local/lib/python${PYTHON_VERSION}/site-packages
 
 # ✅ Copy installed CLI tools and entry points (like `indexer`)
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
