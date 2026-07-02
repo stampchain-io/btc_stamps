@@ -217,12 +217,19 @@ def _read_block_hashes(block_index: int) -> Optional[Dict[str, Optional[str]]]:
     from index_core.database import db_manager
 
     db = db_manager.connect()
-    with db.cursor() as cursor:
-        cursor.execute(
-            "SELECT block_hash, ledger_hash, txlist_hash, messages_hash FROM blocks WHERE block_index = %s",
-            (block_index,),
-        )
-        row = cursor.fetchone()
+    try:
+        with db.cursor() as cursor:
+            cursor.execute(
+                "SELECT block_hash, ledger_hash, txlist_hash, messages_hash FROM blocks WHERE block_index = %s",
+                (block_index,),
+            )
+            row = cursor.fetchone()
+    finally:
+        # Return the pooled connection. Without this the connection leaks on
+        # every call; validate_block_against_reference runs this once per 1000
+        # blocks, so the pool (max 10) exhausts after ~10 checkpoints and the
+        # main loop stalls waiting for a connection that never frees.
+        db.close()
     if row is None:
         return None
     return {

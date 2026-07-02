@@ -117,3 +117,29 @@ def test_dispatcher_both_mode_ands_results():
     finally:
         config.VALIDATION_MODE = original_mode
         config.DEBUG_VALIDATION = False
+
+
+def test_read_block_hashes_returns_connection_to_pool():
+    """Regression: _read_block_hashes must return (close) its pooled connection.
+
+    Without db.close() every call leaks a connection. This runs once per 1000
+    blocks under VALIDATION_MODE=reference, so the pool (max 10) exhausts after
+    ~10 checkpoints and the indexer's main loop stalls waiting for a connection
+    that never frees. The connection must be closed even when a row is found.
+    """
+    from unittest.mock import MagicMock
+
+    mock_db = MagicMock()
+    cursor = mock_db.cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ("bh", "lh", "tlh", "mh")
+
+    mock_mgr = MagicMock()
+    mock_mgr.connect.return_value = mock_db
+
+    # _read_block_hashes lazily does `from index_core.database import db_manager`
+    with patch("index_core.database.db_manager", mock_mgr):
+        result = block_validation._read_block_hashes(5000)
+
+    assert result == {"block_hash": "bh", "ledger_hash": "lh", "txlist_hash": "tlh", "messages_hash": "mh"}
+    mock_mgr.connect.assert_called_once()
+    mock_db.close.assert_called_once()  # <-- the leak guard: connection returned to the pool
