@@ -74,7 +74,12 @@ class ConnectionPool:
 
         self._pool = queue.Queue(maxsize=self.max_connections)
         self._active_connections: Dict[int, Connection] = {}
-        self._lock = threading.Lock()
+        # RLock (reentrant): get_connection() holds this lock while calling
+        # _create_connection(), which re-acquires it to register the new
+        # connection. With a plain Lock that self-re-acquisition deadlocks the
+        # borrower permanently (0% CPU, silent) whenever the pool is empty and
+        # a fresh connection must be created under load.
+        self._lock = threading.RLock()
         self._shutting_down = False
         self._initialize_pool()
 
