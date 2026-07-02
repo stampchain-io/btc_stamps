@@ -45,7 +45,7 @@ numpy==1.26.4
 parsimonious==0.10.0
 propcache==0.3.1
 psutil==6.1.1
-pyasn1==0.4.8
+pyasn1==0.6.3
 pybase64==1.4.3
 pycparser==2.22
 pycryptodome==3.22.0
@@ -55,7 +55,7 @@ python-bitcoinlib==0.12.2
 python-bitcoinrpc==1.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
-python-jose==3.4.0
+python-jose==3.5.0
 pyzmq==27.1.0
 ratelimit==2.2.1
 redis==8.0.1
