@@ -62,7 +62,10 @@ class CPBlocksPipeline:
             fallback_mode (bool): If True, continue processing without CP data when nodes fail.
         """
         self.queue = {}  # Block data by index
-        self._lock = threading.Lock()
+        # RLock (reentrant): several paths re-enter this lock on the same thread
+        # (e.g. _process_completed_futures holds it, then _enter_fallback_mode
+        # re-acquires it near tip). A plain Lock self-deadlocks in those cases.
+        self._lock = threading.RLock()
         self.worker_thread = None
         self.shutdown_flag = threading.Event()
         self.initial_blocks_ready = threading.Event()
