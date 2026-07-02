@@ -133,6 +133,52 @@ class TestConnectionPool:
             pool.get_connection()
 
     @patch("index_core.database_manager.pymysql.connect")
+    def test_get_connection_reentrant_create_no_deadlock(self, mock_connect):
+        """Regression (#868): when the pool is empty but still under
+        max_connections, get_connection() acquires self._lock and then calls
+        _create_connection(), which re-acquires self._lock. With a non-reentrant
+        threading.Lock this self-deadlocks the borrower permanently (0% CPU,
+        silent) — the exact hang that wedged a from-genesis reindex. The lock
+        must be reentrant (RLock).
+
+        The borrow runs in a worker thread joined with a timeout so a regression
+        (RLock -> Lock) FAILS this test instead of hanging CI forever.
+        """
+
+        def make_conn(**kwargs):
+            c = Mock()
+            c.ping.return_value = None
+            return c
+
+        mock_connect.side_effect = make_conn
+
+        # min < max so the empty-pool path creates a new connection *under the
+        # lock* (the deadlock path); short timeout so queue.Empty fires quickly.
+        pool = ConnectionPool(
+            host="localhost", user="test", password="test", database="test", min_connections=1, max_connections=3, timeout=0.2
+        )
+
+        # Drain the single pooled connection: pool queue now empty while
+        # active (1) < max (3) — exactly the create-under-lock condition.
+        first = pool.get_connection()
+        assert isinstance(first, PooledConnection)
+
+        result = {}
+
+        def borrow():
+            result["conn"] = pool.get_connection()
+
+        t = threading.Thread(target=borrow, name="reentrant-borrow", daemon=True)
+        t.start()
+        t.join(timeout=5.0)
+
+        assert not t.is_alive(), (
+            "get_connection() deadlocked creating a connection while holding "
+            "self._lock — ConnectionPool._lock must be a reentrant RLock (#868)"
+        )
+        assert isinstance(result.get("conn"), PooledConnection)
+
+    @patch("index_core.database_manager.pymysql.connect")
     def test_return_connection_to_pool(self, mock_connect):
         """Test returning a connection to the pool"""
         mock_connection = Mock()
