@@ -349,7 +349,7 @@ Example (0.3% fee tier):
 
 **Phased Rollout**:
 - **Phase 1**: SRC-20/SRC-20 pools (fully trustless, no external dependencies)
-- **Phase 2**: wBTC pools (requires SIP-0007 wrapped asset standard)
+- **Phase 2**: wBTC pools (requires the future wrapped asset standard — not yet drafted or numbered)
 - **Phase 3**: Stablecoin pools (requires SIP-0003 bridge for USDT/USDC)
 
 **Benefits**:
