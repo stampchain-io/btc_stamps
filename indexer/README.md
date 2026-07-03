@@ -48,7 +48,7 @@ services:
 
 ## System Requirements
 
-- Python 3.10+ (3.12 or 3.13 recommended)
+- Python 3.10–3.12 (3.12 recommended). **Python 3.13 is not yet consensus-compatible — do not run the indexer on 3.13** (tracked in #871).
 - MySQL 8.4.0+
 - Bitcoin Core node with RPC access
 
