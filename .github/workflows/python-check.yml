@@ -45,6 +45,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # 3.13 runs here (code must still import/unit-test cleanly) but is NOT
+        # consensus-validated — it diverges from prod consensus (base64/binascii
+        # strictness); see #871. Consensus is gated on 3.10-3.12 only
+        # (reparse-validate.yml). Do not infer 3.13 consensus support from a
+        # green unit-test run here.
         python-version: ['3.10', '3.11', '3.12', '3.13']
     env:
       USE_TEST_TX_HEX: '1'

@@ -14,7 +14,7 @@ name: Reparse Consensus Validation
 # Without this, every Bucket A bump needs a manual 24-48h reindex for signal.
 # This gets us a per-PR signal at boundary blocks in <5 min on CI.
 #
-# What each tier validates (all run on the matrix 3.10/3.11/3.12/3.13):
+# What each tier validates (all run on the matrix 3.10/3.11/3.12; 3.13 excluded — see #871):
 #   Tier 1  Cross-check CHECKPOINTS_MAINNET vs reference_hashes.json   (all baseline blocks)
 #   Tier 2  Block-bytes hash verification against the baseline          (all baseline blocks)
 #   Tier 3  Full in-memory reparse (txlist/messages/ledger hashes)      (self-contained blocks only)
@@ -57,14 +57,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Validate consensus on every Python the project supports. Prod runs
-        # 3.10; the dev container runs 3.12. A code audit (#803) proved the
-        # consensus hashes are version-invariant across this range *today* —
+        # Validate consensus on every Python the project supports for consensus.
+        # Prod runs 3.10; the dev container runs 3.12. A code audit (#803) proved
+        # the consensus hashes are version-invariant across 3.10-3.12 *today* —
         # this matrix is the per-PR guard against a future code change
-        # reintroducing Python-version sensitivity. 3.13 is included so the
-        # planned final pre-release reparse has cross-version confidence (the
-        # Tier 3 reparse passed byte-identical on 3.13 — refs #803).
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        # reintroducing Python-version sensitivity.
+        # NOTE: 3.13 is intentionally EXCLUDED. A full genesis->tip reparse found
+        # 3.13 diverges from prod consensus (stricter base64/binascii) at block
+        # 783775; the ~80-block Tier-3 gate did not sample it and passed falsely.
+        # 3.13 is not consensus-validated until #871 is resolved (it still runs
+        # in code-quality/unit-test CI).
+        python-version: ['3.10', '3.11', '3.12']
     steps:
       - uses: actions/checkout@v5
 
