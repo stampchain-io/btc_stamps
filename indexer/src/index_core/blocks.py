@@ -2134,6 +2134,10 @@ def follow(
                             zmq_wait_time = 5  # seconds, shorter timeout for more frequent shutdown checks
 
                             while not server.shutdown_flag.is_set():
+                                # Idle-at-tip liveness (watchdog false-positive fix): tick while
+                                # healthily waiting for the next block so ProgressWatchdog only
+                                # trips on a genuine stall, not on normal Bitcoin inter-block gaps.
+                                progress_watchdog.tick(label=f"at tip {block_index}, waiting for next block (zmq)")
                                 # Send keepalive if needed
                                 if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
                                     if not send_keepalive(db):
@@ -2215,6 +2219,9 @@ def follow(
                         while slept_time < config.BACKEND_POLL_INTERVAL and not server.shutdown_flag.is_set():
                             time.sleep(poll_sleep_interval)
                             slept_time += poll_sleep_interval
+                            # Idle-at-tip liveness (watchdog false-positive fix): tick while
+                            # healthily polling for the next block; a genuine hang stops ticking.
+                            progress_watchdog.tick(label=f"at tip {block_index}, waiting for next block (poll)")
                             if server.shutdown_flag.is_set():
                                 logger.info("Shutdown flag detected during poll sleep, breaking...")
                                 break

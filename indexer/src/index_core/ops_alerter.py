@@ -157,8 +157,13 @@ class ProgressWatchdog:
     24 hours.
     """
 
-    def __init__(self, stall_threshold_sec: int = 1800, check_interval_sec: int = 60):
-        self.stall_threshold_sec = stall_threshold_sec
+    def __init__(self, stall_threshold_sec: Optional[int] = None, check_interval_sec: int = 60):
+        # Threshold is configurable via OPS_ALERT_STALL_SEC (default 1800s) so it
+        # can be tuned per-deployment without a code change. An explicit arg still
+        # wins (used by tests).
+        self.stall_threshold_sec = (
+            stall_threshold_sec if stall_threshold_sec is not None else int(os.environ.get("OPS_ALERT_STALL_SEC", "1800"))
+        )
         self.check_interval_sec = check_interval_sec
         self._last_tick = time.monotonic()
         self._last_tick_label = "startup"
