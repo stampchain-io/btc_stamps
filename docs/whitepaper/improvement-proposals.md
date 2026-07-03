@@ -349,7 +349,7 @@ Example (0.3% fee tier):
 
 **Phased Rollout**:
 - **Phase 1**: SRC-20/SRC-20 pools (fully trustless, no external dependencies)
-- **Phase 2**: wBTC pools (requires SIP-0007 wrapped asset standard)
+- **Phase 2**: wBTC pools (requires the future wrapped asset standard — not yet drafted or numbered)
 - **Phase 3**: Stablecoin pools (requires SIP-0003 bridge for USDT/USDC)
 
 **Benefits**:
@@ -571,7 +571,11 @@ Transaction outputs:
 | **0004** | Shielded SRC-20 — Privacy Extension | Draft | [#687](https://github.com/stampchain-io/btc_stamps/issues/687) | 2027+ (phased) |
 | **0005** | Binary Transfer Format for SRC-20 | Draft | [#688](https://github.com/stampchain-io/btc_stamps/issues/688) | TBD |
 | **0006** | Native SRC-20 AMM (Automated Market Maker) | Draft | [#689](https://github.com/stampchain-io/btc_stamps/issues/689) | TBD |
+| **0007** | Probabilistic Atomic Swaps for SRC-20 | Draft | [#735](https://github.com/stampchain-io/btc_stamps/issues/735) | TBD |
 | **0008** | Dual Transaction Parsing | Draft | [#692](https://github.com/stampchain-io/btc_stamps/issues/692) | TBD |
+| **0009** | On-Demand SRC-20 SVG Generation | Draft | [#725](https://github.com/stampchain-io/btc_stamps/issues/725) | TBD |
+| **0010** | Decentralised Stamp Relay Network | Draft | [#726](https://github.com/stampchain-io/btc_stamps/issues/726) | TBD |
+| **0011** | Batch Operations & State Channels for SRC-20 | Draft | [#736](https://github.com/stampchain-io/btc_stamps/issues/736) | TBD |
 
 ---
 
