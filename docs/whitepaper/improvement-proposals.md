@@ -576,6 +576,9 @@ Transaction outputs:
 | **0009** | On-Demand SRC-20 SVG Generation | Draft | [#725](https://github.com/stampchain-io/btc_stamps/issues/725) | TBD |
 | **0010** | Decentralised Stamp Relay Network | Draft | [#726](https://github.com/stampchain-io/btc_stamps/issues/726) | TBD |
 | **0011** | Batch Operations & State Channels for SRC-20 | Draft | [#736](https://github.com/stampchain-io/btc_stamps/issues/736) | TBD |
+| **0110** | Ordinals Provenance Preservation ("Stamp an Inscription") | Draft | [#878](https://github.com/stampchain-io/btc_stamps/issues/878) | TBD |
+
+> **SIP-0110** is intentionally numbered as a thematic mirror of **BIP-110** (a contested Bitcoin data-restriction proposal): where BIP-110 would restrict witness-data inscriptions, SIP-0110 lets Ordinals holders preserve their content on the UTXO set. The 0012–0109 range stays open for normal sequential assignment.
 
 ---
 
