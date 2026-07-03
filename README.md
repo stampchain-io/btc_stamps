@@ -87,11 +87,16 @@ Protocol evolution is governed through community-driven SIPs. See [SIP-0000](htt
 | SIP | Title | Status |
 |-----|-------|--------|
 | [0001](https://github.com/stampchain-io/btc_stamps/issues/685) | SRC-20 Conditional Transfers (Hashlock/Timelock) | Draft |
+| [0002](https://github.com/stampchain-io/btc_stamps/issues/484) | SRC-20 UTXO Binding & Transfer Format v2.0 | Superseded (by 0001) |
 | [0003](https://github.com/stampchain-io/btc_stamps/issues/485) | SRC-20 Cross-Chain Bridge Specification | Draft |
 | [0004](https://github.com/stampchain-io/btc_stamps/issues/687) | Shielded SRC-20 — Privacy Extension (Phased) | Draft |
 | [0005](https://github.com/stampchain-io/btc_stamps/issues/688) | Binary Transfer Format for SRC-20 | Draft |
 | [0006](https://github.com/stampchain-io/btc_stamps/issues/689) | Native SRC-20 AMM (Automated Market Maker) | Draft |
+| [0007](https://github.com/stampchain-io/btc_stamps/issues/735) | Probabilistic Atomic Swaps for SRC-20 | Draft |
 | [0008](https://github.com/stampchain-io/btc_stamps/issues/692) | Dual Transaction Parsing | Draft |
+| [0009](https://github.com/stampchain-io/btc_stamps/issues/725) | On-Demand SRC-20 SVG Generation | Draft |
+| [0010](https://github.com/stampchain-io/btc_stamps/issues/726) | Decentralised Stamp Relay Network | Draft |
+| [0011](https://github.com/stampchain-io/btc_stamps/issues/736) | Batch Operations & State Channels for SRC-20 | Draft |
 
 Full roadmap and gating criteria: [bitcoinstamps.xyz/en/protocols/sips](https://bitcoinstamps.xyz/en/protocols/sips) | Whitepaper details: [docs/whitepaper/improvement-proposals.md](docs/whitepaper/improvement-proposals.md)
 
