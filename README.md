@@ -97,6 +97,9 @@ Protocol evolution is governed through community-driven SIPs. See [SIP-0000](htt
 | [0009](https://github.com/stampchain-io/btc_stamps/issues/725) | On-Demand SRC-20 SVG Generation | Draft |
 | [0010](https://github.com/stampchain-io/btc_stamps/issues/726) | Decentralised Stamp Relay Network | Draft |
 | [0011](https://github.com/stampchain-io/btc_stamps/issues/736) | Batch Operations & State Channels for SRC-20 | Draft |
+| [0110](https://github.com/stampchain-io/btc_stamps/issues/878) | Ordinals Provenance Preservation ("Stamp an Inscription") | Draft |
+
+> **SIP-0110** is intentionally numbered to mirror **BIP-110** — where BIP-110 would restrict witness-data inscriptions, SIP-0110 lets Ordinals holders preserve their content on the UTXO set. The 0012–0109 range remains open for normal sequential assignment (see [SIP-0000](https://github.com/stampchain-io/btc_stamps/issues/686)).
 
 Full roadmap and gating criteria: [bitcoinstamps.xyz/en/protocols/sips](https://bitcoinstamps.xyz/en/protocols/sips) | Whitepaper details: [docs/whitepaper/improvement-proposals.md](docs/whitepaper/improvement-proposals.md)
 
