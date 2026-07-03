@@ -26,6 +26,7 @@ Usage:
     --check-only   Only run the connectivity sanity check (RDS range + a single
                    getblockcount/getblockhash) and exit. Does not sweep.
 """
+
 import argparse
 import json
 import logging
@@ -70,8 +71,15 @@ def load_env(path):
                 env[k.strip()] = v.strip().strip('"').strip("'")
     # Process environment overrides file values when present.
     for k in (
-        "RPC_IP", "RPC_PORT", "RPC_USER", "RPC_PASSWORD",
-        "RDS_HOSTNAME", "RDS_USER", "RDS_PASSWORD", "RDS_DATABASE", "RDS_PORT",
+        "RPC_IP",
+        "RPC_PORT",
+        "RPC_USER",
+        "RPC_PASSWORD",
+        "RDS_HOSTNAME",
+        "RDS_USER",
+        "RDS_PASSWORD",
+        "RDS_DATABASE",
+        "RDS_PORT",
     ):
         if os.environ.get(k):
             env[k] = os.environ[k]
@@ -101,10 +109,7 @@ def rpc_batch_getblockhash(session, url, heights, timeout=60, max_attempts=5):
     hiccup (it is shared with a running indexer + reparse) does not abort the
     sweep. Read-only: getblockhash returns a hash by height, no block download.
     """
-    payload = [
-        {"jsonrpc": "1.0", "id": h, "method": "getblockhash", "params": [h]}
-        for h in heights
-    ]
+    payload = [{"jsonrpc": "1.0", "id": h, "method": "getblockhash", "params": [h]} for h in heights]
     data = json.dumps(payload)
     last_err = None
     for attempt in range(1, max_attempts + 1):
@@ -122,9 +127,13 @@ def rpc_batch_getblockhash(session, url, heights, timeout=60, max_attempts=5):
             last_err = e
             wait = min(30, 0.5 * (2 ** (attempt - 1)))
             log.warning(
-                "getblockhash batch (%s heights, first=%s) attempt %s/%s failed: %s; "
-                "backing off %.1fs",
-                len(heights), heights[0] if heights else "-", attempt, max_attempts, e, wait,
+                "getblockhash batch (%s heights, first=%s) attempt %s/%s failed: %s; " "backing off %.1fs",
+                len(heights),
+                heights[0] if heights else "-",
+                attempt,
+                max_attempts,
+                e,
+                wait,
             )
             time.sleep(wait)
     raise RuntimeError(f"getblockhash batch failed after {max_attempts} attempts: {last_err}")
@@ -197,8 +206,7 @@ def main():
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT MIN(block_index) AS lo, MAX(block_index) AS hi, COUNT(*) AS cnt "
-            "FROM blocks" + where_sql,
+            "SELECT MIN(block_index) AS lo, MAX(block_index) AS hi, COUNT(*) AS cnt " "FROM blocks" + where_sql,
             params,
         )
         info = cur.fetchone()
@@ -214,7 +222,8 @@ def main():
     if hi > tip_count:
         log.warning(
             "prod max block_index %s is ABOVE bitcoind tip %s; heights above tip cannot be checked",
-            hi, tip_count,
+            hi,
+            tip_count,
         )
 
     if args.check_only:
@@ -265,19 +274,22 @@ def main():
                 rate = total / elapsed if elapsed else 0
                 log.info(
                     "progress: %s/%s blocks checked (%.0f/s), %s mismatches so far",
-                    total, cnt, rate, len(mismatches),
+                    total,
+                    cnt,
+                    rate,
+                    len(mismatches),
                 )
-                write_report(args.report, {
-                    "status": "in_progress",
-                    "range": [lo, hi],
-                    "total_rows_in_range": cnt,
-                    "blocks_checked": total,
-                    "mismatches_found": len(mismatches),
-                    "mismatches": [
-                        {"block_index": m[0], "prod_hash": m[1], "canonical_hash": m[2]}
-                        for m in mismatches
-                    ],
-                })
+                write_report(
+                    args.report,
+                    {
+                        "status": "in_progress",
+                        "range": [lo, hi],
+                        "total_rows_in_range": cnt,
+                        "blocks_checked": total,
+                        "mismatches_found": len(mismatches),
+                        "mismatches": [{"block_index": m[0], "prod_hash": m[1], "canonical_hash": m[2]} for m in mismatches],
+                    },
+                )
 
     pending_rows = []
     with ThreadPoolExecutor(max_workers=PARALLEL) as ex:
@@ -316,14 +328,19 @@ def main():
                 t_canon = f"<err: {e}>"
         log.warning(
             "MISMATCH detail: idx=%s prod=%s canon=%s canon_time=%s",
-            idx, prod, canon, t_canon,
+            idx,
+            prod,
+            canon,
+            t_canon,
         )
-        detail.append({
-            "block_index": idx,
-            "prod_hash": prod,
-            "canonical_hash": canon,
-            "canonical_time": t_canon,
-        })
+        detail.append(
+            {
+                "block_index": idx,
+                "prod_hash": prod,
+                "canonical_hash": canon,
+                "canonical_time": t_canon,
+            }
+        )
 
     report = {
         "status": "complete",
