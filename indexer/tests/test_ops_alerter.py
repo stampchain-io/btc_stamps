@@ -127,3 +127,49 @@ def test_get_sns_client_handles_missing_boto3(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     assert ops_alerter._get_sns_client() is None
+
+
+def test_watchdog_threshold_from_env(monkeypatch):
+    """OPS_ALERT_STALL_SEC configures the stall threshold; explicit arg still wins."""
+    monkeypatch.delenv("OPS_ALERT_STALL_SEC", raising=False)
+    assert ops_alerter.ProgressWatchdog().stall_threshold_sec == 1800  # default
+
+    monkeypatch.setenv("OPS_ALERT_STALL_SEC", "3600")
+    assert ops_alerter.ProgressWatchdog().stall_threshold_sec == 3600  # env honored
+
+    # An explicit constructor arg overrides the env (used by tests/callers).
+    assert ops_alerter.ProgressWatchdog(stall_threshold_sec=42).stall_threshold_sec == 42
+
+
+def test_watchdog_tick_resets_stall_timer():
+    """Idle-at-tip fix: ticking during a healthy wait clears the stall timer so the
+    watchdog does NOT trip; without a tick the timer keeps aging toward the trip.
+
+    This models the blocks.py idle-at-tip wait loops, which now tick every poll/zmq
+    iteration so normal Bitcoin inter-block gaps no longer false-trip the watchdog.
+    """
+    wd = ops_alerter.ProgressWatchdog(stall_threshold_sec=100)
+
+    # Simulate a long wait with no progress -> the trip condition is met.
+    wd._last_tick = time.monotonic() - 200
+    assert (time.monotonic() - wd._last_tick) >= wd.stall_threshold_sec
+
+    # A single idle-at-tip tick clears the stall -> would NOT trip.
+    wd.tick(label="at tip 956514, waiting for next block (poll)")
+    assert (time.monotonic() - wd._last_tick) < wd.stall_threshold_sec
+    assert wd._last_tick_label == "at tip 956514, waiting for next block (poll)"
+
+
+def test_watchdog_fires_when_no_tick_past_threshold(monkeypatch):
+    """When the main loop genuinely stops ticking past the threshold, the watchdog
+    still fires a critical alert (the real-hang case must survive the idle-at-tip fix)."""
+    fired = []
+    monkeypatch.setattr(ops_alerter, "notify", lambda *a, **kw: fired.append(kw.get("dedup_key")))
+
+    # threshold 0 -> any elapsed time counts as stalled; fast check interval.
+    wd = ops_alerter.ProgressWatchdog(stall_threshold_sec=0, check_interval_sec=0.01)
+    wd.start()
+    time.sleep(0.1)
+    wd.stop()
+
+    assert "progress-watchdog" in fired
