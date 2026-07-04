@@ -1,0 +1,220 @@
+name: Cut Release
+
+# Hands-off production release for btc_stamps.
+#
+# The `main-req` ruleset requires 5 status checks on refs/heads/main with an
+# empty bypass list, so a direct `git push origin HEAD:main` of a version-bump
+# commit is rejected (GH013). Those checks CAN pass on a pull request, so this
+# workflow releases via a PR to main + a tag, never a direct push:
+#
+#   prepare  (manual "Cut Release", input: bump=major|minor|patch)
+#     -> compute clean X.Y.Z from main's current version + bump level
+#     -> create release/vX.Y.Z off main with the 4 version files set to X.Y.Z
+#     -> open a [skip-version] PR to main and enable squash auto-merge
+#        (merges once the 5 required checks are green)
+#
+#   finalize (release/* PR merged into main)
+#     -> tag X.Y.Z (no v-prefix) on the merge commit, pushed with the PAT so
+#        tag-triggered workflows (docker-auto-publish) fire
+#     -> create the "Release X.Y.Z" GitHub Release
+#     -> open a version-only [skip-version] sync-back PR setting dev to
+#        X.Y.Z+canary.1 and enable squash auto-merge
+#
+# Tags are pushed with secrets.PAT on purpose: tags pushed with GITHUB_TOKEN do
+# not trigger downstream Actions. Rulesets target refs/heads/main, not tags, so
+# the tag push is not ruleset-blocked. Auto-merge is enabled with the PAT so the
+# eventual merge emits a pull_request event that triggers the finalize job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Release version bump level'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+env:
+  GIT_USER_NAME: GitHub Action
+  GIT_USER_EMAIL: action@github.com
+
+jobs:
+  # Manual trigger: open the release PR to main and let it auto-merge.
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bump2version
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
+
+      - name: Compute release version and create release branch
+        id: version
+        run: |
+          # main carries a clean prod version (X.Y.Z). bump2version reads the
+          # current version from .bumpversion.cfg and, because the `release` part
+          # has optional_value = prod, serializes back to a clean X.Y.Z. Bumping
+          # commits the 4 version files (commit = True) onto the new branch.
+          git checkout -B release/staging main
+          bump2version "${{ github.event.inputs.bump }}" \
+            --no-tag --allow-dirty --verbose \
+            --message 'chore: release {new_version} [skip-version]'
+          NEW_VERSION=$(cat VERSION)
+          if [[ "$NEW_VERSION" == *"+canary"* ]]; then
+            echo "::error::Refusing to release a canary version ($NEW_VERSION); main must carry a clean X.Y.Z version"
+            exit 1
+          fi
+          RELEASE_BRANCH="release/v${NEW_VERSION}"
+          git branch -m "release/staging" "${RELEASE_BRANCH}"
+          git push origin "${RELEASE_BRANCH}"
+          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "RELEASE_BRANCH=${RELEASE_BRANCH}" >> $GITHUB_OUTPUT
+
+      - name: Open release PR to main and enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
+          RELEASE_BRANCH="${{ steps.version.outputs.RELEASE_BRANCH }}"
+          # [skip-version] keeps bump-version.yml from re-bumping when the squash
+          # commit lands on main.
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "${RELEASE_BRANCH}" \
+            --title "chore: release ${NEW_VERSION} [skip-version]" \
+            --body "Automated production release cut by the Cut Release workflow.
+
+          Sets the version files to \`${NEW_VERSION}\` (prod). Once the required checks pass and this squash-merges, the finalize job tags \`${NEW_VERSION}\` on main, publishes the GitHub Release, and opens the version-only sync-back PR restoring canary versioning on dev.")
+          echo "Opened release PR: $PR_URL"
+          gh pr merge "$PR_URL" --squash --auto \
+            || echo "Auto-merge unavailable — merge ${PR_URL} manually (admin) once checks are green"
+
+  # Runs when a release/* PR is merged into main: tag, release, sync back to dev.
+  finalize:
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged == true
+      && github.event.pull_request.base.ref == 'main'
+      && startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bump2version
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}.git
+
+      - name: Tag release
+        id: tag
+        run: |
+          NEW_VERSION=$(cat VERSION)
+          if [[ "$NEW_VERSION" == *"+canary"* ]]; then
+            echo "::error::main is at a canary version ($NEW_VERSION); refusing to tag"
+            exit 1
+          fi
+          # No v-prefix (matches .bumpversion.cfg tag_name = {new_version}).
+          # Pushed with the PAT so tag-triggered workflows (docker-auto-publish)
+          # fire; rulesets target refs/heads/main only, so tag pushes are allowed.
+          if git ls-remote --exit-code --tags origin "refs/tags/${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "Tag ${NEW_VERSION} already exists on origin, skipping tag push"
+          else
+            git tag "${NEW_VERSION}" "${{ github.event.pull_request.merge_commit_sha }}"
+            git push origin "${NEW_VERSION}"
+          fi
+          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.NEW_VERSION }}
+          name: Release ${{ steps.tag.outputs.NEW_VERSION }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Sync version back to dev
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          NEW_VERSION="${{ steps.tag.outputs.NEW_VERSION }}"
+          # Version-only sync-back. This repo squash-merges dev->main, so main is
+          # a single squashed commit while dev keeps full history: a `main -> dev`
+          # PR phantom-conflicts on every squashed commit and can never merge.
+          # dev already contains all of main's CODE, so we only advance its
+          # version. Branch off dev, set the new canary version, PR to dev.
+          CANARY_VERSION="${NEW_VERSION}+canary.1"
+          SYNC_BRANCH="chore/sync-${NEW_VERSION}-canary"
+          EXISTING_PR=$(gh pr list --base dev --head "${SYNC_BRANCH}" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Sync PR #${EXISTING_PR} already exists, skipping creation"
+            exit 0
+          fi
+          git fetch origin dev
+          git checkout -B "${SYNC_BRANCH}" origin/dev
+          # bump2version (commit = True) commits the version files itself;
+          # --no-tag because canary versions are never tagged.
+          bump2version --new-version "${CANARY_VERSION}" --no-tag --allow-dirty release
+          git push origin "${SYNC_BRANCH}"
+          # [skip-version] in the PR title => the dev-push bump step in
+          # bump-version.yml skips, leaving dev exactly at canary.1 (the next real
+          # dev push increments to canary.2).
+          PR_URL=$(gh pr create \
+            --base dev \
+            --head "${SYNC_BRANCH}" \
+            --title "chore: sync dev to ${CANARY_VERSION} after ${NEW_VERSION} release [skip-version]" \
+            --body "Automated post-release version sync. dev already has all of main's code (main is a squash of dev), so this updates only the version number to \`${CANARY_VERSION}\`, resuming canary development on the ${NEW_VERSION} line.")
+          echo "Created sync PR: $PR_URL"
+          gh pr merge "$PR_URL" --squash --auto \
+            || echo "Auto-merge unavailable — merge ${PR_URL} manually to restore canary versioning on dev"
