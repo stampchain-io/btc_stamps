@@ -1,6 +1,0 @@
-[submodule "indexer/tools_priv"]
-  path = indexer/tools_priv
-  url = git@github.com:stampchain-io/btc_stamps_priv_tools.git
-  branch = main
-  update = merge
-  ignore = all
