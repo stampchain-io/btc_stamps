@@ -13,6 +13,12 @@ Official Docker image for the Bitcoin Stamps Indexer - the reference implementat
 
 ## Quick Start
 
+The snippet below is a minimal, self-contained example for running the
+published image directly. If you have cloned the repository, prefer the
+canonical root Compose files (`docker-compose.yml` + `docker-compose.override.yml`,
+with `docker-compose.prod.yml` / `docker-compose.local.yml` overlays) and the
+`make` targets instead of maintaining a separate per-indexer compose.
+
 ```yml
 services:
   db:
@@ -86,4 +92,6 @@ The `--test` option is ideal for CI pipelines and pre-commit validation.
 
 ## More Information
 
-For complete documentation, visit [Github Repository](https://github.com/stampchain-io/btc_stamps) 
+- **Protocol documentation:** [bitcoinstamps.xyz](https://bitcoinstamps.xyz) — the core Bitcoin Stamps protocol site
+- **Source & issues:** [GitHub repository](https://github.com/stampchain-io/btc_stamps)
+- **Explorer & API:** [stampchain.io](https://stampchain.io/) · [API docs](https://stampchain.io/docs)

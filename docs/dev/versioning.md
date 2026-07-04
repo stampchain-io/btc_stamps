@@ -112,34 +112,31 @@ git push origin HEAD --tags
 
 Note: When using manual version control, add `[skip-version]` to your PR title to prevent automatic version bumping.
 
-### 5. Syncing Dev After Main Update
+### 5. Syncing Dev After Main Update (automated)
 
-After main has been updated with version bumps (typically after merging a PR from dev to main):
+After a release lands on main, dev must advance to the new canary line
+(e.g. `1.9.0` → `1.9.0+canary.1`). **This is fully automated** by the
+`Sync version back to dev` step in `bump-version.yml` — you normally do nothing.
 
-```bash
-# 1. Switch to dev and fetch latest from both branches
-git switch dev
-git fetch origin main dev
+**Do NOT rebase/force-push dev onto main, and do NOT open a `main → dev` PR.**
+This repo **squash-merges** dev → main (merge commits are disabled repo-wide), so
+main is a single squashed commit while dev keeps full history. A `main → dev`
+merge therefore phantom-conflicts on *every* squashed commit (hundreds of files)
+and can never merge; a `git rebase origin/main` + force-push would rewrite dev's
+protected history and break every open PR and clone.
 
-# 2. Rebase dev onto the latest main to include version updates
-git rebase origin/main
+Because dev already contains **all of main's code** (main was squashed *from*
+dev), only the **version number** needs to sync. The workflow does exactly that:
 
-# 3. Force push the updated dev branch
-git push -f origin dev
-
-# The GitHub Action will automatically:
-# - Convert to canary format
-# - Create appropriate tags
-```
+1. Branches off `dev` (`chore/sync-<version>-canary`).
+2. Sets the version files to `<version>+canary.1` (`bump2version ... --no-tag`).
+3. Opens a small PR to `dev` (title contains `[skip-version]`) and auto-merges it.
 
 Example:
-- Starting version: `1.9.0`
-- After sync: `1.9.0+canary.1`
+- Release version on main: `1.9.0`
+- dev after sync: `1.9.0+canary.1` (next dev push → `+canary.2`)
 
-This workflow is necessary after every PR merge from dev to main because:
-1. The automated workflow creates version-bump commits on main
-2. These version updates need to be properly synchronized back to dev
-3. Using rebase keeps the git history clean and prevents branch divergence
+If auto-merge is unavailable, just merge that one-file sync PR by hand.
 
 ## GitHub Actions Workflow Behavior
 
@@ -192,6 +189,25 @@ The workflow automatically updates these files:
 3. **Sync Issues**
    - Let the workflow handle version conversions during syncs
    - Manual intervention only needed for special cases
+
+4. **Release aborts with `fatal: tag 'X.Y.Z' already exists`**
+   - Cause: the canary-strip on merge-to-main (`X.Y.Z+canary.N → X.Y.Z`) lands on
+     the *previous* release version, whose tag already exists. If that
+     `bump2version release` runs without `--no-tag` it re-creates that tag and
+     aborts the whole release (main left on canary, no new tag/Release, wrong
+     Docker publish).
+   - Invariant: the canary-strip **must** use `--no-tag`; only the title-driven
+     `[major|minor|patch]` bump creates the new tag. Do not remove it.
+   - Recovery if it ever aborts again: branch off main → set the four version
+     files to the intended `X.Y.Z` → PR to main with `[skip-version]` → merge →
+     `git tag X.Y.Z <sha> && git push origin X.Y.Z` → create the GitHub Release →
+     confirm Docker published `X.Y.Z`/`latest` → let the sync-back PR restore
+     canary on dev.
+
+Note on cleanup: canary **git tags** and **GitHub Releases** are no longer
+created for dev builds (the dev-push bump uses `--no-tag`; the Release step is
+gated to `main`). Any pre-existing `X.Y.Z+canary.N` tags/Releases are legacy
+cruft and safe to delete — real release tags (`X.Y.Z`) must be kept.
 
 ## Version Control Keywords
 

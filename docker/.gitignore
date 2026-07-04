@@ -1,4 +1,0 @@
-*/*.DS_Store
-db_data
-.env.mysql
-.env.grafana
