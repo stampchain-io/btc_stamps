@@ -4,8 +4,8 @@
   # Bitcoin Stamps
   
   ### SRC-20 / SRC-721 / OLGA / SRC-721r / SRC-101
-  [![Code Quality & Unit Tests](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=Code%20Quality&job=code-quality&branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Rust Checks](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=Rust%20Checks&job=rust&branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Integration Tests](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=Integration&job=integration&branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Coverage Analysis](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/coverage.yml?label=Coverage&branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/coverage.yml) [![codecov](https://codecov.io/gh/stampchain-io/btc_stamps/graph/badge.svg?token=OB2OS37L5H)](https://codecov.io/gh/stampchain-io/btc_stamps)
- [![Docker Build](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/docker-auto-publish.yml?label=Docker%20Build&branch=dev)](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml)
+  [![Code Quality & Unit Tests](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=Code%20Quality&job=code-quality&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Rust Checks](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=Rust%20Checks&job=rust&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Integration Tests](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=Integration&job=integration&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Coverage Analysis](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/coverage.yml?label=Coverage&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/coverage.yml) [![codecov](https://codecov.io/gh/stampchain-io/btc_stamps/graph/badge.svg?token=OB2OS37L5H)](https://codecov.io/gh/stampchain-io/btc_stamps)
+ [![Docker Build](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/docker-auto-publish.yml?label=Docker%20Build&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml)
 
   [![Last Commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps) [![Python Versions](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/) [![License](https://img.shields.io/github/license/stampchain-io/btc_stamps)](LICENSE) [![Stars](https://img.shields.io/github/stars/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/stargazers) [![Forks](https://img.shields.io/github/forks/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/network/members) [![Issues](https://img.shields.io/github/issues/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/issues) [![Pull Requests](https://img.shields.io/github/issues-pr/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/pulls)
 </div>
@@ -105,9 +105,33 @@ Full roadmap and gating criteria: [bitcoinstamps.xyz/en/protocols/sips](https://
 
 ## 🤝 Contributions
 
-The Bitcoin Stamps protocol is open source and community-driven. 
+The Bitcoin Stamps protocol is open source and community-driven.
 If you have ideas, improvements, or bug fixes, please submit
 a pull request or open an issue.
+
+This repository follows a **trunk model**: **branch off `main` and open PRs
+against `main`** (the single primary branch). Every PR is reviewed by two code
+owners. Releases are cut by maintainers via the automated **Cut Release**
+workflow. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow and
+[`docs/dev/versioning.md`](docs/dev/versioning.md) for versioning and the release
+process.
+
+## 🔏 Signed Releases
+
+Release images published to Docker Hub (`btcstamps/indexer`) are **signed keyless
+with [Sigstore/cosign](https://www.sigstore.dev/)** (GitHub Actions OIDC — no
+private keys) and carry an SPDX SBOM attestation. Each
+[GitHub Release](https://github.com/stampchain-io/btc_stamps/releases) records the
+exact `btcstamps/indexer@sha256:…` digest and the `cosign verify` command. To
+verify provenance before running an image (substitute the release version and
+digest):
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/stampchain-io/btc_stamps/.github/workflows/docker-auto-publish.yml@refs/tags/X.Y.Z$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  btcstamps/indexer@sha256:<digest>
+```
 
 ## 💎 Donate
 
@@ -142,12 +166,18 @@ running a local Counterparty node to reduce dependency on public resources.
 If you don't have Docker installed, follow the official Docker installation guide:
 [Install Docker Engine](https://docs.docker.com/engine/install/) for your platform.
 
-#### Clone the repo and switch to the main production branch
+#### Clone the repo
+
+`main` is the trunk and default branch, so a fresh clone already checks it out:
 
 ```shell
 git clone https://github.com/stampchain-io/btc_stamps.git
-git switch main
+cd btc_stamps
 ```
+
+For a verified, reproducible deployment, check out a signed release tag (e.g.
+`git switch --detach 1.9.1`) and verify its Docker image per
+[Signed Releases](#-signed-releases).
 
 #### Step 1: Create & configure the env file
 
@@ -198,13 +228,13 @@ cd indexer
 ./run-container.sh --build
 
 # Run specific Docker Hub version with local MySQL
-./run-container.sh --image 1.9.1  # or --image dev
+./run-container.sh --image 1.9.1  # or --image edge (latest main build)
 
 # Run with logs to stdout (ideal for testing)
-./run-container.sh --image dev --prod
+./run-container.sh --image edge --prod
 
 # Run detached in background
-./run-container.sh --image dev --detach
+./run-container.sh --image edge --detach
 
 # Show all options
 ./run-container.sh --help
@@ -230,13 +260,13 @@ cp .env.sample .env.local
 # Edit .env.local with your MySQL and BTC node details
 ```
 
-2. **Run the latest development version:**
+2. **Run the latest pre-release (edge) build:**
 ```shell
-./run-container.sh --image dev --prod
+./run-container.sh --image edge --prod
 ```
 
 This will:
-- Pull the latest dev image from Docker Hub
+- Pull the latest edge image from Docker Hub (newest main build)
 - Connect to your local MySQL database (specified in .env.local)
 - Output logs to stdout for easy debugging
 - Use your local Bitcoin node configuration
@@ -268,7 +298,7 @@ If you encounter problems with container execution:
 
 2. **Test with production mode:**
    ```shell
-   ./run-container.sh --image dev --prod
+   ./run-container.sh --image edge --prod
    ```
    This outputs logs directly to the console, making it easier to identify errors.
 
@@ -287,7 +317,7 @@ If you encounter problems with container execution:
    If using host mode (default), ensure your local services are available on localhost.
    If your services are on different hosts, try bridge mode:
    ```shell
-   ./run-container.sh --image dev --bridge
+   ./run-container.sh --image edge --bridge
    ```
 
 ### 💻 Local Execution without Docker

@@ -5,7 +5,7 @@ software — please read the consensus rule below before opening a PR.
 
 ## Getting started
 
-- Read [`CLAUDE.md`](CLAUDE.md) (dev vs prod, the consensus model, gotchas) and
+- Read [`CLAUDE.md`](CLAUDE.md) (the consensus model, gotchas) and
   [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) / [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - A Rust transaction parser (`indexer/src/rust_parser/`, PyO3 module `btc_stamps_parser`)
   feeds the Python ledger engine (`indexer/src/index_core/`). **All commands run from
@@ -60,15 +60,20 @@ Drift CI fails.
 
 ## Pull requests
 
-- **Branch off `dev`; PRs target `dev`** (not `main`). `v1.9.0` cuts via long-running
-  PR #495 (dev→main).
+- **Branch off `main`; PRs target `main`.** This repo follows a trunk model —
+  `main` is the single primary branch (there is no `dev` branch). Every PR is
+  reviewed by **both** code owners (see [`.github/CODEOWNERS`](.github/CODEOWNERS));
+  code-owner review is required before merge.
+- **Releases are cut by maintainers**, not by contributors, via the automated
+  **Cut Release** workflow (PR-then-tag → signed `X.Y.Z` Docker image + GitHub
+  Release → `main` reopened at `X.Y.Z+dev.0`). Do not open release PRs or edit
+  version files yourself. See [`docs/dev/versioning.md`](docs/dev/versioning.md).
 - Title convention: `type(#NNN): summary` (e.g. `fix(#812): ...`, `chore: ...`).
-- Set a **milestone** (e.g. `v1.9.0`) and **labels**
-  (`consensus` / `ci` / `perf` / `supply-chain` / `documentation`).
+- Set **labels** (`consensus` / `ci` / `perf` / `supply-chain` / `documentation`).
 - **Stage files explicitly — never `git add -A`** (scratch/debug/`.env.local*` files get
   swept in otherwise).
-- **Do not hand-edit** `VERSION` / `pyproject` version / `config.py:VERSION_STRING` —
-  version bumps are automated (`.bumpversion.cfg`).
+- **Do not hand-edit** `VERSION` / `pyproject` version / `config.py:VERSION_STRING` /
+  `.bumpversion.cfg` — version bumps are automated (`.bumpversion.cfg`).
 - Fill out the [pull request template](.github/PULL_REQUEST_TEMPLATE.md); open issues with
   the [issue templates](.github/ISSUE_TEMPLATE/).
 

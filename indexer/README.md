@@ -6,10 +6,36 @@ Official Docker image for the Bitcoin Stamps Indexer - the reference implementat
 
 ## Available Tags
 
-- `latest` - Built automatically from the `main` branch
-- `dev` - Built automatically from the `dev` branch
-- `<sha>` - Built from specific commits (first 7 characters of commit hash)
-- `vX.Y.Z` - Stable release versions
+- `X.Y.Z` - Stable release versions (no `v` prefix), e.g. `1.9.1`. Cut from a
+  release tag and **signed** (see [Verifying this image](#verifying-this-image)).
+- `latest` - The most recent stable release (updated on every `X.Y.Z` release).
+- `edge` - The latest `main` build (pre-release / unstable). Not signed.
+- `sha-<short>` - A specific `main` commit build (7-char commit hash). Not signed.
+
+Only clean `X.Y.Z` release tags and `latest` are signed. `edge` and
+`sha-<short>` are development builds published on every push to `main`.
+
+## Verifying this image
+
+Release images are **signed keyless** with [Sigstore/cosign](https://www.sigstore.dev/)
+(GitHub Actions OIDC — no private keys) and carry an SPDX SBOM attestation. The
+matching [GitHub Release](https://github.com/stampchain-io/btc_stamps/releases)
+records the exact `btcstamps/indexer@sha256:…` digest. Verify provenance before
+running (substitute the release version and digest):
+
+```bash
+# Verify the signature:
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/stampchain-io/btc_stamps/.github/workflows/docker-auto-publish.yml@refs/tags/X.Y.Z$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  btcstamps/indexer@sha256:<digest>
+
+# Verify the SPDX SBOM attestation:
+cosign verify-attestation --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/stampchain-io/btc_stamps/.github/workflows/docker-auto-publish.yml@refs/tags/X.Y.Z$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  btcstamps/indexer@sha256:<digest>
+```
 
 ## Quick Start
 
@@ -85,7 +111,7 @@ To validate Docker builds before deployment:
 
 # Test with specific configuration
 ./run-container.sh --build --with-db  # Test with local MySQL
-./run-container.sh --image dev --prod  # Test with dev image and stdout logs
+./run-container.sh --image edge --prod  # Test with the edge image and stdout logs
 ```
 
 The `--test` option is ideal for CI pipelines and pre-commit validation.
