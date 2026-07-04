@@ -1,0 +1,10 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security / consensus disclosure (private)
+    url: https://github.com/stampchain-io/btc_stamps/security/advisories/new
+    about: >-
+      Report security issues, consensus-divergence, or supply-chain concerns
+      PRIVATELY via GitHub Security Advisories — do NOT open a public issue.
+  - name: Discussions
+    url: https://github.com/stampchain-io/btc_stamps/discussions
+    about: Questions, ideas, and general discussion.

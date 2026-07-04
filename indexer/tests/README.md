@@ -1,0 +1,208 @@
+# Bitcoin Stamps Indexer Test Suite
+
+## Test Organization
+
+Our test suite uses pytest markers to categorize tests based on their dependencies and characteristics. This allows for flexible test execution in different environments (CI, local development, etc.).
+
+## Pytest Markers
+
+### Available Markers
+
+1. **`@pytest.mark.unit`** - Pure unit tests with no external dependencies
+   - Use when: Test uses only mocks and doesn't require database/network
+   - Example: Testing utility functions, data transformations
+
+2. **`@pytest.mark.integration`** - Integration tests requiring external services
+   - Use when: Test filename contains "integration" or tests end-to-end workflows
+   - Example: API integration tests, full pipeline tests
+
+3. **`@pytest.mark.requires_db`** - Tests that need database access
+   - Use when: Test uses DatabaseManager, executes SQL, or needs database state
+   - Example: Database operation tests, transaction tests
+
+4. **`@pytest.mark.requires_network`** - Tests that make network calls
+   - Use when: Test uses requests, Bitcoin RPC, or external APIs
+   - Example: Blockchain tests, market data API tests
+
+5. **`@pytest.mark.slow`** - Tests that take significant time to run
+   - Use when: Test has sleep() calls, large loops, or performance benchmarks
+   - Example: Stress tests, performance tests
+
+## Guidelines for New Tests
+
+### 1. Always Add Appropriate Markers
+
+Every new test should have at least one marker. If unsure, run:
+```bash
+poetry run python tools/apply_test_markers.py
+```
+
+### 2. Marker Selection Guide
+
+```python
+# Unit test example
+@pytest.mark.unit
+def test_calculate_hash():
+    """Test hash calculation with mocked inputs."""
+    with patch('some.module'):
+        assert calculate_hash("data") == "expected_hash"
+
+# Database test example  
+@pytest.mark.requires_db
+def test_database_insert(db_connection):
+    """Test database insertion."""
+    cursor = db_connection.cursor()
+    cursor.execute("INSERT INTO...")
+    
+# Integration test example
+@pytest.mark.integration
+@pytest.mark.requires_network
+def test_bitcoin_rpc_integration():
+    """Test Bitcoin RPC integration."""
+    response = bitcoin_client.getblockcount()
+```
+
+### 3. Multiple Markers
+
+Tests can have multiple markers:
+```python
+@pytest.mark.integration
+@pytest.mark.requires_db
+@pytest.mark.requires_network
+@pytest.mark.slow
+def test_full_block_processing():
+    """Test complete block processing pipeline."""
+    # Test that uses database, network, and takes time
+```
+
+## Test Strategy & Coverage Areas
+
+The suite's guiding principle: **optimizations (especially the Rust parser) must not change
+indexer consensus behavior.** Coverage is concentrated in these areas:
+
+- **Balance & ledger calculations** — unit tests for `blocks.py` finalize/commit paths and
+  SRC-20 balance normalization/updates (e.g. `test_src20_balance.py`,
+  `test_src20_update_valid.py`), validating ledger hashes and balance/owner tables around
+  consensus-changing blocks (`CP_SRC20_GENESIS_BLOCK`, `BTC_SRC20_GENESIS_BLOCK`, etc.).
+- **Python vs. Rust parser parity** — identical transaction data is fed to both the Python
+  and Rust parser paths and outputs are compared (`test_rust_parser*.py`,
+  `test_rust_filtering.py`). These tests are sensitive to `CURRENT_BLOCK_INDEX`: below
+  `BTC_SRC20_GENESIS_BLOCK` (793068) only stamp-issuance transactions are processed, so set
+  the block index appropriately when validating SRC-20 filtering.
+- **End-to-end block processing** — integration tests simulate full block processing,
+  rollbacks, and chain reorganizations, comparing against trusted "golden" fixtures.
+
+### Live vs. offline testing
+
+- **Offline (fixtures)**: block/transaction snapshots stored as fixtures make the bulk of CI
+  fast, deterministic, and infrastructure-free. Prefer these for regression coverage.
+- **Live**: dedicated test databases / Bitcoin RPC are used for integration tests that must
+  confirm real-world alignment (marked `requires_db` / `requires_network`).
+
+## Running Tests
+
+### CI Environment (Unit Tests Only)
+```bash
+# Default in CI - excludes integration tests
+poetry run pytest -m "not integration"
+
+# Or use the run_checks tool
+poetry run run-checks
+```
+
+### Local Development (All Tests)
+```bash
+# Run everything
+poetry run pytest
+
+# Run only unit tests
+poetry run pytest -m "unit"
+
+# Run tests that don't need external services  
+poetry run pytest -m "not requires_db and not requires_network"
+
+# Run only integration tests (requires local services)
+poetry run pytest -m "integration"
+```
+
+### Coverage Reports
+```bash
+# Quick coverage (excludes integration tests)
+poetry run coverage-quick
+
+# Full coverage analysis
+poetry run pytest --cov=src --cov-report=html
+```
+
+## Test Detection Patterns
+
+The `apply_test_markers.py` tool detects test types based on:
+
+### Database Patterns
+- `DatabaseManager`, `.connect()`, `.cursor()`, `.execute()`
+- SQL keywords: `INSERT INTO`, `SELECT FROM`, `UPDATE SET`
+
+### Network Patterns
+- `requests.`, `urllib`, `http.client`
+- Bitcoin RPC: `backend_instance`, `getblockcount`, `getblockhash`
+- APIs: `api.kucoin`, `api.openstamp`, `api.stampscan`
+
+### Integration Patterns
+- Filename contains "integration"
+- End-to-end workflows
+
+### Unit Test Patterns
+- Uses `@patch`, `MagicMock`, `Mock()`
+- No database or network patterns detected
+
+## Substituting the backend (test/CI backend override)
+
+`index_core.backend.Backend` is a process-wide singleton and exposes a
+first-class **injection seam** for substituting a non-bitcoind backend (e.g. the
+public-endpoint reparse shim) in tests and CI runners. **Use the seam — never
+reassign `backend_instance` on individual modules**: `Backend` is imported by
+value in many modules, and any module a per-module reassignment misses silently
+falls through to the real bitcoind RPC at `127.0.0.1:8332` and times out. (This
+is what took the Tier 3 reparse from 20/20 to 9/20 before the seam existed.)
+
+Two equivalent entry points:
+
+```python
+# Programmatic — preferred in tests when you control import order:
+from index_core.backend import set_backend_override, clear_backend_override
+
+set_backend_override(MyTestBackend())  # every subsequent Backend() returns it
+clear_backend_override()               # restore the real singleton
+```
+
+```bash
+# Env var — import-order-independent; resolves lazily on first Backend():
+BTC_STAMPS_BACKEND_OVERRIDE="module:ClassName"
+```
+
+The autouse `conftest.py::reset_backend_override` fixture clears `Backend._override`
+and the env var before/after every test, so an override can never leak across the
+suite. CI runner scripts (e.g. `smoke_parser_validation.py`) install the override
+inside `main()` before importing `index_core`, keeping import side-effect-free.
+See the seam docstrings in `index_core/backend.py`. (Refs #800, #802.)
+
+## Maintaining Test Quality
+
+1. **Check for missing markers**: Run `poetry run python tools/apply_test_markers.py` regularly
+2. **Update markers when test changes**: If a unit test starts using database, add `@pytest.mark.requires_db`
+3. **Keep tests focused**: Prefer many small unit tests over few large integration tests
+4. **Mock external dependencies**: Use mocks in unit tests to avoid needing `requires_db`/`requires_network`
+
+## Common Issues
+
+### "Test not running in CI"
+- Check if test has `@pytest.mark.integration` marker
+- CI only runs tests without integration marker
+
+### "Coverage dropped after adding markers"  
+- Ensure test isn't marked as `integration` if it's actually a unit test
+- Run `apply_test_markers.py` to verify correct markers
+
+### "Test fails in CI but passes locally"
+- Test might be missing `requires_db` or `requires_network` marker
+- Check for hardcoded paths or environment assumptions

@@ -1,0 +1,48 @@
+name: Build Tests
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: false
+        type: string
+        default: 'development'
+    outputs:
+      test_status:
+        description: "Test execution status"
+        value: ${{ jobs.test-build.outputs.status }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/setup-python.yml
+    with:
+      python-version: '3.10'
+
+  test-build:
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.test.outputs.test_status }}
+
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Create Python module structure
+        run: |
+          mkdir -p indexer/src/btc_stamps_parser
+          touch indexer/src/btc_stamps_parser/__init__.py
+
+      - name: Run Build Test
+        id: test
+        working-directory: ./indexer
+        run: |
+          if ./test-local.sh; then
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "test_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Run Rust parser tests
+        working-directory: ./indexer
+        run: poetry run pytest tests/test_rust_parser_simple.py -v

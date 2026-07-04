@@ -1,0 +1,13 @@
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Archive tools
+tools/archive/
+
+# Test artifacts
+test_reprocess_queue.db

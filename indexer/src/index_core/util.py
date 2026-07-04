@@ -1,27 +1,75 @@
 import ast
 import binascii
-import collections
 import decimal
 import hashlib
 import json
 import logging
 import re
-import threading
 import unicodedata
 from binascii import unhexlify
+from typing import Optional
 
-from bitcoinlib import encoding
-from ecdsa import SECP256k1, VerifyingKey
+try:
+    from bitcoin.wallet import CBitcoinAddress
+except ImportError:
+    # For test environments without real bitcoin library
+    def CBitcoinAddress(addr):
+        return addr
+
+
+try:
+    from bitcoinlib import encoding
+except ImportError:
+    # Stub encoding for bech32/base58 address parsing
+    class _StubEncoding:
+        @staticmethod
+        def addr_bech32_to_pubkeyhash(addr):
+            return None
+
+        @staticmethod
+        def addr_base58_to_pubkeyhash(addr):
+            return None
+
+    encoding = _StubEncoding
+
+
+try:
+    from ecdsa import SECP256k1, VerifyingKey
+except ImportError:
+    # For test environments without ecdsa
+    SECP256k1 = None
+
+    class _StubVerifyingKey:
+        @staticmethod
+        def from_string(data, curve=None):
+            raise ImportError("ecdsa.VerifyingKey not available")
+
+    VerifyingKey = _StubVerifyingKey
+
 
 import config
+from index_core.caching import cache_manager
 from index_core.exceptions import DataConversionError, InvalidInputDataError, SerializationError
 
 logger = logging.getLogger(__name__)
 D = decimal.Decimal
-
 CP_BLOCK_COUNT = None
+CURRENT_BLOCK_INDEX: Optional[int] = None  # resolves to database.last_db_index(db)
 
-CURRENT_BLOCK_INDEX = None  # resolves to database.last_db_index(db)
+
+def calculate_file_size(binary_data: bytes) -> int:
+    """
+    Calculate the size of binary data in bytes.
+
+    Args:
+        binary_data: The binary data to measure
+
+    Returns:
+        int: Size in bytes, 0 if data is None or empty
+    """
+    if binary_data is None:
+        return 0
+    return len(binary_data)
 
 
 def chunkify(lst, n):
@@ -114,43 +162,6 @@ def enabled(change_name, block_index=None):
         return False
 
 
-class DictCache:
-    """Threadsafe FIFO dict cache"""
-
-    def __init__(self, size=100):
-        if int(size) < 1:
-            raise AttributeError("size < 1 or not a number")
-        self.size = size
-        self.dict = collections.OrderedDict()
-        self.lock = threading.Lock()
-
-    def __getitem__(self, key):
-        with self.lock:
-            return self.dict[key]
-
-    def __setitem__(self, key, value):
-        with self.lock:
-            while len(self.dict) >= self.size:
-                self.dict.popitem(last=False)
-            self.dict[key] = value
-
-    def __delitem__(self, key):
-        with self.lock:
-            del self.dict[key]
-
-    def __len__(self):
-        with self.lock:
-            return len(self.dict)
-
-    def __contains__(self, key):
-        with self.lock:
-            return key in self.dict
-
-    def refresh(self, key):
-        with self.lock:
-            self.dict.move_to_end(key, last=True)
-
-
 URL_USERNAMEPASS_REGEX = re.compile(".+://(.+)@")
 
 
@@ -191,7 +202,7 @@ def is_valid_pubkey_hex(pubkey_hex):
         pubkey_bytes = unhexlify(pubkey_hex)
         VerifyingKey.from_string(pubkey_bytes, curve=SECP256k1)
         return True
-    except Exception as e:
+    except:  # noqa: E722
         return False
 
 
@@ -215,7 +226,7 @@ def check_valid_bitcoin_address(address: str):
         else:
             encoding.addr_base58_to_pubkeyhash(address)
         return True
-    except Exception as e:
+    except:  # noqa: E722
         return False
 
 
@@ -394,3 +405,45 @@ def convert_to_dict_or_string(input_data, output_format="dict"):
             raise SerializationError(f"An error occurred during JSON serialization: {e}")
     else:
         raise DataConversionError("Invalid output format: {}".format(output_format))
+
+
+def decode_address(script_pubkey):
+    """
+    Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
+    Uses caching to avoid repeated conversions of the same script_pubkey.
+
+    Args:
+        script_pubkey (bytes): The scriptPubKey to decode.
+
+    Returns:
+        str: The decoded Bitcoin address.
+
+    Raises:
+        ValueError: If the scriptPubKey format is unsupported.
+    """
+    # Convert script_pubkey to a hashable type for cache key
+    cache_key = bytes(script_pubkey)
+
+    # Check cache first
+    cached_result = cache_manager.get_cache_value("address", cache_key)
+    if cached_result is not None:
+        return cached_result
+
+    try:
+        # Handle Taproot (P2TR)
+        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:
+            witness_program = script_pubkey[2:]
+            # Maintain existing network-specific behavior
+            if config.TESTNET:
+                address = encoding.pubkeyhash_to_addr(witness_program, prefix="tb", encoding="bech32", witver=1)
+            else:
+                address = encoding.pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
+        else:
+            # Handle all other address types using bitcoin-core's native implementation
+            address = str(CBitcoinAddress.from_scriptPubKey(script_pubkey))
+
+        # Cache the result
+        cache_manager.set_cache_value("address", cache_key, address)
+        return address
+    except Exception:
+        raise ValueError("Unsupported scriptPubKey format")

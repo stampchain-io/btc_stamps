@@ -1,0 +1,51 @@
+name: Setup Python Environment
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: true
+        type: string
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.cache-poetry.outputs.cache-hit }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+        working-directory: ./indexer
+
+      - name: Cache Poetry
+        id: cache-poetry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install
+        working-directory: ./indexer
+
+      - name: Setup Rust and build parser
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+
+      - name: Build Rust parser
+        working-directory: ./indexer
+        run: |
+          pip install maturin
+          maturin develop --release
+
+

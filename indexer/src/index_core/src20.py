@@ -6,27 +6,29 @@ import sys
 import time
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal, InvalidOperation
-from typing import Dict, List, Optional, TypedDict, Union
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
+from enum import Enum
+from typing import List, Optional, TypedDict, Union
 
 import requests
 from requests.exceptions import JSONDecodeError
 
+import config
 import index_core.log as log
-from config import (  # SRC_VALIDATION_API1,
-    CP_P2WSH_FEAT_BLOCK_START,
-    SRC20_BALANCES_TABLE,
-    SRC20_VALID_TABLE,
-    SRC_VALIDATION_API2,
-    SRC_VALIDATION_SECRET_API2,
-    TICK_PATTERN_SET,
-)
-from index_core.database import TOTAL_MINTED_CACHE, get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
+from config import CP_P2WSH_FEAT_BLOCK_START  # SRC_VALIDATION_API1,
+from config import SRC20_BALANCES_TABLE, SRC20_VALID_TABLE, SRC_VALIDATION_API2, SRC_VALIDATION_SECRET_API2, TICK_PATTERN_SET
+from index_core.caching import cache_manager  # Use CacheManager
+from index_core.database import get_src20_deploy, get_srcbackground_data, get_total_src20_minted_from_db
 from index_core.util import decode_unicode_escapes, escape_non_ascii_characters
 
 D = Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
+
+# Precompile regex patterns used in validation
+TICK_REGEX = re.compile(rf"^[{re.escape(''.join(TICK_PATTERN_SET))}]+$")  # Join set elements
+NUMERIC_REGEX = re.compile(r"^[0-9]*(\.[0-9]*)?$")
+DECIMAL_REGEX = re.compile(r"^[0-9]+$")
 
 
 class Src20Dict(TypedDict, total=False):
@@ -53,11 +55,9 @@ class Src20Validator:
     def __init__(self, src20_dict: Src20Dict):
         self.src20_dict = src20_dict
         self.validation_errors: List[str] = []
+        self.block_index = src20_dict.get("block_index", 0)
 
     def process_values(self) -> Src20Dict:
-        num_pattern = re.compile(r"^[0-9]*(\.[0-9]*)?$")
-        dec_pattern = re.compile(r"^[0-9]+$")
-
         for key, value in list(self.src20_dict.items()):
             if value == "":
                 self.src20_dict[key] = None  # type: ignore
@@ -66,7 +66,7 @@ class Src20Validator:
             elif key in ["p", "op", "holders_of"]:
                 self._process_uppercase_value(key, value)  # type: ignore
             elif key in ["max", "lim", "amt", "dec"]:
-                self._apply_regex_validation(key, value, num_pattern, dec_pattern)
+                self._apply_regex_validation(key, value, NUMERIC_REGEX, DECIMAL_REGEX)
 
         return self.src20_dict
 
@@ -79,6 +79,8 @@ class Src20Validator:
             else:
                 self._update_status(key, f"NN: INVALID NUM for {key}")
                 self.src20_dict[key] = None
+            if key in ["max", "lim"] and self.src20_dict[key] is not None:
+                self.src20_dict[key] = self.src20_dict[key].quantize(Decimal("1"), rounding=ROUND_DOWN)
         elif key == "dec":
             if dec_pattern.match(str(value)) and 0 <= int(value) <= 18:
                 self.src20_dict[key] = int(value)
@@ -132,7 +134,7 @@ class Src20Processor:
         "ID": ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
     }
 
-    def __init__(self, db, src20_dict, processed_src20_in_block):
+    def __init__(self, db, src20_dict, processed_src20_in_block, lock=None, block_index=None, block_time=None):
         self.db = db
         self.src20_dict = src20_dict
         self.processed_src20_in_block = processed_src20_in_block
@@ -140,6 +142,10 @@ class Src20Processor:
         self.dec: Optional[Union[str, int]] = src20_dict.get("dec", 0)
         self.deploy_lim: Optional[Union[str, D]] = src20_dict.get("deploy_lim", 0)
         self.deploy_max: Optional[Union[str, D]] = src20_dict.get("deploy_max", 0)
+        self.block_index = block_index
+        self.block_time = block_time
+        self.operation = src20_dict.get("op", "").upper()
+        self.lock = lock
 
     def normalize_and_validate_amt(self):
         amt = D(self.src20_dict["amt"]).normalize()
@@ -174,7 +180,6 @@ class Src20Processor:
                 return
             self.src20_dict["total_balance_creator"] = D(running_user_balance_creator) - amt
             self.src20_dict["total_balance_destination"] = D(running_user_balance_destination) + amt
-            # self.src20_dict['status'] = 'Balance Updated'
         elif operation == "MINT" and total_minted is not None:
             try:
                 amt = self.normalize_and_validate_amt()
@@ -186,7 +191,9 @@ class Src20Processor:
                     dec=self.dec,
                 )
                 return
-            TOTAL_MINTED_CACHE[self.src20_dict.get("tick")] += amt
+            tick = self.src20_dict.get("tick")
+            current_total = cache_manager.get_cache_value("total_minted", tick) or D(0)  # Use CacheManager
+            cache_manager.set_cache_value("total_minted", tick, current_total + amt)  # Use CacheManager
             running_total_mint = D(total_minted) + amt
             running_user_balance = D(running_user_balance_creator) + amt
             self.src20_dict["total_minted"] = running_total_mint
@@ -216,17 +223,17 @@ class Src20Processor:
         self.src20_dict["status"] = status_message
 
         if is_invalid:
-            logger.warning(message)
+            logger.debug(message)
             self.is_valid = False
         else:
-            logger.info(message)
+            logger.debug(message)
 
     def handle_deploy(self):
         if self.operation.upper() != "DEPLOY":
-            logger.warning(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
+            logger.debug(f"Attempted to handle non-DEPLOY operation: {self.operation} for tick: {self.src20_dict['tick']}")
             return
 
-        if not self.deploy_lim and not self.deploy_max:
+        if not self.deploy_lim and not self.deploy_max and self.src20_dict.get("lim") and self.src20_dict.get("max"):
             self.update_valid_src20_list(operation=self.operation)
 
             # Extract metadata from the SRC20 DEPLOY json string
@@ -253,17 +260,18 @@ class Src20Processor:
                 INSERT INTO src20_metadata
                 (tick, tick_hash, description, x, tg, web, email, deploy_block_index, deploy_tx_hash)
                 VALUES (%(tick)s, %(tick_hash)s, %(description)s, %(x)s, %(tg)s, %(web)s, %(email)s, %(deploy_block_index)s, %(deploy_tx_hash)s)
-                ON DUPLICATE KEY UPDATE
-                description = COALESCE(VALUES(description), description),
-                x = COALESCE(VALUES(x), x),
-                tg = COALESCE(VALUES(tg), tg),
-                web = COALESCE(VALUES(web), web),
-                email = COALESCE(VALUES(email), email)
+                AS new_row ON DUPLICATE KEY UPDATE
+                description = COALESCE(new_row.description, src20_metadata.description),
+                x = COALESCE(new_row.x, src20_metadata.x),
+                tg = COALESCE(new_row.tg, src20_metadata.tg),
+                web = COALESCE(new_row.web, src20_metadata.web),
+                email = COALESCE(new_row.email, src20_metadata.email)
                 """,
                 metadata,
             )
 
     def handle_mint(self):
+
         self.deploy_lim = min(D(self.deploy_lim), D(self.deploy_max)) if self.deploy_lim and self.deploy_max else D(0)
 
         try:
@@ -279,7 +287,7 @@ class Src20Processor:
                 )
                 return
 
-            if self.src20_dict["amt"] > mint_available:
+            if mint_available is not None and self.src20_dict["amt"] > mint_available:
                 self.set_status_and_log(
                     "OMA",
                     original_amt=self.src20_dict["amt"],
@@ -288,7 +296,7 @@ class Src20Processor:
                 )
                 self.src20_dict["amt"] = mint_available
 
-            if self.src20_dict["amt"] > self.deploy_lim:
+            if self.deploy_lim is not None and self.src20_dict["amt"] > self.deploy_lim:
                 self.set_status_and_log(
                     "ODL",
                     original_amt=self.src20_dict["amt"],
@@ -362,12 +370,11 @@ class Src20Processor:
             logger.error(f"Error in handle_transfer: {e}")
             raise
 
-    def handle_bulk_transfer(
-        self,
-    ):  # NOTE: this is not yet implemented on a block height activation or in the operation handling
+    def handle_bulk_transfer(self):
+        """Handle bulk transfer operation with thread-safe list modifications."""
         # Check if operation is BULK_XFER and if deploy limits are set
         if self.src20_dict["op"] != "BULK_XFER" or not (self.deploy_lim and self.deploy_max):
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - deployment limits not set or operation mismatch")
+            logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - deployment limits not set or operation mismatch")
             return
 
         # Validate the 'holders_of' target deploy
@@ -382,7 +389,7 @@ class Src20Processor:
 
         # Validate 'destinations' is a list
         if not isinstance(self.src20_dict["destinations"], list):
-            logger.warning(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
+            logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - destinations not a list")
             return
 
         addresses = [self.src20_dict["creator"]]
@@ -399,7 +406,7 @@ class Src20Processor:
         running_user_balance_creator = getattr(running_user_balance_tuple, "total_balance", D("0"))
 
         if running_user_balance_creator <= 0:
-            logger.info(f"Invalid {self.src20_dict['tick']} BULK_XFER - insufficient balance")
+            logger.debug(f"Invalid {self.src20_dict['tick']} BULK_XFER - insufficient balance")
             return
 
         # Get tick holders and calculate total send amount
@@ -439,7 +446,12 @@ class Src20Processor:
             for th in tick_holders
         ]
 
-        self.processed_src20_in_block.extend(new_dicts)
+        if self.lock:
+            with self.lock:
+                self.processed_src20_in_block.extend(new_dicts)
+        else:
+            self.processed_src20_in_block.extend(new_dicts)
+
         self.src20_dict["total_balance_creator"] = D(running_user_balance_creator) - D(total_send_amt)
         self.src20_dict["status"] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
@@ -472,21 +484,38 @@ class Src20Processor:
         self.tick_value = self.src20_dict.get("tick")
 
         if not validator.is_valid:
-            self.processed_src20_in_block.append(self.src20_dict)
-            logger.warning(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
+            if self.lock:
+                with self.lock:
+                    self.processed_src20_in_block.append(self.src20_dict)
+            else:
+                self.processed_src20_in_block.append(self.src20_dict)
+            logger.debug(f"Invalid {self.tick_value} SRC20: {self.src20_dict['status']}")
             self.is_valid = False
             return
 
         self.validate_and_process_operation()
 
 
-def parse_src20(db, src20_dict, processed_src20_in_block):
+def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
     """
     Process all SRC-20 tokens that pass check_format.
+    Thread-safe processing of SRC-20 transactions with proper transaction tracking.
     """
-    processor = Src20Processor(db, src20_dict, processed_src20_in_block)
-    processor.process()
-    return processor.is_valid, src20_dict
+    try:
+        processor = Src20Processor(db, src20_dict, processed_src20_in_block, lock)
+        processor.process()
+
+        if not processor.is_valid:
+            logger.debug(f"Transaction marked as invalid: {src20_dict.get('status', 'unknown status')}")
+
+        logger.debug(f"Final transaction state: valid={processor.is_valid}, status={src20_dict.get('status', 'unknown')}")
+        return processor.is_valid, src20_dict
+    except Exception as e:
+        logger.error(f"Error processing SRC-20 transaction: {e}")
+        src20_dict["status"] = f"Error: {str(e)}"
+        src20_dict["valid"] = 0
+
+        return False, src20_dict
 
 
 def build_src20_svg_string(db, src_20_dict):
@@ -528,9 +557,8 @@ def generate_srcbackground_svg(input_dict, base64, font_size, text_color):
             "amt": input_dict.get("amt", None),
         }
     if dict_to_use == {}:
-        logger.log(
-            logging.ERROR,
-            "dict_to_use is empty -- happens with invalid op value but a valid stamp",
+        logger.debug(
+            "dict_to_use is empty -- happens with invalid op value but a valid stamp"
         )  # FIXME: process svg string after validation
 
     sorted_keys = sorted(dict_to_use.keys(), key=sort_keys)
@@ -617,7 +645,7 @@ def check_format(input_string, tx_hash, block_index):
 
     def parse_no_sci_float(s):
         if "e" in s.lower():
-            logger.warning(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
+            logger.debug(f"EXCLUSION: Scientific notation not allowed in incoming value: {s}")
             raise ValueError(f"Scientific notation not allowed in incoming value: {s}")
         return D(s)
 
@@ -631,10 +659,10 @@ def check_format(input_string, tx_hash, block_index):
             elif isinstance(input_string, dict):
                 input_dict = input_string
             else:
-                logger.warning("EXCLUSION: Input string is neither bytes, str, nor dict")
+                logger.debug("EXCLUSION: Input string is neither bytes, str, nor dict")
                 return None
         except (json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.warning(f"EXCLUSION: JSON decode error: {e}")
+            logger.debug(f"EXCLUSION: JSON decode error: {e}")
             return None
         if input_dict.get("p").lower() == "src-721":
             return input_dict
@@ -642,7 +670,7 @@ def check_format(input_string, tx_hash, block_index):
             tick_value = convert_to_utf8_string(input_dict.get("tick", ""))
             input_dict["tick"] = tick_value
             if not tick_value or not matches_any_pattern(tick_value, TICK_PATTERN_SET) or len(tick_value) > 5:
-                logger.warning(f"EXCLUSION: did not match tick pattern {input_dict}")
+                logger.debug(f"EXCLUSION: did not match tick pattern {input_dict}")
                 return None
 
             deploy_keys = {"op", "tick", "max", "lim"}
@@ -666,7 +694,7 @@ def check_format(input_string, tx_hash, block_index):
                     for key in key_values_to_check[list(key_values_to_check.keys())[i]]:
                         value = input_dict.get(key)
                         if value is None:
-                            logger.warning(
+                            logger.debug(
                                 f"EXCLUSION: Missing or invalid value for {key}",
                                 input_dict,
                             )
@@ -679,9 +707,7 @@ def check_format(input_string, tx_hash, block_index):
                                 else:
                                     value = D("".join(c for c in value if c.isdigit() or c == ".")) if value else D(0)
                             except InvalidOperation as e:
-                                logger.warning(
-                                    f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}"
-                                )
+                                logger.debug(f"EXCLUSION: {key} not a valid decimal: {e}. Input dict: {input_dict}, {tx_hash}")
                                 return None
                         elif isinstance(value, int):
                             value = D(value)
@@ -691,10 +717,10 @@ def check_format(input_string, tx_hash, block_index):
                         elif isinstance(value, D):
                             pass
                         else:
-                            logger.warning(f"EXCLUSION: {key} not a string or integer", input_dict)
+                            logger.debug(f"EXCLUSION: {key} not a string or integer", input_dict)
                             return None
                         if value.is_nan() or not (D("0") <= value <= uint64_max):
-                            logger.warning(f"EXCLUSION: {key} not in range", input_dict)
+                            logger.debug(f"EXCLUSION: {key} not in range", input_dict)
                             return None
             return input_dict
 
@@ -705,118 +731,126 @@ def check_format(input_string, tx_hash, block_index):
 
 
 def get_running_mint_total(db, src20_processed_in_block, tick):
-    """
-    Get the running mint total for a given tick.
+    """Get the running mint total for a given tick with caching."""
+    total_minted = D(0)
+    logger.debug(f"Getting running mint total for tick {tick}")
 
-    Args:
-        db (Database): The database object.
-        src20_processed_in_block (list): The list of processed SRC20 items in a block.
-        tick (int): The tick value.
-
-    Returns:
-        Decimal: The running mint total for the given tick.
-    """
-    total_minted = 0
+    # First check in-block transactions
     if len(src20_processed_in_block) > 0:
+        logger.debug(f"Checking in-block transactions for tick {tick}")
         for item in reversed(src20_processed_in_block):
             if item["tick"] == tick and item["op"] == "MINT" and "total_minted" in item:
-                total_minted = item["total_minted"]
+                total_minted = D(item["total_minted"])
+                logger.debug(f"Found in-block total_minted: {total_minted}")
+                # Update cache with latest value
+                cache_manager.set_cache_value("total_minted", tick, total_minted)
                 break
-    if total_minted == 0:
-        total_minted = get_total_src20_minted_from_db(db, tick)
 
-    return D(total_minted)
+    # If not found in block, try cache
+    if total_minted == D(0):
+        logger.debug("No in-block total found, checking cache")
+        cached_total = cache_manager.get_cache_value("total_minted", tick)
+        if cached_total is not None:
+            total_minted = cached_total
+            logger.debug(f"Found cached total_minted: {total_minted}")
+        else:
+            # If not in cache, query database
+            logger.debug("No cached total found, querying database")
+            total_minted = get_total_src20_minted_from_db(db, tick)
+            logger.debug(f"Database total_minted: {total_minted}")
+            cache_manager.set_cache_value("total_minted", tick, total_minted)
+
+    logger.debug(f"Final total_minted for tick {tick}: {total_minted}")
+    return total_minted
 
 
 def get_running_user_balances(db, tick, tick_hash, addresses, src20_processed_in_block):
+    """Calculate the running balance of multiple users based on the processed transactions
+    in current and prior blocks from the db. This is only called once for each mint,
+    bulk_xfer, or transfer transaction. It may get many addresses from the bulk_xfer list.
+    The bulk_xfer list is assumed to have only unique addresses.
     """
-    Calculate the running balance of multiple users based on the processed transactions
-    in current and prior blocks from the db. this is only be called once for each mint
-    bulk_xfer, or transfer transaction it may get many addresses from the bulk_xfer list. The
-    bulk_xfer list is assumed to have only unique addresses.
-
-    Parameters:
-    - db (Database): The database object.
-    - tick (int): The tick value.
-    - tick_hash (str): The tick hash value.
-    - addresses (list or str): The list or string of addresses to calculate the balances for.
-    - src20_processed_in_block (list): The list of already processed src20 transactions in the block.
-
-    Returns:
-    - list: A list of namedtuples containing the tick, address, and total balance for each address.
-    """
-
-    BalanceCurrent = namedtuple("BalanceCurrent", ["tick", "address", "total_balance", "locked_balance"])
-
     if isinstance(addresses, str):
         addresses = [addresses]
     if len(addresses) != len(set(addresses)):
         raise Exception(f"The addresses list is not all unique addresses: tick={tick}, addresses={addresses}")
 
+    logger.debug(f"Calculating balances for tick={tick}, addresses={addresses}")
+    logger.debug(f"Transaction hash: {tick_hash}")
     balances = []
+    BalanceCurrent = namedtuple("BalanceCurrent", ["tick", "address", "total_balance", "locked_amt"])
+    addresses_to_process = list(addresses)  # Make a copy to modify
 
+    # First check for balances in current block's processed transactions
     if any(item["tick"] == tick for item in src20_processed_in_block):
         try:
-            for prior_tx in reversed(
-                src20_processed_in_block
-            ):  # if there is a total-balance in a trx in the block with the same address, tick, and tick_hash, use that value for total_balance_x
-                if prior_tx.get("valid") == 1:  # Check if the dict has a valid key with a value of 1
-                    for address in addresses:
-                        total_balance = None
-                        locked_balance = None
-                        if (
-                            prior_tx["creator"] == address
-                            and prior_tx["tick"] == tick
-                            and prior_tx["tick_hash"] == tick_hash
-                            and "total_balance_creator"
-                            in prior_tx  # this gets added to the tuple which will be returned for the address and later added to src20_valid.??
-                        ):
-                            if "total_balance_creator" in prior_tx:
-                                total_balance = prior_tx["total_balance_creator"]
+            logger.debug(f"Found transactions in current block for tick {tick}")
+            for prior_tx in reversed(src20_processed_in_block):
+                if prior_tx.get("valid") != 1:
+                    logger.debug(f"Skipping invalid transaction: {prior_tx.get('tx_hash', 'unknown')}")
+                    continue
 
-                        elif (
-                            prior_tx["destination"] == address
-                            and prior_tx["tick"] == tick
-                            and prior_tx["tick_hash"] == tick_hash
-                            and "total_balance_destination" in prior_tx
-                        ):
-                            if "total_balance_destination" in prior_tx:
-                                total_balance = prior_tx["total_balance_destination"]
-                        if (
-                            total_balance is not None
-                        ):  # we got this address balance from the db in a prior loop and it exists in the src20_valid_dict so we can use it
-                            balances.append(BalanceCurrent(tick, address, D(total_balance), locked_balance))
-                            addresses.remove(address)
+                for address in list(addresses_to_process):  # Use list() to avoid modification during iteration
+                    total_balance = None
+                    locked_amt = None
+
+                    # Check creator balance
+                    if (
+                        prior_tx["creator"] == address
+                        and prior_tx["tick"] == tick
+                        and prior_tx["tick_hash"] == tick_hash
+                        and "total_balance_creator" in prior_tx
+                    ):
+                        total_balance = prior_tx["total_balance_creator"]
+                        logger.debug(f"Found creator balance for {address}: {total_balance}")
+
+                    # Check destination balance
+                    elif (
+                        prior_tx["destination"] == address
+                        and prior_tx["tick"] == tick
+                        and prior_tx["tick_hash"] == tick_hash
+                        and "total_balance_destination" in prior_tx
+                    ):
+                        total_balance = prior_tx["total_balance_destination"]
+                        logger.debug(f"Found destination balance for {address}: {total_balance}")
+
+                    if total_balance is not None:
+                        logger.debug(f"Adding balance for {address}: {total_balance}")
+                        balances.append(BalanceCurrent(tick, address, total_balance, locked_amt))
+                        addresses_to_process.remove(address)
+                        break
+
         except Exception as e:
-            logger.error(f"An exception in user balance: {e}")
+            logger.error(f"Error processing in-block transactions: {e}")
             raise
 
-    if addresses:
+    # For any remaining addresses, get their balances from the database
+    if addresses_to_process:
+        logger.debug(f"Fetching balances from database for remaining addresses: {addresses_to_process}")
         try:
-            total_balance_tuple = get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses)
-            for address in addresses:
-                total_balance = next(
-                    (balance.total_balance for balance in total_balance_tuple if balance.address == address),
-                    0,
-                )
-                locked_balance = next(
-                    (balance.locked_amt for balance in total_balance_tuple if balance.address == address),
-                    0,
-                )  # NOTE: this is not fully implemented
-                # if total_balance is negative throw an exception
-                if total_balance < 0:
-                    raise Exception(f"Negative balance for address {address} in tick {tick}")
-                balances.append(
-                    BalanceCurrent(
-                        tick,
-                        address,
-                        D(total_balance),
-                        locked_balance if total_balance != 0 else 0,
-                    )
-                )
+            cursor = db.cursor()
+            placeholders = ",".join(["%s"] * len(addresses_to_process))
+            cursor.execute(
+                f"""
+                SELECT address, amt, locked_amt
+                FROM {SRC20_BALANCES_TABLE}
+                WHERE tick = %s AND address IN ({placeholders})
+                """,
+                (tick, *addresses_to_process),
+            )
+            for address, amt, locked_amt in cursor.fetchall():
+                logger.debug(f"Found database balance for {address}: {amt}")
+                balances.append(BalanceCurrent(tick, address, D(amt), D(locked_amt or 0)))
+                addresses_to_process.remove(address)
+            cursor.close()
         except Exception as e:
-            print(f"An exception occurred: {e}")
+            logger.error(f"Error fetching balances from database: {e}")
             raise
+
+    # For any addresses still not found, set balance to 0
+    for address in addresses_to_process:
+        logger.debug(f"Setting zero balance for address not found: {address}")
+        balances.append(BalanceCurrent(tick, address, D(0), D(0)))
 
     return balances
 
@@ -843,46 +877,70 @@ def get_total_user_balance_from_balances_db(db, tick, tick_hash, addresses):
         ],
     )
 
-    with db.cursor() as src20_cursor:
-        query = f"""
-            SELECT
-                tick,
-                address,
-                amt,
-                last_update,
-                block_time,
-                locked_amt
-            FROM
-                {SRC20_BALANCES_TABLE}
-            WHERE
-                tick = %s
-                AND tick_hash = %s
-                AND address IN %s
-        """  # nosec
-
-        src20_cursor.execute(query, (tick, tick_hash, tuple(addresses)))
-        results = src20_cursor.fetchall()
-        for address in addresses:
-            total_balance = D("0")
-            highest_block_index = 0
-            block_time_unix = None
-            for result in results:
-                tick = result[0]
-                address = result[1]
-                total_balance = result[2]
-                highest_block_index = result[3]
-                block_time_unix = result[4]
-                locked_amt = result[5]
-                balances.append(
-                    BalanceTuple(
-                        tick,
-                        address,
-                        total_balance,
-                        highest_block_index,
-                        block_time_unix,
-                        locked_amt,
-                    )
+    # Try cache first for each address
+    addresses_to_query = []
+    for address in addresses:
+        cached_result = cache_manager.get_cache_value("balance", f"{tick}:{tick_hash}:{address}")
+        if cached_result is not None:
+            balances.append(
+                BalanceTuple(
+                    tick,
+                    address,
+                    cached_result,
+                    0,  # We don't cache these values as they're not critical
+                    None,
+                    None,
                 )
+            )
+        else:
+            addresses_to_query.append(address)
+
+    # Query database for uncached addresses
+    if addresses_to_query:
+        with db.cursor() as src20_cursor:
+            query = f"""
+                SELECT
+                    tick,
+                    address,
+                    amt,
+                    last_update,
+                    block_time,
+                    locked_amt
+                FROM
+                    {SRC20_BALANCES_TABLE}
+                WHERE
+                    tick = %s
+                    AND tick_hash = %s
+                    AND address IN %s
+            """  # nosec
+
+            src20_cursor.execute(query, (tick, tick_hash, tuple(addresses_to_query)))
+            results = src20_cursor.fetchall()
+
+            # Create a map of addresses to their results
+            address_results = {result[1]: result for result in results}
+
+            # Process remaining addresses
+            for address in addresses_to_query:
+                result = address_results.get(address)
+                if result:
+                    total_balance = D(str(result[2]))
+                    # Cache the result
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", total_balance)
+                    balances.append(
+                        BalanceTuple(
+                            result[0],  # tick
+                            result[1],  # address
+                            total_balance,
+                            result[3],  # highest_block_index
+                            result[4],  # block_time_unix
+                            result[5],  # locked_amt
+                        )
+                    )
+                else:
+                    # If no balance found, add and cache zero balance
+                    cache_manager.set_cache_value("balance", f"{tick}:{tick_hash}:{address}", D("0"))
+                    balances.append(BalanceTuple(tick, address, D("0"), 0, None, None))
 
     return balances
 
@@ -980,136 +1038,155 @@ def get_tick_holders_from_balances(db, tick):
 
 
 def update_src20_balances(db, block_index, block_time, processed_src20_in_block):
-    balance_updates: List[Dict[str, Union[str, D]]] = []
+    """Update balances for SRC20 transactions"""
+    balance_updates = []
 
-    for src20_dict in processed_src20_in_block:
-        if src20_dict.get("valid") == 1:
+    logger.debug(f"Processing balance updates for block {block_index}")
 
-            try:
-                if src20_dict["op"] == "MINT":
-                    # Credit to destination (creator can be a mint service)
-                    balance_dict = next(
-                        (
-                            item
-                            for item in balance_updates
-                            if item["tick"] == src20_dict["tick"]
-                            and item["tick_hash"] == src20_dict["tick_hash"]
-                            and item["address"] == src20_dict["destination"]
-                        ),
-                        None,
-                    )
-                    if balance_dict is None:
-                        balance_dict = {
-                            "tick": src20_dict["tick"],
-                            "tick_hash": src20_dict["tick_hash"],
-                            "address": src20_dict["destination"],
-                            "credit": D(src20_dict["amt"]),
-                            "debit": D(0),
-                        }
-                        balance_updates.append(balance_dict)
-                    else:
-                        balance_dict["credit"] += D(src20_dict["amt"])
+    # Skip invalid transactions and non-balance affecting operations
+    valid_transactions = [
+        tx for tx in processed_src20_in_block if tx.get("valid") == 1 and tx.get("op") in ["MINT", "TRANSFER"] and "amt" in tx
+    ]
+    # Process each valid transaction
+    for src20_dict in valid_transactions:
+        try:
+            amt = D(str(src20_dict["amt"]))
 
-                elif src20_dict["op"] == "TRANSFER":
-                    # Debit from creator
-                    balance_dict = next(
-                        (
-                            item
-                            for item in balance_updates
-                            if item["tick"] == src20_dict["tick"]
-                            and item["tick_hash"] == src20_dict["tick_hash"]
-                            and item["address"] == src20_dict["creator"]
-                        ),
-                        None,
-                    )
-                    if balance_dict is None:
-                        balance_dict = {
-                            "tick": src20_dict["tick"],
-                            "tick_hash": src20_dict["tick_hash"],
-                            "address": src20_dict["creator"],
-                            "credit": D(0),
-                            "debit": D(src20_dict["amt"]),
-                        }
-                        balance_updates.append(balance_dict)
-                    else:
-                        balance_dict["debit"] += D(src20_dict["amt"])
+            if src20_dict["op"] == "MINT":
+                _process_mint_operation(balance_updates, src20_dict, amt)
+            elif src20_dict["op"] == "TRANSFER":
+                _process_transfer_operation(balance_updates, src20_dict, amt)
 
-                    # Credit to destination
-                    balance_dict = next(
-                        (
-                            item
-                            for item in balance_updates
-                            if item["tick"] == src20_dict["tick"]
-                            and item["tick_hash"] == src20_dict["tick_hash"]
-                            and item["address"] == src20_dict["destination"]
-                        ),
-                        None,
-                    )
-                    if balance_dict is None:
-                        balance_dict = {
-                            "tick": src20_dict["tick"],
-                            "tick_hash": src20_dict["tick_hash"],
-                            "address": src20_dict["destination"],
-                            "credit": D(src20_dict["amt"]),
-                            "debit": D(0),
-                        }
-                        balance_updates.append(balance_dict)
-                    else:
-                        balance_dict["credit"] += D(src20_dict["amt"])
+        except Exception as e:
+            logger.error(f"Error updating SRC20 balances for transaction: {src20_dict}")
+            logger.error(f"Error details: {str(e)}")
+            raise
 
-            except Exception as e:
-                logger.error(f"Error updating SRC20 balances: {e}")
-                raise e
+    # Update database and cache
+    update_balance_table(db, balance_updates, block_index, block_time)
+    _update_balance_caches(balance_updates)
 
-    if balance_updates:
-        update_balance_table(db, balance_updates, block_index, block_time)
     return balance_updates
 
 
-def update_balance_table(db, balance_updates, block_index, block_time):
-    """Update the balances table with the balance_updates list"""
-    cursor = db.cursor()
+def _process_mint_operation(balance_updates, src20_dict, amt):
+    """Process a MINT operation and update the balance_updates list."""
 
+    # Find or create balance entry for destination
+    balance_dict = _get_or_create_balance_entry(
+        balance_updates, src20_dict["tick"], src20_dict["tick_hash"], src20_dict["destination"]
+    )
+
+    balance_dict["credit"] += amt
+
+
+def _process_transfer_operation(balance_updates, src20_dict, amt):
+    """Process a TRANSFER operation and update the balance_updates list."""
+    # Debit from source
+    source_balance = _get_or_create_balance_entry(
+        balance_updates, src20_dict["tick"], src20_dict["tick_hash"], src20_dict["creator"]
+    )
+    source_balance["debit"] += amt
+
+    # Credit to destination
+    dest_balance = _get_or_create_balance_entry(
+        balance_updates, src20_dict["tick"], src20_dict["tick_hash"], src20_dict["destination"]
+    )
+    dest_balance["credit"] += amt
+
+
+def _get_or_create_balance_entry(balance_updates, tick, tick_hash, address):
+    """Find or create a balance entry for the given tick/address combination."""
+    balance_dict = next(
+        (
+            item
+            for item in balance_updates
+            if item["tick"] == tick and item["tick_hash"] == tick_hash and item["address"] == address
+        ),
+        None,
+    )
+
+    if balance_dict is None:
+        balance_dict = {"tick": tick, "tick_hash": tick_hash, "address": address, "credit": D(0), "debit": D(0)}
+        balance_updates.append(balance_dict)
+
+    return balance_dict
+
+
+def _update_balance_caches(balance_updates):
+    """Update the cache with the final balances."""
     for balance_dict in balance_updates:
-        try:
+        net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
+        current_balance = balance_dict.get("original_amt", D(0)) + net_change
+
+        cache_key = f"{balance_dict['tick']}:{balance_dict['tick_hash']}:{balance_dict['address']}"
+
+        cache_manager.set_cache_value("balance", cache_key, current_balance)
+
+
+def update_balance_table(db, balance_updates, block_index, block_time):
+    cursor = db.cursor()
+    try:
+        # Calculate net changes and fetch current balances
+        id_to_balance = {}
+        for balance_dict in balance_updates:
             net_change = balance_dict.get("credit", D(0)) - balance_dict.get("debit", D(0))
             balance_dict["net_change"] = net_change
-            id_field = balance_dict["tick"] + "_" + balance_dict["address"]
+            id_field = f"{balance_dict['tick']}_{balance_dict['address']}"
+            id_to_balance[id_field] = balance_dict
 
-            cursor.execute(f"SELECT amt FROM {SRC20_BALANCES_TABLE} WHERE id = %s", (id_field,))  # nosec
-            result = cursor.fetchone()
-            if result is not None:
-                balance_dict["original_amt"] = D(result[0])
-            else:
-                balance_dict["original_amt"] = D(0)
-
+        # Fetch existing balances in one query
+        id_list = list(id_to_balance.keys())
+        if id_list:
+            placeholders = ",".join(["%s"] * len(id_list))
             cursor.execute(
-                """
-                INSERT INTO balances
-                (id, address, tick, amt, last_update, block_time, p, tick_hash)
-                VALUES (%s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    amt = amt + VALUES(amt),
-                    last_update = VALUES(last_update)
-            """,
-                (
-                    id_field,
-                    balance_dict["address"],
-                    balance_dict["tick"],
-                    net_change,
-                    block_index,
-                    block_time,
-                    "SRC-20",
-                    balance_dict["tick_hash"],
-                ),
+                f"SELECT id, amt, locked_amt FROM {SRC20_BALANCES_TABLE} WHERE id IN ({placeholders})",  # nosec B608
+                tuple(id_list),
             )
 
-        except Exception as e:
-            logger.error("Error updating balances table:", e)
-            raise e
+            # Update with current balances
+            for id_field, amt, locked_amt in cursor.fetchall():
+                id_to_balance[id_field]["original_amt"] = D(amt)
+                id_to_balance[id_field]["locked_amt"] = D(locked_amt) if locked_amt is not None else D(0)
 
-    cursor.close()
-    return
+        # Set zero for any new addresses
+        for balance_dict in balance_updates:
+            if "original_amt" not in balance_dict:
+                balance_dict["original_amt"] = D(0)
+            if "locked_amt" not in balance_dict:
+                balance_dict["locked_amt"] = D(0)
+
+        insert_data = [
+            (
+                f"{b['tick']}_{b['address']}",
+                b["address"],
+                b["tick"],
+                b["net_change"],
+                b.get("locked_amt", D(0)),
+                block_index,
+                block_time,
+                "SRC-20",
+                b["tick_hash"],
+            )
+            for b in balance_updates
+        ]
+
+        cursor.executemany(
+            """
+            INSERT INTO balances
+            (id, address, tick, amt, locked_amt, last_update, block_time, p, tick_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s)
+            AS new_row ON DUPLICATE KEY UPDATE
+                amt = balances.amt + new_row.amt,
+                locked_amt = new_row.locked_amt,
+                last_update = new_row.last_update
+            """,
+            insert_data,
+        )
+    except Exception as e:
+        raise e
+    finally:
+        cursor.close()
 
 
 def process_balance_updates(balance_updates):
@@ -1172,7 +1249,30 @@ def clear_zero_balances(db):
     return
 
 
-def fetch_api_ledger_data(block_index: int):
+class LedgerFetchStatus(Enum):
+    # Stampscan returned data for the exact requested block.
+    OK = "ok"
+    # Stampscan returned data for an earlier block (M < requested) — its
+    # "shadow" behavior for blocks not yet indexed, or blocks with no SRC-20
+    # activity. From the indexer's POV this is a deferral, not a divergence.
+    BLOCK_INDEX_MISMATCH = "block_index_mismatch"
+    # Stampscan explicitly reports it has not indexed the block yet.
+    NOT_INDEXED = "not_indexed"
+    # Any HTTP / JSON / timeout / empty-validation failure.
+    API_ERROR = "api_error"
+
+
+# Named tuple so callers can still unpack three fields naturally.
+LedgerFetchResult = namedtuple("LedgerFetchResult", ["status", "hash", "validation"])
+
+
+def fetch_api_ledger_data(block_index: int) -> "LedgerFetchResult":
+    """Fetch the canonical SRC-20 ledger hash for ``block_index`` from stampscan.
+
+    Returns a ``LedgerFetchResult`` whose ``status`` distinguishes the four
+    possible outcomes (see ``LedgerFetchStatus``). Never mutates
+    ``config.FORCE`` — control flow is purely via the returned status.
+    """
     urls = []
     # if SRC_VALIDATION_API1:
     #     urls.append(SRC_VALIDATION_API1 + str(block_index))  # OKX diverges on hashes at 856444 due to their sci notation in strings
@@ -1180,119 +1280,217 @@ def fetch_api_ledger_data(block_index: int):
         urls.append(SRC_VALIDATION_API2.format(block_index=block_index, secret=SRC_VALIDATION_SECRET_API2))
 
     if not urls:
-        return None, None
+        return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
     max_retries = 5
-    backoff_time = 1
+    backoff_time = 3
 
     def fetch_url(url):
         try:
-            response = requests.get(url, timeout=5)
-            logger.debug(f"Fetching URL: {url}")
-            logger.debug(f"Response status code: {response.status_code}")
-            logger.debug(f"Response headers: {response.headers}")
-            logger.debug(f"Raw response text: {response.text}")
+            response = requests.get(url, timeout=config.STAMPSCAN_REQUEST_TIMEOUT)
+            logger.debug(f"Fetching URL: {url} → status {response.status_code}")
 
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    logger.debug(f"Parsed JSON data: {data}")
+            if response.status_code != 200:
+                if response.status_code == 404:
+                    logger.debug(f"Non-200 response code: {response.status_code} from URL: {url} (Will retry)")
+                else:
+                    logger.warning(f"Non-200 response code: {response.status_code} from URL: {url}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
-                    if "data" in data:
-                        data = data["data"]
-                        logger.debug(f"Data field: {data}")
+            try:
+                payload = response.json()
+            except JSONDecodeError as e:
+                logger.error(f"JSONDecodeError: {e}; raw={response.content!r}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+            except Exception as e:
+                logger.error(f"Unexpected error parsing JSON: {e}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
-                        api_ledger_hash = data.get("hash")
-                        api_ledger_validation = data.get("balance_data")
+            # Explicit "not_indexed" sentinel (no `data` key in this case).
+            if payload.get("msg") == "not_indexed":
+                logger.debug(f"Stampscan reports block {block_index} not_indexed")
+                return LedgerFetchResult(LedgerFetchStatus.NOT_INDEXED, None, None)
 
-                        logger.debug(f"api_ledger_hash: {api_ledger_hash}")
-                        logger.debug(f"api_ledger_validation: {api_ledger_validation}")
+            inner = payload.get("data")
+            if not isinstance(inner, dict):
+                logger.error(f"No usable 'data' field in response JSON: {payload}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
-                        if not api_ledger_validation:
-                            logger.error("api_ledger_validation is empty")
-                            return None, None
+            api_hash = inner.get("hash")
+            api_validation = inner.get("balance_data")
+            api_block_index_raw = inner.get("block_index")
 
-                        return api_ledger_hash, api_ledger_validation
-                    else:
-                        logger.error("No 'data' key in response JSON")
-                        return None, None
-                except JSONDecodeError as e:
-                    logger.error(f"JSONDecodeError: {e}")
-                    logger.debug(f"Response content: {response.content}")
-                    return None, None
-                except Exception as e:
-                    logger.error(f"Unexpected error parsing JSON: {e}")
-                    return None, None
-            else:
-                logger.error(f"Non-200 response code: {response.status_code} from URL: {url}")
-                return None, None
+            if not api_validation:
+                logger.warning(f"Stampscan returned empty balance_data for block {block_index}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            # Stampscan returns the nearest preceding block when ours isn't
+            # yet indexed (or had no SRC-20 activity). Detect that explicitly
+            # via the embedded block_index — it is NOT a consensus mismatch.
+            try:
+                api_block_index = int(api_block_index_raw)
+            except (TypeError, ValueError):
+                logger.error(f"Stampscan response missing/invalid block_index: {api_block_index_raw!r}")
+                return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
+
+            if api_block_index != block_index:
+                logger.debug(
+                    f"Stampscan returned shadow for block {block_index}: "
+                    f"got block_index={api_block_index} (defer to background)"
+                )
+                return LedgerFetchResult(LedgerFetchStatus.BLOCK_INDEX_MISMATCH, api_hash, api_validation)
+
+            return LedgerFetchResult(LedgerFetchStatus.OK, api_hash, api_validation)
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed for URL {url}: {e}")
-            return None, None
+            return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
+    # Retry only on API_ERROR. OK / NOT_INDEXED / BLOCK_INDEX_MISMATCH are
+    # definitive answers from stampscan; retrying them just adds latency.
     for _ in range(max_retries):
         with ThreadPoolExecutor() as executor:
             future_to_url = {executor.submit(fetch_url, url): url for url in urls}
             for future in as_completed(future_to_url):
                 result = future.result()
-                if result != (None, None):
+                if result.status != LedgerFetchStatus.API_ERROR:
                     return result
 
         time.sleep(backoff_time)
         backoff_time *= 2
 
-    raise Exception(f"Failed to retrieve from the API after {max_retries} retries")
+    logger.warning(f"Failed to retrieve from stampscan after {max_retries} retries for block {block_index}")
+    return LedgerFetchResult(LedgerFetchStatus.API_ERROR, None, None)
 
 
-def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str):
+def _enqueue_for_background_validation(block_index: int, ledger_hash: str, valid_src20_str: str, reason: str) -> None:
+    """Enqueue this block for later validation when stampscan can't authoritatively
+    confirm it right now (tip-lag, not-indexed, API error, or unexpected exception).
+    Queue failures are logged but never raised — the main indexer loop must keep moving.
+    """
     try:
-        api_ledger_hash, api_ledger_validation = fetch_api_ledger_data(block_index)
-        if api_ledger_validation is None:
-            raise ValueError(f"API ledger validation data is None. Local ledger_hash: {ledger_hash}")
-    except Exception as e:
-        logger.error(f"Error fetching API data: {e}")
-        # Continue processing even if API data is unavailable
-        return False
+        from index_core.validation_queue import ValidationQueueManager
 
-    if api_ledger_hash == ledger_hash:
+        ValidationQueueManager.get_instance().add_to_queue(block_index, ledger_hash, valid_src20_str)
+        logger.info(f"Added block {block_index} to validation queue for later checking ({reason})")
+    except Exception as e:
+        logger.error(f"Failed to add block {block_index} to validation queue: {e}")
+
+
+def _log_balance_diff(local_str: Optional[str], api_str: Optional[str]) -> None:
+    """Pretty-print SRC-20 balance differences at DEBUG level. Diagnostic aid
+    for real-mismatch investigation; never raises."""
+    if not local_str or not api_str:
+        return
+    try:
+        local_balances = parse_balances(local_str)
+        api_balances = parse_balances(api_str)
+
+        logger.debug("Local balances:")
+        for tick, addresses in local_balances.items():
+            logger.debug(f"  Tick {tick}:")
+            for addr, bal in addresses.items():
+                logger.debug(f"    {addr}: {bal}")
+
+        logger.debug("API balances:")
+        for tick, addresses in api_balances.items():
+            logger.debug(f"  Tick {tick}:")
+            for addr, bal in addresses.items():
+                logger.debug(f"    {addr}: {bal}")
+
+        local_entries = set(local_str.split(";"))
+        api_entries = set(api_str.split(";"))
+        logger.debug(f"String entries: local={len(local_entries)} api={len(api_entries)}")
+        differences = local_entries.symmetric_difference(api_entries)
+        if differences:
+            logger.debug("Differences:")
+            for diff in differences:
+                logger.debug(f"  {diff}")
+    except Exception as e:
+        logger.debug(f"Balance-diff helper failed (non-fatal): {e}")
+
+
+def validate_src20_ledger_hash(block_index: int, ledger_hash: str, valid_src20_str: str) -> bool:
+    """Validate this block's SRC-20 ledger hash against stampscan.
+
+    Returns:
+        ``True`` when validation passed OR was deferred (stampscan tip-lag,
+        not_indexed, API error, unexpected exception). The caller treats True
+        as "keep indexing".
+        ``False`` ONLY when stampscan returned data for the exact requested
+        block AND the hashes differ — a real consensus divergence. The caller
+        is expected to alert (ops_alerter) and continue indexing (no crash).
+    """
+    try:
+        logger.debug(f"\n{'=' * 50}")
+        logger.debug(f"Validating ledger hash for block {block_index}")
+        logger.debug(f"Local ledger hash: {ledger_hash}")
+
+        result = fetch_api_ledger_data(block_index)
+
+        if result.status == LedgerFetchStatus.OK:
+            if result.hash == ledger_hash:
+                logger.debug(f"Ledger hashes match for block {block_index}.")
+                logger.debug(f"{'=' * 50}\n")
+                return True
+
+            # Real divergence. Log diagnostic detail; caller alerts.
+            logger.error(f"SRC-20 ledger hash MISMATCH at block {block_index}: local={ledger_hash} stampscan={result.hash}")
+            _log_balance_diff(valid_src20_str, result.validation)
+            logger.debug(f"{'=' * 50}\n")
+            return False
+
+        # Any non-OK status is a deferral — enqueue for background validator.
+        _enqueue_for_background_validation(block_index, ledger_hash, valid_src20_str, result.status.value)
         return True
 
-    logger.warning("API ledger hash does not match local ledger hash")
-    logger.warning("API Hash: %s", api_ledger_hash)
-    logger.warning("Local Hash: %s", ledger_hash)
-
-    local_balances = parse_balances(valid_src20_str)
-    api_balances = parse_balances(api_ledger_validation)
-
-    differences = compare_balances(local_balances, api_balances)
-
-    if differences:
-        print_balance_differences(differences)
-    else:
-        print("\nNo differences in balances found, despite hash mismatch.")
-
-    compare_string_formats(valid_src20_str, api_ledger_validation)
-
-    return True
-    # If you want to raise an exception instead, you can uncomment the following line
-    # raise ValueError("API ledger hash does not match local ledger hash")
+    except Exception as e:
+        # Last-resort safety net. Defer to background; never crash the indexer.
+        logger.error(f"Unexpected error validating ledger hash for block {block_index}: {e}")
+        _enqueue_for_background_validation(block_index, ledger_hash, valid_src20_str, "exception")
+        return True
 
 
 def parse_balances(balance_str):
+    """Parse balance string into a nested defaultdict structure.
+
+    Args:
+        balance_str (str): String containing balance entries
+
+    Returns:
+        defaultdict: Nested dictionary with ticks and addresses mapping to balances
+    """
     balances = defaultdict(lambda: defaultdict(D))
+    if not balance_str:
+        return balances
+
     for entry in balance_str.split(";"):
-        tick, address, balance = entry.split(",")
-        balances[tick][address] = D(balance)
+        if not entry:  # Skip empty entries
+            continue
+
+        try:
+            parts = entry.split(",")
+            if len(parts) != 3:
+                logger.error(f"Invalid balance entry format - expected 3 parts but got {len(parts)}: {entry}")
+                continue
+
+            tick, address, balance = parts
+            balances[tick][address] = D(balance)
+        except Exception as e:
+            logger.error(f"Error parsing balance entry '{entry}': {str(e)}")
+            continue
+
     return balances
 
 
 def compare_balances(local_balances, api_balances):
+    """Compare local and API balances."""
     differences = []
     all_addresses = set()
-    for tick_balances in local_balances.values():
-        all_addresses.update(tick_balances.keys())
-    for tick_balances in api_balances.values():
-        all_addresses.update(tick_balances.keys())
+    logger.info("Comparing balances")
+    for balances in [local_balances, api_balances]:
+        for tick_balances in balances.values():
+            all_addresses.update(tick_balances.keys())
 
     for address in sorted(all_addresses):
         address_differences = []
@@ -1301,6 +1499,7 @@ def compare_balances(local_balances, api_balances):
             api_balance = api_balances.get(tick, {}).get(address, D("0"))
             if local_balance != api_balance:
                 address_differences.append((tick, local_balance, api_balance))
+
         if address_differences:
             differences.append((address, address_differences))
 
@@ -1308,6 +1507,10 @@ def compare_balances(local_balances, api_balances):
 
 
 def print_balance_differences(differences):
+    if not differences:
+        print("\nNo balance differences found.")
+        return
+
     print("\nBalance Differences:")
     print("--------------------")
     for address, address_differences in differences:
@@ -1316,9 +1519,11 @@ def print_balance_differences(differences):
         print("  " + "-" * 70)
         for tick, local_balance, api_balance in address_differences:
             difference = local_balance - api_balance
-            print(
-                "  {:<10} {:<20} {:<20} {:<20}".format(tick, f"{local_balance:.8f}", f"{api_balance:.8f}", f"{difference:.8f}")
-            )
+            print_balance_comparison(tick, local_balance, api_balance, difference)
+
+
+def print_balance_comparison(tick, local_balance, api_balance, difference):
+    print("  {:<10} {:<20} {:<20} {:<20}".format(tick, f"{local_balance:.8f}", f"{api_balance:.8f}", f"{difference:.8f}"))
 
 
 def compare_string_formats(local_str: str, api_str: str):
@@ -1330,6 +1535,9 @@ def compare_string_formats(local_str: str, api_str: str):
 
     local_only = local_entries - api_entries
     api_only = api_entries - local_entries
+
+    print(f"Local entries: {local_entries}")
+    print(f"API entries:   {api_entries}")
 
     if local_only:
         print("\nEntries only in local string:")
@@ -1348,13 +1556,17 @@ def compare_string_formats(local_str: str, api_str: str):
     local_sorted = sorted(local_entries)
     api_sorted = sorted(api_entries)
 
+    print(f"Local sorted: {local_sorted}")
+    print(f"API sorted:   {api_sorted}")
+
     if local_sorted != api_sorted:
-        print("\nSorting difference detected:")
-        print("  Local sorted:", ";".join(local_sorted))
-        print("  API sorted:  ", ";".join(api_sorted))
-        sys.exit()
+        sys.exit(
+            "Sorting difference detected:\n  Local sorted: {}\n  API sorted:   {}".format(
+                ";".join(local_sorted), ";".join(api_sorted)
+            )
+        )
     else:
-        print("\nBoth strings have the same sorting order.")
+        logger.debug("Local and remote API validation strings have the same sorting order.")
 
     local_formatted = set(normalize_entry(entry) for entry in local_entries)
     api_formatted = set(normalize_entry(entry) for entry in api_entries)
@@ -1365,11 +1577,11 @@ def compare_string_formats(local_str: str, api_str: str):
         for entry in sorted(format_diff):
             local_entry = next((e for e in local_entries if normalize_entry(e) == entry), None)
             api_entry = next((e for e in api_entries if normalize_entry(e) == entry), None)
-            print(f"  Local: {local_entry}")
-            print(f"  API:   {api_entry}")
+            logger.error(f"  Local: {local_entry}")
+            logger.error(f"  API:   {api_entry}")
             print()
     else:
-        print("\nNo formatting differences detected.")
+        logger.debug("No formatting differences detected in local and remote API validation strings.")
 
 
 def normalize_entry(entry):

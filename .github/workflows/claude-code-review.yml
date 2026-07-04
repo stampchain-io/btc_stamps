@@ -1,0 +1,69 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    # Only run on indexer changes to avoid unnecessary reviews
+    paths:
+      - "indexer/**/*.py"
+      - "indexer/**/*.rs"
+      - "indexer/**/*.toml"
+      - "indexer/**/*.lock"
+  # Allow manual trigger for debugging
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: false
+        type: string
+
+jobs:
+  claude-review:
+    # Skip if PR title contains [skip-review], if it's from automated bots, or for version bumps
+    if: |
+      !contains(github.event.pull_request.title, '[skip-review]') &&
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.actor != 'github-actions[bot]' &&
+      github.actor != 'github-actions' &&
+      github.actor != 'dependabot[bot]' &&
+      !startsWith(github.event.pull_request.head.ref, 'bump-version-') &&
+      !contains(github.event.pull_request.title, 'Bump version') &&
+      !contains(github.event.pull_request.body || '', 'Bump version')
+    
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write  # Needed to post review comments
+      issues: read
+      id-token: write  # Required for OIDC authentication
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # Use default behavior - Claude action handles PR context internally
+          fetch-depth: 0
+          # Checkout PR head for analysis
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      # Debug step removed - no longer needed with stable version
+      # Build steps removed - Claude only needs source code for review, not built artifacts
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@521136812280ae7ef256e06045655b9da02793f0 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          prompt: |
+            Review the PR changes focusing on:
+            - Code quality and correctness
+            - Bugs or logic errors
+            - Performance considerations
+            - Security concerns
+            - Test coverage
+
+          # Allow fresh reviews on each push
+          use_sticky_comment: false
+

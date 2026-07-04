@@ -4,6 +4,8 @@ from typing import Dict
 
 import config
 import index_core.util as util
+from index_core.fetch_utils import fetch_node_version_v2
+from index_core.node_health import get_healthy_nodes, initialize_node_health
 
 logger = logging.getLogger(__name__)
 
@@ -95,33 +97,106 @@ CHECKPOINTS_MAINNET: Dict[int, Dict[str, str]] = {
     },
     830000: {
         "ledger_hash": "e3bb684fba10cedf0dc5778a85aab66a42e500fad5405fe245a5bf80f313523b",
-        "txlist_hash": "2e85610013ae8d4dc17d7e964728b4b8f853c58c0d4414ed0914f43010aebe98",
+        "txlist_hash": "9f7191e5a59e56b5a7165a14e98af9d4c1f7107f4c5dcc8a871d330afe9975b4",
     },
     835000: {
         "ledger_hash": "78e5d16e8802ea0d751bee5d9df2411b71f64032ae5ad7b98aec1617ecb082a3",
-        "txlist_hash": "8a5d2baddcaabc1240818f537ca646e3ca9070a601d43a4bff4d2c56aee32d6e",
+        "txlist_hash": "49ed6c6c7fc2a7281727c2690abfc264a2c11f6b311929b69691372f8b7e46dd",
     },
     840000: {
         "ledger_hash": "",
-        "txlist_hash": "7f20fc83836a65547c54710229fea90f3200f859adc5fd30c297f96b17cb31e5",
+        "txlist_hash": "901310b2b76b19bcdf56e36e3d871eb36aac11fbfe0cc11570e71378d6e65e59",
     },
     845000: {
         "ledger_hash": "d74c8f1ff0a99c4f361b9616a57f442aa19a19a5808753c4ee464a9a60289f0e",
-        "txlist_hash": "7f4bff436f15cf45ceaea7cd66dac0f02e9f8d293efcfb847238d7a8c522bf30",
+        "txlist_hash": "6ae37614f9e78045984ccfa6113922cac5cde2bfa15d710050242a36e6a40741",
     },
     850000: {
         "ledger_hash": "35ddde0f2f791c14fe295017713372fa5f92a6980f9f54710068c99b4284939b",
-        "txlist_hash": "bf5ad20f038cff311999e7d16c2165de12efb0663a8e42f0d077621f7e3b1f17",
+        "txlist_hash": "d56c8259750b84e964f287b9e228a94138aab153089a762279e35b33fecb46d9",
     },
     855000: {
         "ledger_hash": "8e9c0ca34351ce59a0d5ee744f4115021c62a3dd5cbf791b063e4251d3cf4f42",
-        "txlist_hash": "4316b45083f4e74e6acf43efce255d1bff023a5ebcdb0999c63adb33d036dc80",
+        "txlist_hash": "32a29f1f67a9a604d4dd2f25e980aac1ae2a30bf568ba8d21a8d1b96d54a7b84",
     },
     860000: {
         "ledger_hash": "dc257e7b5e06460bab3485ad1a845ac7ab6e2937ff04df11f3aaa55e653e5e17",
-        "txlist_hash": "45aead95538e500966450718323728331b41ab8af5d6b80174a148ad8e780b60",
+        "txlist_hash": "437b92262d9036173807a269b45f5d5b2b05ffc64e7109f0d1d37de02bede246",
+    },
+    865000: {
+        "ledger_hash": "0cfab60c2426ec4007cc607099ada5808b6ef46374093bb93d2ed922e20c9b3c",
+        "txlist_hash": "0653447013b5def1b13dab502d1a13ed4d67445abfbafe9a29b06366553107c0",
+    },
+    870000: {
+        "ledger_hash": "d3316ac4ecbf022eb7656f58ca5fa6073d5f3a3fb899ee17084b0b4ede83d072",
+        "txlist_hash": "a2087a247c2e62d5442f0e9f6fd0ef0f47c04ec0e4c921cdd5340368ecca1ba8",
+    },
+    875000: {
+        "ledger_hash": "0994fdf27c5ee1c0ca42988a9aea2041b60ab0a6c0aa33409ae47abb0cde31a0",
+        "txlist_hash": "009ead98f3f6e8dc17ba89dba42b5fc1a761a80e51a3d2221f375f8f820940a2",
+    },
+    880000: {
+        "ledger_hash": "874fb734fa2ec72e0846457c1f5f0f8e754a284afb3a0101901c66fa21fa0e97",
+        "txlist_hash": "9c616915cac2168cbcb7a42e601f95d452e281c7fba6ccac1a04f853bc7b905b",
+    },
+    885000: {
+        "ledger_hash": "6f80bd0cc8b7a9a49cd49d7e1d371a80c11566e9800f3f601ff4793274109f96",
+        "txlist_hash": "c13b5b98e47b4449b2a8fdf3221a7b905447e0820b658734ba8e8f87986d7e4a",
+    },
+    890000: {
+        "ledger_hash": "df6a553b7a81c8560c82d188e5f1f6ec888e93b8302deedcbebc25eaa8f174df",
+        "txlist_hash": "011c812279e9de4457ffacab8428249195cffaa9ec1991c6145ca0f286099dbd",
+    },
+    895000: {
+        "ledger_hash": "f27608543b2e8ecefcd3571b386c3369eb5f9e4eab795aae100785afb6064743",
+        "txlist_hash": "08c8bb9a2c2f9e37f11bd853af32c3368916807d975786ddb97a6b08a77e7f30",
+    },
+    900000: {
+        "ledger_hash": "cb8ef6b287fae844009bdb51de425e9f2d7221d6bc90b0888a5f36424f26068b",
+        "txlist_hash": "c3350aab20cee4250c4e62affef05232b0436593977451929a3e27c66e06da91",
+    },
+    905000: {
+        "ledger_hash": "c5d822eb4bb3899550e5b3c13838f7cc4dc65312b5139438841f9364ac317cf1",
+        "txlist_hash": "59912c2f22a70643a985fd3fa2a9a31e064103799a81fd5ccdd4cd433f4e700e",
+    },
+    910000: {
+        "ledger_hash": "ea84ceb61bdb91625c1337ea3993d31aad97ed13f785b1a98a64d1e5fceb9100",
+        "txlist_hash": "9747c34a27c140ab908632788ee6ed62bc87d49b0d715602983bb9613e0a6e92",
+    },
+    915000: {
+        "ledger_hash": "32fa96f1ff7dea5cae8ee974fe565391f633e16aa6cb33be791d06bfa5d015a7",
+        "txlist_hash": "d678c68751dfdf68163cc16db151f37efc23899b8ce8ac189f9ad9389ffb9bdb",
+    },
+    920000: {
+        "ledger_hash": "",
+        "txlist_hash": "457793493e518571554ec72851f60aa0c515f56353ff3a628a1765cfab4c6657",
+    },
+    925000: {
+        "ledger_hash": "c846c5515db2be61130b7c0e8f820574328d0132434b131d5f9201154cdb56db",
+        "txlist_hash": "13bf6b8a8b742602f1ba2b70ac9c5f98d829ebbba92c2746af485cd34d21c76c",
+    },
+    930000: {
+        "ledger_hash": "939236fb786a44ca02901c9f1d6db4fd79ee131671244cccc46fdbce1b31eab8",
+        "txlist_hash": "9819ca1bcb722a0a07e64b1cd1dda8281b3679092b07a6179c0249138d03eae1",
+    },
+    935000: {
+        "ledger_hash": "",
+        "txlist_hash": "fb74ae53d4bd483482f51ab1df54de327bb5274a5aa337e2b9e059469f4f95f9",
+    },
+    940000: {
+        "ledger_hash": "",
+        "txlist_hash": "0bebe1bff46d720216ed15b9086720d0af4df7c7dd4c4ee0d4bdd62a8446e352",
+    },
+    945000: {
+        "ledger_hash": "aa1f00269c89f544eecb4a3b1c0687a03fa21a9e45bd36ed4ccfd9cab2f746dd",
+        "txlist_hash": "60f11aec963482e671280992856003dbb1408ca6af6879eccf436cf2a058b791",
+    },
+    950000: {
+        "ledger_hash": "",
+        "txlist_hash": "fb981ea18d630321841c3ff51c2de04ea1fe1739de3eb1cd7a82dc106731e972",
     },
 }
+
 
 CONSENSUS_HASH_VERSION_TESTNET = 7
 CHECKPOINTS_TESTNET = {
@@ -141,19 +216,40 @@ class ConsensusError(Exception):
     pass
 
 
-def consensus_hash(db, block_index, field, previous_consensus_hash, content):
+def handle_consensus_error(error_msg: str) -> None:
+    """Handle consensus errors based on FORCE mode setting.
+
+    Args:
+        error_msg: The error message to log or raise
+
+    Raises:
+        ConsensusError: If FORCE mode is not enabled
+    """
+    if config.FORCE:
+        logger.warning(f"FORCE mode enabled - {error_msg}")
+    else:
+        raise ConsensusError(error_msg)
+
+
+# Sentinel distinguishing "block_row not provided" (self-fetch) from an
+# explicitly-passed row that may legitimately be None (block not in db).
+_BLOCK_ROW_NOT_PROVIDED = object()
+
+
+def consensus_hash(db, block_index, field, previous_consensus_hash, content, block_row=_BLOCK_ROW_NOT_PROVIDED):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
-    # block_index = util.CURRENT_BLOCK_INDEX
 
     # initialize previous hash on first block.
     if block_index <= config.BLOCK_FIRST and field != "ledger_hash":
         if previous_consensus_hash:
-            raise ConsensusError("Expected previous_consensus_hash to be unset for the first block.")
+            error_msg = "Expected previous_consensus_hash to be unset for the first block."
+            handle_consensus_error(error_msg)
         previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)
     elif block_index == config.CP_SRC20_GENESIS_BLOCK + 1 and field == "ledger_hash":
         if previous_consensus_hash:
-            raise ConsensusError("Expected previous_consensus_hash to be unset for the SRC20 genesis block.")
+            error_msg = "Expected previous_consensus_hash to be unset for the SRC20 genesis block."
+            handle_consensus_error(error_msg)
         previous_consensus_hash = util.shash_string("")
 
     # Get previous hash.
@@ -168,7 +264,12 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         except IndexError:
             previous_consensus_hash = None
         if not previous_consensus_hash:
-            raise ConsensusError("Empty previous {} for block {}. Please launch a `reparse`.".format(field, block_index))
+            error_msg = "Empty previous {} for block {}. Please launch a `reparse`.".format(field, block_index)
+            if config.FORCE:
+                handle_consensus_error(error_msg)
+                previous_consensus_hash = util.dhash_string(CONSENSUS_HASH_SEED)  # Use default seed
+            else:
+                handle_consensus_error(error_msg)
     elif not previous_consensus_hash and field == "ledger_hash" and content != "":
         cursor.execute(
             """SELECT ledger_hash FROM blocks WHERE ledger_hash IS NOT NULL AND ledger_hash <> '' ORDER BY block_index DESC LIMIT 1"""
@@ -176,7 +277,12 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
         result = cursor.fetchone()
         previous_consensus_hash = result[0] if result else None
         if not previous_consensus_hash:
-            raise ConsensusError(f"Empty previous {field} for block {block_index}. Please launch a `reparse`.")
+            error_msg = f"Empty previous {field} for block {block_index}. Please launch a `reparse`."
+            if config.FORCE:
+                handle_consensus_error(error_msg)
+                previous_consensus_hash = util.shash_string("")  # Use empty hash for ledger_hash
+            else:
+                handle_consensus_error(error_msg)
 
     # Calculate current hash.
     if config.TESTNET:
@@ -194,22 +300,28 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     elif field == "ledger_hash" and content == "":
         calculated_hash = ""
     else:
-        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, "".join(content)))
+        # For other hashes (messages, txlist), use the previous consensus hash in calculation
+        # content is always a string on the consensus path (#803), so "".join(content) == content.
+        calculated_hash = util.dhash_string(previous_consensus_hash + "{}{}".format(consensus_hash_version, content))
+
     # Verify hash (if already in database) or save hash (if not).
-    cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
-    results = cursor.fetchall()
-    if results:
-        found_hash = results[0][config.BLOCK_FIELDS_POSITION[field]]
+    # The block row is identical across the 3 per-block calls (txlist/ledger/messages),
+    # so callers may fetch it once and pass it in via block_row to avoid 3x SELECTs.
+    if block_row is _BLOCK_ROW_NOT_PROVIDED:
+        cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index,))
+        results = cursor.fetchall()
+        block_row = results[0] if results else None
+    if block_row is not None:
+        found_hash = block_row[config.BLOCK_FIELDS_POSITION[field]]
     else:
         found_hash = None
     if found_hash and field != "messages_hash":
         # Check against existing value.
         if calculated_hash != found_hash:
-            raise ConsensusError(
-                "Inconsistent {} for block {} (calculated {}, vs {} in database).".format(
-                    field, block_index, calculated_hash, found_hash
-                )
+            error_msg = "Inconsistent {} for block {} (calculated {}, vs {} in database).".format(
+                field, block_index, calculated_hash, found_hash
             )
+            handle_consensus_error(error_msg)
     else:
         # Save new hash.
         cursor.execute(
@@ -225,14 +337,16 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content):
     else:
         checkpoints = CHECKPOINTS_MAINNET
     if field != "messages_hash" and block_index in checkpoints and checkpoints[block_index][field] != calculated_hash:
-        raise ConsensusError(
-            "Incorrect {} consensus hash for block {}.  Calculated {} but expected {}".format(
-                field,
-                block_index,
-                calculated_hash,
-                checkpoints[block_index][field],
-            )
+        error_msg = "Incorrect {} consensus hash for block {}.  Calculated {} but expected {}".format(
+            field,
+            block_index,
+            calculated_hash,
+            checkpoints[block_index][field],
         )
+        # Check FORCE mode from config (which already reads from environment)
+        logger.debug(f"Checking FORCE mode: config.FORCE={config.FORCE}")
+        handle_consensus_error(error_msg)
+        # Don't raise the error, just return the calculated hash
 
     return calculated_hash, found_hash
 
@@ -261,7 +375,7 @@ def check_change(protocol_change, change_name):
     # passed = True # Removing version check for now
 
     if not passed:
-        explanation = "Your version of {} is v{}, but, as of block {}, the minimum version is v{}.{}.{}. Reason: ‘{}’. Please upgrade to the latest version and restart the server.".format(
+        explanation = "Your version of {} is v{}, but, as of block {}, the minimum version is v{}.{}.{}. Reason: '{}'. Please upgrade to the latest version and restart the server.".format(
             config.APP_NAME or "",
             config.VERSION_STRING or "",
             protocol_change["block_index"],
@@ -276,11 +390,124 @@ def check_change(protocol_change, change_name):
             warnings.warn(explanation)
 
 
-def cp_version():
-    # cp_version = get_cp_version()
-    # FIXME: Finish version checking validation.
-    return
+def cp_version(log_connection=False):
+    initialize_node_health()
+    healthy_nodes = get_healthy_nodes()
+
+    if not healthy_nodes:
+        logger.warning("Could not determine Counterparty version: No healthy nodes available.")
+        return None, None
+
+    version_results = []
+    successful_connections = 0
+
+    for i, node in enumerate(healthy_nodes):
+        node_name = node.get("name", f"Node {i + 1}")
+        node_url = node.get("url")
+
+        if not node_url:
+            logger.warning(f"Skipping {node_name}: No URL configured")
+            continue
+
+        version_string, version_info = fetch_node_version_v2(node_url)
+
+        if version_string and version_info:
+            version_results.append(
+                {
+                    "name": node_name,
+                    "url": node_url,
+                    "version_string": version_string,
+                    "version_info": version_info,
+                    "status": "connected",
+                }
+            )
+            successful_connections += 1
+        else:
+            version_results.append(
+                {"name": node_name, "url": node_url, "version_string": None, "version_info": None, "status": "failed"}
+            )
+
+    # Log clean summary
+    if successful_connections > 0:
+        logger.info(f"Counterparty nodes ({successful_connections}/{len(healthy_nodes)} connected):")
+        for result in version_results:
+            if result["status"] == "connected":
+                logger.info(f"  ✓ {result['name']}: {result['version_string']}")
+            else:
+                logger.warning(f"  ✗ {result['name']}: Connection failed")
+    else:
+        logger.warning("Could not connect to any Counterparty nodes")
+
+    # Perform version validation checks
+    connected_results = [r for r in version_results if r["status"] == "connected"]
+
+    if len(connected_results) > 0:
+        # Check minimum version requirement (11.0.0 or greater)
+        minimum_version = (11, 0, 0)
+        version_violations = []
+
+        for result in connected_results:
+            version_info = result["version_info"]
+            node_name = result["name"]
+            version_string = result["version_string"]
+
+            if (
+                version_info
+                and "version_major" in version_info
+                and "version_minor" in version_info
+                and "version_revision" in version_info
+            ):
+                major = version_info["version_major"]
+                minor = version_info["version_minor"]
+                revision = version_info["version_revision"]
+                node_version = (major, minor, revision)
+
+                if node_version < minimum_version:
+                    version_violations.append(
+                        {"name": node_name, "version_string": version_string, "version_tuple": node_version}
+                    )
+
+        # Critical error if any node is below minimum version
+        if version_violations:
+            violation_details = [f"{v['name']} (v{v['version_string']})" for v in version_violations]
+            error_msg = (
+                f"CRITICAL: Counterparty node version requirement not met. "
+                f"This Bitcoin Stamps indexer requires Counterparty version 11.0.0 or greater. "
+                f"Nodes below minimum: {', '.join(violation_details)}. "
+                f"Please upgrade your Counterparty nodes before continuing."
+            )
+            logger.critical(error_msg)
+            raise VersionError(error_msg)
+
+        # Check for version mismatches between nodes
+        if len(connected_results) > 1:
+            version_strings = [r["version_string"] for r in connected_results]
+            unique_versions = set(version_strings)
+
+            if len(unique_versions) > 1:
+                node_version_details = [f"{r['name']} (v{r['version_string']})" for r in connected_results]
+                logger.warning(
+                    f"WARNING: Counterparty node version mismatch detected. "
+                    f"All nodes should run the same version for consistent behavior. "
+                    f"Found versions: {', '.join(node_version_details)}"
+                )
+
+    # Return the first successful connection for backward compatibility
+    for result in version_results:
+        if result["status"] == "connected":
+            # Persist all component versions to DB on startup
+            try:
+                from index_core.node_health import persist_all_versions
+
+                persist_all_versions()
+            except Exception as e:
+                logger.warning(f"Failed to persist node versions on startup: {e}")
+
+            return result["version_string"], result["version_info"]
+
+    logger.warning("Could not determine Counterparty version: All node connections failed.")
+    return None, None
 
 
 def software_version():
-    logger.warning("Software version: {}.".format(config.VERSION_STRING or ""))
+    logger.info("Software version: {}.".format(config.VERSION_STRING or ""))

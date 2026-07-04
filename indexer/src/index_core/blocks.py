@@ -8,26 +8,37 @@ import concurrent.futures
 import decimal
 import http
 import logging
+import os
+import random
+import socket
 import sys
+import threading
 import time
+import urllib.parse
 from collections import namedtuple
-from typing import List
+from typing import List, Optional
 
-from bitcoin.core.script import CScriptInvalidError
-from bitcoin.wallet import CBitcoinAddress
-from bitcoinlib.keys import pubkeyhash_to_addr
+import pymysql as mysql
+import requests
 from pymysql.connections import Connection
 
-# import cProfile
-# import pstats
 import config
-import index_core.arc4 as arc4
 import index_core.backend as backend
-import index_core.check as check
 import index_core.log as log
-import index_core.script as script
+import index_core.server as server
 import index_core.util as util
-from index_core.database import (
+from index_core.backend import Backend
+from index_core.block_validation import (
+    create_check_hashes,
+    fetch_cp_blocks_skipping_empty,
+    filter_block_transactions,
+    validate_block_against_production,
+)
+from index_core.caching import cache_manager, clear_all_caches
+from index_core.check import ConsensusError
+from index_core.critical_failure_handler import handle_consensus_mismatch_failure, handle_rollback_loop_failure
+from index_core.database import (  # update_src20_token_stats,  # Now handled by async holder updater
+    check_db_connection,
     get_unlocked_cpids,
     initialize,
     insert_block,
@@ -36,33 +47,67 @@ from index_core.database import (
     insert_into_stamp_table,
     insert_transactions,
     is_prev_block_parsed,
+    last_db_index,
+    log_reorg_event,
     next_tx_index,
     purge_block_db,
     rebuild_balances,
+    rebuild_owners,
     update_assets_in_db,
-    update_block_hashes,
     update_parsed_block,
 )
-from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, BTCOnlyError, DatabaseInsertError, DecodeError
+from index_core.exceptions import (
+    BlockAlreadyExistsError,
+    CriticalBlockFetchError,
+    DatabaseInsertError,
+    LedgerMismatchError,
+)
+from index_core.fetch_utils import (
+    get_xcp_assets_by_cpids,
+    get_xcp_block_hash,
+    is_valid_counterparty_asset,
+    verify_cp_block_hash,
+)
+from index_core.market_data_jobs import start_market_data_jobs
+from index_core.memory_manager import memory_manager
 from index_core.models import StampData, ValidStamp
-from index_core.src20 import Src20Dict  # FIXME: move to models for consistency
+from index_core.node_health import is_shutdown_requested, register_shutdown_callback, set_shutdown_flag
+from index_core.perf_log import record_block_perf
+from index_core.pipeline_utils import CPBlocksPipeline
+from index_core.profiling import Profiler
+from index_core.resource_manager import cleanup_resources
+
+# Conditional import for sales history processor
+if config.ENABLE_MARKET_DATA_SCHEDULER:
+    from index_core.sales_history_processor import sales_history_processor
+
+from index_core.async_holder_updater import schedule_holder_update
+from index_core.signal_handlers import setup_signal_handler
 from index_core.src20 import (
+    Src20Dict,
     clear_zero_balances,
     parse_src20,
     process_balance_updates,
     update_src20_balances,
     validate_src20_ledger_hash,
 )
-from index_core.src101 import Src101Dict  # FIXME: move to models for consistency
-from index_core.src101 import parse_src101, update_src101_owners
+from index_core.src20_holder_updater import get_holder_updater
+from index_core.src101 import Src101Dict, parse_src101, update_src101_owners
 from index_core.stamp import parse_stamp
-from index_core.xcprequest import fetch_cp_concurrent, filter_issuances_by_tx_hash, get_xcp_assets_by_cpids
+from index_core.transaction_utils import prefetch_source_prevouts, process_tx
+from index_core.zmq_utils import ZMQNotifier
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
 skip_logger = logging.getLogger("list_tx.skip")
+# Define how often to run garbage collection
+GC_INTERVAL = 100
 
+# Initialize backend instance - use the singleton
+backend_instance = Backend()
+
+# BlockProcessor TxResult (different from transaction_utils TxResult)
 TxResult = namedtuple(
     "TxResult",
     [
@@ -73,6 +118,7 @@ TxResult = namedtuple(
         "destination_nvalue",
         "btc_amount",
         "fee",
+        "fee_rate_sat_vb",  # Added fee_rate_sat_vb field
         "data",
         "decoded_tx",
         "keyburn",
@@ -82,8 +128,12 @@ TxResult = namedtuple(
         "block_hash",
         "block_time",
         "p2wsh_data",
+        "is_olga",
     ],
 )
+
+
+_sales_catchup_started = False
 
 
 class BlockProcessor:
@@ -93,53 +143,152 @@ class BlockProcessor:
         self.parsed_stamps: List[StampData] = []
         self.processed_src20_in_block: List[Src20Dict] = []
         self.processed_src101_in_block: List[Src101Dict] = []
+        self.collection_operations = []
+        self._lock = threading.Lock()
 
     def process_transaction_results(self, tx_results):
-        for result in tx_results:
-            stamp_data = StampData(
-                tx_hash=result.tx_hash,
-                source=result.source,
-                prev_tx_hash=result.prev_tx_hash,
-                destination=result.destination,
-                destination_nvalue=result.destination_nvalue,
-                btc_amount=result.btc_amount,
-                fee=result.fee,
-                data=result.data,
-                decoded_tx=result.decoded_tx,
-                keyburn=result.keyburn,
-                tx_index=result.tx_index,
-                block_index=result.block_index,
-                block_time=result.block_time,
-                is_op_return=result.is_op_return,
-                p2wsh_data=result.p2wsh_data,
-            )
-            _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
-                stamp_data=stamp_data,
-                db=self.db,
-                valid_stamps_in_block=self.valid_stamps_in_block,
-            )
+        """Process transaction results."""
+        logger.debug(f"Processing {len(tx_results)} transaction results")
 
-            if stamp_data:
-                self.parsed_stamps.append(stamp_data)  # includes cursed and prevalidated src20 on CP
-            if valid_stamp:
-                self.valid_stamps_in_block.append(valid_stamp)
-            if prevalidated_src and stamp_data.pval_src20:
-                _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block)
-                self.processed_src20_in_block.append(src20_dict)
-            if prevalidated_src and stamp_data.pval_src101:
-                _, src101_dict = parse_src101(self.db, prevalidated_src, self.processed_src101_in_block, result.block_index)
-                self.processed_src101_in_block.append(src101_dict)
+        # Then process each transaction for stamps
+        for result in tx_results:
+            try:
+                # DEBUG: Log critical transaction
+                if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error("🔍 DEBUG TX 95dca4dc: Creating StampData in blocks.py")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc: Data length = {len(result.data) if result.data else 0}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc: Data preview = {result.data[:100] if result.data else 'None'}...")
+
+                # Derive encoding_method from parser signals
+                # Every valid stamp is either OLGA (P2WSH) or MULTISIG
+                if result.is_olga:
+                    encoding_method = "OLGA"
+                else:
+                    encoding_method = "MULTISIG"
+
+                initial_stamp_data = StampData(
+                    tx_hash=result.tx_hash,
+                    source=result.source,
+                    prev_tx_hash=result.prev_tx_hash,
+                    destination=result.destination,
+                    destination_nvalue=result.destination_nvalue,
+                    btc_amount=result.btc_amount,
+                    fee=result.fee,
+                    fee_rate_sat_vb=result.fee_rate_sat_vb,
+                    data=result.data,
+                    decoded_tx=result.decoded_tx,
+                    keyburn=result.keyburn,
+                    tx_index=result.tx_index,
+                    block_index=result.block_index,
+                    block_time=result.block_time,
+                    is_op_return=result.is_op_return,
+                    p2wsh_data=result.p2wsh_data,
+                    encoding_method=encoding_method,
+                )
+
+                # DEBUG: Log before parsing
+                if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error("🔍 DEBUG TX 95dca4dc: About to call parse_stamp()")
+                    logger.error(
+                        f"🔍 DEBUG TX 95dca4dc: initial_stamp_data.data = {initial_stamp_data.data[:100] if initial_stamp_data.data else 'None'}..."
+                    )
+
+                _, stamp_data, valid_stamp, prevalidated_src = parse_stamp(
+                    stamp_data=initial_stamp_data,
+                    db=self.db,
+                    valid_stamps_in_block=self.valid_stamps_in_block,
+                )
+
+                # DEBUG: Log parse results
+                if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error("🔍 DEBUG TX 95dca4dc: parse_stamp returned:")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data type = {type(stamp_data)}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data is not None = {stamp_data is not None}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   valid_stamp = {valid_stamp is not None}")
+                    if stamp_data and hasattr(stamp_data, "cpid"):
+                        logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.cpid = {stamp_data.cpid}")
+                        logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.is_btc_stamp = {stamp_data.is_btc_stamp}")
+                        logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data.is_cursed = {stamp_data.is_cursed}")
+                    else:
+                        logger.error("🔍 DEBUG TX 95dca4dc:   stamp_data is not a StampData object!")
+
+                # DEBUG: Check stamp_data condition
+                if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error("🔍 DEBUG TX 95dca4dc: Checking if stamp_data for append:")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data = {stamp_data}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   bool(stamp_data) = {bool(stamp_data)}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp_data is True = {stamp_data is True}")
+
+                if stamp_data and stamp_data is not True:  # Ensure it's not the boolean True
+                    with self._lock:
+                        self.parsed_stamps.append(stamp_data)
+                        self.collection_operations.append((stamp_data, config.LEGACY_COLLECTIONS))
+                    logger.debug(f"Added stamp data for tx: {result.tx_hash}")
+                    if result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                        logger.error("🔍 DEBUG TX 95dca4dc: ✓ ADDED to parsed_stamps!")
+                elif stamp_data is True:
+                    logger.error(f"ERROR: stamp_data is boolean True for tx {result.tx_hash}, not adding to parsed_stamps!")
+                elif result.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error("🔍 DEBUG TX 95dca4dc: ✗ NOT ADDED to parsed_stamps (stamp_data is falsy)")
+                if valid_stamp:
+                    with self._lock:
+                        self.valid_stamps_in_block.append(valid_stamp)
+
+                if prevalidated_src and stamp_data and stamp_data.pval_src20:
+                    logger.debug(f"\nProcessing SRC20 for tx: {result.tx_hash}")
+                    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block, self._lock)
+                    logger.debug(f"SRC20 dict created: {src20_dict}")
+                    with self._lock:
+                        self.processed_src20_in_block.append(src20_dict)
+                if prevalidated_src and stamp_data and stamp_data.pval_src101:
+                    _, src101_dict = parse_src101(
+                        self.db, prevalidated_src, self.processed_src101_in_block, stamp_data.block_index, self._lock
+                    )
+                    logger.debug(f"SRC101 dict created: {src101_dict}")
+                    with self._lock:
+                        self.processed_src101_in_block.append(src101_dict)
+            except Exception as e:
+                logger.error(f"Error in process_transaction_results for tx {result.tx_hash}: {e}", exc_info=True)
+                raise
 
         if self.parsed_stamps:
+            logger.debug(f"Inserting {len(self.parsed_stamps)} stamps into table")
+            # DEBUG: Log stamps being inserted
+            for ps in self.parsed_stamps:
+                if ps.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                    logger.error("🔍 DEBUG TX 95dca4dc: About to insert stamp:")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   cpid = {ps.cpid}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   stamp = {ps.stamp}")
+                    logger.error(f"🔍 DEBUG TX 95dca4dc:   is_btc_stamp = {ps.is_btc_stamp}")
             insert_into_stamp_table(self.db, self.parsed_stamps)
-            for stamp in self.parsed_stamps:
-                stamp.match_and_insert_collection_data(config.LEGACY_COLLECTIONS, self.db)
 
-    def finalize_block(self, block_index, block_time, txhash_list):
+            if self.collection_operations:
+                logger.debug(f"Processing {len(self.collection_operations)} collection operations")
+                for stamp, collections in self.collection_operations:
+                    try:
+                        stamp.match_and_insert_collection_data(collections, self.db)
+                    except Exception as e:
+                        logger.error(f"Error in match_and_insert_collection_data: {e}", exc_info=True)
+                        raise
+
+    def finalize_block(self, block_index, block_time, txhash_list, block_tip=None):
         if self.processed_src20_in_block:
             balance_updates = update_src20_balances(self.db, block_index, block_time, self.processed_src20_in_block)
             insert_into_src20_tables(self.db, self.processed_src20_in_block)
             valid_src20_str = process_balance_updates(balance_updates)
+
+            # Track affected tokens for holder count updates
+            # But defer the actual update to after the transaction commits
+            holder_updater = get_holder_updater()
+
+            # Track all affected tokens from this block
+            for src20_op in self.processed_src20_in_block:
+                if src20_op.get("op") in ["DEPLOY", "MINT", "TRANSFER"] and src20_op.get("tick"):
+                    holder_updater.track_affected_token(src20_op["tick"])
+                    # Ensure market data entry exists for new tokens
+                    # This is lightweight and can be done in the transaction
+                    if src20_op.get("op") == "DEPLOY":
+                        holder_updater.ensure_market_data_exists(src20_op["tick"], self.db)
         else:
             valid_src20_str = ""
 
@@ -150,432 +299,127 @@ class BlockProcessor:
         if block_index > config.BTC_SRC20_GENESIS_BLOCK and block_index % 100 == 0:
             clear_zero_balances(self.db)
 
+        # Process dispense sales for this block after stamps are processed
+        # This ensures we capture sales data in real-time as blocks are processed
+        if config.ENABLE_MARKET_DATA_SCHEDULER:
+            # Start sales history catchup once (module-level flag persists across BlockProcessor instances)
+            global _sales_catchup_started
+            if not _sales_catchup_started:
+                _sales_catchup_started = True
+                try:
+                    from index_core.market_data_jobs import start_sales_history_catchup
+
+                    start_sales_history_catchup()
+                except Exception as e:
+                    logger.warning(f"Failed to start sales history catchup: {e}")
+
+            try:
+                dispense_count = sales_history_processor.process_block_dispenses(block_index, self.db)
+                if dispense_count > 0:
+                    logger.info(f"Processed {dispense_count} stamp dispenses in block {block_index}")
+            except Exception as e:
+                logger.error(f"Error processing dispenses for block {block_index}: {e}")
+                # Don't fail the block for dispense processing errors
+
         new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
             self.db, block_index, self.valid_stamps_in_block, valid_src20_str, txhash_list
         )
 
-        if valid_src20_str:
-            validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str)
+        # Only validate ledger hash if both valid_src20_str and new_ledger_hash are non-empty
+        if valid_src20_str and new_ledger_hash:
+            if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
+                # Real consensus divergence (stampscan returned the exact requested
+                # block with a different hash). Surface as a high-signal alert and
+                # keep indexing — crashing here would block recovery and the
+                # background validator can re-check once stampscan is consistent.
+                # Alert failure must NOT crash the main loop, so wrap the import+notify.
+                try:
+                    from index_core.ops_alerter import notify as ops_notify
+
+                    ops_notify(
+                        "critical",
+                        f"SRC-20 ledger mismatch at block {block_index}",
+                        (
+                            f"Local SRC-20 ledger_hash differs from stampscan for block {block_index}. "
+                            f"This indicates a real consensus divergence in SRC-20 processing. "
+                            f"Indexer is continuing; investigate the affected block immediately."
+                        ),
+                        dedup_key=f"src20-mismatch-{block_index}",
+                    )
+                except Exception as alert_err:
+                    logger.error(f"ops_alerter notify failed for block {block_index}: {alert_err}")
+                logger.error(f"SRC-20 LEDGER MISMATCH at block {block_index} — alert sent; continuing")
 
         stamps_in_block = len(self.valid_stamps_in_block)
         src20_in_block = len(self.processed_src20_in_block)
-        return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block
+        src101_in_block = len(self.processed_src101_in_block)
+        return new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block, src101_in_block
 
     def insert_transactions(self, tx_results):
         insert_transactions(self.db, tx_results)
 
 
-def process_vout(ctx, block_index, stamp_issuance=None):
-    """
-    Process all the out values of a transaction.
+def commit_and_update_block(db, block_index, block_tip, src20_in_block=0, block_hash=None):
+    """Commit transaction and update block with proper error handling."""
+    max_retries = 3
+    retry_delay = 2  # seconds
 
-    Args:
-        ctx (TransactionContext): The transaction context.
-        block_index (int): The index of the block.
-        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance.
-
-    Returns:
-        vOutInfo: A named tuple containing information about the outputs.
-    """
-    pubkeys_compiled = []
-    keyburn = None
-    is_op_return, is_olga = None, None
-    p2wsh_data_chunks = []
-    fee = 0
-
-    if ctx.is_coinbase():
-        raise DecodeError("coinbase transaction")
-
-    for idx, vout in enumerate(ctx.vout):
-        fee -= vout.nValue
+    for attempt in range(max_retries):
         try:
-            asm = script.get_asm(vout.scriptPubKey)
-        except CScriptInvalidError as e:
-            raise DecodeError(e)
-        if asm[-1] == "OP_CHECKMULTISIG":
-            try:
-                pubkeys, signatures_required, keyburn_vout = script.get_checkmultisig(asm)
-                if keyburn_vout is not None:
-                    keyburn = keyburn_vout
-                pubkeys_compiled += pubkeys
-                # stripped_pubkeys = [pubkey[1:-1] for pubkey in pubkeys]
-            except Exception as e:
-                raise DecodeError(f"unrecognised output type {e}")
-        elif asm[-1] == "OP_CHECKSIG":
-            pass  # FIXME: not certain if we need to check keyburn on OP_CHECKSIG
-            # see 'A14845889080100805000'
-            #   0: OP_DUP
-            #   1: OP_HASH160
-            #   3: OP_EQUALVERIFY
-            #   4: OP_CHECKSIG
-        elif asm[0] == "OP_RETURN":
-            is_op_return = True
-        elif stamp_issuance is not None and asm[0] == 0 and len(asm[1]) == 32:
-            # Pay-to-Witness-Script-Hash (P2WSH) on CPID transactions
-            pubkeys = script.get_p2wsh(asm)
-            pubkeys_compiled += pubkeys
-            is_olga = True
-        elif asm[0] == 0 and len(asm[1]) == 32:
-            # Pay-to-Witness-Script-Hash (P2WSH) on SRC-20 transactions
-            if block_index >= config.BTC_SRC20_OLGA_BLOCK:
-                if idx > 0:
-                    data_bytes = asm[1]
-                    p2wsh_data_chunks.append(data_bytes)
-                    is_olga = True
-    vOutInfo = namedtuple(
-        "vOutInfo",
-        ["pubkeys_compiled", "keyburn", "is_op_return", "fee", "is_olga", "p2wsh_data_chunks"],
-    )
+            # Update SRC-20 token stats if:
+            # 1. At tip with SRC20 transactions OR every 100th block
+            # 2. During bulk sync, every 1000th block as safety net
+            if block_index >= config.BTC_SRC20_GENESIS_BLOCK:
+                should_update_stats = (block_index == block_tip and (block_index % 100 == 0 or src20_in_block > 0)) or (
+                    block_tip - block_index > 100 and block_index % 1000 == 0
+                )
+                if should_update_stats:
+                    logger.debug(f"Token stats update at block {block_index} now handled by async holder updater")
+                    # update_src20_token_stats(db)  # Now handled by async holder updater
 
-    return vOutInfo(pubkeys_compiled, keyburn, is_op_return, fee, is_olga, p2wsh_data_chunks)
+            db.commit()
+            update_parsed_block(db, block_index)
 
+            # Notify API of new block when near chain tip (reduces API cache staleness)
+            # Only notify for blocks near tip to avoid flooding during bulk sync
+            if block_tip is not None and (block_tip - block_index) < 10:
+                notify_api_new_block(block_index, block_hash or "", src20_in_block)
 
-def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
-    """
-    Get transaction information.
+            block_index += 1
+            return block_index
+        except Exception as e:
+            # Check for MySQL deadlock error (1213)
+            is_deadlock = False
+            if hasattr(e, "args") and len(e.args) > 0:
+                if isinstance(e.args[0], int) and e.args[0] == 1213:
+                    is_deadlock = True
+                    logger.warning(f"Database deadlock detected at block {block_index} (attempt {attempt + 1}/{max_retries})")
+                elif isinstance(e.args[0], str) and "Deadlock found" in e.args[0]:
+                    is_deadlock = True
+                    logger.warning(f"Database deadlock detected at block {block_index} (attempt {attempt + 1}/{max_retries})")
 
-    Args:
-        tx_hex (str): The hexadecimal representation of the transaction.
-        block_index (int, optional): The index of the block.
-        db (object, optional): The database object.
-        stamp_issuance (bool, optional): Flag indicating if the transaction is a stamp issuance.
+            if not is_deadlock:
+                logger.error(f"Error committing block {block_index} (attempt {attempt + 1}/{max_retries}): {e}")
 
-    Returns:
-        TransactionInfo: A named tuple containing the transaction information.
-    """
-    TransactionInfo = namedtuple(
-        "TransactionInfo",
-        [
-            "source",
-            "prev_tx_hash",
-            "destinations",
-            "destination_nvalue",
-            "btc_amount",
-            "fee",
-            "data",
-            "ctx",
-            "keyburn",
-            "is_op_return",
-            "p2wsh_data",
-        ],
-    )
+            db.rollback()
 
-    try:
-        if not block_index:
-            block_index = util.CURRENT_BLOCK_INDEX
-
-        destinations, src_destination_nvalue, btc_amount, data, p2wsh_data = [], 0, 0, b"", b""
-
-        ctx = backend.deserialize(tx_hex)
-        vout_info = process_vout(ctx, block_index, stamp_issuance=stamp_issuance)
-        pubkeys_compiled = vout_info.pubkeys_compiled
-        keyburn = vout_info.keyburn
-        is_op_return = vout_info.is_op_return
-        fee = vout_info.fee
-        p2wsh_data_chunks = vout_info.p2wsh_data_chunks
-        p2wsh_data = None
-
-        if stamp_issuance is not None:
-            # Process CP encoded stamp issuance P2WSH transactions
-            if pubkeys_compiled and vout_info.is_olga:
-                chunk = b"".join(pubkeys_compiled)
-                pubkey_len = int.from_bytes(chunk[:2], byteorder="big")
-                p2wsh_data = chunk[2 : 2 + pubkey_len]
+            if attempt < max_retries - 1:
+                # Check and potentially reconnect the database before retrying
+                try:
+                    db = check_db_connection(db)
+                    logger.info(f"Database connection checked/renewed, retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                except Exception as conn_err:
+                    logger.critical(f"Failed to reconnect to database: {conn_err}")
+                    raise
             else:
-                p2wsh_data = None
-            return TransactionInfo(
-                None,
-                None,
-                None,
-                None,
-                btc_amount,
-                round(fee),
-                None,
-                None,
-                keyburn,
-                is_op_return,
-                p2wsh_data,
-            )
-
-        # Handle P2WSH data chunks for SRC-20 transactions
-        if p2wsh_data_chunks:
-            p2wsh_data = b"".join(p2wsh_data_chunks).rstrip(b"\x00")  # Remove padding zeros
-
-            if p2wsh_data and len(p2wsh_data) >= 2 + len(config.PREFIX):
-                # Extract the length prefix (first 2 bytes)
-                chunk_length = int.from_bytes(p2wsh_data[:2], byteorder="big")
-                # Ensure that p2wsh_data has enough bytes
-                if len(p2wsh_data) >= 2 + chunk_length:
-                    # Extract the data chunk
-                    data_chunk = p2wsh_data[2 : 2 + chunk_length]
-                    # Check for config.PREFIX at the start of data_chunk
-                    if data_chunk.startswith(config.PREFIX):
-                        data_chunk_without_prefix = data_chunk[len(config.PREFIX) :]
-                        data = data_chunk_without_prefix
-                        keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
-                        p2wsh_data = None
-                        destination_pubkey = ctx.vout[0].scriptPubKey
-                        destinations = decode_address(destination_pubkey)
-                    else:
-                        p2wsh_data = None
+                logger.critical(f"Failed to commit block {block_index} after {max_retries} attempts")
+                if config.FORCE:
+                    logger.warning(f"FORCE mode enabled, continuing despite commit failure for block {block_index}")
+                    block_index += 1
+                    return block_index
                 else:
-                    # Data length is not sufficient
-                    p2wsh_data = None
-            else:
-                p2wsh_data = None
-
-        # SRC-20 via MULTISIG
-        # This prioritizes P2WSH over CHECKMULTISIG in a mixed transaction
-        # To be deprecated in a future block height over P2WSH for all SRC-20 transactions
-        elif pubkeys_compiled:
-            chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
-            try:
-                src_destination, src_destination_nvalue, src_data = decode_checkmultisig(ctx, chunk)
-            except Exception as e:
-                raise DecodeError(f"unrecognized output type: {e}")
-            if src_destination is None or src_data is None:
-                raise ValueError("src20_destination and src20_data must not be None")
-            if src_data:
-                data += src_data
-                destinations = str(src_destination)
-
-        if not data:
-            raise BTCOnlyError("no data, not a stamp", ctx)
-
-        vin = ctx.vin[0]
-
-        prev_tx_hash = vin.prevout.hash
-        prev_tx_index = vin.prevout.n
-
-        # Get the full transaction data for the previous transaction.
-        prev_tx = backend.getrawtransaction(util.ib2h(prev_tx_hash))
-        prev_ctx = backend.deserialize(prev_tx)
-
-        # Get the output being spent by the input.
-        prev_vout = prev_ctx.vout[prev_tx_index]
-        prev_vout_script_pubkey = prev_vout.scriptPubKey
-
-        # Decode the address associated with the output.
-        source = decode_address(prev_vout_script_pubkey)
-
-        return TransactionInfo(
-            str(source),
-            prev_tx_hash,
-            destinations,
-            src_destination_nvalue,
-            btc_amount,
-            round(fee),
-            data,
-            ctx,
-            keyburn,
-            is_op_return,
-            None,
-        )
-
-    except (DecodeError, BTCOnlyError):
-        return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None)
-
-
-def decode_address(script_pubkey):
-    """
-    Decode a Bitcoin address from a scriptPubKey. This supports taproot, etc
-
-    Args:
-        script_pubkey (bytes): The scriptPubKey to decode.
-
-    Returns:
-        str: The decoded Bitcoin address.
-
-    Raises:
-        ValueError: If the scriptPubKey format is unsupported.
-    """
-    try:
-        # Attempt standard address decoding
-        address = CBitcoinAddress.from_scriptPubKey(script_pubkey)
-        return str(address)
-    except Exception:
-        # Handle other types of addresses
-        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:  # Taproot check
-            # Extract the witness program for Taproot
-            witness_program = script_pubkey[2:]
-            # Decode as Bech32m address
-            if config.TESTNET:
-                return pubkeyhash_to_addr(witness_program, prefix="tb", encoding="bech32", witver=1)
-            else:
-                return pubkeyhash_to_addr(witness_program, prefix="bc", encoding="bech32", witver=1)
-        else:
-            raise ValueError("Unsupported scriptPubKey format")
-
-
-def decode_checkmultisig(ctx, chunk):
-    """
-    Decode a checkmultisig transaction chunk. Decoding in ARC4 and looking for the STAMP prefix
-    This also validates the length of the string with the 2 byte data length prefix
-
-    Args:
-        ctx (Context): The context object containing transaction information.
-        chunk (bytes): The chunk to be decoded.
-
-    Returns:
-        tuple: A tuple containing the destination address (str) and the decoded data (bytes).
-               If the chunk does not match the expected format, returns (None, None).
-
-    Raises:
-        DecodeError: If the decoded data length does not match the expected length.
-    """
-    key = arc4.init_arc4(ctx.vin[0].prevout.hash[::-1])
-    chunk = arc4.arc4_decrypt_chunk(chunk, key)  # this is a different method since we are stripping the nonce/sign beforehand
-    if chunk[2 : 2 + len(config.PREFIX)] == config.PREFIX:
-        chunk_length = chunk[:2].hex()  # the expected length of the string from the first 2 bytes
-        data = chunk[len(config.PREFIX) + 2 :].rstrip(b"\x00")
-        data_length = len(chunk[2:].rstrip(b"\x00"))
-        if data_length != int(chunk_length, 16):
-            raise DecodeError("invalid data length")
-
-        script_pubkey = ctx.vout[0].scriptPubKey
-        destination = decode_address(script_pubkey)
-        destination_nvalue = ctx.vout[0].nValue
-        return str(destination), destination_nvalue, data
-    else:
-        return None, None, data
-
-
-def list_tx(db, block_index: int, tx_hash: str, tx_hex=None, stamp_issuance=None):
-    if not isinstance(tx_hash, str):
-        raise TypeError("tx_hash must be a string")
-    # NOTE: this is for future reparsing options
-    # cursor = db.cursor()
-    # cursor.execute('''SELECT * FROM transactions WHERE tx_hash = %s''', (tx_hash,)) # this will include all CP transactinos as well ofc
-    # transactions = cursor.fetchall()
-    # cursor.close()
-    # if transactions:
-    #     return tx_index
-
-    if tx_hex is None:
-        tx_hex = backend.getrawtransaction(tx_hash)
-
-    transaction_info = get_tx_info(tx_hex, block_index=block_index, db=db, stamp_issuance=stamp_issuance)
-    source = getattr(transaction_info, "source", None)
-    prev_tx_hash = getattr(transaction_info, "prev_tx_hash", None)
-    destination = getattr(transaction_info, "destinations", None)
-    destination_nvalue = getattr(transaction_info, "destination_nvalue", None)
-    btc_amount = getattr(transaction_info, "btc_amount", None)
-    fee = getattr(transaction_info, "fee", None)
-    data = getattr(transaction_info, "data", None)
-    decoded_tx = getattr(transaction_info, "ctx", None)
-    keyburn = getattr(transaction_info, "keyburn", None)
-    is_op_return = getattr(transaction_info, "is_op_return", None)
-    p2wsh_data = getattr(transaction_info, "p2wsh_data", None)
-
-    if block_index != util.CURRENT_BLOCK_INDEX:
-        raise ValueError(f"block_index does not match util.CURRENT_BLOCK_INDEX: {block_index} != {util.CURRENT_BLOCK_INDEX}")
-
-    if stamp_issuance is not None:
-        source = str(stamp_issuance["source"])
-        destination = str(stamp_issuance["issuer"])
-        data = str(stamp_issuance)
-
-    if source and (data or destination):
-        logger.info(
-            "Saving to MySQL transactions: {}\nDATA:{}\nKEYBURN: {}\nOP_RETURN: {}".format(
-                tx_hash, data, keyburn, is_op_return
-            )
-        )
-
-        return (
-            source,
-            prev_tx_hash,
-            destination,
-            destination_nvalue,
-            btc_amount,
-            fee,
-            data,
-            decoded_tx,
-            keyburn,
-            is_op_return,
-            p2wsh_data,
-        )
-
-    else:
-        skip_logger.debug("Skipping transaction: {}".format(tx_hash))
-        return (None for _ in range(11))
-
-
-def create_check_hashes(
-    db,
-    block_index,
-    valid_stamps_in_block: list[ValidStamp],
-    processed_src20_in_block,
-    txhash_list,
-    previous_ledger_hash=None,
-    previous_txlist_hash=None,
-    previous_messages_hash=None,
-):
-    """
-    Calculate and update the hashes for the given block data. This needs to be modified for a reparse.
-
-    Args:
-        db (Database): The database object.
-        block_index (int): The index of the block.
-        valid_stamps_in_block (list): The list of processed transactions in the block.
-        processed_src20_in_block (list): The list of valid SRC20 tokens in the block.
-        txhash_list (list): The list of transaction hashes in the block.
-        previous_ledger_hash (str, optional): The hash of the previous ledger. Defaults to None.
-        previous_txlist_hash (str, optional): The hash of the previous transaction list. Defaults to None.
-        previous_messages_hash (str, optional): The hash of the previous messages. Defaults to None.
-
-    Returns:
-        tuple: A tuple containing the new transaction list hash, ledger hash, and messages hash.
-    """
-    sorted_valid_stamps = sorted(valid_stamps_in_block, key=lambda x: x.get("stamp_number", ""))
-    txlist_content = str(sorted_valid_stamps)
-    new_txlist_hash, found_txlist_hash = check.consensus_hash(
-        db, block_index, "txlist_hash", previous_txlist_hash, txlist_content
-    )
-
-    ledger_content = str(processed_src20_in_block)
-    new_ledger_hash, found_ledger_hash = check.consensus_hash(
-        db, block_index, "ledger_hash", previous_ledger_hash, ledger_content
-    )
-
-    messages_content = str(txhash_list)
-    new_messages_hash, found_messages_hash = check.consensus_hash(
-        db, block_index, "messages_hash", previous_messages_hash, messages_content
-    )
-
-    try:
-        update_block_hashes(db, block_index, new_txlist_hash, new_ledger_hash, new_messages_hash)
-    except BlockUpdateError as e:
-        logger.error(e)
-        sys.exit("Exiting due to a critical update error.")
-
-    return new_ledger_hash, new_txlist_hash, new_messages_hash
-
-
-def commit_and_update_block(db, block_index):
-    """
-    Commits the changes to the database, updates the parsed block, and increments the block index.
-
-    Args:
-        db: The database connection object.
-        block_index: The current block index.
-
-    Raises:
-        Exception: If an error occurs during the commit or update process.
-
-    Returns:
-        None
-    """
-    try:
-        db.commit()
-        update_parsed_block(db, block_index)
-        block_index += 1
-        return block_index
-    except Exception as e:
-        print("Error message:", e)
-        db.rollback()
-        db.close()
-        sys.exit()
+                    raise
 
 
 def log_block_info(
@@ -586,165 +430,1140 @@ def log_block_info(
     new_messages_hash: str,
     stamps_in_block: int,
     src20_in_block: int,
-):
+    src101_in_block: int = 0,
+    is_zmq: bool = False,
+) -> None:
     """
-    Logs the information of a block.
+    Logs block information using enhanced display formatting.
 
-    Parameters:
-    - block_index (int): The index of the block.
-    - start_time (float): The start time of the block.
-    - new_ledger_hash (str): The hash of the new ledger.
-    - new_txlist_hash (str): The hash of the new transaction list.
-    - new_messages_hash (str): The hash of the new messages.
+    Args:
+        block_index: Current block index
+        start_time: When block processing started
+        new_ledger_hash: New ledger hash
+        new_txlist_hash: New transaction list hash
+        new_messages_hash: New messages hash
+        stamps_in_block: Number of stamps in the block
+        src20_in_block: Number of SRC-20 tokens in the block
+        src101_in_block: Number of SRC-101 tokens in the block
+        is_zmq: Whether the block was processed via ZMQ
+    """
+    try:
+        import config
+        from index_core.log import log_enhanced_block_status
+
+        # Check background job status for indicators
+        try:
+            from index_core.async_holder_updater import is_worker_running as is_holder_worker_running
+            from index_core.market_data_jobs import is_market_data_jobs_running
+
+            market_data_active = is_market_data_jobs_running()
+            holder_updates_active = is_holder_worker_running()
+        except ImportError:
+            market_data_active = False
+            holder_updates_active = False
+
+        # Get current tip of the blockchain
+        block_tip: int = backend_instance.getblockcount()
+        current_time = time.time() - start_time
+
+        # Log memory usage and cache stats every 100 blocks
+        if block_index % 100 == 0:
+            memory_manager.log_memory_usage(block_index)
+            cache_manager.log_cache_stats()
+
+        # Initialize tracking variables if not exists
+        if not hasattr(log_block_info, "_state"):
+            setattr(log_block_info, "_state", {"times": [], "window_size": 100})
+
+        state = getattr(log_block_info, "_state")
+
+        # Only update times list if time is reasonable (filter outliers)
+        if current_time < 10:  # Filter out outliers > 10s
+            state["times"].append(current_time)
+            if len(state["times"]) > state["window_size"]:
+                state["times"].pop(0)
+
+        # Calculate average block time
+        avg_time = "N/A"
+        eta_seconds = 0
+        if len(state["times"]) > 0:
+            avg_time_float = sum(state["times"]) / len(state["times"])
+            avg_time = "{:.2f}s".format(avg_time_float)
+
+            # Calculate ETA
+            if block_index < block_tip:
+                blocks_remaining = block_tip - block_index
+                eta_seconds = blocks_remaining * avg_time_float
+
+        # Get display mode from config with auto-optimization
+        display_mode = getattr(config, "LOG_DISPLAY_MODE", "enhanced")
+
+        # Auto-optimize display mode for tip processing (if enabled)
+        if getattr(config, "LOG_AUTO_OPTIMIZE_TIP", True):
+            at_tip = (block_tip - block_index) <= 5
+            if at_tip and display_mode == "detailed":
+                display_mode = "enhanced"
+                logger.debug("Auto-switching from detailed to enhanced mode for tip processing")
+            elif at_tip and display_mode == "enhanced" and current_time < 0.5:
+                display_mode = "compact"
+                logger.debug("Auto-switching to compact mode for high-frequency tip processing")
+
+        # Use the enhanced logging function from log.py
+        log_enhanced_block_status(
+            block_index=block_index,
+            block_tip=block_tip,
+            processing_time=current_time,
+            avg_time=avg_time,
+            stamps_in_block=stamps_in_block,
+            src20_in_block=src20_in_block,
+            src101_in_block=src101_in_block,
+            eta_seconds=eta_seconds,
+            is_zmq=is_zmq,
+            display_mode=display_mode,
+            start_block=config.CP_STAMP_GENESIS_BLOCK,
+            market_data_active=market_data_active,
+            holder_updates_active=holder_updates_active,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in log_block_info: {e}")
+
+
+def calculate_rollback_depth(block_index: int, reason: str) -> int:
+    """
+    Calculate how many blocks to roll back based on the reason.
+
+    Args:
+        block_index: Current block index
+        reason: Reason for the rollback
 
     Returns:
-    None
+        int: Number of blocks to roll back (target will be block_index - depth)
     """
-    logger = logging.getLogger(__name__)
-    logger.warning(
-        "Block: %s (%ss, hashes: L:%s / TX:%s / M:%s / S:%s / S20:%s)"
-        % (
-            str(block_index),
-            "{:.2f}".format(time.time() - start_time),
-            new_ledger_hash[-5:] if new_ledger_hash else "N/A",
-            new_txlist_hash[-5:],
-            new_messages_hash[-5:],
-            stamps_in_block,
-            src20_in_block,
+    if "Chain reorganization" in reason:
+        # For chain reorgs, roll back 10 blocks to be safe
+        return 10
+    elif "Duplicate key" in reason or "transient" in reason:
+        # For duplicate keys or transient errors, just roll back 1 block
+        return 1
+    else:
+        # For unknown errors, roll back 3 blocks to be safe but not excessive
+        return 3
+
+
+# Webhook configuration
+WEBHOOK_TIMEOUT = 5  # Standardized timeout for all webhook calls (seconds)
+
+
+def is_safe_webhook_url(url: str) -> bool:
+    """
+    Validate webhook URL to prevent SSRF attacks.
+
+    Only allows HTTPS URLs to public hosts. Blocks:
+    - Private IP ranges (127.x, 10.x, 192.168.x, 172.16-31.x)
+    - Localhost and local hostnames
+    - Non-HTTPS schemes (except for explicit local development)
+
+    Args:
+        url: The webhook URL to validate
+
+    Returns:
+        True if the URL is safe to use, False otherwise
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+
+        # Require HTTPS for production (allow HTTP only for localhost in dev)
+        if parsed.scheme not in ("https", "http"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Block localhost and common local hostnames
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            # Allow localhost only if explicitly configured (for development)
+            return os.getenv("ALLOW_LOCAL_WEBHOOKS", "false").lower() == "true"
+
+        # Try to resolve hostname and check for private IPs
+        try:
+            ip_addresses = socket.getaddrinfo(hostname, None)
+            for addr_info in ip_addresses:
+                ip = str(addr_info[4][0])  # Ensure IP is always a string for type safety
+                # Check for private/reserved IP ranges
+                if ip.startswith(("127.", "10.", "192.168.", "0.")):
+                    return False
+                # Check 172.16.0.0 - 172.31.255.255 range
+                if ip.startswith("172."):
+                    second_octet = int(ip.split(".")[1])
+                    if 16 <= second_octet <= 31:
+                        return False
+                # IPv6 loopback
+                if ip == "::1" or ip.startswith("fe80:"):
+                    return False
+        except socket.gaierror:
+            # DNS resolution failed - allow if it looks like a valid domain
+            # (DNS might not be available in all environments)
+            pass
+
+        return True
+    except Exception:
+        return False
+
+
+def notify_api_cache_invalidation(block_height: int, block_hash: str) -> None:
+    """
+    Notify stampchain.io API to invalidate caches on block reorg.
+
+    This webhook integration ensures the API's Redis cache is invalidated when
+    the indexer rolls back blocks, preventing stale data from being served.
+
+    Args:
+        block_height: Block height being rolled back to
+        block_hash: Block hash at the rollback target height
+    """
+    webhook_url = os.getenv("API_WEBHOOK_URL", "https://stampchain.io/api/internal/bitcoinNotifications")
+    api_key = os.getenv("INTERNAL_API_KEY")
+
+    if not api_key:
+        logger.warning("INTERNAL_API_KEY not set - skipping API cache invalidation webhook")
+        return
+
+    # SSRF protection: validate webhook URL
+    if not is_safe_webhook_url(webhook_url):
+        logger.warning(f"Unsafe webhook URL detected, skipping cache invalidation: {webhook_url}")
+        return
+
+    try:
+        logger.info(f"Notifying API to invalidate cache for block reorg at height {block_height}")
+
+        response = requests.post(
+            webhook_url,
+            json={"type": "block_reorg", "blockHeight": block_height, "blockHash": block_hash},
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            timeout=WEBHOOK_TIMEOUT,
+            verify=True,  # Explicit SSL verification
         )
+
+        if response.status_code == 200:
+            logger.info(f"✅ API cache invalidated for block {block_height}")
+        else:
+            logger.warning(f"API cache invalidation returned status {response.status_code}: {response.text[:200]}")
+    except requests.exceptions.Timeout:
+        logger.warning(f"API cache invalidation webhook timed out for block {block_height}")
+    except requests.exceptions.SSLError as e:
+        logger.error(f"API cache invalidation webhook SSL error: {e}")
+    except Exception as e:
+        logger.error(f"API cache invalidation webhook error: {e}")
+        # Don't fail the rollback if webhook fails - cache will expire naturally
+
+
+def notify_api_new_block(block_height: int, block_hash: str, src20_count: int = 0) -> None:
+    """
+    Notify stampchain.io API when a new block is successfully indexed.
+
+    This webhook integration ensures the API can invalidate relevant caches
+    when new blockchain data is available, reducing the delay for users
+    to see freshly indexed transactions.
+
+    Args:
+        block_height: Block height that was just indexed
+        block_hash: Block hash of the indexed block
+        src20_count: Number of SRC-20 transactions in the block (for prioritization)
+    """
+    webhook_url = os.getenv("API_WEBHOOK_URL", "https://stampchain.io/api/internal/bitcoinNotifications")
+    api_key = os.getenv("INTERNAL_API_KEY")
+
+    if not api_key:
+        # Only log at debug level for new blocks (not as critical as reorg notifications)
+        logger.debug("INTERNAL_API_KEY not set - skipping new block webhook")
+        return
+
+    # SSRF protection: validate webhook URL
+    if not is_safe_webhook_url(webhook_url):
+        logger.warning(f"Unsafe webhook URL detected, skipping new block notification: {webhook_url}")
+        return
+
+    try:
+        logger.debug(f"Notifying API of new block {block_height} (SRC20 txs: {src20_count})")
+
+        response = requests.post(
+            webhook_url,
+            json={"type": "new_block", "blockHeight": block_height, "blockHash": block_hash, "src20Count": src20_count},
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            timeout=WEBHOOK_TIMEOUT,
+            verify=True,  # Explicit SSL verification
+        )
+
+        if response.status_code == 200:
+            logger.debug(f"API notified of new block {block_height}")
+        else:
+            logger.warning(f"API new block notification returned status {response.status_code}")
+    except requests.exceptions.Timeout:
+        logger.warning(f"API new block webhook timed out for block {block_height}")
+    except requests.exceptions.SSLError as e:
+        logger.warning(f"API new block webhook SSL error: {e}")
+    except Exception as e:
+        logger.warning(f"API new block webhook error: {e}")
+        # Don't fail indexing if webhook fails - this is non-critical
+
+
+def rollback_and_clear_caches(db: Connection, error_type: str = "general") -> None:
+    """
+    Perform database rollback and clear all caches to ensure clean state on retry.
+
+    Args:
+        db: Database connection to rollback
+        error_type: Type of error for logging (e.g., "consensus", "deadlock", "general")
+    """
+    db.rollback()
+
+    # Clear all caches to ensure clean state on retry
+    # Do NOT preserve stamp counters - they may have been incorrectly incremented
+    # during failed transaction processing. Let them be recalculated from database.
+    try:
+        clear_all_caches()
+        logger.debug(f"Cleared all caches after {error_type} error rollback")
+    except Exception as e:
+        logger.error(f"Failed to clear caches after {error_type} error: {e}")
+        # Continue anyway - rollback is more important than cache clearing
+
+
+def verify_recent_chain_integrity(db: Connection, depth: int) -> Optional[int]:
+    """Compare the last ``depth`` stored ``block_hash`` values against bitcoind's
+    canonical chain. Defense in depth for the post-#728 scenario (issue #779):
+    if the indexer ever crashes mid-reorg and restarts after the tip has
+    advanced beyond the orphan-check window, stale-row drift would otherwise
+    persist indefinitely (as happened at block 945,189 on 2026-04-15).
+
+    Returns:
+        ``None`` if the last ``depth`` blocks match bitcoind exactly.
+        Otherwise the OLDEST mismatching ``block_index`` — caller should
+        rollback to ``divergence - 1`` so the divergent block (and everything
+        after it) gets re-fetched and re-processed.
+
+    Logs at WARNING when a divergence is found, INFO on clean pass.
+    Never raises — any backend / DB error is logged and treated as
+    inconclusive (returns None) so a transient bitcoind hiccup at startup
+    cannot block the indexer from coming up.
+    """
+    if depth <= 0:
+        return None
+
+    try:
+        with db.cursor() as cursor:
+            cursor.execute(
+                "SELECT block_index, block_hash FROM blocks ORDER BY block_index DESC LIMIT %s",
+                (depth,),
+            )
+            rows = cursor.fetchall()
+    except Exception as e:
+        logger.warning(f"Startup chain-integrity check skipped (DB read failed): {e}")
+        return None
+
+    if not rows:
+        logger.debug("Startup chain-integrity check skipped (no stored blocks)")
+        return None
+
+    # Iterate oldest → newest so the first mismatch we find is the divergence
+    # point. Returning the OLDEST diverging block (rather than the newest) is
+    # important: if a reorg replaced blocks N..N+k, every one of N..N+k will
+    # mismatch — we need to roll back to N - 1 so all of them get re-fetched.
+    rows_sorted = sorted(rows, key=lambda r: r[0])
+    divergence: Optional[int] = None
+    checked = 0
+    for block_index, stored_hash in rows_sorted:
+        try:
+            canonical_hash = backend_instance.getblockhash(block_index)
+        except Exception as e:
+            logger.warning(
+                f"Startup chain-integrity check inconclusive at block {block_index} "
+                f"(bitcoind getblockhash failed: {e}); skipping remaining checks"
+            )
+            return divergence  # may be None — accept best-effort findings so far
+        checked += 1
+        if canonical_hash != stored_hash:
+            divergence = block_index
+            break
+
+    if divergence is None:
+        logger.info(f"Startup chain-integrity check: last {checked} blocks match bitcoind ✓")
+        return None
+
+    newest_in_window = rows_sorted[-1][0]
+    logger.warning(
+        f"Startup chain-integrity check: divergence detected at block {divergence} "
+        f"(checked range {rows_sorted[0][0]}..{newest_in_window}); "
+        f"will roll back to {divergence - 1} and re-process"
     )
+    return divergence
 
 
-def process_tx(db, tx_hash, block_index, stamp_issuances, raw_transactions):
-    stamp_issuance = filter_issuances_by_tx_hash(stamp_issuances, tx_hash)
+def rollback_to_block(db: Connection, block_index: int, reason: str) -> int:
+    """Roll back the database to a specific block index with full cleanup."""
+    # Calculate rollback depth based on error type
+    rollback_depth = calculate_rollback_depth(block_index, reason)
+    target_block = max(block_index - rollback_depth, config.BLOCK_FIRST)
 
-    tx_hex = raw_transactions[tx_hash]
-    (
-        source,
-        prev_tx_hash,
-        destination,
-        destination_nvalue,
-        btc_amount,
-        fee,
-        data,
-        decoded_tx,
-        keyburn,
-        is_op_return,
-        p2wsh_data,
-    ) = list_tx(db, block_index, tx_hash, tx_hex, stamp_issuance=stamp_issuance)
+    logger.warning(f"ROLLBACK INITIATED: Rolling back {rollback_depth} blocks to {target_block} ({reason})")
 
-    return TxResult(
-        None,
-        source,
-        prev_tx_hash,
-        destination,
-        destination_nvalue,
-        btc_amount,
-        fee,
-        data,
-        decoded_tx,
-        keyburn,
-        is_op_return,
-        tx_hash,
-        block_index,
-        None,
-        None,
-        p2wsh_data,
-    )
+    # Early-warning detector: if we hit the same target repeatedly in a short
+    # window, page ops before the existing check_rollback_loop threshold
+    # (which is sized to terminate the process, not to alert).
+    from index_core.ops_alerter import stuck_rollback_detector
+
+    stuck_rollback_detector.record(target_block, reason)
+
+    # Invalidate the block count cache to ensure fresh data after rollback
+    backend_instance.invalidate_blockcount_cache()
+
+    # Verify hashes at target block
+    current_bitcoin_hash = backend_instance.getblockhash(target_block)
+    if not verify_cp_block_hash(target_block, current_bitcoin_hash):
+        logger.error("XCP node hasn't rolled back properly, finding common ancestor...")
+        return find_common_ancestor_with_xcp(db, target_block - 1)
+
+    try:
+        # Perform the actual database rollback
+        purge_block_db(db, target_block)
+        # Note: purge_block_db now handles cache clearing internally after database operations
+
+        # Rebuild critical database state
+        logger.info("Rebuilding database state...")
+        rebuild_balances(db)
+        rebuild_owners(db)
+        # update_src20_token_stats(db)  # Now handled by async holder updater
+        logger.info(f"Successfully rolled back to block {target_block}")
+
+        # Notify API to invalidate cache for this block reorg
+        try:
+            notify_api_cache_invalidation(target_block, current_bitcoin_hash)
+        except Exception as webhook_error:
+            # Log webhook errors but don't fail the rollback
+            logger.warning(f"Webhook notification failed (continuing rollback): {webhook_error}")
+
+    except Exception as e:
+        logger.critical(f"Critical error during rollback cleanup: {e}")
+        if not config.FORCE:
+            sys.exit("Exiting due to failed rollback cleanup")
+
+    return target_block
 
 
-def follow(db):
+def find_common_ancestor_with_xcp(db: Connection, start_index: int) -> int:
+    """Find common ancestor with both Bitcoin chain and XCP node"""
+    logger.info("Starting deep reorg detection with XCP verification...")
+
+    while start_index >= config.BLOCK_FIRST:
+        # Get Bitcoin chain data
+        current_bitcoin_hash = backend_instance.getblockhash(start_index)
+        block_header = backend_instance.getblockheader(current_bitcoin_hash)
+        bitcoin_parent = block_header["previousblockhash"]
+
+        # Get database data
+        with db.cursor() as cursor:
+            cursor.execute("SELECT block_hash FROM blocks WHERE block_index = %s", (start_index,))
+            db_block = cursor.fetchone()
+
+        if not db_block:
+            logger.warning(f"No block found at index {start_index}, continuing...")
+            start_index -= 1
+            continue
+
+        db_hash = db_block[0]
+
+        # Verify Bitcoin chain consistency
+        if db_hash != bitcoin_parent:
+            logger.warning(f"Bitcoin parent mismatch at {start_index}, continuing rollback...")
+            start_index -= 1
+            continue
+
+        # Verify XCP node consistency
+        xcp_hash = get_xcp_block_hash(start_index)
+        if xcp_hash != db_hash:
+            logger.warning(f"XCP hash mismatch at {start_index}, continuing rollback...")
+            start_index -= 1
+            continue
+
+        # Full match found
+        logger.info(f"Found common ancestor at block {start_index}")
+        return start_index
+
+    return config.BLOCK_FIRST
+
+
+def follow(
+    db,
+    executor=None,
+    zmq_enabled=True,
+    cp_pipeline=True,
+    update_cpids=True,
+    single_block=False,
+):
     """
     Continuously follows the blockchain, parsing and indexing new blocks
     for SRC-20 transactions and to gather details about CP trx such as
     keyburn status.
 
     Args:
-        db: The database connection object.
-
-    Returns:
-        None
+        db: Database connection
+        executor: Optional ThreadPoolExecutor to use
+        zmq_enabled: Whether to use ZMQ notifications
+        cp_pipeline: Whether to use CP pipeline
+        update_cpids: Whether to update CPIDs
+        single_block: Whether to process just one block and exit
     """
+    # Register for shutdown notifications
+    shutdown_requested = [False]  # Use list for mutable reference in callback
 
-    # Check software version.
-    check.cp_version()  # FIXME: need to add version checks for the endpoints and hash validations
-    initialize(db)
-    rebuild_balances(db)
+    # Initialize scheduler flag early to avoid UnboundLocalError in cleanup
+    market_data_scheduler_started = False
+    first_block_processed = False  # Track if we've processed at least one block
+    last_version_check_time = 0  # Track last version persistence time
 
-    # Get index of last block.
-    if util.CURRENT_BLOCK_INDEX == 0:
-        logger.warning("New database.")
-        block_index = config.BLOCK_FIRST
-    else:
-        block_index = util.CURRENT_BLOCK_INDEX + 1
+    def handle_shutdown():
+        """Callback for shutdown notification"""
+        logger.info("Block processor received shutdown notification")
+        shutdown_requested[0] = True
 
-    logger.info("Resuming parsing.")
-    tx_index = next_tx_index(db)
+    register_shutdown_callback(handle_shutdown)
 
-    # a reorg can happen without the block count increasing, or even for that
-    # matter, with the block count decreasing. This should only delay
-    # processing of the new blocks a bit.
+    # Setup thread executor if not provided
+    using_provided_executor = executor is not None
+    if not executor:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+
     try:
-        block_tip = backend.getblockcount()
-    except (
-        ConnectionRefusedError,
-        http.client.CannotSendRequest,
-        backend.BackendRPCError,
-    ) as e:
-        if config.FORCE:
-            time.sleep(config.BACKEND_POLL_INTERVAL)
+        # Initialize resources that need cleanup
+        executor = executor or concurrent.futures.ThreadPoolExecutor()
+        zmq_notifier = None
+        update_cpids_future = None
+        global cp_pipeline_instance
+        cp_pipeline_instance = None
+        global profiler
+        profiler = None
+
+        # Initial database setup
+        initialize(db)
+        rebuild_balances(db)
+        rebuild_owners(db)
+        # update_src20_token_stats(db)  # Now handled by async holder updater
+
+        # Progress watchdog: pages ops if the main loop stalls (no block
+        # processed for OPS_ALERT_STALL_SEC, default 30 min) — catches the
+        # silent-hang pattern (process alive in futex_wait_queue, no log
+        # output) that systemd cannot detect.
+        from index_core.ops_alerter import progress_watchdog
+
+        progress_watchdog.start()
+
+        # Get index of last block and current tip.
+        # Safety belt for issue #784: refresh the in-process tip from the DB
+        # before deriving block_index. perform_complete_rollback() already
+        # refreshes this global; this is defense in depth so a future caller
+        # that purges blocks without going through that function cannot strand
+        # follow() with a stale value (the prior incident drove
+        # is_prev_block_parsed into an iterative destructive purge cascade).
+        util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+        # Issue #779: startup chain-integrity check. Catches stale-row drift
+        # from any post-#728 crash-during-reorg-then-restart-after-tip-moved
+        # scenario (same failure mode as the 945,189 incident from 2026-04-15).
+        # Runs once per startup; on divergence triggers a normal rollback,
+        # then re-reads the tip so the main loop resumes from the correct
+        # block_index. Gated by STARTUP_CHAIN_INTEGRITY_DEPTH (default 100;
+        # set to 0 to disable).
+        try:
+            divergence_block = verify_recent_chain_integrity(db, config.STARTUP_CHAIN_INTEGRITY_DEPTH)
+        except Exception as chain_check_err:
+            # Belt-and-suspenders — function already swallows its own errors,
+            # but a totally unexpected failure must not block startup.
+            logger.warning(f"Startup chain-integrity check raised unexpectedly: {chain_check_err}")
+            divergence_block = None
+        if divergence_block is not None:
+            rollback_to_block(db, divergence_block - 1, f"Startup chain-integrity divergence at {divergence_block}")
+            util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+        block_tip = backend_instance.getblockcount()
+        if util.CURRENT_BLOCK_INDEX == 0:
+            logger.warning("New database.")
+            block_index = config.BLOCK_FIRST
         else:
-            raise e
+            block_index = util.CURRENT_BLOCK_INDEX + 1
 
-    stamp_issuances_list = None
-    # profiler = cProfile.Profile()
-    # should_profile = True
+        # Log startup status with clear indication if we're caught up
+        if block_index > block_tip:
+            logger.info(f"✅ Indexer is caught up at block {block_tip} - waiting for new blocks...")
+        else:
+            blocks_behind = block_tip - block_index + 1
+            logger.info(f"Resuming parsing from block {block_index}, current tip: {block_tip} ({blocks_behind} blocks behind)")
 
-    executor = concurrent.futures.ThreadPoolExecutor()
-    update_cpids_future = None
-    update_cpids_last_run_block = None
+        # Log legend for background job indicators shown in block status
+        logger.info("📊 Block status indicators: 📈 = market data jobs active, 👥 = holder updates active")
 
-    try:
+        tx_index = next_tx_index(db)
+
+        # Initialize ZMQ if enabled
+        if zmq_enabled:
+            try:
+                zmq_notifier = ZMQNotifier()
+                zmq_enabled = zmq_notifier.check_zmq_ports()
+                if zmq_enabled:
+                    logger.info("ZMQ notifications enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize ZMQ: {e}")
+                zmq_enabled = False
+
+        # Initialize profiler after setup but before processing
+        profiler = Profiler()
+        profiler.start_block_profiling()
+
+        # Initialize CP blocks pipeline if enabled, using already fetched block_tip
+        if cp_pipeline:
+            cp_pipeline_instance = CPBlocksPipeline(
+                max_queue_size=200,
+                target_queue_size=100,  # Maintain 100 blocks ahead
+                initial_fetch_size=30,  # Fetch 30 blocks on startup for quick start
+                max_batch_size=25,  # Reduced from 150 to improve responsiveness with slow nodes
+                fallback_mode=config.CP_FALLBACK_MODE,
+            )
+            cp_pipeline_instance.start(block_index)
+            # Issue #784: CPBlocksPipeline.start() may run perform_complete_rollback
+            # (startup auto-rollback when STARTUP_AUTO_ROLLBACK_FALLBACK is set). That
+            # rollback executes via a *separate* DB connection and purges blocks
+            # beyond the rollback target. Two things follow that break the
+            # processing loop unless we reset:
+            #   1. follow()'s `db` connection holds a REPEATABLE-READ snapshot
+            #      from before the rollback — last_db_index(db) and
+            #      is_prev_block_parsed(db, ...) would still report the
+            #      pre-rollback tip. Commit to end the snapshot and force a
+            #      fresh read on the next query.
+            #   2. The local `block_index` was derived from the pre-rollback
+            #      tip and would drive is_prev_block_parsed() into a
+            #      destructive iterative cascade. Recompute from
+            #      util.CURRENT_BLOCK_INDEX (a Python int — no MySQL isolation;
+            #      refreshed inside perform_complete_rollback).
+            try:
+                db.commit()
+            except Exception as commit_err:
+                logger.debug(f"Post-pipeline commit (snapshot reset) failed harmlessly: {commit_err}")
+            new_block_index = config.BLOCK_FIRST if util.CURRENT_BLOCK_INDEX == 0 else util.CURRENT_BLOCK_INDEX + 1
+            if new_block_index != block_index:
+                logger.warning(
+                    f"Pipeline init reset block_index: {block_index} → {new_block_index} "
+                    f"(util.CURRENT_BLOCK_INDEX now {util.CURRENT_BLOCK_INDEX} — rollback fired during pipeline init)"
+                )
+                block_index = new_block_index
+            stamp_issuances_list = {}  # Initialize empty dict, will be populated by pipeline
+
+            # Log fallback mode status
+            if config.CP_FALLBACK_MODE:
+                logger.info("Pipeline initialized with fallback mode enabled - will continue processing if CP nodes fail")
+            else:
+                logger.info("Pipeline initialized with strict mode - will stop if CP nodes fail")
+
+        # Initialize market data job scheduler for time-based updates
+        # Only start if enabled, not in single block mode or reparse mode, AND we're close to the tip
+        # NOTE: We defer starting until after the first block is processed to give block processing priority
+        blocks_behind = block_tip - block_index if block_tip > block_index else 0
+        market_data_threshold = 100  # Only start market data jobs when within 100 blocks of tip
+
+        if config.ENABLE_MARKET_DATA_SCHEDULER and not single_block:
+            if blocks_behind <= market_data_threshold:
+                # Defer starting until first block is processed to avoid overwhelming endpoints on startup
+                logger.info(
+                    f"Market data scheduler will start after first block (within {market_data_threshold} blocks of tip: {blocks_behind} behind)"
+                )
+                market_data_scheduler_started = False
+            else:
+                logger.info(
+                    f"Market data scheduler deferred - still {blocks_behind} blocks behind tip (threshold: {market_data_threshold})"
+                )
+                market_data_scheduler_started = False
+        elif not config.ENABLE_MARKET_DATA_SCHEDULER:
+            logger.info("Market data scheduler disabled by configuration")
+
+        # Set up signal handler with resources that need to be cleaned up
+        setup_signal_handler(profiler_instance=profiler, cp_pipeline=cp_pipeline_instance)
+
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        error_cooldown = 10  # seconds
+        last_keepalive = time.time()
+        KEEPALIVE_INTERVAL = 60  # Send keepalive every minute
+        update_cpids_last_run_block = 0
+        is_zmq_notification = False  # Track if the current block came via ZMQ
+
+        # Track rollbacks to detect loops
+        rollback_history = []
+        MAX_ROLLBACKS = 3  # Maximum number of rollbacks allowed to the same block
+        ROLLBACK_HISTORY_WINDOW = 10  # Number of recent rollbacks to track
+
+        def check_rollback_loop(block_index):
+            """Check if we're in a rollback loop for a specific block."""
+            rollback_history.append(block_index)
+            if len(rollback_history) > ROLLBACK_HISTORY_WINDOW:
+                rollback_history.pop(0)
+
+            # Count occurrences of this block index in recent history
+            count = rollback_history.count(block_index)
+
+            # Get current tip to check if we're at or near the tip
+            try:
+                current_tip = backend_instance.getblockcount()
+                near_tip = block_index >= current_tip - 1
+            except Exception:
+                near_tip = False  # Default to false if we can't get tip
+
+            # Be more tolerant of rollbacks near the tip where reorgs are common
+            max_allowed = MAX_ROLLBACKS
+            if near_tip:
+                max_allowed = MAX_ROLLBACKS * 2  # Double the tolerance for blocks at/near tip
+
+            if count > max_allowed:
+                logger.error(f"Detected rollback loop at block {block_index} ({count} rollbacks)")
+                return True
+            return False
+
+        def send_keepalive(db):
+            """Send a lightweight query to keep the connection alive"""
+            try:
+                with db.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                return True
+            except Exception as e:
+                logger.warning(f"Keepalive query failed: {e}")
+                return False
+
+        def handle_ledger_mismatch(block_index):
+            """Handle ledger hash mismatches based on configuration."""
+            if not config.FORCE:  # If not in force mode, exit on mismatch
+                logger.error(f"Ledger hash mismatch at block {block_index}. Exiting...")
+                handle_consensus_mismatch_failure(
+                    error_message=f"Ledger hash mismatch detected at block {block_index}", block_index=block_index
+                )
+            else:
+                logger.warning(f"Ledger hash mismatch at block {block_index}. Continuing due to FORCE=True...")
+                return True  # Continue processing
+
+        # Initialize at_chain_tip tracking variable
+        at_chain_tip = False
+
         while True:
-            start_time = time.time()
+            # Check if shutdown has been requested via callback or global flag
+            if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                logger.info("Shutdown requested, exiting block processor")
+                break
 
             try:
-                block_tip = backend.getblockcount()
-            except (
-                ConnectionRefusedError,
-                http.client.CannotSendRequest,
-                backend.BackendRPCError,
-            ) as e:
-                if config.FORCE:
-                    time.sleep(config.BACKEND_POLL_INTERVAL)
-                    continue
-                else:
-                    raise e
+                # Check database connection before starting new block
+                db = check_db_connection(db)
 
-            if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
-                block_index -= 1
+                db.begin()  # Start transaction for entire block
 
-            if block_index <= block_tip:
-                db.ping()
-
-                if stamp_issuances_list and (stamp_issuances_list[block_index] or stamp_issuances_list[block_index] == []):
-                    stamp_issuances = stamp_issuances_list[block_index]
-                else:
-                    if block_index + 1 == block_tip:
-                        indicator = True
+                # Get block tip with timeout
+                try:
+                    block_tip = backend_instance.getblockcount()
+                    if single_block:
+                        # In single block mode, only process one block
+                        block_tip = block_index
+                except (ConnectionRefusedError, http.client.CannotSendRequest, backend.BackendRPCError) as e:
+                    if config.FORCE:
+                        if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                            break
+                        time.sleep(config.BACKEND_POLL_INTERVAL)
+                        continue
                     else:
-                        indicator = None
-                    stamp_issuances_list = fetch_cp_concurrent(block_index, block_tip, indicator=indicator)
-                    stamp_issuances = stamp_issuances_list[block_index]
+                        raise e
 
-                if block_tip - block_index < 100:
+                if block_index != config.BLOCK_FIRST and not is_prev_block_parsed(db, block_index):
+                    block_index -= 1
+                    logger.warning(f"Previous block not parsed, rolling back to {block_index}")
+                    db.rollback()
+                    continue
+
+                # Check if we've just caught up to the blockchain tip
+                if block_index == block_tip:
+                    logger.debug(f"Processing the latest block {block_index} at the chain tip")
+
+                # Start market data scheduler if we're now caught up, haven't started it yet,
+                # AND we've processed at least one block (to give block processing priority on startup)
+                if (
+                    not market_data_scheduler_started
+                    and first_block_processed
+                    and config.ENABLE_MARKET_DATA_SCHEDULER
+                    and not single_block
+                ):
+                    blocks_behind = block_tip - block_index if block_tip > block_index else 0
+                    market_data_threshold = 100  # Start when within 100 blocks of tip
+
+                    if blocks_behind <= market_data_threshold:
+                        try:
+                            logger.info(
+                                f"🚀 Starting market data job scheduler (first block processed, {blocks_behind} blocks behind tip)..."
+                            )
+                            max_workers = min(6, int(os.getenv("DB_MAX_CONNECTIONS", "20")) // 3)
+                            start_market_data_jobs(max_workers=max_workers)
+                            market_data_scheduler_started = True
+                            logger.info(f"Market data job scheduler started with {max_workers} workers")
+                        except Exception as e:
+                            logger.warning(f"Failed to start market data scheduler: {e}")
+
+                # Periodically persist node/indexer versions
+                if first_block_processed and time.time() - last_version_check_time >= config.VERSION_CHECK_INTERVAL:
+                    try:
+                        from index_core.node_health import persist_all_versions
+
+                        persist_all_versions()
+                        last_version_check_time = time.time()
+                    except Exception as e:
+                        logger.warning(f"Failed to persist node versions: {e}")
+                        last_version_check_time = time.time()  # Don't retry immediately on failure
+
+                # If we're close to the tip, increase the sleep interval to reduce load
+                pause_interval = config.BACKEND_POLL_INTERVAL
+                if block_tip - block_index <= 3:
+                    pause_interval = config.BACKEND_POLL_INTERVAL * 2
+
+                logger.debug(f"Block loop: block_index={block_index}, block_tip={block_tip}")
+                if block_index <= block_tip:
+                    logger.debug(f"Entering block processing for block {block_index} (tip: {block_tip})")
+                    # Check shutdown flag before heavy operations
+                    if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                        break
+
+                    # Check if CP pipeline needs fallback rollback (CP nodes recovered)
+                    # This must be done from the main loop, not the worker thread
+                    if cp_pipeline_instance and cp_pipeline_instance.check_and_perform_rollback():
+                        logger.info("Fallback rollback completed - restarting from rollback target")
+                        # Update block_index to match the rollback target
+                        block_index = util.CURRENT_BLOCK_INDEX
+                        stamp_issuances_list = None
+                        time.sleep(5)  # Brief delay to let pipeline restart
+                        continue
+
+                    # Check database connection before operations
+                    db = check_db_connection(db)
+
+                    # Reset start_time to ensure accurate timing for each block
+                    start_time = time.time()
+
+                    # Optional, consensus-neutral per-block perf logging (off by default).
+                    # All timers/counters are (re)initialised here so the emit path is
+                    # always well-defined regardless of which phases run for this block.
+                    perf_enabled = config.PERF_LOG
+                    if perf_enabled:
+                        perf_block_start = time.perf_counter()
+                        perf_t_fetch = 0.0
+                        perf_t_filter = 0.0
+                        perf_t_decode = 0.0
+                        perf_t_hash = 0.0
+                        perf_t_dbwrite = 0.0
+                        perf_n_txs = 0
+                        perf_n_candidates = 0
+
+                    # Start profiling for this block
+                    if profiler:
+                        profiler.start_block_profiling()
+
+                    # Update at_chain_tip status for current block
+                    at_chain_tip = block_index == block_tip
+
+                    # Find the section where the block is fetched from the pipeline
+                    # Try to get block from pipeline first
+                    block_data = cp_pipeline_instance.get_block(block_index) if cp_pipeline_instance else None
+                    logger.debug(f"Pipeline get_block({block_index}) returned: {'block data' if block_data else 'None'}")
+
+                    if block_data:
+                        logger.debug(f"Got block {block_index} from CP pipeline")
+
+                        # Check if this is a fallback block (CP nodes were down)
+                        if block_data.get("fallback_mode"):
+                            logger.warning(f"Block {block_index} is in fallback mode - processing without CP data")
+                            stamp_issuances = []  # Empty issuances, but still process the block
+                            # Track for later reprocessing when CP is available
+                            if block_data.get("needs_cp_reprocessing"):
+                                logger.info(f"Block {block_index} marked for CP reprocessing when nodes recover")
+                                # Add to reprocessing queue for later when CP nodes are available
+                                try:
+                                    from index_core.reprocessing_queue import ReprocessingQueue
+
+                                    reprocess_queue = ReprocessingQueue.get_instance()
+                                    # Get the fallback session start block from pipeline
+                                    fallback_start = (
+                                        cp_pipeline_instance.fallback_started_at if cp_pipeline_instance else block_index
+                                    )
+                                    # Save this block as needing reprocessing
+                                    if hasattr(reprocess_queue, "save_fallback_state"):
+                                        current_state = reprocess_queue.load_fallback_state(fallback_start) or {}
+                                        current_state[block_index] = True  # Mark as needs reprocessing
+                                        reprocess_queue.save_fallback_state(fallback_start, current_state)
+                                        logger.info(
+                                            f"Saved block {block_index} to reprocessing queue for fallback session starting at {fallback_start}"
+                                        )
+                                except Exception as e:
+                                    logger.error(f"Failed to save block {block_index} to reprocessing queue: {e}")
+                        else:
+                            stamp_issuances = block_data["issuances"]
+
+                        stamp_issuances_list = {block_index: block_data}
+                    else:
+                        # Check if we're at or near the chain tip - expected behavior
+                        near_tip = block_index >= block_tip - 1
+
+                        # Check if the pipeline is in the process of fetching this block
+                        pipeline_fetching = False
+                        fetch_start_time = None
+                        if cp_pipeline_instance:
+                            with cp_pipeline_instance._blocks_fetch_lock:
+                                pipeline_fetching = block_index in cp_pipeline_instance.blocks_being_fetched
+                                if pipeline_fetching:
+                                    fetch_start_time = cp_pipeline_instance.blocks_fetch_timestamps.get(block_index)
+
+                        # Wait if the pipeline is actively fetching the block we need
+                        if pipeline_fetching:
+                            # Check if the block has been fetching for too long
+                            if fetch_start_time:
+                                fetch_duration = time.time() - fetch_start_time
+                                if fetch_duration > 90:  # If it's been fetching for more than 90 seconds
+                                    logger.warning(
+                                        f"Block {block_index} has been in pipeline fetch for {fetch_duration:.1f}s, "
+                                        f"forcing cleanup and proceeding with direct fetch"
+                                    )
+                                    # Force cleanup of this stuck block
+                                    with cp_pipeline_instance._blocks_fetch_lock:
+                                        cp_pipeline_instance.blocks_being_fetched.discard(block_index)
+                                        cp_pipeline_instance.blocks_fetch_timestamps.pop(block_index, None)
+                                else:
+                                    logger.debug(
+                                        f"Block {block_index} is currently being fetched by the pipeline "
+                                        f"(for {fetch_duration:.1f}s), waiting..."
+                                    )
+                                    time.sleep(3)  # Short wait to let the fetch complete
+                                    db.rollback()
+                                    continue
+                            else:
+                                logger.debug(f"Block {block_index} is currently being fetched by the pipeline, waiting...")
+                                time.sleep(3)  # Short wait to let the fetch complete
+                                db.rollback()
+                                continue
+
+                        # Also check if the pipeline is still initializing
+                        pipeline_initializing = (
+                            cp_pipeline_instance
+                            and not cp_pipeline_instance.initial_blocks_ready.is_set()
+                            and cp_pipeline_instance.current_block > block_index
+                        )
+
+                        if pipeline_initializing:
+                            logger.info(f"Pipeline is still initializing and likely fetching block {block_index}, waiting...")
+                            time.sleep(5)  # Wait a bit more to let pipeline complete
+                            db.rollback()
+                            continue
+
+                        # Only add delay for blocks that are truly at the chain tip (within 2 blocks)
+                        blocks_from_tip = block_tip - block_index
+                        if blocks_from_tip <= 2:
+                            logger.debug(
+                                f"Block {block_index} not found in CP pipeline - expected for blocks at/near tip {block_tip} ({blocks_from_tip} blocks behind)"
+                            )
+                            # Add delay to allow XCP to catch up, but only for blocks very close to tip
+                            xcp_sync_delay = 2  # Reduced from 5 to 2 seconds
+                            logger.debug(f"Waiting {xcp_sync_delay}s for XCP to sync block {block_index}")
+                            time.sleep(xcp_sync_delay)
+
+                            # Additional verification for blocks at tip
+                            from index_core.fetch_utils import wait_for_cp_block_processed
+
+                            if not wait_for_cp_block_processed(block_index, max_wait=60.0):
+                                logger.warning(f"CP not ready for block {block_index} after 60s, skipping")
+                                db.rollback()
+                                time.sleep(config.BACKEND_POLL_INTERVAL)
+                                continue
+                        else:
+                            logger.info(
+                                f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch"
+                            )
+
+                        try:
+                            if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                                logger.info("Shutdown flag detected before CP fetch, breaking...")
+                                break
+
+                            # Check if the block is beyond the current tip - can happen rarely due to race conditions
+                            current_tip = backend_instance.getblockcount()
+                            if block_index > current_tip:
+                                logger.info(
+                                    f"Attempted to process block {block_index} which is beyond current tip {current_tip}"
+                                )
+                                db.rollback()
+                                time.sleep(pause_interval)
+                                continue
+
+                            # Adjust logging based on chain tip status
+                            if at_chain_tip:
+                                logger.debug(f"Directly fetching block {block_index} from XCP API (at chain tip)")
+                            else:
+                                logger.info(f"Directly fetching block {block_index} from XCP API")
+
+                            # Limit the fetch to just a few blocks ahead instead of 100
+                            # This avoids refetching too many blocks that the pipeline will get anyway
+                            max_fetch_blocks = 5  # Reduced from 100 to 5 to minimize redundant fetching
+                            end_block = min(block_index + max_fetch_blocks - 1, block_tip)
+
+                            # Progressive backoff for chain tip blocks
+                            max_attempts = 3 if at_chain_tip else 1
+                            for attempt in range(max_attempts):
+                                if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                                    break
+
+                                # Issue #756 item 3: when CP_SKIP_NO_COUNTERPARTY_BLOCKS is on, this
+                                # elides the CP API call for blocks the #754 predicate marks CP-free
+                                # (substituting the empty-fetch shape). Default off -> identical to
+                                # fetch_xcp_blocks_concurrent.
+                                stamp_issuances_list = fetch_cp_blocks_skipping_empty(
+                                    block_index, end_block, progress_indicator=(block_index + 1 == block_tip)
+                                )
+
+                                if stamp_issuances_list or not at_chain_tip:
+                                    break
+
+                                # Only retry with backoff at chain tip
+                                if at_chain_tip and attempt < max_attempts - 1:
+                                    backoff_time = min(10, 5 * (attempt + 1))
+                                    logger.debug(
+                                        f"Block {block_index} not ready in XCP, waiting {backoff_time}s (attempt {attempt + 1}/{max_attempts})"
+                                    )
+                                    time.sleep(backoff_time)
+
+                            if not stamp_issuances_list:
+                                if at_chain_tip:
+                                    logger.debug(
+                                        f"No data returned for block {block_index} at chain tip - expected, will retry"
+                                    )
+                                else:
+                                    logger.warning(f"No data returned for block {block_index} - it may not exist yet")
+                                db.rollback()
+                                time.sleep(pause_interval)
+                                continue
+
+                            # Check if this particular block is missing from the results
+                            if block_index not in stamp_issuances_list and not at_chain_tip:
+                                # For blocks near tip (but not at tip), be more lenient
+                                if block_tip - block_index <= 1:
+                                    logger.warning(
+                                        f"Block {block_index} not found in XCP results but it's near the tip ({block_tip}). This is likely normal."
+                                    )
+                                    db.rollback()
+                                    time.sleep(pause_interval)
+                                    continue
+                                # Only treat as critical error for blocks further from tip
+                                else:
+                                    logger.error(
+                                        f"Critical: XCP node failed to return data for block {block_index} (returned {len(stamp_issuances_list)} other blocks)"
+                                    )
+                                    logger.error("Stopping processing to prevent data loss. Check XCP node connectivity.")
+                                    if zmq_notifier and hasattr(zmq_notifier, "send_status_update"):
+                                        try:
+                                            zmq_notifier.send_status_update(
+                                                "critical_error",
+                                                f"Failed to fetch block {block_index} from XCP node. Processing halted to preserve data integrity.",
+                                            )
+                                        except Exception as e:
+                                            logger.warning(f"Failed to send ZMQ notification: {e}")
+                                    db.rollback()
+                                    # Sleep to prevent rapid retries
+                                    time.sleep(30)
+                                    continue
+
+                            logger.debug(f"Successfully fetched {len(stamp_issuances_list)} blocks directly from XCP API")
+
+                            if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
+                                logger.info("Shutdown flag detected after CP fetch, breaking...")
+                                break
+
+                            # Check if the block data is None (API failure)
+                            if stamp_issuances_list.get(block_index) is None:
+                                logger.error(f"Block {block_index} data is None - API fetch failed")
+                                db.rollback()
+                                # Don't skip the block - retry
+                                time.sleep(10)
+                                continue
+
+                            # Now safe to access the issuances
+                            block_data = stamp_issuances_list[block_index]
+                            if not isinstance(block_data, dict) or "issuances" not in block_data:
+                                logger.error(f"Block {block_index} has invalid format: {type(block_data)}")
+                                db.rollback()
+                                continue
+                            stamp_issuances = block_data["issuances"]
+                        except KeyboardInterrupt:
+                            logger.info("Received keyboard interrupt during CP fetch.")
+                            server.shutdown_flag.set()
+                            set_shutdown_flag()
+                            break
+                        except CriticalBlockFetchError as e:
+                            logger.critical(f"Critical block fetch error: {e}")
+                            if config.FORCE:
+                                logger.warning("Continuing due to FORCE=True despite critical error")
+                                db.rollback()
+                                continue
+                            else:
+                                raise
+                        except Exception as e:
+                            logger.error(f"Error during CP fetch: {e}")
+                            if not config.FORCE:
+                                raise
+                            # With FORCE=True, retry instead of skip
+                            logger.warning(f"FORCE mode: Retrying block {block_index} after error: {e}")
+                            db.rollback()
+                            time.sleep(10)  # Wait before retry
+                            # continue here goes back to the while loop, retrying same block
+                            continue
+
+                    # Check for critical block error marker
+                    if (
+                        block_index in stamp_issuances_list
+                        and stamp_issuances_list[block_index] is not None
+                        and isinstance(stamp_issuances_list[block_index], dict)
+                        and "error" in stamp_issuances_list[block_index]
+                        and stamp_issuances_list[block_index]["error"] == "Critical block missing from XCP API"
+                    ):
+                        logger.error(f"Critical error: Block {block_index} was marked as missing from XCP API")
+                        logger.error("Stopping processing to prevent data loss. Check XCP node connectivity.")
+                        if zmq_notifier and hasattr(zmq_notifier, "send_status_update"):
+                            try:
+                                zmq_notifier.send_status_update(
+                                    "critical_error", f"Critical block {block_index} missing from XCP API. Processing halted."
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to send ZMQ notification: {e}")
+                        db.rollback()
+                        # Sleep to prevent rapid retries
+                        time.sleep(60)
+                        continue
+
+                    # Initialize stamp_issuances to empty list if not present
+                    if stamp_issuances is None:
+                        stamp_issuances = []
+                        logger.debug(f"Initialized empty stamp_issuances for block {block_index}")
+
+                    # Empty stamp issuances are normal - continue processing
+                    # Only log at debug level if not at chain tip
+                    if not stamp_issuances and not at_chain_tip and block_index >= config.CP_STAMP_GENESIS_BLOCK:
+                        logger.debug(f"Block {block_index} has no stamp issuances - this is normal")
+
+                    # Check for orphan blocks
                     requires_rollback = False
                     while True:
                         if block_index == config.BLOCK_FIRST:
                             break
-                        logger.info(f"Checking that block {block_index} is not orphan.")
-                        current_hash = backend.getblockhash(block_index)
-                        block_header = backend.getblockheader(current_hash)
+                        logger.debug(f"Checking that block {block_index} is not orphan.")
+                        # Invalidate blockcount cache to ensure we have latest chain data for orphan check
+                        backend_instance.invalidate_blockcount_cache()
+                        current_hash = backend_instance.getblockhash(block_index)
+                        block_header = backend_instance.getblockheader(current_hash)
                         backend_parent = block_header["previousblockhash"]
                         cursor = db.cursor()
                         block_query = """
@@ -772,151 +1591,860 @@ def follow(db):
                     if requires_rollback:
                         logger.warning(f"Blockchain reorganization at block {block_index}.")
                         block_index -= 1
-                        logger.warning(f"Rolling back to block {block_index} to avoid problems.")
-                        purge_block_db(db, block_index)
-                        rebuild_balances(db)
-                        requires_rollback = False
+
+                        if check_rollback_loop(block_index):
+                            logger.error("Exiting due to rollback loop detection")
+                            handle_rollback_loop_failure(
+                                error_message=f"Detected rollback loop at block {block_index}", block_index=block_index
+                            )
+
+                        log_reorg_event(
+                            db,
+                            block_index=block_index,
+                            old_block_hash=db_parent,
+                            new_block_hash=backend_parent,
+                            rollback_depth=0,
+                            detection_method="orphan_block_check",
+                        )
+                        block_index = rollback_to_block(db, block_index, "Chain reorganization detected")
+                        if cp_pipeline_instance:
+                            logger.info(f"Resetting CP pipeline after chain reorg to block {block_index}")
+                            cp_pipeline_instance.reset(block_index)
                         stamp_issuances_list = None
                         time.sleep(60)  # delay waiting for CP to catch up
                         continue
 
-                block_hash = backend.getblockhash(block_index)
+                    # Get block hash and verify
+                    if perf_enabled:
+                        _perf_phase_start = time.perf_counter()
+                    block_hash = backend_instance.getblockhash(block_index)
 
-                txhash_list, raw_transactions, block_time, previous_block_hash, difficulty = backend.get_tx_list(block_hash)
-                util.CURRENT_BLOCK_INDEX = block_index
-
-                try:
-                    insert_block(
-                        db,
-                        block_index,
-                        block_hash,
-                        block_time,
-                        previous_block_hash,
-                        difficulty,
+                    # Get full block data from backend
+                    txhash_list_full, raw_transactions_full, block_time, previous_block_hash, difficulty = (
+                        backend_instance.get_tx_list(block_hash)
                     )
-                except BlockAlreadyExistsError as e:
-                    logger.warning(e)
-                    sys.exit(f"Exiting due to block already existing. {e}")
-                except DatabaseInsertError as e:
-                    logger.error(e)
-                    sys.exit("Critical database error encountered. Exiting.")
+                    if perf_enabled:
+                        perf_t_fetch = time.perf_counter() - _perf_phase_start
 
-                valid_stamps_in_block: List[ValidStamp] = []
+                    # Log transaction counts for debugging
+                    bitcoin_tx_count = len(txhash_list_full)
+                    if perf_enabled:
+                        perf_n_txs = bitcoin_tx_count
+                    cp_tx_count = 0
+                    if (
+                        block_index in stamp_issuances_list
+                        and stamp_issuances_list[block_index] is not None
+                        and isinstance(stamp_issuances_list[block_index], dict)
+                        and "transactions" in stamp_issuances_list[block_index]
+                    ):
+                        cp_tx_count = len(stamp_issuances_list[block_index]["transactions"])
 
-                if not stamp_issuances_list[block_index] and block_index < config.CP_SRC20_GENESIS_BLOCK:
-                    valid_src20_str = ""
-                    new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
-                        db,
-                        block_index,
-                        valid_stamps_in_block,
-                        valid_src20_str,
-                        txhash_list,
-                    )
+                    # It's normal for Counterparty to have fewer transactions than Bitcoin
+                    # Only log at debug level since CP transactions are a subset of BTC transactions
+                    if cp_tx_count == 0 and bitcoin_tx_count > 0:
+                        logger.debug(
+                            f"Block {block_index}: {bitcoin_tx_count} Bitcoin transactions, "
+                            f"{cp_tx_count} Counterparty transactions (normal - no CP activity)"
+                        )
+                    elif cp_tx_count > 0:
+                        logger.debug(
+                            f"Block {block_index}: {bitcoin_tx_count} Bitcoin transactions, "
+                            f"{cp_tx_count} Counterparty transactions"
+                        )
 
-                    stamp_issuances_list.pop(block_index, None)
-                    log_block_info(
-                        block_index,
-                        start_time,
-                        new_ledger_hash,
-                        new_txlist_hash,
-                        new_messages_hash,
-                        0,
-                        0,
-                    )
-                    block_index = commit_and_update_block(db, block_index)
+                    try:
+                        # Try to get xcp_block_hash, fall back to block_hash if needed
+                        if (
+                            block_index not in stamp_issuances_list
+                            or stamp_issuances_list[block_index] is None
+                            or not isinstance(stamp_issuances_list[block_index], dict)
+                        ):
+                            logger.debug(f"No valid block data for {block_index} to get hash")
+                            xcp_hash = ""
+                        elif "xcp_block_hash" in stamp_issuances_list[block_index]:
+                            xcp_hash = stamp_issuances_list[block_index]["xcp_block_hash"]
+                        elif "block_hash" in stamp_issuances_list[block_index]:
+                            xcp_hash = stamp_issuances_list[block_index]["block_hash"]
+                            logger.debug(f"Using block_hash as xcp_block_hash for block {block_index}")
+                        else:
+                            raise KeyError("Neither xcp_block_hash nor block_hash found in block data")
+                    except (KeyError, TypeError) as e:
+                        logger.error(f"Error accessing block hash for block {block_index}: {e}")
+                        # Using empty string here since we don't want to force a rollback for new blocks
+                        xcp_hash = ""
+
+                    # Check if we're at or near the chain tip (where hash mismatches are more likely during sync)
+                    near_tip = block_index >= block_tip - 2
+
+                    if xcp_hash and xcp_hash != block_hash:
+                        if near_tip:
+                            # For blocks near the tip, log as warning but continue - this is likely due to XCP lag
+                            logger.warning(f"Hash mismatch at block {block_index} near chain tip - this is likely temporary")
+                            logger.warning(f"XCP: {xcp_hash}")
+                            logger.warning(f"BTC: {block_hash}")
+                            # Continue with the current block - we don't want to rollback for temporary mismatches
+                        else:
+                            # For blocks further from the tip, this is likely a real issue
+                            logger.critical(f"Hash mismatch at block {block_index}")
+                            logger.critical(f"XCP: {xcp_hash}")
+                            logger.critical(f"BTC: {block_hash}")
+                            block_index = rollback_to_block(db, block_index - 2, "XCP/Bitcoin hash mismatch")
+                            if cp_pipeline_instance:
+                                logger.info(f"Resetting CP pipeline after hash-mismatch rollback to block {block_index}")
+                                cp_pipeline_instance.reset(block_index)
+                            stamp_issuances_list = None
+                            continue
+
+                    # Filter transactions based on genesis status
+                    block_data = {
+                        "tx": [{"txid": tx_hash, "hex": raw_transactions_full[tx_hash]} for tx_hash in txhash_list_full]
+                    }
+                    if perf_enabled:
+                        _perf_phase_start = time.perf_counter()
+                    txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+                    if perf_enabled:
+                        perf_t_filter = time.perf_counter() - _perf_phase_start
+                        perf_n_candidates = len(raw_transactions)
+
+                    util.CURRENT_BLOCK_INDEX = block_index
+                    progress_watchdog.tick(label=f"block {block_index}")
+
+                    try:
+                        insert_block(
+                            db,
+                            block_index,
+                            block_hash,
+                            block_time,
+                            previous_block_hash,
+                            difficulty,
+                        )
+                    except BlockAlreadyExistsError as e:
+                        logger.warning(f"Block {block_index} already exists - likely reorg. Initiating rollback. {e}")
+                        db.rollback()
+                        rollback_target = block_index - 1
+                        if check_rollback_loop(rollback_target):
+                            logger.error("Exiting due to rollback loop detection")
+                            handle_rollback_loop_failure(
+                                error_message=f"Detected rollback loop at block {rollback_target}",
+                                block_index=rollback_target,
+                            )
+                        log_reorg_event(
+                            db,
+                            block_index=block_index,
+                            old_block_hash=None,
+                            new_block_hash=block_hash,
+                            rollback_depth=0,
+                            detection_method="block_already_exists",
+                        )
+                        block_index = rollback_to_block(
+                            db, rollback_target, "Chain reorganization detected (block already exists)"
+                        )
+                        if cp_pipeline_instance:
+                            cp_pipeline_instance.reset(block_index)
+                        stamp_issuances_list = None
+                        time.sleep(10)
+                        continue
+                    except DatabaseInsertError as e:
+                        logger.error(e)
+                        db.rollback()
+                        sys.exit("Critical database error encountered. Exiting.")
+
+                    valid_stamps_in_block: List[ValidStamp] = []
+
+                    if block_index < config.BTC_SRC20_GENESIS_BLOCK and not stamp_issuances_list[block_index]:
+                        valid_src20_str = ""
+                        if perf_enabled:
+                            _perf_phase_start = time.perf_counter()
+                        new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                            db,
+                            block_index,
+                            valid_stamps_in_block,
+                            valid_src20_str,
+                            txhash_list,
+                        )
+                        if perf_enabled:
+                            perf_t_hash = time.perf_counter() - _perf_phase_start
+
+                        stamp_issuances_list.pop(block_index, None)
+                        log_block_info(
+                            block_index,
+                            start_time,
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            0,
+                            0,
+                            0,
+                            is_zmq_notification,
+                        )
+                        if perf_enabled:
+                            _perf_block_index = block_index
+                            _perf_phase_start = time.perf_counter()
+                        block_index = commit_and_update_block(db, block_index, block_tip, 0, block_hash)
+                        if perf_enabled:
+                            perf_t_dbwrite = time.perf_counter() - _perf_phase_start
+                            record_block_perf(
+                                config.PERF_LOG_PATH,
+                                {
+                                    "block_index": _perf_block_index,
+                                    "n_txs": perf_n_txs,
+                                    "n_candidates": perf_n_candidates,
+                                    "t_fetch_ms": round(perf_t_fetch * 1000, 3),
+                                    "t_filter_ms": round(perf_t_filter * 1000, 3),
+                                    "t_decode_ms": round(perf_t_decode * 1000, 3),
+                                    "t_hash_ms": round(perf_t_hash * 1000, 3),
+                                    "t_dbwrite_ms": round(perf_t_dbwrite * 1000, 3),
+                                    "t_total_ms": round((time.perf_counter() - perf_block_start) * 1000, 3),
+                                    "version": config.VERSION_STRING,
+                                },
+                            )
+                        profiler.end_block_profiling()  # End profiling for this block
+                        # Mark that we've successfully processed at least one block
+                        if not first_block_processed:
+                            first_block_processed = True
+                            logger.debug("First block processed successfully - market data scheduler can now start")
+                        if single_block:
+                            break
+                        continue
+
+                    tx_results = []
+
+                    # Pre-warm the raw-transaction cache so each candidate's vin[0]
+                    # source lookup in get_tx_info is a cache hit (one batched RPC
+                    # per block instead of N serial round-trips). Output-neutral.
+                    prefetch_source_prevouts(raw_transactions)
+
+                    # Process transactions in parallel
+                    if perf_enabled:
+                        _perf_phase_start = time.perf_counter()
+                    futures = []
+                    for tx_hash in raw_transactions:  # Only process transactions we have raw data for
+                        future = executor.submit(
+                            process_tx,
+                            db,
+                            tx_hash,
+                            block_index,
+                            stamp_issuances,
+                            raw_transactions,
+                        )
+                        futures.append(future)
+
+                    for future in concurrent.futures.as_completed(futures):
+                        result = future.result()
+                        if result.data is not None:
+                            result = result._replace(
+                                block_index=block_index,
+                                block_hash=block_hash,
+                                block_time=block_time,
+                            )
+                            tx_results.append(result)
+
+                    tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
+                    # Assign tx_index after sorting
+                    for i, result in enumerate(tx_results):
+                        tx_results[i] = result._replace(tx_index=tx_index)
+                        tx_index += 1
+                    if perf_enabled:
+                        perf_t_decode = time.perf_counter() - _perf_phase_start
+
+                    try:
+                        if perf_enabled:
+                            _perf_phase_start = time.perf_counter()
+                        block_processor = BlockProcessor(db)
+                        block_processor.insert_transactions(tx_results)
+                        block_processor.process_transaction_results(tx_results)
+                        if perf_enabled:
+                            perf_t_dbwrite = time.perf_counter() - _perf_phase_start
+                            _perf_phase_start = time.perf_counter()
+
+                        (
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            stamps_in_block,
+                            src20_in_block,
+                            src101_in_block,
+                        ) = block_processor.finalize_block(block_index, block_time, txhash_list, block_tip)
+                        if perf_enabled:
+                            perf_t_hash = time.perf_counter() - _perf_phase_start
+
+                        stamp_issuances_list.pop(block_index, None)
+                        log_block_info(
+                            block_index,
+                            start_time,
+                            new_ledger_hash,
+                            new_txlist_hash,
+                            new_messages_hash,
+                            stamps_in_block,
+                            src20_in_block,
+                            src101_in_block,
+                            is_zmq_notification,
+                        )
+                        if perf_enabled:
+                            _perf_block_index = block_index
+                            _perf_phase_start = time.perf_counter()
+                        block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block, block_hash)
+                        if perf_enabled:
+                            perf_t_dbwrite += time.perf_counter() - _perf_phase_start
+                            record_block_perf(
+                                config.PERF_LOG_PATH,
+                                {
+                                    "block_index": _perf_block_index,
+                                    "n_txs": perf_n_txs,
+                                    "n_candidates": perf_n_candidates,
+                                    "t_fetch_ms": round(perf_t_fetch * 1000, 3),
+                                    "t_filter_ms": round(perf_t_filter * 1000, 3),
+                                    "t_decode_ms": round(perf_t_decode * 1000, 3),
+                                    "t_hash_ms": round(perf_t_hash * 1000, 3),
+                                    "t_dbwrite_ms": round(perf_t_dbwrite * 1000, 3),
+                                    "t_total_ms": round((time.perf_counter() - perf_block_start) * 1000, 3),
+                                    "version": config.VERSION_STRING,
+                                },
+                            )
+                        logger.debug(f"After commit: block_index now {block_index}, continuing to next iteration")
+
+                        # Mark that we've successfully processed at least one block
+                        if not first_block_processed:
+                            first_block_processed = True
+                            logger.debug("First block processed successfully - market data scheduler can now start")
+
+                        # Update holder counts after commit to avoid long transactions
+                        # Only run this when we're near the chain tip or at specific intervals during bulk sync
+                        should_update_market_data = False
+                        if block_tip is not None:
+                            # Near chain tip (within 10 blocks)
+                            if block_tip - block_index <= 10:
+                                should_update_market_data = True
+                            # During bulk sync, update every 1000 blocks
+                            elif (block_index - 1) % 1000 == 0:  # block_index - 1 because we just incremented
+                                should_update_market_data = True
+                        else:
+                            # If block_tip not provided, update at regular intervals
+                            should_update_market_data = (block_index - 1) % 100 == 0
+
+                        # TEMPORARILY DISABLED: Direct holder count updates causing lock timeouts
+                        # TODO: This should only run via async_holder_updater
+                        # if should_update_market_data:
+                        #     try:
+                        #         holder_updater = get_holder_updater()
+                        #         # Update holder counts if we have affected tokens
+                        #         if holder_updater.get_affected_token_count() > 0:
+                        #             # Use a new connection for the update
+                        #             updated_count = holder_updater.update_holder_counts(block_index - 1)
+                        #             if updated_count > 0:
+                        #                 logger.debug(
+                        #                     f"Updated holder counts and progress for {updated_count} SRC-20 tokens at block {block_index - 1}"
+                        #                 )
+                        #     except Exception as e:
+                        #         logger.error(f"Error updating SRC-20 market data at block {block_index - 1}: {e}")
+                        #         # Don't fail the block for market data updates
+                        # else:
+                        #     # Clear tracked tokens without updating if not at update interval
+                        #     holder_updater = get_holder_updater()
+                        #     holder_updater.clear()
+
+                        # Schedule async holder updates if enabled
+                        try:
+                            holder_updater = get_holder_updater()
+
+                            if should_update_market_data and holder_updater.get_affected_token_count() > 0:
+                                # Get affected tokens before clearing
+                                affected_tokens = set()
+                                if hasattr(holder_updater, "affected_tokens"):
+                                    affected_tokens = holder_updater.affected_tokens.copy()
+
+                                # Schedule async update
+                                if affected_tokens:
+                                    logger.debug(
+                                        f"Scheduling holder update for {len(affected_tokens)} tokens at block {block_index}"
+                                    )
+                                    schedule_holder_update(block_index - 1, affected_tokens)
+
+                            # Clear tracked tokens
+                            holder_updater.clear()
+                        except Exception as e:
+                            logger.error(f"Error scheduling holder updates at block {block_index}: {e}")
+                            # Clear tracked tokens even if scheduling failed
+                            try:
+                                holder_updater = get_holder_updater()
+                                holder_updater.clear()
+                            except Exception as clear_error:
+                                logger.error(f"Error clearing holder updater: {clear_error}")
+                            # Don't fail block processing for holder update scheduling errors
+
+                        # Confirm that the previous block was successfully processed by the pipeline
+                        if cp_pipeline_instance:
+                            cp_pipeline_instance.confirm_block_processed(block_index - 1)
+                        profiler.end_block_profiling()  # End profiling for this block
+
+                        if single_block:
+                            break
+
+                    except LedgerMismatchError as e:
+                        if not handle_ledger_mismatch(e.block_index):
+                            db.rollback()
+                            break
+                        else:
+                            # If handle_ledger_mismatch returns True (FORCE mode), continue processing
+                            block_index = commit_and_update_block(db, block_index, block_tip, src20_in_block, block_hash)
+
+                            # Confirm that the previous block was successfully processed by the pipeline
+                            if cp_pipeline_instance:
+                                cp_pipeline_instance.confirm_block_processed(block_index - 1)
+                            profiler.end_block_profiling()  # End profiling for this block
+
+                    except ConsensusError as e:
+                        logger.debug(f"ConsensusError caught in blocks.py, config.FORCE={config.FORCE}")
+                        # Track consensus errors per block
+                        consensus_error_key = f"consensus_error_{block_index}"
+                        consensus_error_count = getattr(server, consensus_error_key, 0) + 1
+                        setattr(server, consensus_error_key, consensus_error_count)
+
+                        # Get max retries from config
+                        max_consensus_retries = config.MAX_CONSENSUS_RETRIES
+
+                        logger.error(f"Consensus hash mismatch at block {block_index}: {e}")
+
+                        if consensus_error_count >= max_consensus_retries:
+                            logger.critical(
+                                f"Consensus error at block {block_index} after {consensus_error_count} attempts. "
+                                f"Set FORCE=true to skip consensus checks or fix the underlying issue."
+                            )
+                            # ZMQ notifier doesn't support error notifications - just log the critical error
+                            sys.exit(
+                                f"Consensus hash mismatch at block {block_index} - exiting after {max_consensus_retries} retries"
+                            )
+
+                        logger.warning(
+                            f"Consensus error at block {block_index}, attempt {consensus_error_count}/{max_consensus_retries}"
+                        )
+                        # Rollback and clear all caches to ensure clean state on retry
+                        rollback_and_clear_caches(db, "consensus")
+                        # Exponential backoff for retries
+                        if not server.shutdown_flag.is_set():
+                            time.sleep(min(5 * consensus_error_count, 30))
+
+                    except Exception as e:
+                        logger.error(f"Error processing block {block_index}: {e}")
+                        if "Duplicate entry" in str(e):
+                            logger.warning(f"Rolling back block {block_index} due to duplicate key error")
+                            rollback_target = block_index - 1
+
+                            # Check for rollback loop
+                            if check_rollback_loop(rollback_target):
+                                logger.error("Exiting due to rollback loop detection")
+                                sys.exit(f"Detected rollback loop at block {rollback_target}")
+
+                            block_index = rollback_to_block(
+                                db, rollback_target, "Duplicate key error - transient database issue"
+                            )
+                            if cp_pipeline_instance:
+                                logger.info(f"Resetting CP pipeline after duplicate key rollback to block {block_index}")
+                                cp_pipeline_instance.reset(block_index)
+                            stamp_issuances_list = None
+                            continue
+
+                        # Rollback and clear all caches to ensure clean state on retry
+                        rollback_and_clear_caches(db, "general")
+
+                        # Short sleep before retry
+                        if not server.shutdown_flag.is_set():
+                            time.sleep(5)
+
+                else:
+                    logger.debug(f"ELSE BRANCH: block_index ({block_index}) > block_tip ({block_tip})")
+                    # CRITICAL: Before declaring we're caught up, invalidate cache and get fresh block count
+                    # This prevents false "caught up" state during initial sync where block_tip may be
+                    # cached from the start of processing. Without this check, the indexer can incorrectly
+                    # think it's caught up after processing the initial batch and start market data jobs
+                    # prematurely instead of continuing to sync to the actual blockchain tip.
+                    logger.debug(f"Checking if caught up: block_index={block_index}, cached block_tip={block_tip})")
+                    backend_instance.invalidate_blockcount_cache()
+                    fresh_block_tip = backend_instance.getblockcount()
+                    logger.debug(f"Fresh block tip after cache invalidation: {fresh_block_tip})")
+
+                    # Double-check if we're actually caught up with fresh data
+                    if block_index > fresh_block_tip:
+                        # Indexer is caught up (block_index > fresh_block_tip), wait for new blocks
+                        # Log as INFO when first reaching the tip (important status update)
+                        if not at_chain_tip:
+                            logger.info(
+                                f"✅ Indexer caught up to blockchain tip at block {block_index-1} (tip: {fresh_block_tip})"
+                            )
+                            at_chain_tip = True
+                        logger.debug(
+                            f"Indexer caught up at block {block_index} (fresh tip: {fresh_block_tip}), waiting for new blocks..."
+                        )
+                        db.rollback()  # Rollback any uncommitted transaction before waiting
+                    else:
+                        # We're not actually caught up - the cached block_tip was stale
+                        # Note: The +1 is correct here because block_index represents the NEXT block to process,
+                        # not the last processed block. If block_index=900000 and tip=902313, we need to process
+                        # blocks 900000 through 902313 inclusive, which is 902313-900000+1 = 2314 blocks.
+                        blocks_behind = fresh_block_tip - block_index + 1
+                        logger.info(
+                            f"Stale block tip detected. Continuing sync: block {block_index}, actual tip: {fresh_block_tip} ({blocks_behind} blocks behind)"
+                        )
+                        logger.info(
+                            f"Cached block_tip was {block_tip}, fresh is {fresh_block_tip} (difference: {fresh_block_tip - block_tip})"
+                        )
+                        block_tip = fresh_block_tip  # Update block_tip with fresh value
+                        db.rollback()
+                        continue  # Continue processing without entering "caught up" mode
+
+                    if server.shutdown_flag.is_set():
+                        logger.info("Shutdown flag detected, completing current block processing...")
+                        # Ensure current block processing completes
+                        block_processor.finalize_block(block_index, block_time, txhash_list, fresh_block_tip)
+                        db.commit()
+                        logger.info("Current block processing completed successfully")
+                        break
+
+                    # Check database connection before waiting
+                    db = check_db_connection(db)
+
+                    # Update CPIDs if needed (every 50 blocks)
+                    if update_cpids and (block_index % 50 == 0) and (block_index != update_cpids_last_run_block):
+                        # Only run CPID updates when close to the block tip
+                        if block_tip - block_index <= 100:
+                            if update_cpids_future is None or update_cpids_future.done():
+                                if update_cpids_future is not None and update_cpids_future.done():
+                                    try:
+                                        # Check if the previous update had any errors
+                                        update_cpids_future.result()
+                                    except Exception as e:
+                                        logger.error(f"Previous CPID update failed: {e}")
+                                        if not config.FORCE:
+                                            raise
+
+                                update_cpids_future = executor.submit(update_cpids_async, db)
+                                update_cpids_last_run_block = block_index
+                                logger.info(f"Submitted update_cpids_async task at block {block_index}.")
+                            else:
+                                logger.info("update_cpids_async is already running. Skipping submission.")
+                        else:
+                            logger.debug(
+                                f"Skipping CPID updates at block {block_index} (too far from tip: {block_tip - block_index} blocks behind)"
+                            )
+
+                    # Use ZMQ if enabled
+                    if zmq_enabled:
+                        try:
+                            logger.debug(f"Waiting for new blocks via ZMQ after block {block_index}")
+                            zmq_wait_time = 5  # seconds, shorter timeout for more frequent shutdown checks
+
+                            while not server.shutdown_flag.is_set():
+                                # Idle-at-tip liveness (watchdog false-positive fix): tick while
+                                # healthily waiting for the next block so ProgressWatchdog only
+                                # trips on a genuine stall, not on normal Bitcoin inter-block gaps.
+                                progress_watchdog.tick(label=f"at tip {block_index}, waiting for next block (zmq)")
+                                # Send keepalive if needed
+                                if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
+                                    if not send_keepalive(db):
+                                        db = check_db_connection(db)
+                                    last_keepalive = time.time()
+
+                                # Use a shorter timeout to check shutdown flag more frequently
+                                notification = zmq_notifier.wait_for_notification(zmq_wait_time * 1000)  # in milliseconds
+
+                                if server.shutdown_flag.is_set():
+                                    logger.info("Shutdown flag detected during ZMQ wait, breaking...")
+                                    break
+
+                                if notification:
+                                    topic, body, seq = notification
+                                    # Safely decode topic, handling potential binary data
+                                    try:
+                                        topic_str = topic.decode("utf-8")
+                                    except UnicodeDecodeError:
+                                        topic_str = topic.decode("utf-8", errors="replace")
+                                        logger.debug(f"Non-UTF-8 topic received in blocks.py: {topic_str}")
+
+                                    if topic_str in ["hashblock", "rawblock"]:
+                                        logger.debug(f"Processing new block notification via ZMQ: {topic_str}")
+                                        # Invalidate the blockcount cache first to ensure fresh block height
+                                        backend_instance.invalidate_blockcount_cache()
+                                        block_tip = backend_instance.getblockcount()
+
+                                        # Add delay to allow Counterparty to catch up with Bitcoin
+                                        delay_seconds = config.ZMQ_NOTIFICATION_DELAY
+                                        logger.debug(
+                                            f"Delaying for {delay_seconds} seconds to allow Counterparty to process the new block"
+                                        )
+                                        time.sleep(delay_seconds)
+
+                                        # Verify CP has actually processed the block. Actively re-poll the
+                                        # SAME pending block (issue #821) instead of deferring to the next
+                                        # ZMQ notification on a transient miss: processing is in-order, so a
+                                        # short bounded re-poll cuts multi-minute tip latency. Only after the
+                                        # overall bound is exhausted do we fall back to the next notification.
+                                        from index_core.fetch_utils import wait_for_cp_block_ready_with_repoll
+
+                                        if not wait_for_cp_block_ready_with_repoll(block_tip):
+                                            logger.warning(
+                                                f"CP still not ready for block {block_tip} after re-poll bound; "
+                                                "deferring to next notification"
+                                            )
+                                            time.sleep(config.BACKEND_POLL_INTERVAL)
+                                            continue
+
+                                        # Reset start_time to measure only the actual block processing time
+                                        # This ensures ZMQ-triggered blocks don't include wait time in their timing
+                                        start_time = time.time()
+                                        logger.debug("Reset start_time for ZMQ block processing")
+
+                                        # Set a flag to indicate this block came from ZMQ
+                                        is_zmq_notification = True
+
+                                        break
+                                # No continue here - let the loop check the shutdown flag again
+                        except Exception as e:
+                            logger.warning(f"ZMQ notification failed, falling back to polling: {e}")
+                            zmq_enabled = False
+                            if zmq_notifier:
+                                zmq_notifier.cleanup()
+
+                    # Only reach here if ZMQ is disabled or failed
+                    if not zmq_enabled:
+
+                        # Send keepalive if needed
+                        if time.time() - last_keepalive > KEEPALIVE_INTERVAL:
+                            if not send_keepalive(db):
+                                db = check_db_connection(db)
+                            last_keepalive = time.time()
+
+                        # Use shorter sleep intervals to check shutdown flag more frequently
+                        poll_sleep_interval = min(2.0, config.BACKEND_POLL_INTERVAL)
+                        slept_time = 0
+                        while slept_time < config.BACKEND_POLL_INTERVAL and not server.shutdown_flag.is_set():
+                            time.sleep(poll_sleep_interval)
+                            slept_time += poll_sleep_interval
+                            # Idle-at-tip liveness (watchdog false-positive fix): tick while
+                            # healthily polling for the next block; a genuine hang stops ticking.
+                            progress_watchdog.tick(label=f"at tip {block_index}, waiting for next block (poll)")
+                            if server.shutdown_flag.is_set():
+                                logger.info("Shutdown flag detected during poll sleep, breaking...")
+                                break
+
+                        # Check if we should continue after sleep
+                        if server.shutdown_flag.is_set():
+                            break
+
+                        # Periodically invalidate the blockcount cache when polling
+                        # This ensures we don't miss new blocks while also limiting RPC calls
+                        current_time = time.time()
+                        if current_time - backend_instance.last_blockcount_time > config.BACKEND_POLL_INTERVAL * 2:
+                            logger.debug("Invalidating blockcount cache for polling check")
+                            backend_instance.invalidate_blockcount_cache()
+
+                        block_tip = backend_instance.getblockcount()
+
+                        # Try to re-enable ZMQ periodically
+                        if block_index % 10 == 0:
+                            try:
+                                zmq_notifier = ZMQNotifier()
+                                zmq_enabled = zmq_notifier.check_zmq_ports()
+                                if zmq_enabled:
+                                    logger.info("Successfully re-enabled ZMQ notifications")
+                            except Exception as e:
+                                logger.warning(f"Failed to re-initialize ZMQ: {e}")
+
+                        # If we detect a new block via polling, reset the start time to avoid including wait time
+                        if block_tip > block_index:
+                            start_time = time.time()
+                            logger.debug("Reset start_time for block processing after polling")
+                            is_zmq_notification = False  # This is a polling block
+
+                consecutive_errors = 0  # Reset error counter on successful iteration
+
+            except (mysql.Error, mysql.OperationalError) as e:
+                logger.error(f"Database error processing block {block_index}: {e}")
+                db.rollback()
+
+                # Check for duplicate key error
+                if isinstance(e, mysql.Error) and e.args[0] == 1062:  # Duplicate key error
+                    logger.warning(f"Rolling back block {block_index} due to duplicate key error")
+                    rollback_target = block_index - 1
+
+                    # Check for rollback loop
+                    if check_rollback_loop(rollback_target):
+                        logger.error("Exiting due to rollback loop detection")
+                        sys.exit(f"Detected rollback loop at block {rollback_target}")
+
+                    block_index = rollback_to_block(db, rollback_target, "Duplicate key error - transient database issue")
+                    if cp_pipeline_instance:
+                        logger.info(f"Resetting CP pipeline after duplicate key rollback to block {block_index}")
+                        cp_pipeline_instance.reset(block_index)
+                    stamp_issuances_list = None
                     continue
 
-                tx_results = []
+                consecutive_errors += 1
 
-                futures = []
-                for tx_hash in txhash_list:
-                    future = executor.submit(
-                        process_tx,
-                        db,
-                        tx_hash,
-                        block_index,
-                        stamp_issuances,
-                        raw_transactions,
-                    )
-                    futures.append(future)
-
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    if result.data is not None:
-                        result = result._replace(
-                            block_index=block_index,
-                            block_hash=block_hash,
-                            block_time=block_time,
-                        )
-                        tx_results.append(result)
-
-                tx_results = sorted(tx_results, key=lambda x: txhash_list.index(x.tx_hash))
-                # Assign tx_index after sorting
-                for i, result in enumerate(tx_results):
-                    tx_results[i] = result._replace(tx_index=tx_index)
-                    tx_index += 1
-
-                block_processor = BlockProcessor(db)
-                block_processor.insert_transactions(tx_results)
-                block_processor.process_transaction_results(tx_results)
-
-                new_ledger_hash, new_txlist_hash, new_messages_hash, stamps_in_block, src20_in_block = (
-                    block_processor.finalize_block(block_index, block_time, txhash_list)
-                )
-
-                stamp_issuances_list.pop(block_index, None)
-                log_block_info(
-                    block_index,
-                    start_time,
-                    new_ledger_hash,
-                    new_txlist_hash,
-                    new_messages_hash,
-                    stamps_in_block,
-                    src20_in_block,
-                )
-                block_index = commit_and_update_block(db, block_index)
-
-            else:
-                logger.info(f"Block {block_index} is beyond the current block tip {block_tip}. Waiting for new blocks.")
-                # every 50 blocks, update the supply/divisible/locked status of all unlocked CPIDs
-                if (block_index % 50 == 0) and (block_index != update_cpids_last_run_block):
-                    if update_cpids_future is None or update_cpids_future.done():
-                        update_cpids_future = executor.submit(update_cpids_async, db)
-                        update_cpids_last_run_block = block_index
-                        logger.info(f"Submitted update_cpids_async task at block {block_index}.")
-                    else:
-                        logger.info("update_cpids_async is already running. Skipping submission.")
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(f"Too many consecutive database errors ({consecutive_errors}). Taking a longer break...")
+                    time.sleep(error_cooldown * 2)  # Double the cooldown
+                    consecutive_errors = 0  # Reset counter after break
                 else:
-                    logger.info(f"Not time yet for update_cpids_async. Current block: {block_index}")
-                time.sleep(30)  # TODO: Setup ZMQ triggers
+                    time.sleep(error_cooldown)
 
-        # if should_profile:
-        #     profiler.disable()
-        #     profiler.dump_stats("profile_results.prof")
-        #     stats = pstats.Stats(profiler).sort_stats('cumulative')
-        #     stats.print_stats()
-        #     should_profile = False
+                # Try to reconnect to database with extended backoff.
+                # RDS reboots / storage-full events / failovers can knock the DB
+                # offline for several minutes; we want to ride through them
+                # rather than exit the process and require manual restart.
+                # check_db_connection() already retries 5x with short delays
+                # (~50s total). Once that fails, we keep retrying here with
+                # capped exponential backoff until either RDS comes back or we
+                # hit MAX_DB_OUTAGE_SECONDS (default 30 min).
+                max_outage_seconds = int(os.environ.get("MAX_DB_OUTAGE_SECONDS", "1800"))
+                reconnect_start = time.time()
+                backoff = 5
+                while True:
+                    if server.shutdown_flag.is_set():
+                        # External shutdown takes precedence over retry.
+                        raise RuntimeError("Shutdown requested during DB reconnect")
+                    try:
+                        db = check_db_connection(db)
+                        elapsed = time.time() - reconnect_start
+                        if elapsed > 5:
+                            logger.info(f"Database reconnected after {elapsed:.1f}s outage")
+                        break
+                    except Exception as reconnect_error:
+                        elapsed = time.time() - reconnect_start
+                        if elapsed >= max_outage_seconds:
+                            logger.error(
+                                f"Database unavailable for {elapsed:.0f}s "
+                                f"(>= MAX_DB_OUTAGE_SECONDS={max_outage_seconds}); giving up"
+                            )
+                            raise
+                        logger.warning(
+                            f"DB still unavailable ({reconnect_error}); waiting {backoff}s and retrying "
+                            f"(outage so far: {elapsed:.0f}s, cap: {max_outage_seconds}s)"
+                        )
+                        # Use shutdown_flag.wait() instead of time.sleep() so SIGTERM
+                        # interrupts the wait immediately — a 60s blocking sleep would
+                        # otherwise delay clean shutdown by up to one backoff window.
+                        if server.shutdown_flag.wait(timeout=backoff):
+                            raise RuntimeError("Shutdown requested during DB reconnect wait")
+                        backoff = min(backoff * 2, 60)  # cap per-attempt sleep at 60s
+
+            except CriticalBlockFetchError as e:
+                # Handle critical fetch errors that should halt execution
+                logger.critical(f"Critical error fetching data for block {e.block_index}: {e.reason}")
+                logger.critical("Indexer cannot continue safely with incomplete data. Exiting.")
+                db.rollback()  # Rollback any partial changes for the failed block
+                # Optionally: Perform specific cleanup or notification
+                if "zmq_notifier" in locals() and zmq_notifier and hasattr(zmq_notifier, "send_status_update"):
+                    try:
+                        zmq_notifier.send_status_update(
+                            "critical_error",
+                            f"Critical fetch error for block {e.block_index}: {e.reason}. Indexer stopped.",
+                        )
+                    except Exception as zmq_err:
+                        logger.warning(f"Failed to send ZMQ critical error notification: {zmq_err}")
+                sys.exit(1)  # Exit the process
+
+            except Exception as e:
+                # Check for MySQL deadlock error (1213)
+                is_deadlock = False
+                if hasattr(e, "args") and len(e.args) > 0:
+                    if isinstance(e.args[0], int) and e.args[0] == 1213:
+                        is_deadlock = True
+                    elif isinstance(e.args[0], str) and "Deadlock found" in str(e.args[0]):
+                        is_deadlock = True
+
+                if is_deadlock:
+                    logger.warning(f"Database deadlock detected at block {block_index}, will retry")
+                    # Rollback and clear all caches to ensure clean state on retry
+                    rollback_and_clear_caches(db, "deadlock")
+                    # Short sleep with jitter to avoid thundering herd
+                    time.sleep(1 + random.uniform(0, 2))
+                    continue
+
+                logger.error(f"Error processing block {block_index}: {e}")
+                if "Duplicate entry" in str(e):
+                    logger.warning(f"Rolling back block {block_index} due to duplicate key error")
+                    rollback_target = block_index - 1
+
+                    # Check for rollback loop
+                    if check_rollback_loop(rollback_target):
+                        logger.error("Exiting due to rollback loop detection")
+                        sys.exit(f"Detected rollback loop at block {rollback_target}")
+
+                    block_index = rollback_to_block(db, rollback_target, "Duplicate key error - transient database issue")
+                    if cp_pipeline_instance:
+                        logger.info(f"Resetting CP pipeline after duplicate key rollback to block {block_index}")
+                        cp_pipeline_instance.reset(block_index)
+                    stamp_issuances_list = None
+                    continue
+                db.rollback()
+                # Short sleep before retry
+                if not server.shutdown_flag.is_set():
+                    time.sleep(5)
+
+            # Add validation check every 1000 blocks
+            if config.DEBUG_VALIDATION and block_index % 1000 == 0:
+                if not validate_block_against_production(block_index):
+                    logger.error("Validation failed - terminating execution")
+                    cleanup_resources(
+                        executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started
+                    )
+                    sys.exit(1)
+
     except KeyboardInterrupt:
-        logger.info("Shutting down gracefully...")
+        logger.info("Received keyboard interrupt in follow().")
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected error occurred in follow(): {e}")
+        raise
     finally:
-        executor.shutdown(wait=True)
-        logger.info("Executor has been shut down.")
+        # End profiling before cleanup
+        if "profiler" in locals() and profiler is not None:
+            try:
+                profiler.end_block_profiling()
+            except Exception as e:
+                logger.debug(f"Error ending profiling: {e}")
+
+        # Cleanup all resources
+        cleanup_resources(executor, zmq_notifier, update_cpids_future, db, cp_pipeline_instance, market_data_scheduler_started)
 
 
 def update_cpids_async(db):
     try:
-        cpids = get_unlocked_cpids(db)
-        if cpids:
-            cpids_list = [cpid[0] for cpid in cpids]
-            assets_details = get_xcp_assets_by_cpids(cpids_list, chunk_size=200, delay_between_chunks=6, max_workers=5)
-            if assets_details:
-                update_assets_in_db(db, assets_details, chunk_size=200, delay_between_chunks=6)
-                logger.info("Successfully updated assets in the database.")
+        # Create a new database connection for this async task
+        from index_core.server import initialize_db
+
+        task_db = initialize_db()
+
+        try:
+            cpids = get_unlocked_cpids(task_db)
+            if cpids:
+                cpids_list = [cpid[0] for cpid in cpids]
+
+                # Filter out SRC-20 hash tokens that don't exist in Counterparty API
+                valid_cpids = [cpid for cpid in cpids_list if is_valid_counterparty_asset(cpid)]
+                invalid_cpids = [cpid for cpid in cpids_list if not is_valid_counterparty_asset(cpid)]
+
+                if invalid_cpids:
+                    logger.debug(
+                        f"Filtered out {len(invalid_cpids)} SRC-20 hash tokens from CPID update: {invalid_cpids[:5]}..."
+                    )
+
+                if valid_cpids:
+                    assets_details = get_xcp_assets_by_cpids(
+                        valid_cpids, chunk_size=200, delay_between_chunks=6, max_workers=5
+                    )
+                    if assets_details:
+                        update_assets_in_db(task_db, assets_details, chunk_size=200, delay_between_chunks=6)
+                        logger.info("Successfully updated assets in the database.")
+                    else:
+                        logger.warning("No asset details were retrieved.")
+                else:
+                    logger.info("No valid Counterparty CPIDs to update.")
             else:
-                logger.warning("No asset details were retrieved.")
-        else:
-            logger.info("No CPIDs to update.")
+                logger.info("No CPIDs to update.")
+        finally:
+            task_db.close()
+
     except Exception as e:
         logger.error(f"Error in update_cpids_async: {e}")
+        if not config.FORCE:
+            raise

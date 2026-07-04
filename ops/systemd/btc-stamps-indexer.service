@@ -1,0 +1,80 @@
+[Unit]
+Description=BTC Stamps Indexer
+Documentation=https://github.com/stampchain-io/btc_stamps
+Documentation=file:///home/ubuntu/btc_stamps/ops/INDEXER_SUPERVISION.md
+After=network-online.target docker.service
+Wants=network-online.target
+# Counterparty + bitcoind run as containers under docker on this host; wait
+# for the docker daemon so those backends are reachable when we start.
+Requires=docker.service
+
+# Restart-burst circuit breaker: 5 restarts in 5 min → systemd stops trying.
+# Clear with `sudo systemctl reset-failed btc-stamps-indexer` after fixing the
+# underlying cause. (These keys must be in [Unit], not [Service], per systemd
+# semantics; verified with systemd-analyze.)
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+# poetry run indexer is a foreground process — no daemonize/fork
+Type=simple
+User=ubuntu
+Group=ubuntu
+
+# WorkingDirectory is branch-agnostic — runs whichever branch is currently
+# checked out in /home/ubuntu/btc_stamps/indexer. Branch switching is:
+#   sudo systemctl stop btc-stamps-indexer
+#   cd /home/ubuntu/btc_stamps && git checkout <branch> && git pull
+#   cd indexer && poetry install
+#   sudo systemctl start btc-stamps-indexer
+WorkingDirectory=/home/ubuntu/btc_stamps/indexer
+ExecStart=/home/ubuntu/.local/bin/poetry run indexer
+
+# Graceful shutdown: SIGTERM first, then SIGKILL after TimeoutStopSec if the
+# cleanup hangs. The indexer's resource_manager runs ordered cleanup on
+# SIGTERM via server.shutdown_flag: closes CP pipeline → flushes async
+# uploads → closes DB pool → exits. 120s is a generous ceiling; typical
+# clean shutdown completes in under 30s. Raise if you observe legitimate
+# longer shutdowns (e.g., a large upload backlog drain).
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+# Restart policy.
+#
+# Restart=always — restart on ANY exit (clean or crashed). We intentionally
+# do NOT use on-failure because there's no scenario where the indexer is
+# supposed to stay down voluntarily; a clean exit (e.g., from the new
+# follow() outage path after MAX_DB_OUTAGE_SECONDS expires) should still
+# trigger systemd to bring us back so we can retry once the DB is up again.
+#
+# RestartSec=30 — wait 30s before restarting, gives transient issues (RDS
+# failover, network blip) time to clear.
+#
+# Burst-limit settings live in the [Unit] section above per systemd semantics.
+Restart=always
+RestartSec=30
+
+# File-descriptor headroom for the DB pool + ZMQ + HTTP clients.
+LimitNOFILE=65536
+
+# Logs → journald, accessible via:
+#   journalctl -u btc-stamps-indexer -f          (live tail)
+#   journalctl -u btc-stamps-indexer --since 1h  (historical)
+#   indexer-logs                                  (tmux companion, see ops/bin/)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=btc-stamps-indexer
+
+# Optional: override DB-outage tolerance during known maintenance windows.
+# Default is 1800s (30 min); applied inside blocks.py::follow() retry loop.
+# Environment=MAX_DB_OUTAGE_SECONDS=3600
+
+# Notification on failure (NOT WIRED IN THIS COMMIT — see ops/INDEXER_SUPERVISION.md).
+# Future scope: a small telegram-bot one-liner. To enable, write the script,
+# create btc-stamps-indexer-alert.service as a Type=oneshot trigger, then
+# uncomment the line below.
+# OnFailure=btc-stamps-indexer-alert.service
+
+[Install]
+WantedBy=multi-user.target

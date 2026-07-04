@@ -1,0 +1,172 @@
+{
+  "description": "Real SRC20 transaction hashes from production database for integration testing",
+  "generated_date": "2025-01-27",
+  "test_categories": {
+    "invalid_transactions": [
+      {
+        "tx_hash": "a3d8d275d86ed6efc93392245ff3c9d4c9e26889b3999a6494fa4d6b866132e0",
+        "tick": "stmpp",
+        "op": "MINT",
+        "status": "OM: OVER MINT stmpp 21000000.000000000000000000 >= 21000000",
+        "block_index": 827140,
+        "test_type": "over_mint"
+      },
+      {
+        "tx_hash": "3809059d32b51e3c2e680c6ffbd8e15e152daa06554f62fc1b9f2aea3be39e32",
+        "tick": "meme",
+        "op": "MINT",
+        "status": "OM: OVER MINT meme 69420000000 >= 69420000000",
+        "block_index": 792483,
+        "test_type": "over_mint"
+      },
+      {
+        "tx_hash": "68721d2d5aa37ac7048c1d51f8a592543e516c2e84b66dcfc81f8b6d840d4605",
+        "tick": "jdog",
+        "op": "MINT",
+        "status": "OM: OVER MINT jdog 420 >= 420",
+        "block_index": 824110,
+        "test_type": "over_mint"
+      },
+      {
+        "tx_hash": "56bba57e6405e553cfff1b78ab8f7f0f0f419c5056c06b72a81e0e5deae48d15",
+        "tick": "nexus",
+        "op": "MINT",
+        "status": "NA: INVALID AMT MINT nexus",
+        "block_index": 790606,
+        "test_type": "invalid_amount"
+      },
+      {
+        "tx_hash": "72f9bfb6c6553feabdb7b52428a33172090553fd9441209fb99d4b13455ca71d",
+        "tick": "nivek",
+        "op": "MINT",
+        "block_index": 790918,
+        "test_type": "invalid_general"
+      },
+      {
+        "tx_hash": "ed35fe928d82ffd263e999d6140d124a7423d30378f5197b4023393d400cd87c",
+        "tick": "jdog",
+        "op": "MINT",
+        "block_index": 824112,
+        "test_type": "invalid_general"
+      },
+      {
+        "tx_hash": "4b9ae7493b6c16d78ae3c1cafebea79282ffe42feb46fd30ed725249941bbf00",
+        "tick": "scifi",
+        "op": "TRANSFER",
+        "block_index": 873710,
+        "test_type": "invalid_transfer"
+      }
+    ],
+    "valid_transactions": [
+      {
+        "tx_hash": "64ca6c21ff26401bafd2af4902157c1f3eef25bbb027a427250e39d552d86755",
+        "tick": "rare",
+        "op": "MINT",
+        "amt": "1000.000000000000000000",
+        "block_index": 855228,
+        "test_type": "valid_mint"
+      },
+      {
+        "tx_hash": "bddb00f8877af253283de07abc28597b855bf820b170ffc091da0faac5abf415",
+        "tick": "stmap",
+        "op": "TRANSFER",
+        "amt": "15000.000000000000000000",
+        "block_index": 827629,
+        "test_type": "valid_transfer"
+      },
+      {
+        "tx_hash": "8be08571b7666c54d7accd456a65a707153e3b472e0590a1ff011240bd292413",
+        "tick": "stamp",
+        "op": "TRANSFER",
+        "amt": "700000.000000000000000000",
+        "block_index": 874824,
+        "test_type": "valid_transfer"
+      }
+    ],
+    "deploy_transactions": [
+      {
+        "tx_hash": "306cf746bbcc063825c95e5cdd47464ede62d4aa6e3d6629e80cd8affb7e71bf",
+        "tick": "\\U0001f436",
+        "op": "DEPLOY",
+        "block_index": 877807,
+        "test_type": "valid_deploy_unicode"
+      },
+      {
+        "tx_hash": "049d1544e94c14deece7a468855ca9bff7c867476b3f4cba8c075000ed93babe",
+        "tick": "ninja",
+        "op": "DEPLOY",
+        "block_index": 797973,
+        "test_type": "valid_deploy_standard"
+      },
+      {
+        "tx_hash": "0321905ca9053a5b8313be9524a2af146196982a479573e9a324e8b929231730",
+        "tick": "nivek",
+        "op": "DEPLOY",
+        "block_index": 789352,
+        "test_type": "valid_deploy_early"
+      }
+    ],
+    "specific_status_errors": [
+      {
+        "tx_hash": "1fc093d5d7b1ab680d630c25ea505f7cdc2b16eadcd66fa0dbc566b4bc5ae6f2",
+        "tick": "vivi",
+        "op": "MINT",
+        "status": "OM: OVER MINT vivi 10000000000 >= 10000000000",
+        "block_index": 845869,
+        "test_type": "over_mint_large"
+      },
+      {
+        "tx_hash": "2cc3be498d12247c47fc99b60d97c6db7b2f1dfdcaefc3fee3a36729fade6b19",
+        "tick": "stamp",
+        "op": "MINT",
+        "status": "OM: OVER MINT stamp 1000000000 >= 1000000000",
+        "block_index": 790383,
+        "test_type": "over_mint_early_stamp"
+      },
+      {
+        "tx_hash": "0698579e4f1997ec1d9b27cb9c1b4b7e40bfe3301213074fd0270cc4bc2d8ad5",
+        "tick": "doge",
+        "op": "MINT",
+        "status": "OM: OVER MINT doge 100000000000.0000000000000000 >= 100000000000",
+        "block_index": 831460,
+        "test_type": "over_mint_decimal_precision"
+      }
+    ],
+    "comprehensive_test_set": [
+      {
+        "tx_hash": "4d89d7f69ee77c3ddda041f94270b4112d002fc67b88008f29710fadfb486da8",
+        "tick": "punk",
+        "op": "MINT",
+        "amt": "1.000000000000000000",
+        "block_index": 853693,
+        "mimetype": "image/svg+xml",
+        "validity": "VALID",
+        "test_type": "valid_mint_svg"
+      },
+      {
+        "tx_hash": "7c58830beed762d2894290276b19e0cfe71d77de10901f3e198fff38fdde4029",
+        "tick": "smbtc",
+        "op": "TRANSFER",
+        "amt": "750000.000000000000000000",
+        "block_index": 872140,
+        "mimetype": "image/svg+xml",
+        "validity": "VALID",
+        "test_type": "valid_transfer_large"
+      }
+    ]
+  },
+  "notes": {
+    "potential_compression_candidates": [
+      "All returned transactions had NULL file_size_bytes, need to investigate further",
+      "Most transactions are image/svg+xml which could have compressed JSON data",
+      "Early block transactions (789000-792000) might have different encoding patterns"
+    ],
+    "test_priorities": [
+      "over_mint errors - most common invalid type",
+      "unicode ticks - edge case handling", 
+      "early transactions - potential legacy format issues",
+      "large amounts - decimal precision testing",
+      "invalid amounts - validation testing"
+    ]
+  }
+} 

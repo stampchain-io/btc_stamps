@@ -1,8 +1,16 @@
+[build-system]
+requires = ["poetry-core>=1.0.0", "maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "btc_stamps_parser"
+features = ["pyo3/extension-module"]
+manifest-path = "src/rust_parser/Cargo.toml"
+
 [tool.poetry]
 name = "indexer"
-version = "1.8.26+canary.6"
+version = "1.8.26+canary.354"
 description = "Bitcoin Stamps Indexer"
-# readme = "README.md"
 authors = ["reinamora <reinamora@stampchain.io>"]
 homepage = "https://stampchain.io"
 repository = "https://github.com/stampchain-io/btc_stamps/"
@@ -10,7 +18,6 @@ documentation = "https://stampchain.io/docs"
 license = "AGPL-3.0-or-later"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -19,71 +26,88 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 appdirs = "1.4.4"
-bitcoinlib = "0.6.15"
-colorlog = "6.8.2"
-# sha3 = "0.2.1"  # Remove this line if not needed
-pycoin = "0.92.20230326"
+bitcoinlib = "^0.7.2"
+colorlog = "6.9.0"
+pyzmq = "^27.1.0"
 python-bitcoinlib = "0.12.2"
 python-bitcoinrpc = "1.0"
-regex = "2024.5.15"
-requests = "2.32.3"
-cachetools = "5.5.0"
+regex = "2026.2.28"
+requests = "^2.33.0"
 pymysql = "1.1.1"
-python-docx = "1.1.2"
-cryptography = "43.0.1"
-pybase64 = "1.3.2"
-python-magic = "0.4.27"
-boto3 = "1.35.68"
-msgpack = "1.0.8"
-tqdm = "4.66.5"
-python-dotenv = "1.0.1"
+cryptography = "^48.0.1"
+pybase64 = "1.4.3"
+boto3 = "^1.39.12"
+msgpack = "^1.2.1"
+python-dotenv = "1.2.2"
 colour-runner = "0.1.1"
-ecdsa = "0.19.0"
+ecdsa = "^0.19.2"
 toml = "^0.10.2"
 eth-account = "^0.13.3"
+psutil = ">=6.1.1"
+filelock = ">=3.29.4"
+aiohttp = "^3.14.1"
+ratelimit = "^2.2.1"
+redis = "^8.0.1"
 
 [tool.poetry.group.arweave.dependencies]
 arweave-python-client = "1.0.19"
+pynacl = "1.6.2"
 
 [tool.poetry.group.dev.dependencies]
 taskipy = "^1.13.0"
-bandit = "^1.7.9"
-flake8 = "^7.1.0"
-pillow = "^10.4.0"
-isort = "^5.10.1"
-mypy = "^1.10.1"
-black = "^24.4.2"
-types-requests = "^2.31.0"
-types-PyMySQL = "^1.0.0"
-types-tqdm = "^4.66.0.20240417"
-boto3-stubs = "^1.35.68"
-msgpack-types = "^0.3.0"
+bandit = "^1.8.6"
+flake8 = "^7.3.0"
+autopep8 = "^2.3.1"
+pillow = "^12.1.1"
+isort = "^7.0.0"
+mypy = "^2.1.0"
+black = "^26.3.1"
+termcolor = "^3.1.0"
+types-requests = "^2.32.4.20260107"
+types-PyMySQL = "^1.1.0"
+boto3-stubs = "^1.39.12"
+msgpack-types = "^0.8.0"
 types-appdirs = "^1.4.3.5"
-types-cachetools = "^5.5.0.20240820"
 flake8-pyproject = "^1.2.3"
-safety = "^3.2.4"
-pytest = "^8.3.2"
-pytest-cov = "^5.0.0"
-pre-commit = "^3.7.1"
-types-toml = "^0.10.8" 
+pytest = "^9.0.3"
+pytest-cov = "^6.1.1"
+pre-commit = "^4.1.0"
+types-toml = "^0.10.8"
+maturin = "^1.4.0"
+patchelf = "^0.17.2.2"
+pytest-asyncio = "^1.3.0"
+pytest-xdist = "^3.8.0"
 
 [tool.poetry.scripts]
 indexer = "start:main"
-run_safety = "tools.run_safety:run_safety_check"
 run_checks = "tools.run_checks:main"
 install-hooks = "tools.install_hooks:main"
 postinstall = "tools.install_hooks:main"
 compare_tables = "tools.compare_tables:main"
+ct = "tools.compare_tables:main"
+test-setup = "start:test_setup"
+check = "tools.run_checks:main"
+check-code = "tools.run_checks:run_code_quality_checks_standalone"
+check-rust = "tools.run_checks:run_rust_checks_standalone"
+check-integration = "tools.run_checks:run_integration_tests_standalone"
+lint = "tools.run_checks:run_linters_standalone"
+check-lint = "tools.run_checks:run_linters_standalone"
+coverage = "tools.run_coverage:main"
+coverage-quick = "tools.run_coverage_quick:main"
+coverage-local = "tools.run_local_coverage:main"
+reparse = "index_core.reparse.validator:main"
+save-snapshot = "index_core.reparse.snapshot:create_snapshot"
+rollback = "tools.rollback_db:main"
+dump-seeds = "tools.dump_seeds:main"
+dump-block-fixtures = "tools.dump_block_fixtures:main"
+dump-state-fixtures = "tools.dump_state_fixtures:main"
+update-checkpoints = "tools.checkpoint_updater:main"
 
 [[tool.poetry.packages]]
 from = "src"
 include = "index_core/**/*"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 127
@@ -91,27 +115,115 @@ line-length = 127
 [tool.isort]
 profile = "black"
 line_length = 127
+skip_glob = ["tools/debug/*"]
+src_paths = ["src", "tests"]
+known_first_party = ["btc_stamps_parser", "index_core"]
 
 [tool.flake8]
 max-line-length = 127
-exclude = [".tox", "build"]
-extend-ignore = ["E203", "W503", "E402", "E501"]
+exclude = [".tox", "build", ".venv", "venv", ".env"]
+extend-ignore = ["E203", "W503", "E402", "E501", "C901", "E704"]
+jobs = 1
 
 [tool.taskipy.tasks]
-bandit = "bandit -r . -s B608 -lll"
+bandit = "bandit -r src/ tests/ tools/ -s B608 -lll"
 import_background = "poetry run python3 tools/import_background.py"
+build = "maturin develop --manifest-path src/rust_parser/Cargo.toml --release"
+build-dev = "maturin develop --manifest-path src/rust_parser/Cargo.toml"
+check = "python -m tools.run_checks"
+check-code = "python -m tools.run_checks code"
+check-rust = "python -m tools.run_checks rust"
+check-integration = "python -m tools.run_checks integration"
+reparse = "python -m index_core.reparse.validator"
+save-snapshot = "python -m index_core.reparse.snapshot create"
+validate-snapshot = "python -m index_core.reparse.validator --validate-only"
+test = "pytest tests/ -v"
+test-unit = "pytest tests/ -v -m 'not integration'"
+test-integration = "pytest tests/ -v -m integration"
+test-all = "pytest tests/ -v"
+test-src20 = "pytest tests/test_src20.py -v -s"
+test-thread-safety = "pytest tests/test_src20_thread_safety.py -v"
+test-thread-safety-debug = "python tests/thread_safety/test_thread_safety.py"
+test-reorg = "pytest tests/test_reorg_handling.py -v -s"
 
 [tool.mypy]
 mypy_path = "src"
 ignore_missing_imports = true
 explicit_package_bases = false
 namespace_packages = true
-exclude = 'tools/'
-
-[tool.safety]
-ignore = [
-    "64396",  # Ecdsa does not protect against side-channel attacks
-    "64459",  # The python-ecdsa library is vulnerable to the Minerva attack
-    "67599",   # An issue in pip regarding the --extra-index-url option
-    "70612"   # Jinja2, the from_string function is prone to Server Side Template Injection
+exclude = ['tools_priv/*', 'build/*', 'tools/*']
+# Don't fail on untyped functions
+check_untyped_defs = false
+disallow_untyped_defs = false
+# Disable specific error codes
+disable_error_code = [
+    "annotation-unchecked",  # Don't show messages about untyped functions
+    "arg-type"  # Don't fail on argument type mismatches
 ]
+
+# Per-module configuration
+[[tool.mypy.overrides]]
+module = "tools.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tools_priv.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "index_core.reparse.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+addopts = "-v -p no:warnings --strict-markers --tb=short -ra --cov-config=.coveragerc"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::sqlalchemy.exc.MovedIn20Warning",
+    "ignore::UserWarning"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "requires_db: marks tests that require database access",
+    "requires_network: marks tests that require network access",
+    "requires_bitcoin_node: marks tests that require a local Bitcoin node (RPC)",
+    "asyncio: marks tests as asynchronous tests that use asyncio"
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "tools/debug/*",
+    "src/rust_parser/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self\\.debug:",
+    "if settings\\.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+ignore_errors = true
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov" 

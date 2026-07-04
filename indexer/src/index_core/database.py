@@ -1,18 +1,35 @@
+import csv
 import decimal
 import json
 import logging
+import os
+import sys
 import time
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Tuple, TypeVar, cast
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import pymysql as mysql
+import requests
+
+try:
+    from pymysql.connections import Connection
+except ImportError:
+    Connection = Any  # type: ignore
+try:
+    from pymysql.cursors import Cursor
+except ImportError:
+    Cursor = Any  # type: ignore
 
 import config
 import index_core.exceptions as exceptions
 import index_core.log as log
+import index_core.util as util
 from config import (
     BLOCK_FIELDS_POSITION,
     BLOCKS_TABLE,
+    DEBUG_SKIP_REBUILD_BALANCES,
     SRC20_TABLE,
     SRC20_VALID_TABLE,
     SRC101_OWNERS_TABLE,
@@ -22,9 +39,16 @@ from config import (
     SRC101_VALID_TABLE,
     SRC_BACKGROUND_TABLE,
     STAMP_TABLE,
+    STAMP_VIEWS_TABLE,
     TRANSACTIONS_TABLE,
 )
+from index_core.caching import SRC101DeployResult, cache_manager, clear_all_caches
+from index_core.database_manager import DatabaseManager
 from index_core.exceptions import BlockAlreadyExistsError, BlockUpdateError, DatabaseInsertError
+from index_core.memory_manager import memory_manager
+from index_core.stamp_types import NO_DEPLOY, DeployResult
+
+from .reprocessing_queue import ReprocessingQueue
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
@@ -32,25 +56,24 @@ log.set_logger(logger)
 D = decimal.Decimal
 F = TypeVar("F", bound=Callable[..., Any])
 
+db_manager = DatabaseManager()
 
-class CacheMixin:
-    block_cache: Dict[int, Any] = {}
-    deploy_cache: Dict[str, Any] = {}
-    cached_stamp: Dict[str, int] = {}
-    cache: Dict[str, bool] = {}
+# Cache directory for bootstrap data ETags
+CACHE_DIR = (
+    Path(config.USER_CACHE_DIR) / ".indexer_cache" if hasattr(config, "USER_CACHE_DIR") else Path.home() / ".btc_stamps_cache"
+)
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def initialize(db):
-    """initialize data, create and populate the database."""
+def initialize(db: Connection) -> None:
+    """Initialize data, create and populate the database."""
     cursor = db.cursor()
-
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT MIN(block_index)
         FROM blocks
-    """
-    )
-    block_index = cursor.fetchone()[0]
+    """)
+    row = cursor.fetchone()
+    block_index = row[0] if row else None
 
     if block_index is not None and block_index != config.BLOCK_FIRST:
         raise exceptions.DatabaseError("First block in database is not block " "{}.".format(config.BLOCK_FIRST))
@@ -61,40 +84,22 @@ def initialize(db):
     cursor.close()
 
 
-TOTAL_MINTED_CACHE: dict[str, int] = {}
+def check_db_connection(db):
+    """Check database connection and reconnect if necessary."""
+    try:
+        return db_manager.ensure_connection(db)
+    except Exception as e:
+        logger.error(f"Database connection check failed: {e}")
+        raise
 
 
-def reset_all_caches():
-    """
-    Clears all function-associated caches within the module.
-    This includes deploy_cache, block_cache, and cached_stamp.
-    """
-    cache_attributes = [
-        (get_src20_deploy, "deploy_cache"),
-        (is_prev_block_parsed, "block_cache"),
-        (get_next_stamp_number, "cached_stamp"),
-        (check_reissue, "cache"),
-    ]
-
-    for func, attr in cache_attributes:
-        if hasattr(func, attr):
-            setattr(func, attr, {})
-
-    global TOTAL_MINTED_CACHE
-    TOTAL_MINTED_CACHE = {}
+def reset_all_caches() -> None:
+    """Clear all caches in the system."""
+    cache_manager.clear_all()
 
 
-def update_parsed_block(db, block_index):
-    """
-    Update the 'indexed' flag of a block in the database.
-
-    Args:
-        db (database connection): The database connection object.
-        block_index (int): The index of the block to update.
-
-    Returns:
-        None
-    """
+def update_parsed_block(db: Connection, block_index: int) -> None:
+    """Update the 'indexed' flag of a block in the database."""
     cursor = db.cursor()
     cursor.execute(
         """
@@ -107,55 +112,67 @@ def update_parsed_block(db, block_index):
     cursor.close()
 
 
-def is_prev_block_parsed(db, block_index):
-    """
-    Check if the previous block has been parsed and indexed.
+def is_prev_block_parsed(db: Connection, block_index: int) -> bool:
+    """Check if the previous block has been parsed and indexed."""
+    prev_block_index = block_index - 1
+    cached_result = cache_manager.get_cache_value("block", str(prev_block_index))
+    if cached_result is not None:
+        return cached_result
 
-    Args:
-        db (DatabaseConnection): The database connection object.
-        block_index (int): The index of the current block.
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        SELECT * FROM blocks
+        WHERE block_index = %s
+        """,
+        (prev_block_index,),
+    )
+    block = cursor.fetchone()
+    cursor.close()
 
-    Returns:
-        bool: True if the previous block has been parsed, False otherwise.
-    """
-    func = cast(CacheMixin, is_prev_block_parsed)
-    if not hasattr(func, "block_cache"):
-        func.block_cache = {}
+    result = block is not None and block[BLOCK_FIELDS_POSITION["indexed"]] == 1
+    cache_manager.set_cache_value("block", str(prev_block_index), result)
 
-    if block_index - 1 in func.block_cache:
-        block = func.block_cache[block_index - 1]
-    else:
-        cursor = db.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM blocks
-            WHERE block_index = %s
-            """,
-            (block_index - 1,),
-        )
-        block = cursor.fetchone()
-        cursor.close()
-        func.block_cache[block_index - 1] = block
-
-    if block is not None and block[BLOCK_FIELDS_POSITION["indexed"]] == 1:
-        return True
-    else:
-        purge_block_db(db, block_index - 1)
+    if not result:
+        purge_block_db(db, prev_block_index)
         rebuild_balances(db)
-        return False
+        rebuild_owners(db)
+
+    return result
 
 
-def insert_into_src20_tables(db, processed_src20_in_block):
+def insert_into_src20_tables(db: Connection, processed_src20_in_block: List[Dict[str, Any]]) -> None:
+    """Insert processed SRC-20 transactions into their respective tables using batch operations."""
+    if not processed_src20_in_block:
+        return
+
     with db.cursor() as src20_cursor:
+        # Prepare batch data for both tables
+        src20_batch = []
+        src20_valid_batch = []
+
         for i, src20_dict in enumerate(processed_src20_in_block):
             id = f"{i}_{src20_dict.get('tx_index')}_"
             id += f"{src20_dict.get('tx_hash')}"
-            insert_into_src20_table(src20_cursor, SRC20_TABLE, id, src20_dict)
+
+            # Prepare data for SRC20 table
+            src20_batch.append((id, src20_dict))
+
+            # Prepare data for SRC20Valid table if valid
             if src20_dict.get("valid") == 1:
-                insert_into_src20_table(src20_cursor, SRC20_VALID_TABLE, id, src20_dict)
+                src20_valid_batch.append((id, src20_dict))
+
+        # Batch insert into SRC20 table
+        if src20_batch:
+            insert_into_src20_table_batch(src20_cursor, SRC20_TABLE, src20_batch)
+
+        # Batch insert into SRC20Valid table
+        if src20_valid_batch:
+            insert_into_src20_table_batch(src20_cursor, SRC20_VALID_TABLE, src20_valid_batch)
 
 
-def insert_into_src101_tables(db, processed_src101_in_block):
+def insert_into_src101_tables(db: Connection, processed_src101_in_block: List[Dict[str, Any]]) -> None:
+    """Insert processed SRC-101 transactions into their respective tables."""
     with db.cursor() as src101_cursor:
         for i, src101_dict in enumerate(processed_src101_in_block):
             id = f"{i}_{src101_dict.get('tx_index')}_"
@@ -169,7 +186,8 @@ def insert_into_src101_tables(db, processed_src101_in_block):
                 insert_into_src101price(src101_cursor, SRC101_PRICE_TABLE, src101_dict)
 
 
-def insert_into_src20_table(cursor, table_name, id, src20_dict):
+def insert_into_src20_table(cursor: Cursor, table_name: str, id: str, src20_dict: Dict[str, Any]) -> None:
+    """Insert a single SRC-20 transaction into the specified table."""
     block_time = src20_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
@@ -227,11 +245,82 @@ def insert_into_src20_table(cursor, table_name, id, src20_dict):
     """  # nosec
 
     cursor.execute(query, tuple(column_values))
-
     return
 
 
-def insert_into_recipients(cursor, table_name, id, src101_dict):
+def insert_into_src20_table_batch(cursor: Cursor, table_name: str, batch_data: List[Tuple[str, Dict[str, Any]]]) -> None:
+    """Insert multiple SRC-20 transactions into the specified table using batch operations."""
+    if not batch_data:
+        return
+
+    # Prepare batch values
+    values = []
+    for id, src20_dict in batch_data:
+        block_time = src20_dict.get("block_time")
+        if isinstance(block_time, int):
+            block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+
+        row_values = [
+            id,
+            src20_dict.get("tx_hash"),
+            src20_dict.get("tx_index"),
+            src20_dict.get("amt"),
+            src20_dict.get("block_index"),
+            src20_dict.get("creator"),
+            src20_dict.get("dec"),
+            src20_dict.get("lim"),
+            src20_dict.get("max"),
+            src20_dict.get("op"),
+            src20_dict.get("p"),
+            src20_dict.get("tick"),
+            src20_dict.get("destination"),
+            block_time,
+            src20_dict.get("tick_hash"),
+            src20_dict.get("status"),
+        ]
+
+        # Add balance columns for SRC20Valid table
+        if table_name == SRC20_VALID_TABLE:
+            row_values.extend([src20_dict.get("total_balance_creator"), src20_dict.get("total_balance_destination")])
+
+        values.append(tuple(row_values))
+
+    # Build column list based on table type
+    column_names = [
+        "id",
+        "tx_hash",
+        "tx_index",
+        "amt",
+        "block_index",
+        "creator",
+        "deci",
+        "lim",
+        "max",
+        "op",
+        "p",
+        "tick",
+        "destination",
+        "block_time",
+        "tick_hash",
+        "status",
+    ]
+
+    if table_name == SRC20_VALID_TABLE:
+        column_names.extend(["creator_bal", "destination_bal"])
+
+    placeholders = ", ".join(["%s"] * len(column_names))
+
+    query = f"""
+        INSERT INTO {table_name} ({", ".join(column_names)})
+        VALUES ({placeholders})
+    """  # nosec
+
+    cursor.executemany(query, values)
+    return
+
+
+def insert_into_recipients(cursor: Cursor, table_name: str, id: str, src101_dict: Dict[str, Any]) -> None:
+    """Insert recipients into the database."""
     block_time = src101_dict.get("block_time")
     if isinstance(block_time, int):
         block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
@@ -243,12 +332,14 @@ def insert_into_recipients(cursor, table_name, id, src101_dict):
             "p",
             "deploy_hash",
             "address",
+            "block_index",
         ]
         column_values = [
             _id,
             src101_dict.get("p"),
             src101_dict.get("tx_hash"),
             rec,
+            src101_dict.get("block_index"),
         ]
         placeholders = ", ".join(["%s"] * len(column_names))
 
@@ -257,13 +348,10 @@ def insert_into_recipients(cursor, table_name, id, src101_dict):
             VALUES ({placeholders})
         """  # nosec
         cursor.execute(query, tuple(column_values))
-    return
 
 
-def insert_into_src101price(cursor, table_name, src101_dict):
-    block_time = src101_dict.get("block_time")
-    if isinstance(block_time, int):
-        block_time = datetime.fromtimestamp(block_time, tz=timezone.utc)
+def insert_into_src101price(cursor: Cursor, table_name: str, src101_dict: Dict[str, Any]) -> None:
+    """Insert SRC-101 price data into the database."""
     if isinstance(src101_dict["pri"], dict):
         for key, value in src101_dict["pri"].items():
             deploy_hash = src101_dict["tx_hash"]
@@ -273,12 +361,14 @@ def insert_into_src101price(cursor, table_name, src101_dict):
                 "len",
                 "price",
                 "deploy_hash",
+                "block_index",
             ]
             column_values = [
                 _id,
                 int(key),
                 value,
                 deploy_hash,
+                src101_dict.get("block_index"),
             ]
             placeholders = ", ".join(["%s"] * len(column_names))
 
@@ -287,7 +377,6 @@ def insert_into_src101price(cursor, table_name, src101_dict):
                 VALUES ({placeholders})
             """  # nosec
             cursor.execute(query, tuple(column_values))
-        return
 
 
 def insert_into_src101_table(cursor, table_name, id, src101_dict):
@@ -387,24 +476,21 @@ def insert_into_src101_table(cursor, table_name, id, src101_dict):
     """  # nosec
     cursor.execute(query, tuple(column_values))
 
-    return
-
 
 def insert_transactions(db, transactions):
     """
-    Insert multiple transactions into the database.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        transactions (list): A list of namedtuples representing transactions.
-
-    Returns:
-        int: The index of the last inserted transaction.
+    Insert multiple transactions into the database using efficient bulk inserts.
+    Uses optimized batch processing for better performance.
     """
-    # assert transactions.block_index is not None
     try:
+        # Sort transactions by tx_index to maintain order
+        sorted_transactions = sorted(transactions, key=lambda x: x.tx_index if x.tx_index is not None else float("inf"))
+
+        BATCH_SIZE = config.DB_TRANSACTION_BATCH_SIZE
+
         values = []
-        for tx in transactions:
+
+        for tx in sorted_transactions:
             values.append(
                 (
                     tx.tx_index,
@@ -416,32 +502,56 @@ def insert_transactions(db, transactions):
                     str(tx.destination),
                     tx.btc_amount,
                     tx.fee,
+                    tx.fee_rate_sat_vb,  # Added fee_rate_sat_vb field
                     tx.data,
                     tx.keyburn,
                 )
             )
+
         with db.cursor() as cursor:
-            cursor.executemany(
-                """INSERT INTO transactions (
-                    tx_index,
-                    tx_hash,
-                    block_index,
-                    block_hash,
-                    block_time,
-                    source,
-                    destination,
-                    btc_amount,
-                    fee,
-                    data,
-                    keyburn
-                ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s)""",
-                (values),
-            )
+            for i in range(0, len(values), BATCH_SIZE):
+                batch = values[i : i + BATCH_SIZE]
+                cursor.executemany(
+                    """INSERT INTO transactions (
+                        tx_index,
+                        tx_hash,
+                        block_index,
+                        block_hash,
+                        block_time,
+                        source,
+                        destination,
+                        btc_amount,
+                        fee,
+                        fee_rate_sat_vb,
+                        data,
+                        keyburn
+                    ) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s, %s, %s, %s, %s, %s)""",
+                    batch,
+                )
+
+                batch.clear()
+
+            values.clear()
+
     except Exception as e:
         raise ValueError(f"Error occurred while inserting transactions: {e}")
 
 
 def insert_into_stamp_table(db, parsed_stamps: List):
+    """
+    Insert multiple stamps into the database.
+    Does not commit - transaction boundaries are handled by the caller.
+
+    CRITICAL: After successful insertion, updates stamp counters in cache
+    to prevent cache corruption on transaction rollbacks.
+
+    Args:
+        db (DatabaseConnection): The database connection object
+        parsed_stamps (List): List of parsed stamp objects to insert
+
+    Raises:
+        ValueError: If error occurs during insertion
+    """
     try:
         with db.cursor() as cursor:
             insert_query = f"""
@@ -452,8 +562,9 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     stamp_mimetype, stamp_url, supply, block_time,
                     tx_hash, tx_index, ident, src_data,
                     stamp_hash, is_btc_stamp,
-                    file_hash, is_valid_base64
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    file_hash, is_valid_base64, file_size_bytes,
+                    encoding_method
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """  # nosec
 
             data = [
@@ -480,16 +591,24 @@ def insert_into_stamp_table(db, parsed_stamps: List):
                     parsed.is_btc_stamp,
                     parsed.file_hash,
                     parsed.is_valid_base64,
+                    parsed.file_size_bytes,
+                    parsed.encoding_method,
                 )
                 for parsed in parsed_stamps
             ]
 
             cursor.executemany(insert_query, data)
+
+            # NOTE: In the original design, the cache is updated by get_next_stamp_number
+            # We do NOT update it here to avoid double-incrementing
+            # The cache stores the NEXT number to use, and is updated when that number is consumed
+
     except Exception as e:
+        # Don't rollback here - let the caller handle it
         raise ValueError(f"Error occurred while inserting to StampTable: {e}")
 
 
-def get_srcbackground_data(db, tick):
+def get_srcbackground_data(db: Connection, tick: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Retrieves the background image data for a given tick and p value.
 
@@ -523,16 +642,21 @@ def get_srcbackground_data(db, tick):
             return None, None, None
 
 
-def get_existing_balances(cursor) -> List[Tuple[Any, ...]]:
+def get_existing_balances(cursor: Cursor) -> List[Tuple[Any, ...]]:
+    """Get existing balances, ensuring we only get SRC-20 records."""
     query = """
     SELECT id, tick, tick_hash, address, amt, last_update
-    FROM balances where p = 'SRC-20'
+    FROM balances
+    WHERE p = 'SRC-20'  -- Explicitly filter for SRC-20 only
+    AND amt != 0        -- Exclude zero balances
+    ORDER BY id         -- Ensure consistent ordering
     """
     cursor.execute(query)
     return [tuple(row) for row in cursor.fetchall()]
 
 
-def get_src20_valid_list(cursor, block_index=None):
+def get_src20_valid_list(cursor: Cursor, block_index: Optional[int] = None) -> List[Tuple[Any, ...]]:
+    """Get valid SRC-20 transactions up to the specified block index."""
     query = f"""
     SELECT op, creator, destination, tick, tick_hash, amt, block_time, block_index
     FROM {SRC20_VALID_TABLE}
@@ -547,53 +671,259 @@ def get_src20_valid_list(cursor, block_index=None):
     else:
         cursor.execute(query)
 
-    return cursor.fetchall()
+    return list(cursor.fetchall())
 
 
-def calculate_balances(src20_valid_list):
-    all_balances: dict[str, dict[str, Any]] = {}
-    for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in src20_valid_list:
-        destination_id = tick + "_" + destination
-        destination_amt = D(0) if destination_id not in all_balances else all_balances[destination_id]["amt"]
-        destination_amt += amt
+def get_existing_owners(cursor: Cursor) -> List[Tuple[Any, ...]]:
+    """Get existing owners from the database."""
+    query = """
+    SELECT owners.index, id, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, prim, address_btc, address_eth, txt_data, expire_timestamp, last_update
+    FROM owners where p = 'SRC-101'
+    """
+    cursor.execute(query)
+    return list(cursor.fetchall())
 
-        all_balances[destination_id] = {
-            "tick": tick,
-            "tick_hash": tick_hash,
-            "address": destination,
-            "amt": destination_amt,
-            "last_update": block_index,
-            "block_time": block_time,
-        }
 
-        if op == "TRANSFER":
-            creator_id = tick + "_" + creator
-            creator_amt = D(0) if creator_id not in all_balances else all_balances[creator_id]["amt"]
-            creator_amt -= amt
-            all_balances[creator_id] = {
+def get_src101_valid_list(cursor: Cursor, block_index: Optional[int] = None) -> List[Tuple[Any, ...]]:
+    """Get valid SRC-101 transactions up to the specified block index."""
+    query = f"""
+    SELECT op, tokenid, tokenid_utf8, img, deploy_hash, creator, dua, toaddress, prim,
+           address_btc, address_eth, txt_data, block_time, block_index, tx_index
+    FROM {SRC101_VALID_TABLE}
+    WHERE (op = 'TRANSFER' OR op = 'MINT' OR op = 'SETRECORD' OR op = 'RENEW')
+    """
+    if block_index is not None:
+        query += " AND block_index <= %s"
+    query += " ORDER by block_index ASC, tx_index ASC"
+
+    if block_index is not None:
+        cursor.execute(query, (block_index,))
+    else:
+        cursor.execute(query)
+
+    results = cursor.fetchall()
+    logger.info(f"Found {len(results)} SRC-101 transactions")
+    logger.info(f"Operations breakdown: {Counter(r[0] for r in results)}")
+
+    return list(results)
+
+
+def calculate_owners(db, src101_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, Any]]:
+    """Calculate owners from SRC-101 valid list.
+
+    Args:
+        src101_valid_list: List of tuples containing SRC-101 transaction data
+
+    Returns:
+        Dictionary mapping IDs to owner details
+    """
+    all_owners: Dict[str, Dict[str, Any]] = {}
+    all_index: Dict[str, int] = {}
+    for [
+        op,
+        tokenid,
+        tokenid_utf8,
+        img,
+        deploy_hash,
+        creator,
+        dua,
+        toaddress,
+        prim,
+        address_btc,
+        address_eth,
+        txt_data,
+        block_time,
+        block_index,
+        tx_index,
+    ] in src101_valid_list:
+        id = "SRC-101" + "_" + deploy_hash + (tokenid or "")
+
+        if op == "MINT":
+            tokenid_split = (tokenid or "").split(";")
+            tokenid_utf8_split = (tokenid_utf8 or "").split(";")
+            if img is not None:
+                img_split = img.split(";")
+            else:
+                img_split = []
+                _, _, _, _, _, _, imglp, imgf, _ = get_src101_deploy(db, deploy_hash, {})
+                for i in range(len(tokenid_utf8_split)):
+                    img_split.append(str(imglp or "") + tokenid_utf8_split[i] + "." + str(imgf or ""))
+
+            max_length = max(len(tokenid_split), len(tokenid_utf8_split), len(img_split))
+            tokenid_split = tokenid_split + [""] * (max_length - len(tokenid_split))
+            tokenid_utf8_split = tokenid_utf8_split + [""] * (max_length - len(tokenid_utf8_split))
+            img_split = img_split + [""] * (max_length - len(img_split))
+
+            for i in range(max_length):
+                _index = all_index.get(deploy_hash, 0)
+                id = "SRC-101" + "_" + deploy_hash + tokenid_split[i]
+                all_owners[id] = {
+                    "index": _index + 1,
+                    "id": id,
+                    "p": "SRC-101",
+                    "deploy_hash": deploy_hash,
+                    "tokenid": tokenid_split[i],
+                    "tokenid_uft8": tokenid_utf8_split[i],
+                    "img": img_split[i],
+                    "preowner": None,
+                    "owner": toaddress,
+                    "prim": prim,
+                    "address_btc": toaddress,
+                    "address_eth": None,
+                    "txt_data": None,
+                    "expire_timestamp": 31536000 * dua + int(block_time.timestamp()),
+                    "last_update": block_index,
+                }
+                all_index[deploy_hash] = _index + 1
+        elif op == "TRANSFER":
+            id = "SRC-101" + "_" + deploy_hash + tokenid
+            if id in all_owners:
+                all_owners[id]["preowner"] = all_owners[id]["owner"]
+                all_owners[id]["owner"] = toaddress
+                all_owners[id]["address_btc"] = None
+                all_owners[id]["address_eth"] = None
+                all_owners[id]["txt_data"] = None
+                all_owners[id]["last_update"] = block_index
+            else:
+                logger.warning("Unexpected situations, there is no mint but can be transferred transactions")
+        elif op == "SETRECORD":
+            id = "SRC-101" + "_" + deploy_hash + tokenid
+            if id in all_owners:
+                all_owners[id]["prim"] = prim
+                all_owners[id]["address_btc"] = address_btc if address_btc is not None else all_owners[id]["address_btc"]
+                all_owners[id]["address_eth"] = address_eth if address_eth is not None else all_owners[id]["address_eth"]
+                all_owners[id]["txt_data"] = txt_data if txt_data is not None else all_owners[id]["txt_data"]
+                all_owners[id]["last_update"] = block_index
+            else:
+                logger.warning("Unexpected situations, there is no mint but can be transferred transactions")
+        elif op == "RENEW":
+            id = "SRC-101" + "_" + deploy_hash + tokenid
+            if id in all_owners:
+                all_owners[id]["expire_timestamp"] = all_owners[id]["expire_timestamp"] + 31536000 * dua
+                all_owners[id]["last_update"] = block_index
+            else:
+                logger.warning("Unexpected situations, there is no mint but can be transferred transactions")
+    return all_owners
+
+
+def calculate_balances(src20_valid_list: List[Tuple[Any, ...]]) -> Dict[str, Dict[str, D]]:
+    """Calculate balances from SRC-20 valid list with optimized performance."""
+    # Use defaultdict for more efficient balance tracking
+    balances: Dict[str, Dict[str, D]] = defaultdict(lambda: defaultdict(D))
+    metadata: Dict[str, Dict[str, Any]] = {}
+
+    # Process in chunks for better memory management
+    CHUNK_SIZE = 5000
+    for i in range(0, len(src20_valid_list), CHUNK_SIZE):
+        chunk = src20_valid_list[i : i + CHUNK_SIZE]
+
+        for [op, creator, destination, tick, tick_hash, amt, block_time, block_index] in chunk:
+            # Track balances efficiently - exact same logic as original
+            balances[tick][destination] += D(amt)
+            if op == "TRANSFER":
+                balances[tick][creator] -= D(amt)
+
+            # Always update metadata to match original behavior
+            destination_id = f"{tick}_{destination}"
+            metadata[destination_id] = {
                 "tick": tick,
                 "tick_hash": tick_hash,
-                "address": creator,
-                "amt": creator_amt,
+                "address": destination,
                 "last_update": block_index,
                 "block_time": block_time,
             }
 
+            if op == "TRANSFER":
+                creator_id = f"{tick}_{creator}"
+                metadata[creator_id] = {
+                    "tick": tick,
+                    "tick_hash": tick_hash,
+                    "address": creator,
+                    "last_update": block_index,
+                    "block_time": block_time,
+                }
+
+        # Clear chunk from memory
+        del chunk
+
+        # Check memory pressure and clear caches if needed
+        if i > 0 and i % (CHUNK_SIZE * 5) == 0:
+            memory_manager.clear_caches_if_needed()
+
+    # Combine balances with metadata - exact same logic as original
+    all_balances: Dict[str, Dict[str, Any]] = {}
+    for tick, tick_balances in balances.items():
+        for address, amt in tick_balances.items():
+            if amt != D(0):  # Only include non-zero balances
+                balance_id = f"{tick}_{address}"
+                all_balances[balance_id] = metadata[balance_id] | {"amt": amt}
+
+    # Clear intermediate data structures
+    balances.clear()
+    metadata.clear()
+
+    # Final memory check
+    memory_manager.clear_caches_if_needed()
+
     return all_balances
 
 
-def balances_need_update(existing_balances, all_balances):
-    return set(existing_balances) != set((key,) + tuple(value.values())[:-1] for key, value in all_balances.items())
+def owners_need_update(existing_owners, all_owners):
+    """Compare existing owners with calculated owners"""
+    try:
+        existing_set = set()
+        new_set = set()
 
+        # Process existing owners
+        logger.info(f"Processing {len(existing_owners)} existing owners")
+        for owner in existing_owners:
+            if len(owner) < 15:
+                continue
 
-def purge_balances(cursor):
-    logger.warning("Purging balances table")
-    query = "DELETE FROM balances"
-    cursor.execute(query)
+            deploy_hash = owner[3]
+            tokenid = owner[4]
+            owner_address = owner[8]
+            block_index = owner[14] or 0
+
+            owner_tuple = (deploy_hash, tokenid, owner_address, block_index)
+            existing_set.add(owner_tuple)
+
+        # Process calculated owners
+        logger.info(f"Processing {len(all_owners)} calculated owners")
+        for key, value in all_owners.items():
+            owner_tuple = (value["deploy_hash"], value["tokenid"], value["owner"], value.get("last_update", 0))
+            new_set.add(owner_tuple)
+
+        # Log comparison details
+        logger.info(f"Comparing {len(existing_set)} existing owners with {len(new_set)} calculated owners")
+
+        # Compare sets
+        if existing_set != new_set:
+            missing_in_new = existing_set - new_set
+            missing_in_existing = new_set - existing_set
+
+            if missing_in_new:
+                logger.info(f"Found {len(missing_in_new)} owners in database that are not in calculated set")
+                for diff in list(missing_in_new)[:5]:
+                    logger.info(f"Missing in calculated: {diff}")
+
+            if missing_in_existing:
+                logger.info(f"Found {len(missing_in_existing)} calculated owners that are not in database")
+                for diff in list(missing_in_existing)[:5]:
+                    logger.info(f"Missing in database: {diff}")
+
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Error comparing owners: {str(e)}")
+        return True
 
 
 def insert_balances(cursor, all_balances):
-    logger.warning(f"Inserting {len(all_balances)} balances")
+    logger.info(f"Inserting {len(all_balances)} balances")
+
     values = [
         (
             key,
@@ -608,30 +938,75 @@ def insert_balances(cursor, all_balances):
         for key, value in all_balances.items()
     ]
 
+    BATCH_SIZE = config.DB_BALANCE_BATCH_SIZE
+    total_rows = len(values)
+
+    for i in range(0, total_rows, BATCH_SIZE):
+        batch = values[i : i + BATCH_SIZE]
+        logger.info(
+            f"Processing batch balances update {i // BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1) // BATCH_SIZE} ({len(batch)} rows)"
+        )
+
+        cursor.executemany(
+            """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
+               VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+            batch,
+        )
+
+
+def purge_owners(cursor):
+    """Purge the owners table"""
+    logger.warning("Purging owners table")
+    cursor.execute("TRUNCATE TABLE owners")
+
+
+def insert_owners(cursor, all_owners):
+    logger.info(f"Inserting {len(all_owners)} owners")
+    values = [
+        (
+            value.get("index"),
+            value.get("id"),
+            value.get("p"),
+            value.get("deploy_hash"),
+            value.get("tokenid"),
+            value.get("tokenid_uft8"),
+            value.get("img"),
+            value.get("preowner"),
+            value.get("owner"),
+            value.get("prim"),
+            value.get("address_btc"),
+            value.get("address_eth"),
+            value.get("txt_data"),
+            value.get("expire_timestamp"),
+            value.get("last_update"),
+        )
+        for key, value in all_owners.items()
+    ]
+
     cursor.executemany(
-        """INSERT INTO balances(id, tick, tick_hash, address, amt, last_update, block_time, p)
-                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+        """INSERT INTO owners(owners.index, id, p, deploy_hash, tokenid, tokenid_utf8, img, preowner, owner, prim, address_btc, address_eth, txt_data, expire_timestamp, last_update)
+                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         values,
     )
 
 
-def rebuild_balances(db, block_index=None):
+def rebuild_owners(db, block_index=None):
     cursor = db.cursor()
 
     try:
-        logger.info("Validating Balances Table..")
+        logger.info("Validating Owners Table..")
         db.begin()
 
-        existing_balances = get_existing_balances(cursor)
-        src20_valid_list = get_src20_valid_list(cursor, block_index)
-        all_balances = calculate_balances(src20_valid_list)
+        existing_owners = get_existing_owners(cursor)
+        src101_valid_list = get_src101_valid_list(cursor, block_index)
+        all_owners = calculate_owners(db, src101_valid_list)
 
-        if not balances_need_update(existing_balances, all_balances):
-            logger.info("No changes in balances. Skipping deletion and insertion.")
+        if not owners_need_update(existing_owners, all_owners):
+            logger.info("No changes in owners. Skipping deletion and insertion.")
             return
 
-        purge_balances(cursor)
-        insert_balances(cursor, all_balances)
+        purge_owners(cursor)
+        insert_owners(cursor, all_owners)
 
         db.commit()
 
@@ -643,18 +1018,171 @@ def rebuild_balances(db, block_index=None):
         cursor.close()
 
 
-def purge_block_db(db, block_index):
-    """Purge transactions from the database. This is for a reorg or
-        where transactions were partially committed.
+def rebuild_balances(db, block_index=None):
+    """Rebuild the balances table with optimized performance for large datasets."""
+    if DEBUG_SKIP_REBUILD_BALANCES:
+        logger.warning("DEBUG MODE: Skipping rebuild_balances due to DEBUG_SKIP_REBUILD_BALANCES flag")
+        return
+
+    # Use dedicated connection for long operation
+    long_db = db_manager.get_long_running_connection()
+    cursor = long_db.cursor()
+
+    try:
+        logger.info("Starting Balances Table rebuild..")
+
+        # Set extended timeouts
+        cursor.execute("SET SESSION wait_timeout=86400")  # 24 hours
+        cursor.execute("SET SESSION max_execution_time=8640000")  # 24 hours in milliseconds
+        cursor.execute("SET SESSION innodb_lock_wait_timeout=600")
+        cursor.execute("SET SESSION net_read_timeout=600")
+        cursor.execute("SET SESSION net_write_timeout=600")
+
+        BATCH_SIZE = config.DB_REBUILD_BATCH_SIZE
+        COMMIT_INTERVAL = 25
+
+        # Get all data first to maintain exact same logic
+        existing_balances = get_existing_balances(cursor)
+        src20_valid_list = get_src20_valid_list(cursor, block_index)
+        all_balances = calculate_balances(src20_valid_list)
+
+        if not balances_need_update(existing_balances, all_balances):
+            logger.info("No changes in balances. Skipping deletion and insertion.")
+            return
+
+        # Create temp table
+        temp_table = "temp_balances_" + str(int(time.time()))
+        logger.debug(f"Creating temporary table: {temp_table}")
+        cursor.execute(f"CREATE TABLE {temp_table} LIKE balances")
+
+        # Insert into temp table in batches
+        values = [
+            (
+                key,
+                value["tick"],
+                value["tick_hash"],
+                value["address"],
+                value["amt"],
+                value["last_update"],
+                value["block_time"],
+                "SRC-20",
+            )
+            for key, value in all_balances.items()
+            if value["amt"] != 0  # Skip zero balances
+        ]
+
+        # Use smaller batch size for inserts to prevent timeouts
+        total_rows = len(values)
+
+        for i in range(0, total_rows, BATCH_SIZE):
+            batch = values[i : i + BATCH_SIZE]
+            logger.info(
+                f"Processing balance rebuild batch {i // BATCH_SIZE + 1}/{(total_rows + BATCH_SIZE - 1) // BATCH_SIZE}"
+            )
+
+            cursor.executemany(
+                f"""
+                INSERT INTO {temp_table}(id, tick, tick_hash, address, amt, last_update, block_time, p)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+                batch,
+            )
+
+            # Commit periodically but not too frequently
+            if (i // BATCH_SIZE) % COMMIT_INTERVAL == 0:
+                long_db.commit()
+
+        # Final commit
+        long_db.commit()
+
+        # Atomic swap
+        logger.info("Performing atomic table swap")
+        cursor.execute(f"""
+            RENAME TABLE balances TO balances_old,
+                         {temp_table} TO balances
+            """)
+
+        # Cleanup
+        logger.debug("Cleaning up old table")
+        cursor.execute("DROP TABLE IF EXISTS balances_old")
+
+        logger.info("Balance rebuild completed successfully")
+
+    except Exception as e:
+        logger.error(f"Error during balance rebuild: {e}")
+        long_db.rollback()
+        try:
+            cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+        except Exception as drop_error:
+            logger.error(f"Error dropping temp table: {drop_error}")
+        raise e
+
+    finally:
+        try:
+            cursor.close()
+            long_db.close()  # Close dedicated connection
+        except Exception as e:
+            logger.error(f"Error closing long-running connection: {e}")
+
+
+def insert_batch_to_temp(cursor, temp_table, balances_batch):
+    """Helper function to insert a batch of balances into temp table."""
+    if not balances_batch:
+        return
+
+    values = [
+        (
+            key,
+            value["tick"],
+            value["tick_hash"],
+            value["address"],
+            value["amt"],
+            value["last_update"],
+            value["block_time"],
+            "SRC-20",
+        )
+        for key, value in balances_batch.items()
+        if value["amt"] != 0  # Only insert non-zero balances
+    ]
+
+    if not values:
+        return
+
+    CHUNK_SIZE = 1000
+    for i in range(0, len(values), CHUNK_SIZE):
+        chunk = values[i : i + CHUNK_SIZE]
+        cursor.executemany(
+            f"""
+            INSERT INTO {temp_table} (id, tick, tick_hash, address, amt, last_update, block_time, p)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            AS new_row ON DUPLICATE KEY UPDATE
+                amt = new_row.amt,
+                last_update = new_row.last_update,
+                block_time = new_row.block_time
+            """,
+            chunk,
+        )
+
+
+def purge_block_db(db: Connection, block_index: int) -> None:
+    """
+    Purge ALL data from the database from the specified block onwards.
+
+    This function is used by all rollback mechanisms (manual and automatic) to ensure
+    consistent behavior. It clears:
+    - All transaction and block data
+    - All stamps (StampTableV4, collection_stamps)
+    - All token data (SRC20, SRC101)
+    - All market data (stamp_sales_history)
+    - All caches
 
     Args:
-        db (Database): The database object.
-        block_index (int): The block index from which to start purging.
-
-    Returns:
-        None
+        db: Database connection
+        block_index: Block to purge from (inclusive)
     """
-    reset_all_caches()
+    # CRITICAL: Do NOT clear caches before database operations!
+    # Clearing caches first causes stamp counter to be recalculated from
+    # database BEFORE stamps are deleted, leading to gaps in stamp numbers.
+    # Caches must be cleared AFTER database purge.
     cursor = db.cursor()
 
     # First, delete from collection_stamps
@@ -671,9 +1199,14 @@ def purge_block_db(db, block_index):
     tables = [
         SRC20_VALID_TABLE,
         SRC20_TABLE,
+        SRC101_VALID_TABLE,
+        SRC101_TABLE,
+        SRC101_PRICE_TABLE,
+        SRC101_RECIPIENTS_TABLE,
         STAMP_TABLE,
         TRANSACTIONS_TABLE,
         BLOCKS_TABLE,
+        "stamp_sales_history",  # Purge sales history for proper rollback
     ]
 
     for table in tables:
@@ -682,58 +1215,150 @@ def purge_block_db(db, block_index):
             """
             DELETE FROM {}
             WHERE block_index >= %s
-            """.format(
-                table
-            ),
+            """.format(table),
             (block_index,),
         )  # nosec
 
     db.commit()
     cursor.close()
 
+    # CRITICAL: Clear all caches AFTER database purge is complete
+    # This ensures stamp counter is recalculated from the correct database state
+    clear_all_caches()
+    logger.info("Cleared all caches after database purge")
 
-def get_src20_deploy(db, tick, src20_processed_in_block):
+
+def perform_complete_rollback(block_index: int, force: bool = False) -> None:
     """
-    Retrieves the 'lim', 'max', and 'dec' values for a given 'tick' DEPLOY. The function first attempts to find these values
-    from an internal cache. If not found in the cache, it then searches within a provided dictionary of processed blocks.
-    As a last resort, it performs a database lookup. The result from any of these sources is cached for future queries.
+    Perform a complete rollback using the same functions as the indexer.
+    This ensures consistency between manual and automatic rollbacks.
 
     Args:
-        db: A database connection object used for querying the database if necessary.
-        tick (str): The tick value for which 'lim', 'max', and 'dec' values are being retrieved.
-        src20_processed_in_block (dict): A dictionary containing processed blocks, used for in-memory lookup before querying the database.
+        block_index: The block index to rollback to
+        force: If True, skip safety checks (use with extreme caution)
+    """
+    from index_core.backend import Backend
+    from index_core.reprocess_safety import (
+        ReprocessSafetyError,
+        log_safety_check,
+        validate_block_number,
+    )
+
+    # Safety validation before any database operations (unless forced)
+    if not force:
+        try:
+            validate_block_number(block_index, "database rollback target")
+            log_safety_check(f"Validated rollback target block {block_index}")
+        except ReprocessSafetyError as e:
+            logger.error(f"SAFETY VIOLATION in perform_complete_rollback: {e}")
+            raise RuntimeError(f"Rollback blocked by safety check: {e}")
+    else:
+        logger.warning(f"⚠️  FORCE ROLLBACK: Safety checks bypassed for rollback to block {block_index}")
+
+    logger.info(f"🔄 Starting complete rollback to block {block_index}")
+
+    # Get database connection using the same manager as the indexer
+    db_manager = DatabaseManager()
+    db = db_manager.connect()
+    backend_instance = Backend()
+
+    try:
+        # Invalidate the block count cache
+        backend_instance.invalidate_blockcount_cache()
+
+        # Perform the database rollback using the same function as the indexer
+        purge_block_db(db, block_index)
+
+        # Clear all caches
+        clear_all_caches()
+        logger.info("Cleared all caches after rollback")
+
+        # Rebuild critical database state
+        logger.info("Rebuilding database state...")
+        rebuild_balances(db)
+        rebuild_owners(db)
+        # Skip src20_token_stats update - this is now handled by async holder updater
+        # update_src20_token_stats(db)
+        logger.debug("Skipping src20_token_stats update - handled by async holder updater")
+
+        logger.info(f"✅ Complete rollback finished to block {block_index}")
+
+        # Refresh the in-process tip cache (issue #784). Without this, callers
+        # such as blocks.follow() and the runtime fallback-rollback path read a
+        # pre-rollback util.CURRENT_BLOCK_INDEX and drive is_prev_block_parsed()
+        # into a destructive iterative purge cascade. Mirrors the pattern used
+        # by initialize_database(). Safe in the CLI rollback case too — the
+        # process exits shortly after.
+        refreshed_tip = last_db_index(db)
+        util.CURRENT_BLOCK_INDEX = refreshed_tip
+        logger.info(f"🔁 Refreshed util.CURRENT_BLOCK_INDEX to {refreshed_tip} after rollback")
+
+        # Check if we should clear fallback state.
+        # Query the fallback session directly via ReprocessingQueue rather than
+        # load_failed_blocks(), which depends on util.CURRENT_BLOCK_INDEX and silently
+        # returns {} when called from the rollback CLI (CURRENT_BLOCK_INDEX is None there).
+        fallback_start_block = ReprocessingQueue.get_instance().get_oldest_failed_block()
+        if fallback_start_block:
+            if block_index <= fallback_start_block:
+                logger.info(f"Clearing fallback state (started at block {fallback_start_block})...")
+                from .fallback_state import clear_fallback_state
+
+                clear_fallback_state(fallback_start_block)
+            else:
+                logger.info(f"Note: Fallback mode is active (started at block {fallback_start_block})")
+                logger.info(f"To clear fallback state, rollback to block {fallback_start_block} or earlier")
+
+    finally:
+        db.close()
+
+
+def get_src20_deploy(db: Connection, tick: str, src20_processed_in_block: List[Dict[str, Any]]) -> DeployResult:
+    """Get SRC20 deployment details with caching.
 
     Returns:
-        tuple: A tuple containing the 'lim', 'max', and 'dec' values for the given tick. If the tick is not found in any source,
-               returns (None, None, None).
-
+        DeployResult: (lim, max, dec) values for the deployment.
+        Returns NO_DEPLOY if no valid deployment exists.
     """
-    func = cast(CacheMixin, get_src20_deploy)
-    if not hasattr(func, "deploy_cache"):
-        func.deploy_cache = {}
+    # Keep original cache key format
+    cached_result = cache_manager.get_cache_value("deploy", f"src20:{tick}")
+    if cached_result is not None and cached_result != NO_DEPLOY:
+        return cached_result
 
-    if tick in func.deploy_cache:
-        return func.deploy_cache[tick]
+    # Check blocks first, then DB - maintaining original order
+    result = get_src20_deploy_in_block(src20_processed_in_block, tick)
+    if result == NO_DEPLOY:
+        result = get_src20_deploy_in_db(db, tick)
 
-    lim, max_value, dec = get_src20_deploy_in_block(src20_processed_in_block, tick)
-    if lim is not None:
-        func.deploy_cache[tick] = (lim, max_value, dec)
-        return lim, max_value, dec
-
-    lim, max_value, dec = get_src20_deploy_in_db(db, tick)
-    if lim is not None:
-        func.deploy_cache[tick] = (lim, max_value, dec)
-    return lim, max_value, dec
+    # Cache only valid results, exactly as before
+    if result != NO_DEPLOY:
+        cache_manager.set_cache_value("deploy", f"src20:{tick}", result)
+    return result
 
 
-def get_src20_deploy_in_block(processed_blocks, tick):
+def get_src20_deploy_in_block(processed_blocks: List[Dict[str, Any]], tick: str) -> DeployResult:
+    """Get SRC20 deployment details from processed blocks.
+
+    Returns:
+        DeployResult: (lim, max, dec) values for the deployment.
+        Returns (None, None, None) if no valid deployment exists in the block.
+    """
     for item in processed_blocks:
         if item.get("tick") == tick and item.get("op") == "DEPLOY" and item.get("valid") == 1:
+            # For in-block deploys, we still use get() with None default since the data hasn't been validated by DB yet
             return item.get("lim"), item.get("max"), item.get("dec")
-    return None, None, None
+    return NO_DEPLOY
 
 
-def get_src20_deploy_in_db(db, tick):
+def get_src20_deploy_in_db(db: Connection, tick: str) -> DeployResult:
+    """Get SRC20 deployment details from database.
+
+    Returns:
+        DeployResult: (lim, max, dec) values for the deployment.
+        Returns (None, None, None) if no valid deployment exists in the DB.
+        Note: If a deployment exists in the DB, all values will be non-None.
+    """
+    normalized_tick = tick.lower()
+
     with db.cursor() as src20_cursor:
         src20_cursor.execute(
             f"""
@@ -745,40 +1370,35 @@ def get_src20_deploy_in_db(db, tick):
                 tick = %s
                 AND op = 'DEPLOY'
                 AND p = 'SRC-20'
+                AND lim IS NOT NULL
+                AND max IS NOT NULL
+                AND deci IS NOT NULL
             ORDER BY
                 block_index ASC
             LIMIT 1
-        """,
-            (tick,),
+            """,
+            (normalized_tick,),
         )  # nosec
+
         result = src20_cursor.fetchone()
         if result:
+            # We know these are all non-None due to the SQL WHERE clause
+            logger.debug(f"Found deployment for tick {tick}: lim={result[0]}, max={result[1]}, dec={result[2]}")
             return result
-    return None, None, None
+    return NO_DEPLOY
 
 
-def get_total_src20_minted_from_db(db, tick):
-    """Retrieve the total amount of tokens minted from the database for a given tick.
+def get_total_src20_minted_from_db(db: Connection, tick: str) -> D:
+    """Get the total minted amount for a given tick from the database."""
+    cached_total = cache_manager.get_cache_value("total_minted", tick)
+    if cached_total is not None:
+        return cached_total
 
-    This function performs a database query to fetch the total amount of tokens minted
-    for a specific tick.
-
-    Args:
-        db (DatabaseConnection): The database connection object.
-        tick (int): The tick value for which to retrieve the total minted tokens.
-
-    Returns:
-        int: The total amount of tokens minted for the given tick.
-    """
-    if tick in TOTAL_MINTED_CACHE:
-        return TOTAL_MINTED_CACHE[tick]
-
-    total_minted = 0
     with db.cursor() as src20_cursor:
         src20_cursor.execute(
             f"""
             SELECT
-                amt
+                SUM(amt)
             FROM
                 {SRC20_VALID_TABLE}
             WHERE
@@ -787,71 +1407,74 @@ def get_total_src20_minted_from_db(db, tick):
         """,
             (tick,),
         )  # nosec
-        for row in src20_cursor.fetchall():
-            total_minted += row[0]
-    TOTAL_MINTED_CACHE[tick] = total_minted
-    return total_minted
+        result = src20_cursor.fetchone()
+        # Handle case where result is None or result[0] is None
+        total_minted = D(0) if result is None or result[0] is None else D(str(result[0]))
+        cache_manager.set_cache_value("total_minted", tick, total_minted)
+        return total_minted
 
 
-def get_src101_deploy(db, deploy_hash, src101_processed_in_block):
-    """
-    Retrieves the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for a given DEPLOY HASH. The function first attempts to find these values
-    from an internal cache. If not found in the cache, it then searches within a provided dictionary of processed blocks.
-    As a last resort, it performs a database lookup. The result from any of these sources is cached for future queries.
-
-    Args:
-        db: A database connection object used for querying the database if necessary.
-        tick (str): The tick value for which 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values are being retrieved.
-        src101_processed_in_block (dict): A dictionary containing processed blocks, used for in-memory lookup before querying the database.
-
-    Returns:
-        tuple: A tuple containing the 'lim', 'pri', 'mintstart', 'mintend' 'rec' 'wla' 'imglp' and 'imgf' values for the given tick. If the tick is not found in any source,
-               returns (None, None, None, None, None, None, None, None).
-
-    """
-    # Initialize the cache if it doesn't exist
-    if not hasattr(get_src101_deploy, "deploy_cache"):
-        get_src101_deploy.deploy_cache = {}
+def get_src101_deploy(db: Connection, deploy_hash: str, src101_processed_in_block: List[Dict[str, Any]]) -> SRC101DeployResult:
+    """Get SRC-101 deployment details with caching."""
     # Check if the result is already cached
-    if deploy_hash in get_src101_deploy.deploy_cache:
-        return get_src101_deploy.deploy_cache[deploy_hash]
+    cached_result = cache_manager.get_cache_value("src101_deploy", deploy_hash)
+    if cached_result is not None:
+        return cached_result
 
     # Check in the processed_blocks dictionary
-    lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua = get_src101_deploy_in_block(
-        src101_processed_in_block, deploy_hash
-    )
-    if lim is not None and lim != 0:
-        # Cache and return the result
-        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
-        return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
+    result = get_src101_deploy_in_block(src101_processed_in_block, deploy_hash)
+    if result[0] != 0:  # If lim is not 0
+        cache_manager.set_cache_value("src101_deploy", deploy_hash, result)
+        return result
 
     # Database lookup if not found in cache or processed_blocks
-    lim, pri, mintstart, mintend, wla, imglp, imgf, idua = get_src101_deploy_in_db(db, deploy_hash)
-    rec = get_src101_recs_in_db(db, deploy_hash)
-    if lim is not None and lim != 0:
-        # Cache and return the result
-        get_src101_deploy.deploy_cache[deploy_hash] = (lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua)
-    return lim, pri, mintstart, mintend, rec, wla, imglp, imgf, idua
+    db_result = get_src101_deploy_in_db(db, deploy_hash)
+    if db_result[0] != 0:  # If lim is not 0
+        rec = get_src101_recs_in_db(db, deploy_hash)
+        # Replace None rec placeholder with actual rec list
+        result = (
+            db_result[0],  # lim
+            db_result[1],  # pri
+            db_result[2],  # mintstart
+            db_result[3],  # mintend
+            rec,  # rec
+            db_result[5],  # wla
+            db_result[6],  # imglp
+            db_result[7],  # imgf
+            db_result[8],  # idua
+        )
+        cache_manager.set_cache_value("src101_deploy", deploy_hash, result)
+        return result
+    return (0, None, 0, 0, None, None, None, None, 0)
 
 
-def get_src101_deploy_in_block(processed_blocks, deploy_hash):
+def get_src101_deploy_in_block(processed_blocks: List[Dict[str, Any]], deploy_hash: str) -> SRC101DeployResult:
+    """Get SRC-101 deployment details from processed blocks."""
     for item in processed_blocks:
         if item.get("deploy_hash") == deploy_hash and item.get("op") == "DEPLOY" and item.get("valid") == 1:
             return (
-                item.get("lim"),
+                item.get("lim", 0),
                 item.get("pri"),
-                item.get("mintstart"),
-                item.get("mintend"),
+                item.get("mintstart", 0),
+                item.get("mintend", 0),
                 item.get("rec"),
                 item.get("wla"),
                 item.get("imglp"),
                 item.get("imgf"),
-                item.get("idua"),
+                item.get("idua", 0),
             )
-    return 0, None, 0, 0, None, None, None, None, 0
+    return (0, None, 0, 0, None, None, None, None, 0)
 
 
-def get_src101_deploy_in_db(db, deploy_hash):
+def get_src101_deploy_in_db(
+    db: Connection, deploy_hash: str
+) -> Tuple[int, Optional[Any], int, int, Optional[Any], Optional[Any], Optional[Any], Optional[Any], int]:
+    """Get SRC-101 deployment details from database.
+
+    Returns:
+        A tuple of (lim, pri, mintstart, mintend, None, wla, imglp, imgf, idua).
+        The fifth element (rec) is always None as it's fetched separately.
+    """
     with db.cursor() as src101_cursor:
         src101_cursor.execute(
             f"""
@@ -871,11 +1494,24 @@ def get_src101_deploy_in_db(db, deploy_hash):
         )  # nosec
         result = src101_cursor.fetchone()
         if result:
-            return result
-    return 0, None, 0, 0, None, None, None, 0
+            # Convert to proper tuple with None for rec field
+            lim, pri, mintstart, mintend, wla, imglp, imgf, idua = result
+            return (
+                int(lim) if lim is not None else 0,
+                pri,
+                int(mintstart) if mintstart is not None else 0,
+                int(mintend) if mintend is not None else 0,
+                None,  # rec placeholder  TODO: investigate why rec was not returned prior to this change
+                wla,
+                imglp,
+                imgf,
+                int(idua) if idua is not None else 0,
+            )
+    return (0, None, 0, 0, None, None, None, None, 0)
 
 
-def get_src101_recs_in_db(db, deploy_hash):
+def get_src101_recs_in_db(db: Connection, deploy_hash: str) -> List[str]:
+    """Get SRC-101 recipients from database."""
     with db.cursor() as src101_rec_cursor:
         src101_rec_cursor.execute(
             f"""
@@ -896,10 +1532,12 @@ def get_src101_recs_in_db(db, deploy_hash):
         return recipients
 
 
-def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
-    if deploy_hash in TOTAL_MINTED_CACHE:
-        return TOTAL_MINTED_CACHE[deploy_hash]
-    total_minted = 0
+def get_total_src101_minted_from_db(db: Connection, deploy_hash: str, blocktimestamp: int) -> D:
+    """Get the total minted amount for a given deploy_hash from the database."""
+    cached_total = cache_manager.get_cache_value("total_minted", deploy_hash)
+    if cached_total is not None:
+        return cached_total
+
     with db.cursor() as src101_cursor:
         src101_cursor.execute(
             f"""
@@ -911,45 +1549,48 @@ def get_total_src101_minted_from_db(db, deploy_hash, blocktimestamp):
                 deploy_hash = %s
                 AND expire_timestamp <= {blocktimestamp}
         """,
-            (deploy_hash),
+            (deploy_hash,),
         )  # nosec
         result = src101_cursor.fetchone()
-        if result[0]:
-            total_minted = result[0]
-    TOTAL_MINTED_CACHE[deploy_hash] = total_minted
-    return total_minted
+        total_minted = D(result[0] if result and result[0] is not None else 0)
+        cache_manager.set_cache_value("total_minted", deploy_hash, total_minted)
+        return total_minted
 
 
-def get_src101_price(db, deploy_hash, src101_processed_in_block):
-    if not hasattr(get_src101_price, "price_cache"):
-        get_src101_price.price_cache = {}
+def get_src101_price(
+    db: Connection, deploy_hash: str, src101_processed_in_block: List[Dict[str, Any]]
+) -> Optional[Dict[int, Any]]:
+    """Get SRC-101 price details with caching."""
     # Check if the result is already cached
-    if deploy_hash in get_src101_price.price_cache:
-        return get_src101_price.price_cache[deploy_hash]
+    cached_result = cache_manager.get_cache_value("price", deploy_hash)
+    if cached_result is not None:
+        return cached_result
 
     # Check in the processed_blocks dictionary
     price = get_src101_price_in_block(src101_processed_in_block, deploy_hash)
     if price is not None:
         # Cache and return the result
-        get_src101_price.price_cache[deploy_hash] = price
+        cache_manager.set_cache_value("price", deploy_hash, price)
         return price
 
     # Database lookup if not found in cache or processed_blocks
     price = get_src101_price_in_db(db, deploy_hash)
     if price is not None:
         # Cache and return the result
-        get_src101_price.price_cache[deploy_hash] = price
+        cache_manager.set_cache_value("price", deploy_hash, price)
     return price
 
 
-def get_src101_price_in_block(processed_blocks, deploy_hash):
+def get_src101_price_in_block(processed_blocks: List[Dict[str, Any]], deploy_hash: str) -> Optional[Dict[int, Any]]:
+    """Get SRC-101 price from processed blocks."""
     for item in processed_blocks:
         if item.get("deploy_hash") == deploy_hash:
             return item.get("price")
     return None
 
 
-def get_src101_price_in_db(db, deploy_hash):
+def get_src101_price_in_db(db: Connection, deploy_hash: str) -> Dict[int, Any]:
+    """Get SRC-101 price from database."""
     with db.cursor() as cursor:
         query = f"""
             SELECT
@@ -960,7 +1601,7 @@ def get_src101_price_in_db(db, deploy_hash):
             WHERE
                 deploy_hash = %s
             ORDER BY len ASC
-            
+
         """
         cursor.execute(
             query,
@@ -974,6 +1615,12 @@ def get_next_stamp_number(db, identifier):
     """
     Return the index of the next transaction.
 
+    IMPORTANT: This function does NOT update the cache when called. The cache is only
+    updated after successful database insertion in insert_into_stamp_table() to prevent
+    stamp number gaps during transaction rollbacks.
+
+    The cache stores the NEXT stamp number to be used, not the highest used.
+
     Parameters:
     - db (database connection): The database connection object.
     - identifier (str): Either 'stamp' or 'cursed' to determine the type of transaction.
@@ -981,73 +1628,86 @@ def get_next_stamp_number(db, identifier):
     Returns:
     int: The index of the next transaction.
     """
-    func = cast(CacheMixin, get_next_stamp_number)
-    if not hasattr(func, "cached_stamp"):
-        func.cached_stamp = {}
-
     if identifier not in ["stamp", "cursed"]:
         raise ValueError("Invalid identifier. Must be either 'stamp' or 'cursed'.")
 
-    if identifier in func.cached_stamp:
+    # Check cache for the last used stamp number
+    cached_result = cache_manager.get_cache_value("stamp", identifier)
+    if cached_result is not None:
+        # Cache contains the last used number, so calculate and return the next one
         if identifier == "cursed":
-            next_number = func.cached_stamp[identifier] - 1
+            next_number = cached_result - 1
         else:
-            next_number = func.cached_stamp[identifier] + 1
-    else:
-        with db.cursor() as cursor:
-            if identifier == "stamp":
-                query = f"""
-                    SELECT MAX(stamp) from {STAMP_TABLE}
-                """  # nosec
-                increment = 1
-                default_value = 0
-            else:  # identifier == 'cursed'
-                query = f"""
-                    SELECT MIN(stamp) from {STAMP_TABLE}
-                """  # nosec
-                increment = -1
-                default_value = -1
+            next_number = cached_result + 1
+        # Update cache to the number we're about to use (which becomes the new "last used")
+        cache_manager.set_cache_value("stamp", identifier, next_number)
+        logger.debug(
+            f"get_next_stamp_number({identifier}): cached last used = {cached_result}, returning next = {next_number}, cache updated to {next_number}"
+        )
+        return next_number
 
-            cursor.execute(query)
-            transactions = cursor.fetchone()
-            next_number = transactions[0] + increment if transactions[0] is not None else default_value
+    # If not in cache, query the database and calculate next number
+    with db.cursor() as cursor:
+        if identifier == "stamp":
+            query = f"""
+                SELECT MAX(stamp) from {STAMP_TABLE}
+            """  # nosec
+            increment = 1
+            default_value = 0
+        else:  # identifier == 'cursed'
+            query = f"""
+                SELECT MIN(stamp) from {STAMP_TABLE}
+            """  # nosec
+            increment = -1
+            default_value = -1
 
-    func.cached_stamp[identifier] = next_number
+        cursor.execute(query)
+        transactions = cursor.fetchone()
+        next_number = transactions[0] + increment if transactions[0] is not None else default_value
+
+        # Cache the NEXT number to use (original behavior)
+        cache_manager.set_cache_value("stamp", identifier, next_number)
+
+        if transactions[0] is not None:
+            logger.debug(
+                f"get_next_stamp_number({identifier}): DB MAX/MIN = {transactions[0]}, returning and caching next = {next_number}"
+            )
+        else:
+            logger.debug(
+                f"get_next_stamp_number({identifier}): No stamps in DB, returning and caching default = {next_number}"
+            )
+
     return next_number
 
 
-def check_reissue(db, cpid, valid_stamps_in_block):
-    """
-    Validate if there was a prior valid stamp for the given cpid in the database or block.
-
-    Parameters:
-    - db: The database connection object.
-    - cpid: The unique identifier for the stamp.
-    - valid_stamps_in_block: A list of CPID based stamps processed in the block.
-
-    Returns:
-    - is_btc_stamp: The adjusted value of is_btc_stamp after checking for reissue.
-    - is_reissue: A boolean indicating if the stamp is a reissue.
-    """
-    func = cast(CacheMixin, check_reissue)
-    if not hasattr(func, "cache"):
-        func.cache = {}
-
-    if cpid in func.cache:
+def check_reissue(db: Connection, cpid: str, valid_stamps_in_block: List[Dict[str, Any]]) -> bool:
+    """Check for reissue with caching."""
+    # If the CPID is already in the cache, it's a reissue
+    reissue_cache = cache_manager.get_cache("reissue")
+    if reissue_cache is not None and cpid in reissue_cache:
         return True
+
     if check_reissue_in_block(valid_stamps_in_block, cpid):
+        cache_manager.set_cache_value("reissue", cpid, True)
         return True
+
     if check_reissue_in_db(db, cpid):
+        cache_manager.set_cache_value("reissue", cpid, True)
         return True
 
+    return False
 
-def check_reissue_in_block(valid_stamps_in_block, cpid):
+
+def check_reissue_in_block(valid_stamps_in_block: List[Dict[str, Any]], cpid: str) -> Optional[bool]:
+    """Check for reissue in processed blocks."""
     for item in reversed(valid_stamps_in_block):
         if item["cpid"] == cpid and (item["is_btc_stamp"] or item.get("is_cursed")):
             return True
+    return None
 
 
-def check_reissue_in_db(db, cpid):
+def check_reissue_in_db(db: Connection, cpid: str) -> bool:
+    """Check for reissue in database."""
     with db.cursor() as cursor:
         cursor.execute(
             f"""
@@ -1061,18 +1721,11 @@ def check_reissue_in_db(db, cpid):
         result = cursor.fetchone()
         if result:
             return True
+    return False
 
 
-def last_db_index(db):
-    """
-    Retrieve the last block index from the database.
-
-    Args:
-        db: The database connection object.
-
-    Returns:
-        The last block index as an integer.
-    """
+def last_db_index(db: Connection) -> int:
+    """Retrieve the last block index from the database."""
     field_position = BLOCK_FIELDS_POSITION
     cursor = db.cursor()
 
@@ -1090,20 +1743,13 @@ def last_db_index(db):
     return last_index
 
 
-def next_tx_index(db):
-    """
-    Return the index of the next incremental transaction # from transactions table.
-
-    Parameters:
-    db (object): The database object.
-
-    Returns:
-    int: The index of the next transaction.
-    """
+def next_tx_index(db: Connection) -> int:
+    """Return the index of the next incremental transaction from transactions table."""
     cursor = db.cursor()
 
     cursor.execute("""SELECT MAX(tx_index) FROM transactions""")
-    max_tx_index = cursor.fetchone()[0]
+    row = cursor.fetchone()
+    max_tx_index = row[0] if row else None
     if max_tx_index is not None:
         tx_index = max_tx_index + 1
     else:
@@ -1114,7 +1760,10 @@ def next_tx_index(db):
     return tx_index
 
 
-def insert_block(db, block_index, block_hash, block_time, previous_block_hash, difficulty):
+def insert_block(
+    db: Connection, block_index: int, block_hash: str, block_time: int, previous_block_hash: str, difficulty: Optional[float]
+) -> None:
+    """Insert a new block into the database."""
     if difficulty is None:
         difficulty = 0.0
     else:
@@ -1138,23 +1787,9 @@ def insert_block(db, block_index, block_hash, block_time, previous_block_hash, d
         raise DatabaseInsertError(f"Error executing query: {block_query} with arguments: {args}. Error message: {e}") from e
 
 
-def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash):
-    """
-    Update the hashes of a block in the MySQL database.
-    This is for comoparison of hash tables across nodes.
-    So we can validate that each node has the same data.
-
-    Args:
-        db (MySQLConnection): The MySQL database connection.
-        block_index (int): The index of the block to update.
-        txlist_hash (str): The new transaction list hash.
-        ledger_hash (str): The new ledger hash.
-        messages_hash (str): The new messages hash.
-    Returns:
-        None
-    """
+def update_block_hashes(db: Connection, block_index: int, txlist_hash: str, ledger_hash: str, messages_hash: str) -> None:
+    """Update the hashes of a block in the MySQL database."""
     cursor = db.cursor()
-    # logger.info('Updating MySQL Block: {}'.format(block_index))
     block_query = """UPDATE blocks SET
                         txlist_hash = %s,
                         ledger_hash = %s,
@@ -1171,19 +1806,24 @@ def update_block_hashes(db, block_index, txlist_hash, ledger_hash, messages_hash
         cursor.close()
 
 
-def get_balances_at_block(db, block_index):
+def get_balances_at_block(db: Connection, block_index: int) -> Dict[str, Dict[str, D]]:
+    """Get balances at a specific block index."""
     with db.cursor() as cursor:
         src20_valid_list = get_src20_valid_list(cursor, block_index)
     return calculate_balances(src20_valid_list)
 
 
-def get_unlocked_cpids(db) -> List[Tuple[str, ...]]:
+def get_unlocked_cpids(db: Connection) -> List[Tuple[str, ...]]:
+    """Get a list of unlocked CPIDs from the database."""
     with db.cursor() as cursor:
         cursor.execute(f"SELECT DISTINCT cpid FROM {STAMP_TABLE} WHERE locked != 1 AND (ident = 'SRC-721' or ident = 'STAMP')")
         return list(cursor.fetchall())
 
 
-def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2):
+def update_assets_in_db(
+    db: Connection, assets_details: List[Dict[str, Any]], chunk_size: int = 200, delay_between_chunks: int = 2
+) -> None:
+    """Update asset details in the database in chunks."""
     total_assets = len(assets_details)
     num_chunks = (total_assets + chunk_size - 1) // chunk_size
 
@@ -1191,7 +1831,7 @@ def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: in
         start = i * chunk_size
         end = min(start + chunk_size, total_assets)
         assets_chunk = assets_details[start:end]
-        logger.info(f"Updating assets in database for chunk {i+1}/{num_chunks}")
+        logger.info(f"Updating assets in database for chunk {i + 1}/{num_chunks}")
 
         try:
             updates = []
@@ -1235,7 +1875,1406 @@ def update_assets_in_db(db, assets_details: List[Dict[str, Any]], chunk_size: in
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.error(f"Error updating assets in chunk {i+1}: {e}")
+            logger.error(f"Error updating assets in chunk {i + 1}: {e}")
+            raise DatabaseInsertError(f"Failed to update assets in chunk {i + 1}: {e}")
 
         if i < num_chunks - 1:
             time.sleep(delay_between_chunks)
+
+
+def update_src20_token_stats(db):
+    """
+    Updates the src20_token_stats table with latest balances data.
+    This should be called after processing each block to keep stats current.
+    """
+    logger.debug("Updating src20_token_stats table")
+
+    query = """
+        INSERT INTO src20_token_stats (tick, total_minted, holders_count)
+        SELECT * FROM v_src20_token_stats
+        AS new_row ON DUPLICATE KEY UPDATE
+            total_minted = new_row.total_minted,
+            holders_count = new_row.holders_count
+    """
+
+    with db.cursor() as cursor:
+        cursor.execute(query)
+
+
+def balances_need_update(existing_balances, all_balances):
+    """
+    Compare existing balances with calculated balances, accounting for in-progress updates
+    """
+    try:
+        # Normalize the balance data for comparison
+        existing_set = set()
+        new_set = set()
+
+        # Process existing balances
+        for balance in existing_balances:
+            if len(balance) < 6:
+                continue
+
+            id, tick, tick_hash, address, amt, last_update = balance[:6]
+
+            try:
+                # Normalize amount
+                amt = D(str(amt)) if amt else D("0")
+
+                # Skip zero balances
+                if amt == D("0"):
+                    continue
+
+                # Create comparable tuple
+                balance_tuple = (tick, tick_hash, address, amt)
+                existing_set.add(balance_tuple)
+
+            except (ValueError, TypeError, decimal.InvalidOperation) as e:
+                logger.debug(f"Skipping invalid existing balance: {balance}, error: {e}")
+                continue
+
+        # Process calculated balances
+        for key, value in all_balances.items():
+            try:
+                amt = D(str(value.get("amt", "0")))
+
+                # Skip zero balances
+                if amt == D("0"):
+                    continue
+
+                # Create comparable tuple
+                balance_tuple = (value.get("tick", ""), value.get("tick_hash", ""), value.get("address", ""), amt)
+                new_set.add(balance_tuple)
+
+            except (ValueError, TypeError, decimal.InvalidOperation) as e:
+                logger.debug(f"Skipping invalid calculated balance: {key}: {value}, error: {e}")
+                continue
+
+        # Log set sizes after normalization
+        logger.info(
+            f"Comparing {len(existing_set)} non-zero existing balances with {len(new_set)} non-zero calculated balances"
+        )
+
+        # Compare sets
+        if existing_set != new_set:
+            # Calculate specific differences
+            missing_in_new = existing_set - new_set
+            missing_in_existing = new_set - existing_set
+
+            if missing_in_new:
+                logger.info(f"Found {len(missing_in_new)} balances in database that are not in calculated set")
+                for diff in list(missing_in_new)[:5]:
+                    logger.debug(f"Missing in calculated: {diff}")
+
+            if missing_in_existing:
+                logger.info(f"Found {len(missing_in_existing)} calculated balances that are not in database")
+                for diff in list(missing_in_existing)[:5]:
+                    logger.debug(f"Missing in database: {diff}")
+
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Error comparing balances: {str(e)}")
+        return True
+
+
+def increment_stamp_view_count(db: Connection, stamp_id: int) -> None:
+    """
+    Increment the view count for a specific stamp.
+    Creates a new record if the stamp doesn't exist in the stamp_views table.
+
+    Args:
+        db: Database connection
+        stamp_id: The stamp ID to increment views for
+    """
+    try:
+        with db.cursor() as cursor:
+            # Use INSERT ... ON DUPLICATE KEY UPDATE to handle both new and existing records
+            query = f"""
+                INSERT INTO {STAMP_VIEWS_TABLE} (stamp, view_count, last_viewed)
+                VALUES (%s, 1, NOW())
+                ON DUPLICATE KEY UPDATE
+                    view_count = view_count + 1,
+                    last_viewed = NOW()
+            """  # nosec
+            cursor.execute(query, (stamp_id,))
+            db.commit()
+            logger.debug(f"Incremented view count for stamp {stamp_id}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error incrementing view count for stamp {stamp_id}: {e}")
+        raise DatabaseInsertError(f"Failed to increment view count for stamp {stamp_id}: {e}")
+
+
+def get_stamp_view_count(db: Connection, stamp_id: int) -> int:
+    """
+    Get the current view count for a specific stamp.
+
+    Args:
+        db: Database connection
+        stamp_id: The stamp ID to get view count for
+
+    Returns:
+        The current view count (0 if stamp has no views recorded)
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT view_count
+                FROM {STAMP_VIEWS_TABLE}
+                WHERE stamp = %s
+            """  # nosec
+            cursor.execute(query, (stamp_id,))
+            result = cursor.fetchone()
+            return result[0] if result else 0
+    except Exception as e:
+        logger.error(f"Error getting view count for stamp {stamp_id}: {e}")
+        return 0
+
+
+def get_popular_stamps(db: Connection, limit: int = 10) -> List[Tuple[int, int]]:
+    """
+    Get the most popular stamps by view count.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return (default: 10)
+
+    Returns:
+        List of tuples (stamp_id, view_count) ordered by view count descending
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT stamp, view_count
+                FROM {STAMP_VIEWS_TABLE}
+                ORDER BY view_count DESC, last_viewed DESC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting popular stamps: {e}")
+        return []
+
+
+def get_recently_viewed_stamps(db: Connection, limit: int = 10) -> List[Tuple[int, int]]:
+    """
+    Get the most recently viewed stamps.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return (default: 10)
+
+    Returns:
+        List of tuples (stamp_id, view_count) ordered by last_viewed descending
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT stamp, view_count
+                FROM {STAMP_VIEWS_TABLE}
+                ORDER BY last_viewed DESC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting recently viewed stamps: {e}")
+        return []
+
+
+def get_stamp_view_stats(db: Connection) -> Dict[str, Any]:
+    """
+    Get overall statistics about stamp views.
+
+    Args:
+        db: Database connection
+
+    Returns:
+        Dictionary with statistics: total_stamps_with_views, total_views, avg_views_per_stamp
+    """
+    try:
+        with db.cursor() as cursor:
+            query = f"""
+                SELECT
+                    COUNT(*) as total_stamps_with_views,
+                    SUM(view_count) as total_views,
+                    AVG(view_count) as avg_views_per_stamp
+                FROM {STAMP_VIEWS_TABLE}
+                WHERE view_count > 0
+            """  # nosec
+            cursor.execute(query)
+            result = cursor.fetchone()
+
+            if result:
+                return {
+                    "total_stamps_with_views": int(result[0]) if result[0] else 0,
+                    "total_views": int(result[1]) if result[1] else 0,
+                    "avg_views_per_stamp": float(result[2]) if result[2] else 0.0,
+                }
+            else:
+                return {"total_stamps_with_views": 0, "total_views": 0, "avg_views_per_stamp": 0.0}
+    except Exception as e:
+        logger.error(f"Error getting stamp view statistics: {e}")
+        return {"total_stamps_with_views": 0, "total_views": 0, "avg_views_per_stamp": 0.0}
+
+
+# =====================================================================
+# MARKET DATA ACCESS FUNCTIONS
+# =====================================================================
+# These functions provide direct database access for market data operations
+# and complement the MarketDataService for external API integrations
+# =====================================================================
+
+
+def get_stamp_market_data_raw(db: Connection, cpid: str) -> Optional[Tuple]:
+    """
+    Get raw stamp market data from database.
+
+    Args:
+        db: Database connection
+        cpid: Counterparty asset ID
+
+    Returns:
+        Raw database row or None if not found
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, floor_price_btc, recent_sale_price_btc,
+                    open_dispensers_count, closed_dispensers_count, total_dispensers_count,
+                    holder_count, unique_holder_count, top_holder_percentage, holder_distribution_score,
+                    volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
+                    price_source, volume_sources, data_quality_score, confidence_level,
+                    last_updated, last_dispenser_block, last_balance_block, last_price_update,
+                    update_frequency_minutes, created_at
+                FROM stamp_market_data
+                WHERE cpid = %s
+            """  # nosec
+            cursor.execute(query, (cpid,))
+            return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error getting raw stamp market data for {cpid}: {e}")
+        return None
+
+
+def get_src20_market_data_raw(db: Connection, tick: str) -> Optional[Tuple]:
+    """
+    Get raw SRC-20 market data from database.
+
+    Args:
+        db: Database connection
+        tick: SRC-20 token ticker
+
+    Returns:
+        Raw database row or None if not found
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    tick, price_btc, price_usd, floor_price_btc, market_cap_btc, market_cap_usd,
+                    volume_24h_btc, volume_7d_btc, volume_30d_btc, total_volume_btc,
+                    price_change_24h_percent, price_change_7d_percent, price_change_30d_percent,
+                    holder_count, circulating_supply, max_supply,
+                    primary_exchange, exchange_sources, data_quality_score, confidence_level,
+                    last_updated, last_price_update, update_frequency_minutes, created_at
+                FROM src20_market_data
+                WHERE tick = %s
+            """  # nosec
+            cursor.execute(query, (tick,))
+            return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error getting raw SRC-20 market data for {tick}: {e}")
+        return None
+
+
+def insert_stamp_market_data(db: Connection, market_data: Dict[str, Any]) -> None:
+    """
+    Insert or update stamp market data in the database.
+
+    Args:
+        db: Database connection
+        market_data: Dictionary containing market data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Build dynamic insert/update query
+            fields = []
+            values = []
+            update_fields = []
+
+            # Required field
+            cpid = market_data.get("cpid")
+            if not cpid:
+                raise ValueError("cpid is required for stamp market data")
+
+            # Map of allowed fields
+            field_mapping = {
+                "floor_price_btc": "floor_price_btc",
+                "recent_sale_price_btc": "recent_sale_price_btc",
+                "open_dispensers_count": "open_dispensers_count",
+                "closed_dispensers_count": "closed_dispensers_count",
+                "total_dispensers_count": "total_dispensers_count",
+                "holder_count": "holder_count",
+                "unique_holder_count": "unique_holder_count",
+                "top_holder_percentage": "top_holder_percentage",
+                "holder_distribution_score": "holder_distribution_score",
+                "volume_24h_btc": "volume_24h_btc",
+                "volume_7d_btc": "volume_7d_btc",
+                "volume_30d_btc": "volume_30d_btc",
+                "total_volume_btc": "total_volume_btc",
+                "price_source": "price_source",
+                "volume_sources": "volume_sources",
+                "data_quality_score": "data_quality_score",
+                "confidence_level": "confidence_level",
+                "last_dispenser_block": "last_dispenser_block",
+                "last_balance_block": "last_balance_block",
+                "last_price_update": "last_price_update",
+                "last_sale_block_index": "last_sale_block_index",
+                "last_sale_tx_hash": "last_sale_tx_hash",
+                "last_sale_buyer_address": "last_sale_buyer_address",
+                "last_sale_dispenser_address": "last_sale_dispenser_address",
+                "last_sale_btc_amount": "last_sale_btc_amount",
+                "last_sale_dispenser_tx_hash": "last_sale_dispenser_tx_hash",
+                "update_frequency_minutes": "update_frequency_minutes",
+            }
+
+            # Build field lists
+            fields.append("cpid")
+            values.append(cpid)
+
+            for field, db_field in field_mapping.items():
+                if field in market_data:
+                    fields.append(db_field)
+                    values.append(market_data[field])
+                    update_fields.append(f"{db_field} = new_row.{db_field}")
+
+            # Add timestamps
+            fields.extend(["last_updated", "created_at"])
+            values.extend([None, None])  # Will be replaced by NOW()
+            update_fields.append("last_updated = NOW()")
+
+            # Build query
+            placeholders = ", ".join(["%s"] * (len(fields) - 2)) + ", NOW(), NOW()"
+            field_list = ", ".join(fields)
+            update_clause = ", ".join(update_fields)
+
+            query = f"""
+                INSERT INTO stamp_market_data ({field_list})
+                VALUES ({placeholders})
+                AS new_row ON DUPLICATE KEY UPDATE {update_clause}
+            """  # nosec
+
+            cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
+            db.commit()
+            logger.debug(f"Inserted/updated stamp market data for: {cpid}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting stamp market data for {cpid}: {e}")
+        raise DatabaseInsertError(f"Failed to insert stamp market data: {e}")
+
+
+def insert_src20_market_data(db: Connection, market_data: Dict[str, Any]) -> None:
+    """
+    Insert or update SRC-20 market data in the database.
+
+    Args:
+        db: Database connection
+        market_data: Dictionary containing market data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Build dynamic insert/update query
+            fields = []
+            values = []
+            update_fields = []
+
+            # Required field
+            tick = market_data.get("tick")
+            if not tick:
+                raise ValueError("tick is required for SRC-20 market data")
+
+            # Map of allowed fields
+            field_mapping = {
+                "price_btc": "price_btc",
+                "price_usd": "price_usd",
+                "floor_price_btc": "floor_price_btc",
+                "market_cap_btc": "market_cap_btc",
+                "market_cap_usd": "market_cap_usd",
+                "volume_24h_btc": "volume_24h_btc",
+                "volume_7d_btc": "volume_7d_btc",
+                "volume_30d_btc": "volume_30d_btc",
+                "total_volume_btc": "total_volume_btc",
+                "price_change_24h_percent": "price_change_24h_percent",
+                "price_change_7d_percent": "price_change_7d_percent",
+                "price_change_30d_percent": "price_change_30d_percent",
+                "holder_count": "holder_count",
+                "circulating_supply": "circulating_supply",
+                "max_supply": "max_supply",
+                "primary_exchange": "primary_exchange",
+                "exchange_sources": "exchange_sources",
+                "data_quality_score": "data_quality_score",
+                "confidence_level": "confidence_level",
+                "last_price_update": "last_price_update",
+                "update_frequency_minutes": "update_frequency_minutes",
+                "price_source_type": "price_source_type",
+            }
+
+            # Build field lists
+            fields.append("tick")
+            values.append(tick)
+
+            for field, db_field in field_mapping.items():
+                if field in market_data:
+                    fields.append(db_field)
+                    values.append(market_data[field])
+                    update_fields.append(f"{db_field} = new_row.{db_field}")
+
+            # Add timestamps
+            fields.extend(["last_updated", "created_at"])
+            values.extend([None, None])  # Will be replaced by NOW()
+            update_fields.append("last_updated = NOW()")
+
+            # Build query
+            placeholders = ", ".join(["%s"] * (len(fields) - 2)) + ", NOW(), NOW()"
+            field_list = ", ".join(fields)
+            update_clause = ", ".join(update_fields)
+
+            query = f"""
+                INSERT INTO src20_market_data ({field_list})
+                VALUES ({placeholders})
+                AS new_row ON DUPLICATE KEY UPDATE {update_clause}
+            """  # nosec
+
+            cursor.execute(query, values[:-2])  # Exclude the None values for timestamps
+            db.commit()
+            logger.debug(f"Inserted/updated SRC-20 market data for: {tick}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting SRC-20 market data for {tick}: {e}")
+        raise DatabaseInsertError(f"Failed to insert SRC-20 market data: {e}")
+
+
+def get_stamp_holders_raw(db: Connection, cpid: str, limit: int = 100) -> List[Tuple]:
+    """
+    Get raw stamp holder data from database.
+
+    Args:
+        db: Database connection
+        cpid: Counterparty asset ID
+        limit: Maximum number of holders to return
+
+    Returns:
+        List of raw database rows
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, address, quantity, percentage, rank_position,
+                    balance_source, last_updated, last_tx_block
+                FROM stamp_holder_cache
+                WHERE cpid = %s
+                ORDER BY rank_position ASC
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (cpid, limit))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting raw stamp holders for {cpid}: {e}")
+        return []
+
+
+def insert_stamp_holder_data(db: Connection, holder_data: Dict[str, Any]) -> None:
+    """
+    Insert or update stamp holder data in the database.
+
+    Args:
+        db: Database connection
+        holder_data: Dictionary containing holder data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Required fields
+            cpid = holder_data.get("cpid")
+            address = holder_data.get("address")
+            if not cpid or not address:
+                raise ValueError("cpid and address are required for stamp holder data")
+
+            query = """
+                INSERT INTO stamp_holder_cache (
+                    cpid, address, quantity, percentage, rank_position,
+                    balance_source, last_updated, last_tx_block
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
+                AS new_row ON DUPLICATE KEY UPDATE
+                    quantity = new_row.quantity,
+                    percentage = new_row.percentage,
+                    rank_position = new_row.rank_position,
+                    balance_source = new_row.balance_source,
+                    last_updated = NOW(),
+                    last_tx_block = new_row.last_tx_block
+            """  # nosec
+
+            values = (
+                cpid,
+                address,
+                holder_data.get("quantity", 0),
+                holder_data.get("percentage", 0),
+                holder_data.get("rank_position", 0),
+                holder_data.get("balance_source", "counterparty"),
+                holder_data.get("last_tx_block"),
+            )
+
+            cursor.execute(query, values)
+            db.commit()
+            logger.debug(f"Inserted/updated holder data for {cpid}:{address}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting holder data for {cpid}:{address}: {e}")
+        raise DatabaseInsertError(f"Failed to insert holder data: {e}")
+
+
+def get_market_data_sources(db: Connection, asset_type: Optional[str] = None, asset_id: Optional[str] = None) -> List[Tuple]:
+    """
+    Get market data sources from database.
+
+    Args:
+        db: Database connection
+        asset_type: Optional filter by asset type ('stamp' or 'src20')
+        asset_id: Optional filter by asset ID
+
+    Returns:
+        List of raw database rows
+    """
+    try:
+        with db.cursor() as cursor:
+            where_conditions = []
+            params = []
+
+            if asset_type:
+                where_conditions.append("asset_type = %s")
+                params.append(asset_type)
+
+            if asset_id:
+                where_conditions.append("asset_id = %s")
+                params.append(asset_id)
+
+            where_clause = ""
+            if where_conditions:
+                where_clause = "WHERE " + " AND ".join(where_conditions)
+
+            query = f"""
+                SELECT
+                    id, asset_type, asset_id, source_name,
+                    price_btc, volume_24h_btc, holder_count, market_cap_btc,
+                    source_confidence, api_response_time_ms, success_rate_24h,
+                    last_success, last_failure, consecutive_failures,
+                    last_updated, update_count_24h, created_at
+                FROM market_data_sources
+                {where_clause}
+                ORDER BY source_confidence DESC, success_rate_24h DESC
+            """  # nosec
+
+            cursor.execute(query, params)
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting market data sources: {e}")
+        return []
+
+
+def insert_market_data_source(db: Connection, source_data: Dict[str, Any]) -> None:
+    """
+    Insert or update market data source information.
+
+    Args:
+        db: Database connection
+        source_data: Dictionary containing source data fields
+    """
+    try:
+        with db.cursor() as cursor:
+            # Required fields
+            asset_type = source_data.get("asset_type")
+            asset_id = source_data.get("asset_id")
+            source_name = source_data.get("source_name")
+
+            if not all([asset_type, asset_id, source_name]):
+                raise ValueError("asset_type, asset_id, and source_name are required")
+
+            query = """
+                INSERT INTO market_data_sources (
+                    asset_type, asset_id, source_name,
+                    price_btc, volume_24h_btc, holder_count, market_cap_btc,
+                    source_confidence, api_response_time_ms, success_rate_24h,
+                    last_success, last_failure, consecutive_failures,
+                    last_updated, update_count_24h, created_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, NOW()
+                )
+                AS new_row ON DUPLICATE KEY UPDATE
+                    price_btc = new_row.price_btc,
+                    volume_24h_btc = new_row.volume_24h_btc,
+                    holder_count = new_row.holder_count,
+                    market_cap_btc = new_row.market_cap_btc,
+                    source_confidence = new_row.source_confidence,
+                    api_response_time_ms = new_row.api_response_time_ms,
+                    success_rate_24h = new_row.success_rate_24h,
+                    last_success = new_row.last_success,
+                    last_failure = new_row.last_failure,
+                    consecutive_failures = new_row.consecutive_failures,
+                    last_updated = NOW(),
+                    update_count_24h = new_row.update_count_24h
+            """  # nosec
+
+            values = (
+                asset_type,
+                asset_id,
+                source_name,
+                source_data.get("price_btc"),
+                source_data.get("volume_24h_btc", 0),
+                source_data.get("holder_count", 0),
+                source_data.get("market_cap_btc", 0),
+                source_data.get("source_confidence", 5.0),
+                source_data.get("api_response_time_ms", 0),
+                source_data.get("success_rate_24h", 100.0),
+                source_data.get("last_success"),
+                source_data.get("last_failure"),
+                source_data.get("consecutive_failures", 0),
+                source_data.get("update_count_24h", 0),
+            )
+
+            cursor.execute(query, values)
+            db.commit()
+            logger.debug(f"Inserted/updated market data source: {asset_type}:{asset_id}:{source_name}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting market data source: {e}")
+        raise DatabaseInsertError(f"Failed to insert market data source: {e}")
+
+
+def get_stamps_needing_market_update(db: Connection, update_interval_minutes: int, limit: int) -> List[str]:
+    """
+    Get list of stamp CPIDs that need market data updates.
+    Includes stamps with ident='STAMP' or ident='SRC-721'.
+
+    DEPRECATED: This function uses fixed update intervals.
+    New code should use StampActivityCalculator.get_stamps_needing_update()
+    which provides activity-based optimization (93% API call reduction).
+
+    Args:
+        db: Database connection
+        update_interval_minutes: Minutes since last update
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of CPIDs needing updates
+    """
+    try:
+        with db.cursor() as cursor:
+            # Include stamps with ident='STAMP' or 'SRC-721'
+            # Named assets like FUCKTHAT already have ident='STAMP'
+            query = """
+                SELECT DISTINCT s.cpid, s.block_index
+                FROM StampTableV4 s
+                LEFT JOIN stamp_market_data smd ON s.cpid = smd.cpid
+                WHERE s.ident IN ('STAMP', 'SRC-721')
+                AND (
+                    smd.last_updated IS NULL
+                    OR smd.last_updated < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+                )
+                ORDER BY s.block_index DESC
+                LIMIT %s
+            """  # nosec
+
+            cursor.execute(query, (update_interval_minutes, limit))
+            results = cursor.fetchall()
+            return [row[0] for row in results]
+
+    except Exception as e:
+        logger.error(f"Error getting stamps needing market update: {e}")
+        return []
+
+
+def get_trending_stamps(db: Connection, limit: int = 20) -> List[Tuple]:
+    """
+    Get trending stamps using the optimized view.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of tuples with trending stamp data
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, stamp, creator, floor_price_btc, holder_count,
+                    volume_24h_btc, volume_7d_btc, holder_distribution_score,
+                    trending_score
+                FROM v_trending_stamps
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting trending stamps: {e}")
+        return []
+
+
+def get_stamp_market_overview(db: Connection, limit: int = 100) -> List[Tuple]:
+    """
+    Get stamp market overview using the optimized view.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of stamps to return
+
+    Returns:
+        List of tuples with market overview data
+    """
+    try:
+        with db.cursor() as cursor:
+            query = """
+                SELECT
+                    cpid, stamp, creator, stamp_url, stamp_mimetype,
+                    floor_price_btc, holder_count, volume_24h_btc,
+                    data_quality_score, last_updated, cache_status
+                FROM v_stamp_market_overview
+                LIMIT %s
+            """  # nosec
+            cursor.execute(query, (limit,))
+            return list(cursor.fetchall())
+    except Exception as e:
+        logger.error(f"Error getting stamp market overview: {e}")
+        return []
+
+
+def apply_schema_updates(db, cursor):
+    """
+    Apply schema updates by comparing expected schema with actual database schema.
+    This function intelligently adds missing columns and indexes without relying on ALTER statements.
+
+    Future TODO: Implement proper migration system with:
+    - Migration version tracking table
+    - Support for column/index removals and modifications
+    - Rollback capabilities
+    - Migration file system (e.g., migrations/001_add_sales_columns.py)
+
+    For now, this handles the common case of adding new columns/indexes safely.
+    """
+    logger.info("Checking for schema updates...")
+
+    # Define expected schema updates
+    # Format: {table_name: {columns: [(name, type, comment)], indexes: [(name, columns)]}}
+    # NOTE: This only handles additions. For removals/modifications, manual intervention is required.
+    schema_updates = {
+        "transactions": {
+            "columns": [
+                ("fee_rate_sat_vb", "DECIMAL(10,2)", "Fee rate in satoshis per virtual byte"),
+            ],
+            "indexes": [
+                ("idx_fee_rate", ["fee_rate_sat_vb"]),  # For fee rate analysis and sorting
+            ],
+        },
+        "stamp_market_data": {
+            "columns": [
+                ("last_sale_block_index", "INTEGER", "Block index of the most recent sale"),
+                ("last_sale_tx_hash", "VARCHAR(64)", "Transaction hash of the most recent sale"),
+                ("last_sale_buyer_address", "VARCHAR(100)", "Address of the buyer in the most recent sale"),
+                ("last_sale_dispenser_address", "VARCHAR(100)", "Dispenser address used in the most recent sale"),
+                ("last_sale_btc_amount", "BIGINT", "Actual BTC amount paid in satoshis for the most recent sale"),
+                ("last_sale_dispenser_tx_hash", "VARCHAR(64)", "Transaction hash that created the dispenser (optional)"),
+                (
+                    "activity_level",
+                    "ENUM('HOT', 'WARM', 'COOL', 'DORMANT', 'COLD') DEFAULT 'COLD'",
+                    "Activity level based on trading frequency for optimization",
+                ),
+                ("last_activity_time", "INT", "Unix timestamp of last trading activity"),
+            ],
+            "indexes": [
+                ("idx_activity_level", ["activity_level", "last_updated"]),  # For activity-based update scheduling
+            ],
+        },
+        "src20_market_data": {
+            "columns": [
+                ("progress_percentage", "DECIMAL(5,2) DEFAULT 0.00", "Minting progress as percentage (0.00-100.00)"),
+                ("total_minted", "BIGINT DEFAULT 0", "Total amount minted from balances table sum"),
+                ("total_mints", "INTEGER DEFAULT 0", "Total count of MINT operations from SRC20Valid table"),
+                (
+                    "price_source_type",
+                    "ENUM('last_traded', 'floor_ask', 'composite', 'unknown') DEFAULT 'unknown'",
+                    "Type of price in price_btc field",
+                ),
+            ],
+            "indexes": [
+                ("idx_progress_percentage", ["progress_percentage"]),  # For PROGRESS_ASC/PROGRESS_DESC sorting
+                ("idx_total_minted", ["total_minted"]),  # For minted amount sorting
+            ],
+        },
+        "SRC20Valid": {
+            "columns": [],
+            "indexes": [
+                ("idx_mint_count", ["tick", "op", "block_index"]),  # Optimized for mint count calculations in holder updates
+                ("idx_src20valid_tick_op", ["tick", "op"]),  # Frontend team optimization
+                ("idx_src20valid_op_tick_max", ["op", "tick", "max"]),  # Frontend team optimization
+            ],
+        },
+        "balances": {
+            "columns": [],
+            "indexes": [
+                ("idx_holder_calc", ["tick", "amt", "address"]),  # Optimized for holder count calculations
+                ("idx_balances_tick_amt", ["tick", "amt"]),  # Frontend team optimization
+            ],
+        },
+        "StampTableV4": {
+            "columns": [
+                (
+                    "encoding_method",
+                    "ENUM('MULTISIG', 'OLGA')",
+                    "Transaction encoding method detected during parsing",
+                ),
+            ],
+            "indexes": [
+                ("idx_encoding_method", ["encoding_method"]),
+            ],
+        },
+    }
+
+    updates_applied = 0
+
+    for table_name, updates in schema_updates.items():
+        # Check if table exists
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            AND table_name = %s
+        """,
+            (table_name,),
+        )
+
+        if cursor.fetchone()[0] == 0:
+            logger.debug(f"Table {table_name} does not exist, skipping updates")
+            continue
+
+        # Check and add missing columns
+        for column_name, column_type, comment in updates.get("columns", []):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+                AND column_name = %s
+            """,
+                (table_name, column_name),
+            )
+
+            if cursor.fetchone()[0] == 0:
+                # Column doesn't exist, add it
+                alter_sql = f"ALTER TABLE `{table_name}` ADD COLUMN `{column_name}` {column_type} NULL"
+                if comment:
+                    alter_sql += f" COMMENT '{comment}'"
+
+                try:
+                    cursor.execute(alter_sql)
+                    db.commit()
+                    logger.info(f"Added column {column_name} to {table_name}")
+                    updates_applied += 1
+                except Exception as e:
+                    logger.error(f"Failed to add column {column_name} to {table_name}: {e}")
+                    db.rollback()
+            else:
+                logger.debug(f"Column {column_name} already exists in {table_name}")
+
+        # Check and add missing indexes
+        for index_name, index_columns in updates.get("indexes", []):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+                AND index_name = %s
+            """,
+                (table_name, index_name),
+            )
+
+            if cursor.fetchone()[0] == 0:
+                # Index doesn't exist, add it
+                columns_str = ", ".join([f"`{col}`" for col in index_columns])
+                alter_sql = f"ALTER TABLE `{table_name}` ADD INDEX `{index_name}` ({columns_str})"
+
+                try:
+                    cursor.execute(alter_sql)
+                    db.commit()
+                    logger.info(f"Added index {index_name} to {table_name}")
+                    updates_applied += 1
+                except Exception as e:
+                    logger.error(f"Failed to add index {index_name} to {table_name}: {e}")
+                    db.rollback()
+            else:
+                logger.debug(f"Index {index_name} already exists in {table_name}")
+
+    if updates_applied > 0:
+        logger.info(f"Schema updates completed: {updates_applied} changes applied")
+    else:
+        logger.info("Schema is up to date, no updates needed")
+
+
+def import_bootstrap_data(cursor, filename, url, insert_query):
+    """Import bootstrap data, trying local file first, then URL as fallback."""
+    import os
+
+    # Try local file first
+    local_path = os.path.join(os.path.dirname(__file__), "..", "..", "bootstrap", filename)
+    if os.path.exists(local_path):
+        logger.info(f"Using local bootstrap file: {local_path}")
+        try:
+            import_csv_data(cursor, local_path, insert_query, is_url=False)
+            logger.info(f"Successfully imported {filename} from local file")
+            return
+        except Exception as e:
+            logger.warning(f"Failed to import from local file {local_path}: {e}")
+            logger.info(f"Falling back to URL: {url}")
+    else:
+        logger.info(f"Local bootstrap file not found: {local_path}, using URL: {url}")
+
+    # Fallback to URL
+    try:
+        import_csv_data(cursor, url, insert_query, is_url=True)
+        logger.info(f"Successfully imported {filename} from URL")
+    except Exception as e:
+        logger.error(f"Failed to import {filename} from both local file and URL: {e}")
+        raise
+
+
+def import_csv_data(cursor, csv_url, insert_query, is_url=False):
+    """Import CSV data from URL or local file with ETag caching."""
+    max_int = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(max_int)
+            break
+        except OverflowError:
+            max_int = int(max_int / 10)
+
+    if not is_url:
+        # Handle local file case
+        with open(csv_url, "r") as file:
+            csv_reader = csv.reader(file)
+            for row in csv_reader:
+                if not row:
+                    continue
+                cursor.execute(insert_query, tuple(row))
+        return
+
+    # Handle URL case with ETag checking
+    try:
+        filename = Path(csv_url).name
+        etag_file = CACHE_DIR / f".{filename}.etag"
+        headers = {}
+        current_etag = None
+
+        if etag_file.exists():
+            try:
+                etag_content = etag_file.read_text().strip()
+                if etag_content:
+                    # Try to parse as JSON (new format)
+                    try:
+                        import json
+
+                        cache_data = json.loads(etag_content)
+                        current_etag = cache_data.get("etag", "")
+                        logger.debug(
+                            f"Found cached data for {filename}: ETag='{current_etag}', "
+                            f"timestamp={cache_data.get('timestamp')}, "
+                            f"rows={cache_data.get('row_count')}"
+                        )
+                    except json.JSONDecodeError:
+                        # Fall back to plain text (old format)
+                        current_etag = etag_content
+                        logger.debug(f"Found local ETag for {filename} (legacy format): '{current_etag}'")
+
+                    if current_etag:
+                        headers["If-None-Match"] = current_etag
+                else:
+                    logger.debug(f"ETag file {etag_file} was empty.")
+            except Exception as e:
+                logger.warning(f"Could not read ETag file {etag_file}: {e}")
+        else:
+            logger.debug(f"ETag file {etag_file} not found.")
+
+        logger.info(f"Checking bootstrap data from {csv_url}")
+        logger.debug(f"Sending request headers: {headers}")
+        response = requests.get(csv_url, headers=headers, timeout=config.REQUESTS_TIMEOUT)
+        logger.debug(f"Received response status: {response.status_code}")
+        logger.debug(f"Received response headers: {response.headers}")
+
+        if response.status_code == 304:
+            logger.info(f"Bootstrap data for {filename} is unchanged (ETag: {current_etag}). Skipping download/processing.")
+            return  # File hasn't changed, nothing more to do
+
+        response.raise_for_status()  # Raise an exception for other HTTP errors (4xx, 5xx)
+
+        # Process the CSV data if status code was 200 OK
+        logger.info(f"Processing bootstrap data from {csv_url} (ETag: {response.headers.get('ETag') or 'None'})")
+        new_etag = response.headers.get("ETag")
+        logger.debug(f"Received new ETag from server: '{new_etag}'")
+        csv_reader = csv.reader(response.text.splitlines())
+
+        # Execute the insert_query for each row.
+        # The query itself (passed as argument) handles INSERT or UPDATE logic.
+        rows_processed = 0
+        rows_failed = 0
+        for row in csv_reader:
+            # Skip empty rows if any
+            if not any(field.strip() for field in row):
+                continue
+            try:
+                cursor.execute(insert_query, tuple(row))
+                rows_processed += 1
+            except Exception as e:
+                rows_failed += 1
+                logger.error(f"Error processing row {row} from {filename}: {e}")
+                # Decide if you want to continue or raise the exception
+                # raise # Uncomment to stop processing on the first error
+                continue  # Comment out to stop processing on the first error
+
+        logger.info(
+            f"Finished processing {rows_processed} rows from {filename}"
+            + (f" ({rows_failed} failed)" if rows_failed > 0 else "")
+        )
+
+        # Save the new ETag with metadata
+        if new_etag:
+            try:
+                import json
+                from datetime import datetime
+
+                cache_data = {
+                    "etag": new_etag,
+                    "timestamp": datetime.now().isoformat(),
+                    "file_size": len(response.text),
+                    "row_count": rows_processed,
+                    "url": csv_url,
+                }
+                etag_file.write_text(json.dumps(cache_data, indent=2))
+                logger.debug(f"Saved new ETag '{new_etag}' with metadata to {etag_file}")
+            except Exception as e:
+                logger.warning(f"Could not write ETag file {etag_file}: {e}")
+        elif current_etag:  # If server didn't send ETag, remove old one
+            logger.debug(f"Server did not send ETag for {filename}. Removing local ETag file {etag_file}.")
+            try:
+                etag_file.unlink()
+            except OSError as e:
+                logger.warning(f"Could not remove ETag file {etag_file}: {e}")
+
+    except requests.RequestException as e:
+        logger.error(f"Error checking/downloading bootstrap data from {csv_url}: {e}")
+        # Optionally: Add logic here to use a cached local version if download fails
+        raise
+
+
+def upsert_node_version(
+    db,
+    component_name: str,
+    version_string: str,
+    version_major: Optional[int] = None,
+    version_minor: Optional[int] = None,
+    version_revision: Optional[int] = None,
+    version_suffix: Optional[str] = None,
+    extra_info: Optional[Dict] = None,
+) -> bool:
+    """Upsert a component version into node_version_history.
+
+    Uses the nullable boolean pattern: is_current=TRUE for the active row
+    (unique per component), is_current=NULL for historical rows.
+
+    Returns True if a new version was inserted, False if unchanged.
+    """
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, version_string FROM node_version_history "
+            "WHERE component_name = %s AND is_current = TRUE FOR UPDATE",
+            (component_name,),
+        )
+        existing = cursor.fetchone()
+
+        if existing and existing[1] == version_string:
+            db.commit()  # Release the FOR UPDATE lock
+            return False
+
+        if existing:
+            cursor.execute(
+                "UPDATE node_version_history SET is_current = NULL, superseded_at = NOW() " "WHERE id = %s",
+                (existing[0],),
+            )
+
+        extra_info_json = json.dumps(extra_info) if extra_info else None
+        cursor.execute(
+            "INSERT INTO node_version_history "
+            "(component_name, version_string, version_major, version_minor, "
+            "version_revision, version_suffix, extra_info, is_current) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)",
+            (
+                component_name,
+                version_string,
+                version_major,
+                version_minor,
+                version_revision,
+                version_suffix,
+                extra_info_json,
+            ),
+        )
+        db.commit()
+        logger.info(f"Version updated for {component_name}: {version_string}")
+        return True
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cursor.close()
+
+
+def get_current_versions(db) -> List[Dict]:
+    """Get all current component versions for frontend API use."""
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "SELECT component_name, version_string, version_major, version_minor, "
+            "version_revision, version_suffix, extra_info, detected_at "
+            "FROM node_version_history WHERE is_current = TRUE "
+            "ORDER BY component_name"
+        )
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            if row_dict.get("extra_info") and isinstance(row_dict["extra_info"], str):
+                row_dict["extra_info"] = json.loads(row_dict["extra_info"])
+            results.append(row_dict)
+        return results
+    finally:
+        cursor.close()
+
+
+def log_reorg_event(
+    db: Connection,
+    block_index: int,
+    old_block_hash: Optional[str],
+    new_block_hash: Optional[str],
+    rollback_depth: int,
+    detection_method: str,
+) -> None:
+    """Log a blockchain reorganization event for observability."""
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT INTO reorg_events (block_index, old_block_hash, new_block_hash, rollback_depth, detection_method)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (block_index, old_block_hash, new_block_hash, rollback_depth, detection_method),
+        )
+        db.commit()
+        cursor.close()
+        logger.info(f"Logged reorg event at block {block_index} (method={detection_method})")
+    except Exception as e:
+        logger.warning(f"Failed to log reorg event (non-fatal): {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+def initialize_tables(db):
+    """Initialize database tables from schema file."""
+    # Optional bootstrap import: when BOOTSTRAP_ON_EMPTY=true and an
+    # empty DB is detected, decompress + load a partner-distributed
+    # SQL bundle BEFORE the normal schema-init runs. On success the
+    # rest of initialize_tables() sees all tables present + populated
+    # and just applies any schema deltas. On any failure the importer
+    # calls sys.exit() with a distinct code; systemd shouldn't auto-
+    # restart on a corrupted bootstrap.
+    from index_core.bootstrap_importer import run_or_exit
+
+    run_or_exit(db)
+
+    try:
+        logger.info("initializing tables...")
+        cursor = db.cursor()
+
+        # Check if tables already exist to avoid unnecessary schema execution
+        required_tables = [
+            "blocks",
+            "transactions",
+            "StampTableV4",
+            "srcbackground",
+            "creator",
+            "SRC20",
+            "SRC20Valid",
+            "balances",
+            "s3objects",
+            "collections",
+            "collection_creators",
+            "collection_stamps",
+            "src20_metadata",
+            "SRC101",
+            "SRC101Valid",
+            "owners",
+            "recipients",
+            "src101price",
+            "src20_token_stats",
+            "stamp_views",
+            "node_version_history",
+            "reorg_events",
+        ]
+
+        # Only include market data tables if the scheduler is enabled
+        if config.ENABLE_MARKET_DATA_SCHEDULER:
+            required_tables.extend(
+                [
+                    # Enhanced Market Data Cache Tables
+                    "stamp_market_data",
+                    "stamp_holder_cache",
+                    "market_data_sources",
+                    "src20_market_data",
+                    "collection_market_data",
+                    # Sales History Tables
+                    "stamp_sales_history",
+                    "sales_history_checkpoints",
+                ]
+            )
+
+        # Quick check if all tables exist
+        cursor.execute(
+            """
+            SELECT COUNT(*) as table_count
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            AND table_name IN ({})
+        """.format(",".join(["%s"] * len(required_tables))),
+            required_tables,
+        )
+
+        existing_count = cursor.fetchone()[0]
+
+        # Get the path to table_schema.sql relative to this file
+        schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "table_schema.sql")
+        with open(schema_path, "r") as file:
+            sql_script = file.read()
+        sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
+
+        if existing_count == len(required_tables):
+            logger.info(f"All {len(required_tables)} required tables already exist")
+            # Apply any schema updates by comparing expected vs actual schema
+            apply_schema_updates(db, cursor)
+        else:
+            logger.info(f"Found {existing_count}/{len(required_tables)} tables, executing full schema...")
+            # Separate CREATE and ALTER commands
+            create_commands = [cmd for cmd in sql_commands if not cmd.upper().startswith("ALTER TABLE")]
+            alter_commands = [cmd for cmd in sql_commands if cmd.upper().startswith("ALTER TABLE")]
+
+            logger.info(f"Schema contains {len(create_commands)} CREATE commands and {len(alter_commands)} ALTER commands")
+
+            # Execute CREATE commands with retry (important for table creation)
+            for command in create_commands:
+                try:
+                    db_manager.execute_with_retry(cursor, command)
+                except Exception as e:
+                    logger.error(f"Error executing command:{command};\nerror:{e}")
+                    raise e
+
+            # Apply schema updates after creating tables
+            apply_schema_updates(db, cursor)
+
+        # Import bootstrap data - try local files first, then URLs as fallback
+        import_bootstrap_data(
+            cursor,
+            "creator.csv",
+            config.BOOTSTRAP_CREATOR_CSV_URL,
+            """
+            INSERT IGNORE INTO creator (address, creator)
+            VALUES (%s, %s)
+            """,
+        )
+        import_bootstrap_data(
+            cursor,
+            "srcbackground.csv",
+            config.BOOTSTRAP_SRCBACKGROUND_CSV_URL,
+            """INSERT INTO srcbackground
+            (tick, tick_hash, base64, font_size, text_color, unicode, p)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            AS new_row ON DUPLICATE KEY UPDATE
+            base64 = new_row.base64,
+            font_size = new_row.font_size,
+            text_color = new_row.text_color,
+            unicode = new_row.unicode,
+            p = new_row.p""",
+        )
+        db.commit()
+        cursor.close()
+    except Exception as e:
+        logger.error("Error initializing tables: {}".format(e))
+        raise e
+
+
+def initialize_db():
+    """Initialize database connection and tables."""
+    logger.info("Initializing database...")
+    if config.FORCE:
+        logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
+
+    max_retries = 5
+    retry_delay = 5
+    attempt = 0
+
+    while attempt < max_retries:
+        try:
+            # Get connection from database manager
+            db = db_manager.connect()
+
+            # Test connection first
+            with db.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                logger.info("Successfully connected to database server")
+
+            # Now try to create and use the database
+            with db.cursor() as cursor:
+                database_name = os.environ.get("RDS_DATABASE", "btc_stamps")
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
+                cursor.execute(f"USE `{database_name}`")
+                db.commit()
+                logger.info(f"Successfully initialized database: {database_name}")
+
+            util.CURRENT_BLOCK_INDEX = last_db_index(db)
+
+            # Initialize tables from schema
+            initialize_tables(db)
+
+            return db
+
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_retries:
+                logger.error(f"Failed to initialize database after {max_retries} attempts: {e}")
+                raise
+            else:
+                logger.warning(f"Database initialization attempt {attempt} failed: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff

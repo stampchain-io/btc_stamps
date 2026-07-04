@@ -2,21 +2,21 @@ import base64
 import hashlib
 import json
 import logging
+import threading
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import ClassVar, Dict, List, Optional, Tuple, TypedDict, Union
 
-import magic
 import msgpack
 import regex as re
 
 import index_core.log as log
 from config import (
+    BTC_SRC101_GENESIS_BLOCK,
     CP_BMN_FEAT_BLOCK_START,
     CP_P2WSH_FEAT_BLOCK_START,
     CP_SRC20_END_BLOCK,
-    CP_SRC101_GENESIS_BLOCK,
     CP_SRC721_GENESIS_BLOCK,
     CP_SUBASSET_FEAT_BLOCK_START,
     DOMAINNAME,
@@ -24,13 +24,20 @@ from config import (
     STRIP_WHITESPACE,
     SUPPORTED_SUB_PROTOCOLS,
 )
+from index_core.caching import cache_manager
 from index_core.src20 import build_src20_svg_string, check_format
 from index_core.src101 import check_src101_inputs
-from index_core.src721 import validate_src721_and_process
+from index_core.src721 import is_recursive_src721_deploy, is_recursive_src721_mint, validate_src721_and_process
 from index_core.util import create_base62_hash
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)
+
+# Precompile frequently used regex patterns
+JS_PATTERN = re.compile(
+    r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b",
+    re.IGNORECASE,
+)
 
 
 class ValidStamp(TypedDict):
@@ -56,7 +63,8 @@ class StampData:
         destination (str): The destination address of the transaction.
         destination_nvalue (int): The amount of vout[0].
         btc_amount (float): The amount of BTC in the transaction.
-        fee (float): The transaction fee.
+        fee (float): The transaction fee in satoshis.
+        fee_rate_sat_vb (Optional[float]): The fee rate in satoshis per virtual byte.
         data (str): The data associated with the transaction.
         decoded_tx (dict): The decoded transaction.
         keyburn (int): The keyburn value.
@@ -83,6 +91,7 @@ class StampData:
     block_time: Union[int, datetime]
     is_op_return: bool
     p2wsh_data: bytes
+    encoding_method: Optional[str] = None  # 'MULTISIG' or 'OLGA'
     stamp: Optional[int] = None
     creator: Optional[str] = None
     cpid: Optional[str] = None
@@ -101,19 +110,24 @@ class StampData:
     is_cursed: Optional[bool] = None
     file_hash: Optional[str] = None
     is_valid_base64: Optional[bool] = None
+    file_size_bytes: Optional[int] = None
     file_suffix: Optional[str] = None
     decoded_base64: Optional[Union[str, bytes]] = None
     src20_dict: Optional[dict] = None
+    actual_mimetype: Optional[str] = None  # For display when different from consensus mimetype
     src101_dict: Optional[dict] = None
     pval_src20: Optional[bool] = None
     pval_src101: Optional[bool] = None
     is_posh: Optional[bool] = False
+    fee_rate_sat_vb: Optional[float] = None  # Fee rate in satoshis per virtual byte
     precomputed_collections: ClassVar[List[Dict]] = []
     collection_name: Optional[str] = None
     collection_description: Optional[str] = None
     collection_website: Optional[str] = None
     collection_onchain: Optional[bool] = None
     db: Optional[object] = None
+    _lock: Optional[threading.Lock] = None
+    _cp_issuer: Optional[str] = None
 
     @staticmethod
     def check_custom_suffix(bytestring_data):
@@ -218,44 +232,60 @@ class StampData:
 
     @staticmethod
     def ensure_creators_exist(db, creator_inserts: List[tuple]):
+        if not creator_inserts:
+            return
         cursor = db.cursor()
-        for _, creator_address in creator_inserts:
-            cursor.execute("SELECT 1 FROM creator WHERE address = %s", (creator_address,))
-            if cursor.fetchone() is None:
-                cursor.execute("INSERT INTO creator (address) VALUES (%s)", (creator_address,))
-        db.commit()
+        # Batch check for existing creators
+        creator_addresses = [creator_address for _, creator_address in creator_inserts]
+        placeholders = ",".join(["%s"] * len(creator_addresses))
+        cursor.execute(f"SELECT address FROM creator WHERE address IN ({placeholders})", creator_addresses)
+        existing_creators = {row[0] for row in cursor.fetchall()}
+
+        # Insert only new creators
+        new_creators = [
+            (creator_address,) for _, creator_address in creator_inserts if creator_address not in existing_creators
+        ]
+        if new_creators:
+            cursor.executemany("INSERT IGNORE INTO creator (address) VALUES (%s)", new_creators)
+        # Note: No commit here - let caller handle transaction
 
     @staticmethod
     def insert_into_collections(db, collection_inserts: List[Tuple[str, str, Optional[str], Optional[str], Optional[bool]]]):
+        if not collection_inserts:
+            return
         query = """
         INSERT IGNORE INTO collections (collection_id, collection_name, collection_description, collection_website, collection_onchain)
         VALUES (UNHEX(%s), %s, %s, %s, %s)
         """
         cursor = db.cursor()
         cursor.executemany(query, collection_inserts)
-        db.commit()
+        # Note: No commit here - let caller handle transaction
 
     @staticmethod
     def insert_into_collection_stamps(db, stamp_inserts: List[Tuple[str, int]]):
+        if not stamp_inserts:
+            return
         query = """
         INSERT INTO collection_stamps (collection_id, stamp)
         VALUES (UNHEX(%s), %s)
-        ON DUPLICATE KEY UPDATE collection_id=VALUES(collection_id), stamp=VALUES(stamp)
+        AS new_row ON DUPLICATE KEY UPDATE collection_id=new_row.collection_id, stamp=new_row.stamp
         """
         cursor = db.cursor()
         cursor.executemany(query, stamp_inserts)
-        db.commit()
+        # Note: No commit here - let caller handle transaction
 
     @staticmethod
     def insert_into_collection_creators(db, creator_inserts: List[Tuple[str, str]]):
+        if not creator_inserts:
+            return
         query = """
         INSERT INTO collection_creators (collection_id, creator_address)
         VALUES (UNHEX(%s), %s)
-        ON DUPLICATE KEY UPDATE collection_id=VALUES(collection_id), creator_address=VALUES(creator_address)
+        AS new_row ON DUPLICATE KEY UPDATE collection_id=new_row.collection_id, creator_address=new_row.creator_address
         """
         cursor = db.cursor()
         cursor.executemany(query, creator_inserts)
-        db.commit()
+        # Note: No commit here - let caller handle transaction
 
     def is_javascript(self, bytestring_data):
         """
@@ -263,40 +293,35 @@ class StampData:
         """
         js_code = bytestring_data.decode("utf-8", errors="ignore")
 
-        # Enhanced regex to detect common JavaScript syntax elements, including ES6 features
-        js_pattern = re.compile(
-            r"\b(function|var|let|const|if|else|for|while|=>|class|import|export|new|return|typeof|instanceof|catch|try|finally)\b",
-            re.VERSION1,  # Ensure consistent behavior across all Python versions
-        )
-        if not js_pattern.search(js_code):
-            return False
+        # Use precompiled JS_PATTERN
+        if JS_PATTERN.search(js_code):
+            # Additional checks use precompiled patterns
+            # Check for some common JavaScript structures and constructs
+            js_formatting_patterns = [
+                r"\bfunction\s+\w+\s*\(",  # function declarations
+                r"\bvar\s+\w+\s*=",  # var declarations
+                r"\blet\s+\w+\s*=",  # let declarations
+                r"\bconst\s+\w+\s*=",  # const declarations
+                r"\bif\s*\(.*?\)\s*{",  # if statements
+                r"\belse\s*{",  # else statements
+                r"\bfor\s*\(.*?\)\s*{",  # for loops
+                r"\bwhile\s*\(.*?\)\s*{",  # while loops
+                r"\bclass\s+\w+\s*{",  # class declarations
+                r'\bimport\s+.*?\s+from\s+["\']',  # import statements
+                r"\bexport\s+(default\s+)?\w+\s*",  # export statements
+                r"\bnew\s+\w+\s*\(",  # object instantiation
+                r"\breturn\s+",  # return statements
+                r"\btypeof\s+\w+",  # typeof operator
+                r"\binstanceof\s+\w+",  # instanceof operator
+                r"\bcatch\s*\(.*?\)\s*{",  # catch blocks
+                r"\btry\s*{",  # try blocks
+                r"\bfinally\s*{",  # finally blocks
+                r"\b=>\s*{",  # arrow functions
+            ]
 
-        # Check for some common JavaScript structures and constructs
-        js_formatting_patterns = [
-            r"\bfunction\s+\w+\s*\(",  # function declarations
-            r"\bvar\s+\w+\s*=",  # var declarations
-            r"\blet\s+\w+\s*=",  # let declarations
-            r"\bconst\s+\w+\s*=",  # const declarations
-            r"\bif\s*\(.*?\)\s*{",  # if statements
-            r"\belse\s*{",  # else statements
-            r"\bfor\s*\(.*?\)\s*{",  # for loops
-            r"\bwhile\s*\(.*?\)\s*{",  # while loops
-            r"\bclass\s+\w+\s*{",  # class declarations
-            r'\bimport\s+.*?\s+from\s+["\']',  # import statements
-            r"\bexport\s+(default\s+)?\w+\s*",  # export statements
-            r"\bnew\s+\w+\s*\(",  # object instantiation
-            r"\breturn\s+",  # return statements
-            r"\btypeof\s+\w+",  # typeof operator
-            r"\binstanceof\s+\w+",  # instanceof operator
-            r"\bcatch\s*\(.*?\)\s*{",  # catch blocks
-            r"\btry\s*{",  # try blocks
-            r"\bfinally\s*{",  # finally blocks
-            r"\b=>\s*{",  # arrow functions
-        ]
-
-        for pattern in js_formatting_patterns:
-            if re.search(pattern, js_code, re.VERSION1):
-                return True
+            for pattern in js_formatting_patterns:
+                if re.search(pattern, js_code, re.VERSION1):
+                    return True
 
         return False
 
@@ -386,12 +411,26 @@ class StampData:
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
-        mime_type = magic.from_buffer(
-            (bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data),
-            mime=True,
-        )
+        # Use enhanced MIME detection for better accuracy
+        from .enhanced_mime_detection import get_processed_content_and_mime
+
+        processed_data = bytestring_data.lstrip() if self.block_index > STRIP_WHITESPACE else bytestring_data
+        processed_content, mime_type = get_processed_content_and_mime(processed_data, self.block_index)
+
+        # Update the decoded data if it was decompressed (e.g., svgz to svg)
+        if processed_content != processed_data:
+            self.decoded_base64 = processed_content
+
         self.file_suffix = mime_type.split("/")[-1]
         self.stamp_mimetype = mime_type
+
+        # Special handling for SVG files - use 'svg' suffix instead of 'svg+xml'
+        if mime_type == "image/svg+xml":
+            self.file_suffix = "svg"
+
+        # Store original values for consensus before any dual processing
+        self._consensus_file_suffix = self.file_suffix
+        self._consensus_mimetype = self.stamp_mimetype
 
         if (mime_type == "text/plain" or mime_type == "application/javascript") and self.is_javascript(bytestring_data):
             self.file_suffix = "js"
@@ -461,23 +500,32 @@ class StampData:
         if not self.data:
             raise ValueError("Input data is empty or None")
 
-    def update_stamp_data_rows_from_cp_asset(self, stamp: dict):
+    def update_stamp_data_rows_from_cp_asset(self, stamp):
+        # Handle case where stamp might be a list (JSON array) instead of dict
+        if not isinstance(stamp, dict):
+            return
+
         self.cpid = stamp.get("cpid", None)
         self.asset_longname = stamp.get("asset_longname")
         self.supply = stamp.get("quantity")
         self.locked = stamp.get("locked")
         self.divisible = stamp.get("divisible")
         self.message_index = stamp.get("message_index")
+        issuer = stamp.get("issuer")
+        if issuer:
+            self._cp_issuer = str(issuer)
 
     def update_stamp_hash_and_block_time(self):
-        self.creator = self.source
+        self.creator = self._cp_issuer if self._cp_issuer else self.source
         self.stamp_hash = create_base62_hash(self.tx_hash, str(self.block_index), 20)
         if isinstance(self.block_time, int):
             self.block_time = datetime.fromtimestamp(self.block_time, tz=timezone.utc)
 
     def is_reissue(self, check_reissue_func, db, valid_stamps_in_block):
-        if self.cpid and check_reissue_func(db, self.cpid, valid_stamps_in_block):
-            raise ValueError("reissue invalidation")
+        if self.cpid:
+            with self._lock:
+                if check_reissue_func(db, self.cpid, valid_stamps_in_block):
+                    raise ValueError("reissue invalidation")
 
     def is_src20(self):
         return self.ident == "SRC-20" and self.keyburn == 1
@@ -505,6 +553,9 @@ class StampData:
     def valid_src721(self):
         if self.block_index < CP_SRC721_GENESIS_BLOCK:
             return False
+        # OLGA mints are marked as SRC-721 but should not be processed as JSON SRC-721
+        if self.ident == "SRC-721" and self.stamp_mimetype in ["text/html", "image/svg+xml"]:
+            return False
         base_condition = (
             self.ident == "SRC-721"
             and (self.keyburn == 1 or (self.p2wsh_data is not None and self.block_index >= CP_P2WSH_FEAT_BLOCK_START))
@@ -514,7 +565,7 @@ class StampData:
 
     def valid_src101(self):
         self.pval_src101 = False
-        if self.block_index >= CP_SRC101_GENESIS_BLOCK:
+        if self.block_index >= BTC_SRC101_GENESIS_BLOCK:
             self.pval_src101 = self.valid_cp_src101() or (self.is_src101() and not self.cpid)
         return self.pval_src101
 
@@ -543,6 +594,26 @@ class StampData:
         self.decoded_base64, self.is_valid_base64 = decode_base64_func(self.stamp_base64, self.block_index)
         self.check_decoded_data_fetch_ident_mime()
         self.is_op_return = None  # reset because p2wsh are typically op_return
+
+        # Check for recursive SRC-721 deploy (r0) after initial processing
+        if self.block_index >= CP_SRC721_GENESIS_BLOCK and self.ident == "SRC-721" and isinstance(self.decoded_base64, dict):
+            if is_recursive_src721_deploy(self.decoded_base64):
+                # Set collection info for r0 deploys
+                self.collection_name = self.decoded_base64.get("name")
+                self.collection_description = self.decoded_base64.get("description")
+                self.collection_website = self.decoded_base64.get("website")
+                self.collection_onchain = 1 if self.collection_name else None
+
+        # Check for OLGA mints (HTML/SVG with /s/<CPID> references)
+        # These should be flagged as SRC-721 (ident only, no other changes)
+        if (
+            self.block_index >= CP_SRC721_GENESIS_BLOCK
+            and self.stamp_mimetype in ["text/html", "image/svg+xml"]
+            and self.p2wsh_data
+        ):
+            is_olga, _ = is_recursive_src721_mint(self.p2wsh_data, self.stamp_mimetype)
+            if is_olga:
+                self.ident = "SRC-721"
 
     def process_decoded_base64(self):
         self.check_decoded_data_fetch_ident_mime()
@@ -608,9 +679,10 @@ class StampData:
     def process_src721(self, valid_stamps_in_block, db):
         self.src_data = self.decoded_base64
         self.is_btc_stamp = True
-        svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
-            validate_src721_and_process(self.src_data, valid_stamps_in_block, db)
-        )
+        with self._lock:
+            svg_output, self.file_suffix, collection_name, collection_description, collection_website, collection_onchain = (
+                validate_src721_and_process(self.src_data, valid_stamps_in_block, db, self._lock)
+            )
         self.src_data = json.dumps(self.src_data)
         self.decoded_base64 = svg_output
         self.file_suffix = "svg"
@@ -675,25 +747,97 @@ class StampData:
         valid_stamps_in_block,
     ):
         self.db = db
+
+        # DEBUG: Log critical transaction
+        if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error("🔍 DEBUG TX 95dca4dc: process_and_store_stamp_data() called in models.py")
+            logger.error(f"🔍 DEBUG TX 95dca4dc: self.data = {self.data[:100] if self.data else 'None'}...")
+
         self.validate_data_exists()
         stamp = convert_to_dict_or_string(self.data, output_format="dict")
 
+        # DEBUG: Log stamp dict conversion
+        if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error(f"🔍 DEBUG TX 95dca4dc: convert_to_dict_or_string returned: {type(stamp)}")
+            if isinstance(stamp, dict):
+                logger.error(f"🔍 DEBUG TX 95dca4dc: stamp dict keys: {list(stamp.keys())}")
+                logger.error(f"🔍 DEBUG TX 95dca4dc: stamp['cpid'] = {stamp.get('cpid', 'NOT FOUND')}")
+                logger.error(
+                    f"🔍 DEBUG TX 95dca4dc: stamp['description'] = {stamp.get('description', 'NOT FOUND')[:100] if stamp.get('description') else 'NOT FOUND'}..."
+                )
+
         self.get_base_64_data_from_trx(get_src_or_img_from_data, stamp)
+
+        # DEBUG: Log after get_base_64_data_from_trx
+        if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+            logger.error("🔍 DEBUG TX 95dca4dc: After get_base_64_data_from_trx:")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   self.is_btc_stamp = {self.is_btc_stamp}")
+            logger.error(f"🔍 DEBUG TX 95dca4dc:   self.is_cursed = {self.is_cursed}")
+            logger.error(
+                f"🔍 DEBUG TX 95dca4dc:   self.decoded_base64 = {self.decoded_base64[:50] if self.decoded_base64 else 'None'}..."
+            )
+
         if stamp is not None:
             self.update_stamp_data_rows_from_cp_asset(stamp)
+            # DEBUG: Log after update_stamp_data_rows_from_cp_asset
+            if self.tx_hash == "95dca4dc27e50e7b26174a0ded7af3b26527def625670d058ae09200eeb3d735":
+                logger.error("🔍 DEBUG TX 95dca4dc: After update_stamp_data_rows_from_cp_asset:")
+                logger.error(f"🔍 DEBUG TX 95dca4dc:   self.cpid = {self.cpid}")
+
         self.update_stamp_hash_and_block_time()
 
         self.is_reissue(check_reissue, db, valid_stamps_in_block)
         self.validate_and_process_stamp_data(decode_base64, db, valid_stamps_in_block)
 
+        if self.is_btc_stamp:
+            cache_manager.set_cache_value("reissue", self.cpid, True)
+
         self.normalize_mime_and_suffix()
+
+        # Dual processing for cursed stamps: Try enhanced detection for better display
+        # This happens AFTER stamp classification, so it's consensus-safe
+        if self.is_cursed and hasattr(self, "_consensus_file_suffix"):
+            # Only try enhanced detection if we had a potentially compressed file
+            if self._consensus_mimetype in [
+                "text/plain",
+                "application/octet-stream",
+                "application/gzip",
+                "application/x-gzip",
+            ]:
+                from config import ENHANCED_MIME_DETECTION
+
+                from .enhanced_mime_detection import get_processed_content_and_mime
+
+                # Try enhanced detection with future block height to get decompression
+                enhanced_content, enhanced_mime = get_processed_content_and_mime(
+                    self.decoded_base64 if isinstance(self.decoded_base64, bytes) else self.decoded_base64.encode("utf-8"),
+                    ENHANCED_MIME_DETECTION,
+                )
+
+                # If we got better content (e.g., decompressed SVG), use it for display
+                if enhanced_mime == "image/svg+xml" and enhanced_content != self.decoded_base64:
+                    self.decoded_base64 = enhanced_content
+                    self.actual_mimetype = enhanced_mime
+                    # For storage, use the enhanced version for better display
+                    storage_suffix = "svg"
+                    storage_mimetype = enhanced_mime
+                else:
+                    storage_suffix = self.file_suffix
+                    storage_mimetype = self.stamp_mimetype
+            else:
+                storage_suffix = self.file_suffix
+                storage_mimetype = self.stamp_mimetype
+        else:
+            storage_suffix = self.file_suffix
+            storage_mimetype = self.stamp_mimetype
+
         # 'encode_and_store_file' can handle different types (bytestring, string, or dict)
-        self.file_hash, filename = encode_and_store_file(
+        self.file_hash, filename, self.file_size_bytes = encode_and_store_file(
             db,
             self.tx_hash,
-            self.file_suffix,
+            storage_suffix,
             self.decoded_base64,
-            self.stamp_mimetype,
+            storage_mimetype,
         )
 
         self.update_cpid_and_stamp_url(filename)

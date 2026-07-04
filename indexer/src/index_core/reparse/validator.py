@@ -1,0 +1,496 @@
+#!/usr/bin/env python3
+"""Reparse CLI for Bitcoin Stamps: snapshot creation and pure in-memory validation."""
+
+import os
+import sys
+
+# Force in-memory reparse to use mock DB (in-memory, no real pool or connections)
+os.environ["USE_TEST_DB"] = "1"
+os.environ["MOCK_DB"] = "1"
+os.environ["TESTING"] = "1"
+from typing import TYPE_CHECKING, Dict, Iterator, Optional, Union
+from unittest.mock import MagicMock
+
+if TYPE_CHECKING:
+    from index_core.database_manager import DatabaseManager
+
+import ast
+import importlib.util
+import json  # for debug dump of hash dicts
+import logging
+import time  # for measuring validation duration
+from contextlib import contextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+import index_core.caching as reparse_caching
+import index_core.util as util
+from index_core.block_validation import (
+    create_check_hashes,
+    filter_block_transactions,
+)
+from index_core.blocks import (
+    BlockProcessor,
+    backend_instance,
+)
+from index_core.fetch_utils import fetch_xcp_blocks_concurrent
+from index_core.transaction_utils import prefetch_source_prevouts, process_tx
+
+# Load .env from project root, falling back to .env.sample
+root_dir = Path(__file__).resolve().parents[3]
+env_path = root_dir / ".env"
+if not env_path.exists():
+    env_path = root_dir / ".env.sample"
+if env_path.exists():
+    load_dotenv(dotenv_path=str(env_path))
+
+# Load the real snapshot module directly (bypass any test stubs in sys.modules)
+_snapshot_file = Path(__file__).parent / "snapshot.py"
+# Load real snapshot module spec (ensure spec and loader are available)
+_spec = importlib.util.spec_from_file_location("index_core.reparse.snapshot_real", str(_snapshot_file))
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"Cannot load module spec for {_snapshot_file}")
+_snapshot_mod = importlib.util.module_from_spec(_spec)
+# Insert real snapshot module under its normal name to override any stubs
+sys.modules["index_core.reparse.snapshot_real"] = _snapshot_mod
+sys.modules["index_core.reparse.snapshot"] = _snapshot_mod
+_spec.loader.exec_module(_snapshot_mod)
+SnapshotManager = _snapshot_mod.SnapshotManager
+
+logger = logging.getLogger(__name__)
+
+import argparse
+
+
+def main() -> None:
+    """Snapshot creation or pure in-memory reparse CLI."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    parser = argparse.ArgumentParser(description="BTC Stamps Reparse CLI")
+    parser.add_argument(
+        "--snapshot-path", default=os.getenv("SNAPSHOT_PATH", "snapshots/reference_hashes.json"), help="Path to snapshot file"
+    )
+    parser.add_argument("--save-snapshot", action="store_true", help="Save DB state to snapshot and exit")
+    parser.add_argument("--block-index", type=int, help="In-memory validate one block")
+    parser.add_argument("--sequence", action="store_true", help="Validate snapshot continuity")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    if args.save_snapshot:
+        # For snapshot creation, disable mock DB environment variables to use real database
+        os.environ.pop("USE_TEST_DB", None)
+        os.environ.pop("MOCK_DB", None)
+        os.environ.pop("TESTING", None)
+        from index_core.database_manager import DatabaseManager
+
+        logging.info(f"Snapshotting DB to {args.snapshot_path}...")
+        dbm = DatabaseManager()
+        db = dbm.connect()
+        SnapshotManager(args.snapshot_path).save_current_state(db)
+        db.close()
+        logging.info("Snapshot complete.")
+        sys.exit(0)
+    # Pure in-memory reparse
+    validator = ReparseValidator(snapshot_path=args.snapshot_path)
+    if args.block_index is not None:
+        sys.exit(0 if validator.validate_block(args.block_index) else 1)
+    if args.sequence:
+        sys.exit(0 if validator.validate_sequence() else 1)
+    hashes = validator.snapshot_manager.load_snapshot().get("hashes", {})
+    for blk in sorted(int(i) for i in hashes):
+        start = time.time()
+        logger.block_status("Validating block %s...", blk)  # type: ignore[attr-defined]
+        ok = validator.validate_block(blk)
+        duration = time.time() - start
+        if not ok:
+            logger.block_status("Validation failed at block %s (took %ss)", blk, f"{duration:.2f}")  # type: ignore[attr-defined]
+            sys.exit(1)
+        logger.block_status("Block %s validated in %ss", blk, f"{duration:.2f}")  # type: ignore[attr-defined]
+        reparse_caching.cache_manager.check_memory_pressure()
+    logging.info("All blocks validated successfully")
+    sys.exit(0)
+
+
+@contextmanager
+def _force_post_genesis_filter() -> Iterator[None]:
+    """Force ``filter_block_transactions`` to take its post-genesis branch.
+
+    ``block_validation.filter_block_transactions`` gates on
+    ``block_index < config.BTC_SRC20_GENESIS_BLOCK``: pre-genesis it keeps only
+    stamp-issuance txs, post-genesis it routes EVERY tx through the Rust parser.
+    For deterministic in-memory reparse we want the post-genesis behaviour for
+    every block (uniform parsing, no pre-genesis special-casing), so this
+    temporarily lowers the threshold to ``CP_STAMP_GENESIS_BLOCK``.
+
+    NOTE: this repurposes the ``BTC_SRC20_GENESIS_BLOCK`` config value as a
+    filter-mode toggle — it does NOT relocate the actual SRC-20-on-Bitcoin
+    genesis, which is unchanged for every other consumer. The value is restored
+    in ``finally`` so a transient bitcoind / CP-core error can't leak the
+    mutated threshold into later blocks for the process lifetime.
+
+    The restore-on-exit/exception behaviour is pinned by
+    ``test_force_post_genesis_filter``. The toggle is also correct today only
+    because no non-issuance tx in the CP era (779,652–793,067) carries a payload
+    the Rust parser classifies as protocol traffic; that empirical invariant is
+    guarded at integration level by the Tier-3 reparse of the CP-era curated
+    blocks — a leak would surface there as a consensus-hash mismatch. The toggle
+    goes away entirely once the Rust parser does CP/stamp pre-detection and every
+    block is decoded uniformly (#754). See #774.
+    """
+    import config as _cfg
+
+    orig = _cfg.BTC_SRC20_GENESIS_BLOCK
+    _cfg.BTC_SRC20_GENESIS_BLOCK = _cfg.CP_STAMP_GENESIS_BLOCK
+    try:
+        yield
+    finally:
+        _cfg.BTC_SRC20_GENESIS_BLOCK = orig
+
+
+class ValidationError(Exception):
+    """Base class for validation errors."""
+
+    pass
+
+
+class InMemoryBlockProcessor:
+    """Process blocks in-memory for pure reparse without any database reads or writes."""
+
+    def __init__(self) -> None:
+        # Stamp tracking
+        self.valid_stamps_in_block: list = []
+        # Protocol state
+        self.processed_src20_in_block: list = []
+        self.processed_src721_in_block: list = []
+        self.processed_src101_in_block: list = []
+        # Ledger state
+        self.ledger_updates: dict = {}
+        # Collection operations
+        self.collection_operations: list = []
+
+    def _update_ledger(self, operation_data: dict) -> None:
+        """Update in-memory ledger state for src-20 operations."""
+        tick = operation_data.get("tick")
+        amt = int(operation_data.get("amt", 0))
+        if operation_data.get("operation") == "mint":
+            if tick not in self.ledger_updates:
+                self.ledger_updates[tick] = {"supply": 0, "holders": {}}
+            self.ledger_updates[tick]["supply"] += amt
+        elif operation_data.get("operation") == "transfer":
+            if tick not in self.ledger_updates:
+                self.ledger_updates[tick] = {"holders": {}}
+            holders = self.ledger_updates[tick].setdefault("holders", {})
+            sender = operation_data.get("from")
+            receiver = operation_data.get("to")
+            holders[sender] = holders.get(sender, 0) - amt
+            holders[receiver] = holders.get(receiver, 0) + amt
+
+    def process_transaction_results(self, tx_results: list) -> None:
+        """Process transaction results and update in-memory state."""
+        # Lazy import to avoid pulling heavy dependencies at module import time
+        for result in tx_results:
+            if not getattr(result, "data", None):
+                continue
+            data = result.data
+            # Parse data string into dict if necessary
+            if isinstance(data, str):
+                try:
+                    data = ast.literal_eval(data)
+                except (ValueError, SyntaxError):
+                    logging.getLogger(__name__).debug(f"Could not parse transaction data string: {data}")
+                    continue
+            # CPID reissuance exclusion via cache
+            cpid = data.get("cpid")
+            if cpid:
+                # Use pre-existing 'reissue' cache
+                if reparse_caching.cache_manager.get_cache_value("reissue", cpid):
+                    continue
+                reparse_caching.cache_manager.set_cache_value("reissue", cpid, True)
+            # Track valid stamps with in-memory numbering and mirror production ValidStamp structure
+            prev_stamp_num = reparse_caching.cache_manager.get_cache_value("stamp", "counter") or 0
+            new_stamp_num = prev_stamp_num + 1
+            reparse_caching.cache_manager.set_cache_value("stamp", "counter", new_stamp_num)
+            valid_stamp = {
+                "stamp_number": new_stamp_num,
+                "tx_hash": result.tx_hash,
+                "cpid": data.get("cpid", ""),
+                "is_btc_stamp": True,
+                "is_valid_base64": False,
+                "stamp_base64": "",
+                "is_cursed": False,
+                "src_data": "",  # empty to match production ValidStamp src_data
+            }
+            # Backward compatibility: alias 'stamp' to stamp_number
+            valid_stamp["stamp"] = new_stamp_num
+            self.valid_stamps_in_block.append(valid_stamp)
+            # Protocol operations
+            protocol = data.get("protocol")
+            if protocol == "src-20":
+                self.processed_src20_in_block.append(data)
+                self._update_ledger(data)
+                # Update in-memory SRC-20 caches
+                from decimal import Decimal as D
+
+                tick = data.get("tick")
+                op = data.get("operation", "").lower()
+                amt = D(data.get("amt", "0"))
+                # Total minted cache
+                if op == "mint" and tick:
+                    prev_total = reparse_caching.cache_manager.get_cache_value("total_minted", tick) or D(0)
+                    reparse_caching.cache_manager.set_cache_value("total_minted", tick, prev_total + amt)
+                    # Credit to holder balance cache
+                    to_addr = data.get("to")
+                    if to_addr:
+                        key_to = f"{tick}:{to_addr}"
+                        prev_bal = reparse_caching.cache_manager.get_cache_value("balance", key_to) or D(0)
+                        reparse_caching.cache_manager.set_cache_value("balance", key_to, prev_bal + amt)
+                # Transfer balance cache
+                if op == "transfer" and tick:
+                    from_addr = data.get("from")
+                    to_addr = data.get("to")
+                    if from_addr:
+                        key_from = f"{tick}:{from_addr}"
+                        prev_from = reparse_caching.cache_manager.get_cache_value("balance", key_from) or D(0)
+                        reparse_caching.cache_manager.set_cache_value("balance", key_from, prev_from - amt)
+                    if to_addr:
+                        key_to = f"{tick}:{to_addr}"
+                        prev_to = reparse_caching.cache_manager.get_cache_value("balance", key_to) or D(0)
+                        reparse_caching.cache_manager.set_cache_value("balance", key_to, prev_to + amt)
+            elif protocol == "src-721":
+                self.processed_src721_in_block.append(data)
+                # Cache collection deploy metadata
+                op_val = data.get("operation", "").lower()
+                cpid = data.get("cpid")
+                if op_val == "deploy" and cpid:
+                    reparse_caching.cache_manager.set_cache_value("collection", cpid, data)
+            elif protocol == "src-101":
+                self.processed_src101_in_block.append(data)
+                # Cache SRC-101 deploy parameters
+                op_val = data.get("operation", "").lower()
+                h = data.get("hash")
+                if op_val == "deploy" and h:
+                    reparse_caching.cache_manager.set_cache_value("src101_deploy", h, data)
+            # Note: collections and metadata tracked via collection_operations as needed
+
+
+class ReparseValidator:
+    """Validator for reparse operations."""
+
+    def __init__(self, snapshot_path: Optional[str] = None, db: Optional["DatabaseManager"] = None):
+        self.snapshot_path = snapshot_path or os.getenv("SNAPSHOT_PATH") or "snapshots/reference_hashes.json"
+        Path(self.snapshot_path).parent.mkdir(parents=True, exist_ok=True)
+        self.snapshot_manager = SnapshotManager(self.snapshot_path)
+        self.db = db  # Optional DB connection for creating reference hashes
+
+    def compute_block_hashes(
+        self,
+        block_index: int,
+        block_processor: Optional[Union[BlockProcessor, InMemoryBlockProcessor]] = None,
+    ) -> Dict[str, str]:
+        """Compute hashes for a block using the same logic as production."""
+        try:
+            # Sync util so that filtering treats our reparse genesis as post-genesis
+            util.CURRENT_BLOCK_INDEX = block_index
+            import config as _cfg
+
+            # See _force_post_genesis_filter: force every tx through the Rust
+            # parser (post-genesis filter branch) for uniform in-memory reparse.
+            with _force_post_genesis_filter():
+                # Get block data from Bitcoin node
+                block_hash = backend_instance.getblockhash(block_index)
+                block_data = backend_instance.getblock(block_hash, 2)
+                if not block_data:
+                    raise ValidationError(f"Failed to get block data for block {block_index}")
+
+                # Get CP block data
+                cp_blocks = fetch_xcp_blocks_concurrent(block_index, block_index)
+                stamp_issuances = cp_blocks[block_index]["issuances"] if block_index in cp_blocks else []
+
+                # Filter transactions
+                txhash_list, raw_transactions = filter_block_transactions(block_data, stamp_issuances=stamp_issuances)
+                # For CP genesis block, only include stamp issuance transactions in memory reparse
+                if block_index == _cfg.CP_STAMP_GENESIS_BLOCK:
+                    raw_transactions = {
+                        issuance["tx_hash"]: raw_transactions[issuance["tx_hash"]]
+                        for issuance in stamp_issuances
+                        if issuance.get("tx_hash") in raw_transactions
+                    }
+
+            # Process transactions using BlockProcessor if not provided
+            # Initialize an in-memory processor if none provided
+            if block_processor is None:
+                block_processor = InMemoryBlockProcessor()
+                tx_results = []
+                # Pre-warm the raw-transaction cache so each candidate's vin[0]
+                # source lookup in get_tx_info is a cache hit (one batched RPC per
+                # block instead of N serial round-trips). Output-neutral.
+                prefetch_source_prevouts(raw_transactions)
+                for tx_hash in raw_transactions.keys():
+                    result = process_tx(None, tx_hash, block_index, stamp_issuances, raw_transactions)
+                    if getattr(result, "data", None) is not None:
+                        result = result._replace(block_index=block_index, block_hash=block_hash, block_time=block_data["time"])
+                        tx_results.append(result)
+                block_processor.process_transaction_results(tx_results)
+            # Ensure block_processor is not None for type checking
+            assert block_processor is not None
+
+            # Get previous hashes from snapshot
+            prev_hashes = self.snapshot_manager.get_expected_hash(block_index - 1) or {
+                "ledger_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                "txlist_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                "messages_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            }
+
+            # Create a mock database for hash computation
+            mock_db = MagicMock()
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_db.cursor.return_value = mock_cursor
+
+            # Compute hashes using existing create_check_hashes function
+            # Temporarily remove checkpoint entry for this block to avoid enforcement error
+            from index_core import check as check_mod
+
+            orig_checkpoint = None
+            if block_index in check_mod.CHECKPOINTS_MAINNET:
+                orig_checkpoint = check_mod.CHECKPOINTS_MAINNET.pop(block_index)
+            # Consensus rule (#775): at SRC-20 genesis+1, check.consensus_hash
+            # requires the *previous* ledger hash to be unset and seeds it to
+            # shash_string("") itself; a truthy previous_consensus_hash raises a
+            # ConsensusError. Production passes a falsy previous_ledger_hash here,
+            # but the validator otherwise feeds the prior block's snapshot hash
+            # (or the zero-hash default), which is truthy — so it must mirror
+            # production and pass "" for the ledger previous at this one block.
+            # Only the ledger previous is special-cased; txlist/messages still
+            # chain normally.
+            prev_ledger_hash = prev_hashes["ledger_hash"]
+            if block_index == _cfg.CP_SRC20_GENESIS_BLOCK + 1:
+                prev_ledger_hash = ""
+            try:
+                new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
+                    mock_db,
+                    block_index,
+                    block_processor.valid_stamps_in_block,
+                    block_processor.processed_src20_in_block,
+                    txhash_list,
+                    prev_ledger_hash,
+                    prev_hashes["txlist_hash"],
+                    prev_hashes["messages_hash"],
+                )
+            finally:
+                # Restore checkpoint entry if it was removed
+                if orig_checkpoint is not None:
+                    check_mod.CHECKPOINTS_MAINNET[block_index] = orig_checkpoint
+
+            # Debug: log detailed state for this block
+            logger.debug(f"Block {block_index} debug state:")
+            logger.debug(f"  txhash_list (len {len(txhash_list)}): {txhash_list}")
+            logger.debug(f"  valid_stamps_in_block: {block_processor.valid_stamps_in_block}")
+            logger.debug(f"  processed_src20_in_block: {block_processor.processed_src20_in_block}")
+            # Only InMemoryBlockProcessor has these attributes
+            if isinstance(block_processor, InMemoryBlockProcessor):  # type: ignore[name-defined]
+                logger.debug(f"  processed_src721_in_block: {block_processor.processed_src721_in_block}")  # type: ignore[union-attr]
+                logger.debug(f"  processed_src101_in_block: {block_processor.processed_src101_in_block}")  # type: ignore[union-attr]
+                logger.debug(f"  ledger_updates: {block_processor.ledger_updates}")  # type: ignore[union-attr]
+            else:
+                logger.debug("  processed_src721_in_block: []")
+                logger.debug("  processed_src101_in_block: []")
+                logger.debug("  ledger_updates: {}")
+            logger.debug(f"  collection_operations: {block_processor.collection_operations}")
+
+            # Prepare result
+            result = {
+                "block_hash": block_hash,
+                "messages_hash": new_messages_hash,
+                "txlist_hash": new_txlist_hash,
+                "ledger_hash": new_ledger_hash,
+            }
+            # Memory housekeeping: clear in-memory processor state
+            try:
+                reparse_caching.cache_manager.check_memory_pressure()
+                if isinstance(block_processor, InMemoryBlockProcessor):
+                    block_processor.valid_stamps_in_block.clear()
+                    block_processor.processed_src20_in_block.clear()
+                    block_processor.processed_src721_in_block.clear()
+                    block_processor.processed_src101_in_block.clear()
+                    block_processor.ledger_updates.clear()
+                    block_processor.collection_operations.clear()
+            except Exception:
+                logger.debug("Memory housekeeping failed for block processor state cleanup")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error computing hashes for block {block_index}: {e}")
+            raise
+
+    def validate_block(self, block_index: int) -> bool:
+        """Validate a block by computing and comparing hashes."""
+        try:
+            # Determine checkpoint behavior: skip re-validation for designated checkpoints, but still process genesis
+            import config as _cfg
+            from index_core import check
+
+            # Skip only non-genesis checkpoint blocks
+            if block_index in check.CHECKPOINTS_MAINNET and block_index != _cfg.CP_STAMP_GENESIS_BLOCK:
+                logger.info(f"Block {block_index} is a checkpoint; skipping re-validation.")
+                return True
+            # Identify genesis to include in-memory processing but skip hash comparison
+            is_genesis = block_index == _cfg.CP_STAMP_GENESIS_BLOCK
+            # Compute hashes for the block
+            computed_hashes = self.compute_block_hashes(block_index)
+            if is_genesis:
+                logger.info(f"Genesis block {block_index} processed; skipping hash comparison.")
+                return True
+            # Get expected hash from snapshot
+            expected_hashes = self.snapshot_manager.get_expected_hash(block_index)
+            if not expected_hashes:
+                raise ValidationError(f"No expected hashes found for block {block_index}")
+
+            # Compare hashes
+            for hash_type in ["messages_hash", "txlist_hash"]:  # Skip ledger_hash if empty
+                if computed_hashes[hash_type] != expected_hashes[hash_type]:
+                    logger.error(
+                        f"Hash mismatch for block {block_index} ({hash_type}):\n"
+                        f"  Computed: {computed_hashes[hash_type]}\n"
+                        f"  Expected: {expected_hashes[hash_type]}"
+                    )
+                    # Dump full computed vs expected for debugging
+                    logger.debug(f"Full computed hashes: {json.dumps(computed_hashes, indent=2)}")
+                    logger.debug(f"Full expected hashes: {json.dumps(expected_hashes, indent=2)}")
+                    return False
+
+            # Only compare ledger_hash if it's not empty in the snapshot
+            if expected_hashes["ledger_hash"]:
+                if computed_hashes["ledger_hash"] != expected_hashes["ledger_hash"]:
+                    logger.error(
+                        f"Hash mismatch for block {block_index} (ledger_hash):\n"
+                        f"  Computed: {computed_hashes['ledger_hash']}\n"
+                        f"  Expected: {expected_hashes['ledger_hash']}"
+                    )
+                    # Dump full computed vs expected for debugging
+                    logger.debug(f"Full computed hashes: {json.dumps(computed_hashes, indent=2)}")
+                    logger.debug(f"Full expected hashes: {json.dumps(expected_hashes, indent=2)}")
+                    return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating block {block_index}: {e}")
+            raise
+
+    def validate_sequence(self) -> bool:
+        """Validate that snapshot block indices form a continuous sequence."""
+        data = self.snapshot_manager.load_snapshot()
+        hashes = data.get("hashes") if isinstance(data, dict) else None
+        if not hashes:
+            raise ValidationError("No hashes found in snapshot for sequence validation")
+        indices = sorted(int(i) for i in hashes.keys())
+        missing = [i for i in range(indices[0], indices[-1] + 1) if i not in indices]
+        if missing:
+            raise ValidationError(f"Missing blocks in snapshot: {missing}")
+        return True
+
+
+if __name__ == "__main__":
+    main()

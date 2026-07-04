@@ -1,48 +1,102 @@
-import csv
+"""Server initialization and configuration."""
+
+import concurrent.futures
 import decimal
 import hashlib
 import logging
 import os
 import signal
 import sys
+import threading
 
 import appdirs
-import bitcoin as bitcoinlib
-import pymysql as mysql
+from bitcoin import SelectParams
 from pymysql.connections import Connection
 
 import config
-import index_core.backend as backend
 import index_core.blocks as blocks
 import index_core.log as log
-import index_core.util as util
+from exceptions import ConfigurationError
+from index_core.async_upload import start_upload_worker, stop_upload_worker, wait_for_uploads
 from index_core.aws import get_s3_objects
-from index_core.check import software_version
-from index_core.database import last_db_index
+from index_core.backend import Backend
+from index_core.check import cp_version, software_version
+from index_core.critical_failure_handler import emergency_db_rollback, register_cleanup_callback, set_db_connection
+from index_core.database import initialize_db
 
 logger = logging.getLogger(__name__)
-log.set_logger(logger)  # set root logger
 
 D = decimal.Decimal
 
+# Global flag for graceful shutdown
+shutdown_flag = threading.Event()
 
-class ConfigurationError(Exception):
-    pass
+# Global backend instance - use the singleton
+backend_instance = Backend()
+
+
+def cleanup_for_critical_failure():
+    """Cleanup function for critical failures - called before process termination."""
+    logger.info("Performing critical failure cleanup...")
+
+    # Emergency database rollback first (most critical)
+    emergency_db_rollback()
+
+    # Set shutdown flag for other components
+    shutdown_flag.set()
+
+    # Stop async uploads with reduced timeout (critical failure, don't wait too long)
+    if config.USE_ASYNC_UPLOADS and config.STORE_FILES:
+        logger.info("Stopping async uploads due to critical failure...")
+        if wait_for_uploads(timeout=5.0):  # Shorter timeout for critical failures
+            logger.info("Async uploads stopped successfully.")
+        else:
+            logger.warning("Timeout stopping async uploads - some uploads may be lost.")
+        stop_upload_worker()
+
+    # Stop any other background workers
+    try:
+        from index_core.node_health import set_shutdown_flag
+
+        set_shutdown_flag()
+        logger.info("Set shutdown flag for node health monitoring.")
+    except Exception as e:
+        logger.warning(f"Error setting node health shutdown flag: {e}")
+
+    logger.info("Critical failure cleanup completed.")
 
 
 def sigterm_handler(_signo, _stack_frame):
-    if _signo == 15:
-        signal_name = "SIGTERM"
-    elif _signo == 2:
+    """Handle shutdown signals gracefully."""
+    if _signo == signal.SIGINT:
         signal_name = "SIGINT"
+        exit_code = 130
+    elif _signo == signal.SIGTERM:
+        signal_name = "SIGTERM"
+        exit_code = 143
     else:
-        raise ValueError("Unexpected signal number received")
-    logger.info("Received {}.".format(signal_name))
-    logger.info("Stopping backend.")
-    # backend.stop() this would typically stop addrindexrs
-    logger.info("Shutting down.")
-    logging.shutdown()
-    sys.exit(0)
+        exit_code = 1
+        signal_name = f"SIGNAL_{_signo}"
+
+    logger.info(f"Received {signal_name}, shutting down...")
+
+    # Set the shutdown flag to stop the main loop
+    shutdown_flag.set()
+
+    # Wait for pending uploads to complete with a timeout
+    if config.USE_ASYNC_UPLOADS and config.STORE_FILES:
+        logger.info("Waiting for pending uploads to complete...")
+        if wait_for_uploads(timeout=10.0):
+            logger.info("All pending uploads completed successfully.")
+        else:
+            logger.warning("Timed out waiting for uploads to complete. Some uploads may be lost.")
+
+        # Stop the async upload worker
+        logger.info("Stopping async upload worker...")
+        stop_upload_worker()
+
+    # Exit with the appropriate code
+    sys.exit(exit_code)
 
 
 signal.signal(signal.SIGTERM, sigterm_handler)
@@ -63,7 +117,7 @@ def initialize_config(
     backend_ssl=False,
     backend_ssl_no_verify=False,
     backend_poll_interval=None,
-    force=False,
+    force=None,
     verbose=False,
     console_logfilter=None,
     requests_timeout=config.DEFAULT_REQUESTS_TIMEOUT,
@@ -72,13 +126,18 @@ def initialize_config(
     customnet=None,
     checkdb=False,
 ):
-
+    """Initialize configuration with proper network selection."""
+    # Set network based on config
     if config.TESTNET or testnet:
         config.BLOCK_FIRST = config.BLOCK_FIRST_TESTNET
+        SelectParams("testnet")
     elif regtest:
         config.BLOCK_FIRST = config.BLOCK_FIRST_REGTEST
+        SelectParams("regtest")
     else:
         config.BLOCK_FIRST = config.BLOCK_FIRST_MAINNET
+        SelectParams("mainnet")
+
     # Set other config attributes based on parameters
     config.BACKEND_NAME = "bitcoincore"
     config.BACKEND_CONNECT = backend_connect or "localhost"
@@ -88,7 +147,9 @@ def initialize_config(
     config.BACKEND_SSL = backend_ssl
     config.BACKEND_SSL_NO_VERIFY = backend_ssl_no_verify
     config.BACKEND_POLL_INTERVAL = float(backend_poll_interval or 1)
-    config.FORCE = force
+    # Only override FORCE if explicitly provided as a parameter
+    if force is not None:
+        config.FORCE = force
     config.PREFIX = b"stamp:"
     config.CP_PREFIX = b"CNTRPRTY"
     config.REQUESTS_TIMEOUT = requests_timeout
@@ -114,7 +175,6 @@ def initialize_config(
 
     logger.info("data_dir: {}".format(data_dir))
     logger.info("log_file: {}".format(log_file))
-    software_version()
 
     # regtest
     config.REGTEST = regtest
@@ -124,13 +184,6 @@ def initialize_config(
         config.REGTEST = True  # Custom nets are regtests with different parameters
     else:
         config.CUSTOMNET = False
-
-    if config.TESTNET:
-        bitcoinlib.SelectParams("testnet")
-    elif config.REGTEST:
-        bitcoinlib.SelectParams("regtest")
-    else:
-        bitcoinlib.SelectParams("mainnet")
 
     network = ""
     if config.TESTNET:
@@ -167,6 +220,10 @@ def initialize_config(
     if config.LOG:
         logger.debug("Writing server log to file: `{}`".format(config.LOG))
 
+    # Log software version and CP version only once during initialization
+    software_version()
+    cp_version(log_connection=True)
+
     # Log unhandled errors.
     def handle_exception(exc_type, exc_value, exc_traceback):
         logger.error("Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback))
@@ -174,7 +231,8 @@ def initialize_config(
     sys.excepthook = handle_exception
 
     ##############
-    # THINGS WE CONNECT TO
+    # Backend Connection Configuration
+    # Handles setup of Bitcoin Core RPC connection parameters
 
     # Backend name
     config.BACKEND_NAME = "bitcoincore"
@@ -228,11 +286,10 @@ def initialize_config(
     ##############
     # OTHER SETTINGS
 
-    # skip checks
-    if force:
+    # skip checks - only override if force parameter is explicitly provided
+    if force is not None:
         config.FORCE = force
-    else:
-        config.FORCE = False
+    # Otherwise, keep the value from environment/config module
 
     # Encoding
     config.PREFIX = b"stamp:"
@@ -244,112 +301,175 @@ def initialize_config(
     if estimate_fee_per_kb is not None:
         config.ESTIMATE_FEE_PER_KB = estimate_fee_per_kb
 
+    # Set ZMQ ports based on network type
+    if config.TESTNET:
+        config.ZMQ_TX_PORT = int(config.ZMQ_PORT_TESTNET_TX)
+        config.ZMQ_BLOCK_PORT = int(config.ZMQ_PORT_TESTNET_BLOCK)
+    elif config.REGTEST:
+        config.ZMQ_TX_PORT = int(config.ZMQ_PORT_REGTEST_TX)
+        config.ZMQ_BLOCK_PORT = int(config.ZMQ_PORT_REGTEST_BLOCK)
+    else:
+        config.ZMQ_TX_PORT = int(config.ZMQ_PORT_MAINNET_TX)
+        config.ZMQ_BLOCK_PORT = int(config.ZMQ_PORT_MAINNET_BLOCK)
 
-def initialize_tables(db):
-    try:
-        logger.warning("initializing tables...")
-        cursor = db.cursor()
-        with open("table_schema.sql", "r") as file:
-            sql_script = file.read()
-        sql_commands = [cmd.strip() for cmd in sql_script.split(";") if cmd.strip()]
-        for command in sql_commands:
-            try:
-                cursor.execute(command)
-            except Exception as e:
-                logger.error(f"Error executing command:{command};\nerror:{e}")
-                raise e
-        import_csv_data(
-            cursor,
-            "bootstrap/creator.csv",
-            """
-            INSERT INTO creator (address, creator)
-            VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE creator = VALUES(creator)
-            """,
-        )
-        import_csv_data(
-            cursor,
-            "bootstrap/srcbackground.csv",
-            """INSERT INTO srcbackground
-            (tick, tick_hash, base64, font_size, text_color, unicode, p)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-            base64 = VALUES(base64),
-            font_size = VALUES(font_size),
-            text_color = VALUES(text_color),
-            unicode = VALUES(unicode),
-            p = VALUES(p)""",
-        )
-        db.commit()
-        cursor.close()
-    except Exception as e:
-        logger.error("Error initializing tables: {}".format(e))
-        raise e
+    logger.info(f"ZMQ configured for {config.ZMQ_HOST}:{config.ZMQ_TX_PORT} (tx) and {config.ZMQ_BLOCK_PORT} (blocks)")
 
 
-def import_csv_data(cursor, csv_file, insert_query):
-    max_int = sys.maxsize
-    while True:
-        try:
-            csv.field_size_limit(max_int)
-            break
-        except OverflowError:
-            max_int = int(max_int / 10)
-    with open(csv_file, "r") as file:
-        csv_reader = csv.reader(file)
-        for row in csv_reader:
-            cursor.execute(insert_query, tuple(row))
-
-
-def initialize_db() -> Connection:
-    logger.warning("Initializing database...")
-    if config.FORCE:
-        logger.warning("THE OPTION `--force` IS NOT FOR USE ON PRODUCTION SYSTEMS.")
-
-    rds_host = os.environ.get("RDS_HOSTNAME", "db")
-    rds_user = os.environ.get("RDS_USER")
-    rds_password = os.environ.get("RDS_PASSWORD")
-    rds_database = os.environ.get("RDS_DATABASE")
-    rds_port = int(os.environ.get("RDS_PORT", 3306))
-
-    if rds_password is None:
-        logger.error("Database password is not set.")
-        raise ValueError("Database password is not set.")
-
-    logger.info("Connecting to database (MySQL).")
-    db: Connection = mysql.connect(
-        host=rds_host,
-        user=rds_user,
-        password=rds_password,
-        port=rds_port,
-        database=rds_database,
-    )
-    util.CURRENT_BLOCK_INDEX = last_db_index(db)
-
-    initialize_tables(db)
-
-    return db
+# Database initialization functions moved to database.py to break circular import
 
 
 def connect_to_backend():
-    if not config.FORCE:
-        logger.info("Connecting to Bitcoin Node")
-        backend.getblockcount()
+    """Connect to the backend."""
+    # Use the singleton instance
+    return Backend()
 
 
 def start_all(db: Connection) -> None:
+    """Start the server with proper initialization and shutdown handling."""
+    executor = None  # Initialize executor to None
+    validator = None  # Initialize validator to None
+    try:
+        # Register cleanup callback for critical failures
+        register_cleanup_callback(cleanup_for_critical_failure)
+        set_db_connection(db)  # Register database connection for emergency rollback
+        logger.info("Registered critical failure cleanup callback and database connection")
 
-    # Backend.
-    connect_to_backend()
+        # Initialize the executor
+        executor = concurrent.futures.ThreadPoolExecutor()
 
-    if config.AWS_SECRET_ACCESS_KEY and config.AWS_ACCESS_KEY_ID and config.AWS_S3_BUCKETNAME:
-        config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
+        # Initialize validator variable to avoid UnboundLocalError
+        validator = None
 
-    # Server.
-    blocks.follow(db)
+        # Backend
+        connect_to_backend()  # This sets the global backend_instance
+        if config.STORE_FILES:
+            if config.AWS_S3_ENABLED:
+                config.S3_OBJECTS = get_s3_objects(db, config.AWS_S3_BUCKETNAME, config.AWS_S3_CLIENT)
 
+                # Start the async upload worker if async uploads are enabled
+                if config.USE_ASYNC_UPLOADS:
+                    logger.info("Starting async upload worker...")
+                    start_upload_worker()
 
-# TODO
-def reparse(db, block_index=None, quiet=True):
-    connect_to_backend()
-    blocks.reparse(db, block_index=block_index, quiet=quiet)
+        # TEMPORARILY DISABLED: Async holder updater causing lock timeouts
+        # TODO: Re-enable after optimizing queries to work with smaller batches
+        # # Start async holder count updater
+        # try:
+        #     from index_core.async_holder_updater import start_worker as start_holder_worker
+        #     logger.info("Starting async holder count updater...")
+        #     start_holder_worker()
+        # except Exception as e:
+        #     logger.error(f"Failed to start async holder updater: {e}")
+        #     # Continue without async holder updates
+        # Check if async holder updates are enabled
+        # Default is now "false" to prevent deadlocks during initial sync
+        # Enable this when near blockchain tip for real-time holder count updates
+        if os.getenv("ENABLE_ASYNC_HOLDER_UPDATES", "false").lower() == "true":
+            try:
+                from index_core.async_holder_updater import start_worker as start_holder_worker
+
+                logger.info("Starting async holder count updater...")
+                start_holder_worker()
+            except Exception as e:
+                logger.error(f"Failed to start async holder updater: {e}")
+        else:
+            logger.info("Async holder count updater is disabled via ENABLE_ASYNC_HOLDER_UPDATES=false")
+
+        # Start the SRC-20 validation background service.
+        #
+        # The legacy `asyncio.run(validator.start())` did not work: start()
+        # only schedules `_validation_loop` as a task on the new loop and
+        # returns immediately, after which asyncio.run() tears the loop
+        # down and cancels the task. The queue accepted writes but its
+        # consumer never ran — `Block X validated successfully` /
+        # `VALIDATION MISMATCH` log lines were absent for the entire
+        # service uptime.
+        #
+        # Run the validator in its own daemon thread with its own event
+        # loop, mirroring the existing daemon-thread pattern used by
+        # ops_alerter.ProgressWatchdog / async_upload / async_holder_updater.
+        # Daemon=True so the thread doesn't block process shutdown — the
+        # finally block below sets is_running=False to ask the loop to
+        # exit cleanly first.
+        if config.ENABLE_SRC20_BACKGROUND_VALIDATION:
+            try:
+                import asyncio
+                import threading
+
+                from index_core.background_validator import get_background_validator
+
+                validator = get_background_validator()
+
+                def _run_validator_loop():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(validator._validation_loop())
+                    except Exception as loop_err:
+                        logger.error(f"SRC-20 background validator loop crashed: {loop_err}")
+                    finally:
+                        try:
+                            loop.close()
+                        except Exception:
+                            pass
+
+                validator.is_running = True
+                validator_thread = threading.Thread(
+                    target=_run_validator_loop,
+                    name="src20-bg-validator",
+                    daemon=True,
+                )
+                validator_thread.start()
+                logger.info("Background validator started (daemon thread)")
+            except Exception as e:
+                logger.error(f"Failed to start background validator: {e}")
+                # Continue without background validation
+
+        # Start the main indexing process
+        blocks.follow(db)
+    except Exception as e:
+        logger.error(f"Error in main server loop: {e}")
+    finally:
+        if not shutdown_flag.is_set():
+            shutdown_flag.set()
+        logger.info("Server shutdown initiated.")
+
+        # Stop the background validator if it's running. The thread is a
+        # daemon, so process exit will kill it regardless — this path just
+        # asks the loop to exit cleanly on its next check_interval tick.
+        if validator and config.ENABLE_SRC20_BACKGROUND_VALIDATION:
+            try:
+                logger.info("Stopping SRC-20 background validator...")
+                validator.is_running = False
+                # Best-effort shutdown of the internal ThreadPoolExecutor too.
+                try:
+                    validator.executor.shutdown(wait=False)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"Error stopping background validator: {e}")
+
+        # Stop async holder count updater
+        try:
+            from index_core.async_holder_updater import stop_worker as stop_holder_worker
+
+            logger.info("Stopping async holder count updater...")
+            stop_holder_worker(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error stopping async holder updater: {e}")
+
+        # Wait for pending uploads to complete with a timeout
+        if config.USE_ASYNC_UPLOADS and config.STORE_FILES:
+            logger.info("Waiting for pending uploads to complete...")
+            if wait_for_uploads(timeout=30.0):
+                logger.info("All pending uploads completed successfully.")
+            else:
+                logger.warning("Timed out waiting for uploads to complete. Some uploads may be lost.")
+
+            # Stop the async upload worker
+            logger.info("Stopping async upload worker...")
+            stop_upload_worker()
+
+        # Ensure proper cleanup
+        if executor:
+            executor.shutdown(wait=True)

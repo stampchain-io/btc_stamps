@@ -1,0 +1,80 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install
+        working-directory: ./indexer
+
+      - name: Setup Rust and build parser
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+
+      - name: Build Rust parser
+        working-directory: ./indexer
+        run: |
+          pip install maturin
+          maturin develop --release
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@521136812280ae7ef256e06045655b9da02793f0 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Allow Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Allow Claude to run project commands
+          claude_args: |
+            --allowedTools "Bash(cd indexer && poetry:*)" "Bash(cd indexer && maturin:*)"
+
+          prompt: |
+            This is a Python project managed by Poetry. Always use Poetry commands from the indexer directory.
+            Follow the CLAUDE.md file for development standards and commands.
+            Use parameterized queries with %s placeholders for database operations.
+            Follow existing code conventions and patterns.
+            Always run lint and type checks before completing tasks.
+            IMPORTANT: Always include [skip-version] in commit messages to prevent triggering version bumps.
+            When working on PRs, be aware that CI checks are already running - avoid duplicating test runs.
+

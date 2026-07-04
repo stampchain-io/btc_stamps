@@ -1,0 +1,142 @@
+name: Reparse Consensus Validation
+
+# Per-PR validation that the indexer's consensus surface still matches the
+# checked-in baseline at indexer/snapshots/ci_consensus_hashes.json. Each
+# block listed in the baseline is fetched from a bitcoind RPC (or, if none is
+# configured, the blockstream.info public node), the raw bytes are verified
+# against the expected block_hash, and (TODO follow-up) the indexer parser
+# pipeline is run against them to confirm txlist_hash / ledger_hash /
+# messages_hash match the baseline.
+#
+# Why this exists: poetry.lock + freeze-drift catch package-version drift,
+# but only an actual replay of consensus-boundary blocks catches parser-output
+# drift (Bucket A dep bumps, Rust-parser changes, MIME classifier changes).
+# Without this, every Bucket A bump needs a manual 24-48h reindex for signal.
+# This gets us a per-PR signal at boundary blocks in <5 min on CI.
+#
+# What each tier validates (all run on the matrix 3.10/3.11/3.12; 3.13 excluded — see #871):
+#   Tier 1  Cross-check CHECKPOINTS_MAINNET vs reference_hashes.json   (all baseline blocks)
+#   Tier 2  Block-bytes hash verification against the baseline          (all baseline blocks)
+#   Tier 3  Full in-memory reparse (txlist/messages/ledger hashes)      (self-contained blocks only)
+# Tier 3 is DB-free, so blocks whose ledger_hash depends on cross-block SRC-20
+# state (TIER3_CROSS_BLOCK_LEDGER in ci_reparse_subprocess.py) are excluded
+# there by design — they remain covered by Tiers 1-2 and by the periodic full
+# stampsdev reindex (which owns SRC-20 ledger consensus). See #775 / #778.
+#
+# To refresh the baseline after an intentional consensus change:
+#   ./indexer/ci/refresh-consensus-hashes.sh
+#   git add indexer/snapshots/ci_consensus_hashes.json
+#   git commit
+#
+# This is advisory on first land (does not block merge). Promote to required
+# after one bake cycle confirms zero false positives.
+
+on:
+  pull_request:
+    paths:
+      - 'indexer/src/index_core/**'
+      - 'indexer/src/rust_parser/**'
+      - 'indexer/pyproject.toml'
+      - 'indexer/poetry.lock'
+      - 'indexer/snapshots/ci_consensus_hashes.json'
+      - 'indexer/snapshots/reference_hashes.json'
+      - 'indexer/src/config.py'
+      - 'indexer/ci/**'
+      - '.github/workflows/reparse-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reparse-validate:
+    name: Reparse Consensus Validation (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # Advisory on first land — promote to required after one bake cycle.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # Validate consensus on every Python the project supports for consensus.
+        # Prod runs 3.10; the dev container runs 3.12. A code audit (#803) proved
+        # the consensus hashes are version-invariant across 3.10-3.12 *today* —
+        # this matrix is the per-PR guard against a future code change
+        # reintroducing Python-version sensitivity.
+        # NOTE: 3.13 is intentionally EXCLUDED. A full genesis->tip reparse found
+        # 3.13 diverges from prod consensus (stricter base64/binascii) at block
+        # 783775; the ~80-block Tier-3 gate did not sample it and passed falsely.
+        # 3.13 is not consensus-validated until #871 is resolved (it still runs
+        # in code-quality/unit-test CI).
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cross-check CHECKPOINTS_MAINNET against reference_hashes.json
+        # Catches the "someone edited check.py without refreshing
+        # reference_hashes.json (or vice versa)" failure mode. Pure-Python AST
+        # parse, no indexer venv needed.
+        run: |
+          python3 indexer/ci/validate_checkpoints_vs_reference.py
+
+      - name: Validate block bytes against baseline
+        env:
+          # Operator-supplied bitcoind RPC. Leave unset to use the
+          # blockstream.info public node (content-addressed, so trust is
+          # bounded by hash verification — the workflow rejects any block
+          # whose bytes don't hash to the expected block_hash).
+          BITCOIN_RPC_URL: ${{ secrets.BITCOIN_RPC_URL }}
+          BITCOIN_RPC_USER: ${{ secrets.BITCOIN_RPC_USER }}
+          BITCOIN_RPC_PASSWORD: ${{ secrets.BITCOIN_RPC_PASSWORD }}
+        run: |
+          python3 indexer/ci/ci_validate_consensus.py \
+            --baseline indexer/snapshots/ci_consensus_hashes.json
+
+      # ---- Tier 3 subprocess reparse runner (#770 Option B) ----
+      # Spawns a fresh Python subprocess per curated block, exercising the
+      # full reparse validator (Rust parser + reparse pipeline) instead of
+      # just the block-bytes hash check above. Subprocess boundary = state
+      # isolation across blocks, avoiding #775's in-process cache pollution.
+      #
+      # Excludes the cross-block-ledger blocks (TIER3_CROSS_BLOCK_LEDGER) by
+      # design — their ledger_hash needs prior SRC-20 state this DB-free runner
+      # doesn't have; they're covered by Tiers 1-2 + the full reindex (#775).
+      # Runs the self-contained blocks fully and cleanly.
+      #
+      # Needs the indexer venv (poetry install) and the Rust parser build
+      # because smoke_parser_validation imports index_core.* directly.
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: indexer/src/rust_parser
+          key: rust-${{ runner.os }}-${{ hashFiles('indexer/src/rust_parser/rust-toolchain.toml') }}-${{ hashFiles('indexer/src/rust_parser/Cargo.lock') }}
+          save-if: ${{ false }}
+      - name: Install Poetry + indexer deps
+        working-directory: ./indexer
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
+          poetry config virtualenvs.in-project true
+          poetry install
+
+      # Consensus-critical packages (regex, PyNaCl, pybase64) must be exact-
+      # pinned and install identically on every matrix Python — a version flip
+      # can silently change indexer output (#759). Runs per Python version, so
+      # it also proves the same versions resolve on 3.10 / 3.11 / 3.12.
+      - name: Consensus package pin guard
+        working-directory: ./indexer
+        run: poetry run python ci/check_consensus_pkg_pins.py
+
+      - name: Tier 3 — subprocess reparse over curated baseline
+        working-directory: ./indexer
+        run: |
+          poetry run python ci/ci_reparse_subprocess.py \
+            --baseline snapshots/ci_consensus_hashes.json \
+            --timeout 120

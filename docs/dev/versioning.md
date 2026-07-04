@@ -270,3 +270,20 @@ git push origin dev
    - Use PR titles to control major/minor version bumps
    - Use commit `[skip-version]` for maintenance commits
    - Keep version control intent clear in PR titles
+
+### Version Format Validation
+
+The CI pipeline automatically validates version formats through a dedicated workflow:
+
+- Dev branch: Must use canary format (e.g., `1.0.0+canary.1`)
+- Main branch: Must use production format (e.g., `1.0.0`)
+
+The validation runs:
+1. On every push to dev/main
+2. On every pull request targeting dev/main
+
+If you see version format errors:
+1. For dev branch: Run `bump2version release --new-version canary`
+2. For main branch: Run `bump2version release --new-version prod`
+
+The validation workflow must pass before the version bumping workflow can run.

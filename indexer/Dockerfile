@@ -1,14 +1,92 @@
+# Build stage
 ARG PYTHON_VERSION=3.12
-FROM python:${PYTHON_VERSION}
+ARG INSTALL_DEV=false
+FROM python:${PYTHON_VERSION}-slim AS builder
 
+# Build arguments
+ARG POETRY_VERSION=2.1.1
+ARG TARGETARCH
+ARG INSTALL_DEV
+
+# Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=1.8.2 \
+    POETRY_VERSION=${POETRY_VERSION} \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    wget \
+    libgmp-dev \
+    libmpfr-dev \
+    libmpc-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+    export PATH="$HOME/.cargo/bin:$PATH" && \
+    rustc --version && cargo --version
+
+# Install Poetry and Maturin
+RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}" "maturin==1.4.0"
+
+WORKDIR /app
+
+# Copy all source early (to support pyproject-defined packages)
+COPY . .
+
+# Install all dependencies, including the app itself (for entrypoints to work)
+RUN if [ "$INSTALL_DEV" = "true" ]; then \
+      poetry install --with dev; \
+    else \
+      poetry install --without dev; \
+    fi
+
+# Build the Rust extension and output it to target/wheels
+RUN export PATH="$HOME/.cargo/bin:$PATH" && \
+    poetry run maturin build --release --out target/wheels
+
+# Confirm the wheel exists
+RUN ls -l target/wheels/
+
+# Install the built Rust extension
+RUN pip install target/wheels/*.whl
+
+# Runtime stage
+FROM python:${PYTHON_VERSION}-slim
+
+ARG POETRY_VERSION=2.1.1
+# Re-declare in the runtime stage so ${PYTHON_VERSION} is usable in COPY paths below
+ARG PYTHON_VERSION=3.12
+
+ENV PYTHONPATH=/app:/app/src \
+    POETRY_VERSION=${POETRY_VERSION} \
+    POETRY_VIRTUALENVS_CREATE=false \
     POETRY_HOME="/opt/poetry" \
     POETRY_NO_INTERACTION=1
 
+WORKDIR /app
 
-# Install dockerize
+# Install system/runtime dependencies. libmagic was removed when the
+# in-house MIME classifier in index_core/stamp_mime.py replaced
+# python-magic on the consensus path.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    default-libmysqlclient-dev \
+    default-mysql-client \
+    libgmp-dev \
+    libmpfr-dev \
+    libmpc-dev \
+    libssl-dev \
+    netcat-traditional \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dockerize (optional)
 ARG TARGETARCH
 ENV ARCH=${TARGETARCH:-amd64} \
     DOCKERIZE_VERSION=v0.7.0
@@ -23,24 +101,30 @@ RUN case "${ARCH}" in \
     tar -C /usr/local/bin -xzvf "dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz" && \
     rm "dockerize-linux-${DOCKERIZE_ARCH}-$DOCKERIZE_VERSION.tar.gz"
 
-WORKDIR /usr/src/app
+# Create the non-root user and own app dir
+RUN useradd -m indexer && \
+    mkdir -p /app && \
+    chown -R indexer:indexer /app
 
-RUN useradd -m indexer
+# Copy installed Python dependencies from builder
+COPY --from=builder /usr/local/lib/python${PYTHON_VERSION}/site-packages /usr/local/lib/python${PYTHON_VERSION}/site-packages
 
-# Install Poetry and system dependencies
-RUN pip install --upgrade pip && \
-    pip install "poetry==${POETRY_VERSION}" && \
-    apt-get update && apt-get install -y wget && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# ✅ Copy installed CLI tools and entry points (like `indexer`)
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
-COPY --chown=indexer:indexer pyproject.toml poetry.lock* /usr/src/app/
-COPY --chown=indexer:indexer src ./src
-COPY --chown=indexer:indexer *.py ./
+# Copy poetry itself
+COPY --from=builder /usr/local/bin/poetry /usr/local/bin/poetry
 
-RUN poetry config virtualenvs.create false && \
-    poetry install --only main
+# Copy application code
+COPY --from=builder --chown=indexer:indexer /app /app
 
+# Copy entrypoint
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chown indexer:indexer /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
+
+# Switch to indexer user
 USER indexer
 
-# CMD ["sh", "-c", "dockerize -wait tcp://db:3306 -timeout 5m && poetry run indexer"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["poetry", "run", "indexer"]
+

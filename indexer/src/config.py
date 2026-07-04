@@ -1,21 +1,234 @@
 import logging
 import os
 import re
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-import boto3
-from requests.auth import HTTPBasicAuth
+if TYPE_CHECKING:
+    import boto3
+    from requests.auth import HTTPBasicAuth
+else:
+    try:
+        import boto3
+    except ImportError:
+        boto3 = None  # type: ignore
+    try:
+        from requests.auth import HTTPBasicAuth
+    except ImportError:
+        HTTPBasicAuth = None  # type: ignore
+
+from exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-# env vars to be set in docker, or locally if connecting to local nodes
-RPC_USER = os.environ.get("RPC_USER", "rpc")
-RPC_PASSWORD = os.environ.get("RPC_PASSWORD", "rpc")
-RPC_IP = os.environ.get("RPC_IP", "127.0.0.1")
-RPC_PORT = os.environ.get("RPC_PORT", "8332")
-RPC_TLS = os.environ.get("RPC_TLS", False)
+# Cache size configurations
+BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = int(os.environ.get("BACKEND_RAW_TRANSACTIONS_CACHE_SIZE", "200000"))
+DESERIALIZED_TX_CACHE_SIZE = int(os.environ.get("DESERIALIZED_TX_CACHE_SIZE", "150000"))  # Increased from 100000
+RUST_PARSER_MAX_CACHE_MB = int(os.environ.get("RUST_PARSER_MAX_CACHE_MB", "250"))  # 250MB for raw transaction data
+RUST_PARSER_ENTRIES = int(os.environ.get("RUST_PARSER_ENTRIES", "20000"))  # Match Python cache size
 
-CP_RPC_URL = os.environ.get("CP_RPC_URL", "https://api.counterparty.io:4000")  # 'http://127.0.0.1:4000/api/'
+# Cache sizes with memory usage estimates - optimized for production
+BALANCE_CACHE_SIZE = int(os.environ.get("BALANCE_CACHE_SIZE", "2000"))  # Optimized for production workload
+DEPLOYMENT_CACHE_SIZE = int(os.environ.get("DEPLOYMENT_CACHE_SIZE", "2000"))  # Optimized for production workload
+TOTAL_MINTED_CACHE_SIZE = int(os.environ.get("TOTAL_MINTED_CACHE_SIZE", "3000"))  # Optimized for production workload
+SUBASSET_CACHE_SIZE = int(os.environ.get("SUBASSET_CACHE_SIZE", "1500"))
+ADDRESS_CACHE_SIZE = int(os.environ.get("ADDRESS_CACHE_SIZE", "15000"))
+SRC721_SUBASSET_CACHE_SIZE = int(os.environ.get("SRC721_SUBASSET_CACHE_SIZE", "256"))  # SRC-721 specific subasset cache
+
+# Block and stamp cache sizes
+BLOCK_CACHE_SIZE = int(os.environ.get("BLOCK_CACHE_SIZE", "2"))
+STAMP_CACHE_SIZE = int(os.environ.get("STAMP_CACHE_SIZE", "2"))
+COLLECTION_CACHE_SIZE = int(os.environ.get("COLLECTION_CACHE_SIZE", str(SUBASSET_CACHE_SIZE)))
+PRICE_CACHE_SIZE = int(os.environ.get("PRICE_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
+SRC101_DEPLOY_CACHE_SIZE = int(os.environ.get("SRC101_DEPLOY_CACHE_SIZE", str(DEPLOYMENT_CACHE_SIZE)))
+
+# Market data cache size
+MARKET_DATA_CACHE_SIZE = int(os.environ.get("MARKET_DATA_CACHE_SIZE", "5000"))  # Cache for market data operations
+
+# Batch processing configurations
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "3000"))  # Process one full block per batch (~1.5MB raw data)
+MAX_BATCH_MEMORY = int(os.environ.get("MAX_BATCH_MEMORY", "250"))  # Conservative memory limit for processing
+
+# Counterparty API configuration
+# WORKAROUND: Set to True to use the 2-step approach (transactions + events separately)
+# This works around the verbose=true pagination bug in Counterparty API v11.0.1
+# When the upstream bug is fixed, set this to False to use the original verbose=true method
+# Bug details: https://github.com/CounterpartyXCP/counterparty-core/issues (see counterparty_api_error.md)
+CP_API_USE_VERBOSE_WORKAROUND = os.environ.get("CP_API_USE_VERBOSE_WORKAROUND", "true").lower() == "true"
+
+# Per-page limit for the verbose=true safe-pagination path
+# (`_fetch_block_transactions_verbose_safe_pagination`). The legacy default
+# was 25 to dodge the v11.0.1 verbose=true bug that triggered at limit>=26;
+# the bug is fixed in v11.1.0+ which prod runs. Bumping to 100 cuts the
+# per-block round-trip count ~4x for typical blocks while staying well
+# below the limit ceiling and preserving the existing fallback chain
+# (verbose-safe → 2-step workaround) on any per-page failure. Issue #756.
+try:
+    CP_VERBOSE_PAGINATION_LIMIT = int(os.environ.get("CP_VERBOSE_PAGINATION_LIMIT", "100"))
+except ValueError:
+    CP_VERBOSE_PAGINATION_LIMIT = 100
+
+# Issue #756 (item 3): skip the Counterparty API fetch for Bitcoin blocks that
+# carry NO Counterparty data at all. The predicate is the over-approximating
+# `TransactionInfo.has_counterparty_data` signal added in #754 — it is SOUND
+# (a strict over-approximation: it never reports "no CP data" when CP data is
+# present), so skipping a block it marks CP-free can never drop a real CP
+# issuance and therefore can never perturb MAX(stamp)+1 numbering.
+#
+# This is consensus-affecting, so it ships **default OFF** (behavior-neutral on
+# merge). It is enabled explicitly for the validating differential reindex —
+# run once ON, once OFF, and require byte-identical hashes at every checkpoint
+# (== prod) before the default is flipped on in a follow-up.
+CP_SKIP_NO_COUNTERPARTY_BLOCKS = os.environ.get("CP_SKIP_NO_COUNTERPARTY_BLOCKS", "false").lower() == "true"
+
+# Production-optimized batch sizes for database operations
+# Larger batches reduce network round-trips to RDS - optimized defaults for production
+DB_TRANSACTION_BATCH_SIZE = int(os.environ.get("DB_TRANSACTION_BATCH_SIZE", "15000"))  # Optimized for RDS
+DB_BALANCE_BATCH_SIZE = int(os.environ.get("DB_BALANCE_BATCH_SIZE", "20000"))  # Optimized for RDS
+DB_SRC20_BATCH_SIZE = int(os.environ.get("DB_SRC20_BATCH_SIZE", "8000"))  # Optimized for RDS
+DB_COLLECTION_BATCH_SIZE = int(os.environ.get("DB_COLLECTION_BATCH_SIZE", "3000"))  # Optimized for RDS
+DB_REBUILD_BATCH_SIZE = int(os.environ.get("DB_REBUILD_BATCH_SIZE", "8000"))  # Optimized for RDS
+
+# Memory thresholds
+MEMORY_WARNING_THRESHOLD = float(os.environ.get("MEMORY_WARNING_THRESHOLD", "70.0"))  # Early warning at 70%
+MAX_MEMORY_PERCENT = float(os.environ.get("MAX_MEMORY_PERCENT", "80.0"))  # Critical at 80%
+
+# Debug flags
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+DEBUG_SKIP_REBUILD_BALANCES = os.getenv("DEBUG_SKIP_REBUILD_BALANCES", "false").lower() == "true"
+DEBUG_PROFILING = os.getenv("DEBUG_PROFILING", "false").lower() == "true"
+DISABLE_RUST_PARSER = os.environ.get("DISABLE_RUST_PARSER", "False").lower() == "true"
+DEBUG_VALIDATION = os.getenv("DEBUG_VALIDATION", "false").lower() == "true"
+# Mode for the every-1000-block inline consensus check (consensus-neutral; validation tooling only).
+# Only consulted when DEBUG_VALIDATION is enabled.
+#   "db"        -> heavy dev-vs-prod DB diff via tools/compare_tables.py (DEFAULT; preserves prior behavior)
+#   "reference" -> lightweight file-based check against snapshots/reference_hashes.json (no prod-DB dependency)
+#   "both"      -> run both paths and require BOTH to pass
+VALIDATION_MODE = os.getenv("VALIDATION_MODE", "db").lower()
+
+# Structured per-block performance logging (off by default, consensus-neutral).
+# When enabled, the follow() loop appends one JSON object per block to
+# PERF_LOG_PATH with per-phase timings for reproducible perf comparison.
+PERF_LOG = os.environ.get("PERF_LOG", "false").lower() == "true"
+PERF_LOG_PATH = os.environ.get("PERF_LOG_PATH", "perf_log.jsonl")
+
+# Consensus error handling
+MAX_CONSENSUS_RETRIES = int(os.environ.get("MAX_CONSENSUS_RETRIES", "3"))  # Maximum retries for consensus hash mismatches
+
+# Market Data Configuration
+ENABLE_MARKET_DATA_SCHEDULER = os.getenv("ENABLE_MARKET_DATA_SCHEDULER", "false").lower() == "true"
+
+# Single source of truth for the sales-history catchup toggle. Both the sales
+# history processor and the market-data job scheduler read this value so their
+# behavior can never diverge. Public-safe default: disabled (prod sets it
+# explicitly via the ENABLE_SALES_HISTORY_CATCHUP env var).
+ENABLE_SALES_HISTORY_CATCHUP = os.environ.get("ENABLE_SALES_HISTORY_CATCHUP", "false").lower() == "true"
+
+# Logging display configuration
+# Options: "compact", "enhanced", "detailed", "flashy"
+LOG_DISPLAY_MODE = os.environ.get("LOG_DISPLAY_MODE", "enhanced")
+
+# Auto-optimize logging for tip processing (reduces overhead when caught up)
+LOG_AUTO_OPTIMIZE_TIP = os.environ.get("LOG_AUTO_OPTIMIZE_TIP", "true").lower() == "true"
+
+STORE_FILES = os.environ.get("STORE_FILES", "true").lower() == "true"
+
+# env vars to be set in docker, or locally if connecting to local nodes
+RPC_USER: Optional[str] = os.environ.get("RPC_USER", "rpc")
+RPC_PASSWORD: Optional[str] = os.environ.get("RPC_PASSWORD", "rpc")
+RPC_IP: Optional[str] = os.environ.get("RPC_IP", "127.0.0.1")
+RPC_PORT: Optional[str] = os.environ.get("RPC_PORT", "8332")
+# `os.environ.get("RPC_TLS", False)` returns the string "false" when the
+# var is set to "false" — truthy, silently switches to https → hang.
+RPC_TLS = os.environ.get("RPC_TLS", "").lower() in ("1", "true", "yes", "on")
+
+# ZMQ Configuration
+ZMQ_HOST = os.environ.get("ZMQ_HOST", "127.0.0.1")
+# Default ZMQ ports for different networks
+ZMQ_PORT_MAINNET_TX = os.environ.get("ZMQ_PORT_MAINNET_TX", "9332")
+ZMQ_PORT_MAINNET_BLOCK = os.environ.get("ZMQ_PORT_MAINNET_BLOCK", "9333")
+ZMQ_PORT_TESTNET_TX = os.environ.get("ZMQ_PORT_TESTNET_TX", "19332")
+ZMQ_PORT_TESTNET_BLOCK = os.environ.get("ZMQ_PORT_TESTNET_BLOCK", "19333")
+ZMQ_PORT_REGTEST_TX = os.environ.get("ZMQ_PORT_REGTEST_TX", "29332")
+ZMQ_PORT_REGTEST_BLOCK = os.environ.get("ZMQ_PORT_REGTEST_BLOCK", "29333")
+
+# These will be set based on network type
+ZMQ_TX_PORT: int = int(ZMQ_PORT_MAINNET_TX)
+ZMQ_BLOCK_PORT: int = int(ZMQ_PORT_MAINNET_BLOCK)
+ZMQ_NOTIFICATION_DELAY = float(os.environ.get("ZMQ_NOTIFICATION_DELAY", "5.0"))  # Delay in seconds after ZMQ notification
+
+# CP-readiness gate (issue #821): how long the indexer waits for Counterparty to
+# finish processing a block at chain tip before proceeding. The ZMQ tip path now
+# actively re-polls the SAME pending block (processing is strictly in-order, so
+# this is safe) instead of deferring to the next ZMQ notification, so a transient
+# CP parse spike no longer costs a full block interval. The per-attempt window was
+# a fixed 25s, below observed real spikes (35s, 164s); it is now 60s and bounded
+# by an overall re-poll cap so a genuinely stuck CP still surfaces. Keep the
+# re-poll interval modest (>= a couple seconds): the CP node is shared.
+CP_READY_MAX_WAIT = float(os.environ.get("CP_READY_MAX_WAIT", "60.0"))  # per-attempt wait window (was a fixed 25s)
+CP_READY_REPOLL_INTERVAL = float(os.environ.get("CP_READY_REPOLL_INTERVAL", "5.0"))  # gap between re-poll attempts
+CP_READY_REPOLL_MAX = float(os.environ.get("CP_READY_REPOLL_MAX", "300.0"))  # overall bound so a stuck CP still surfaces
+
+# CP RPC Configuration
+# Configuration hierarchy (first non-empty wins):
+# 1. CP_NODE_POOL - Advanced: comma-separated list of name::url pairs for multiple nodes
+# 2. CP_PRIMARY_NODE_URL + CP_FALLBACK_NODE_URL - Intermediate: explicit primary/fallback
+# 3. CP_RPC_URL - Legacy/Default: single node URL (auto-generates a fallback)
+# 4. Default: public API + local fallback
+CP_RPC_URL = os.environ.get("CP_RPC_URL")
+CP_PRIMARY_NODE_URL = os.environ.get("CP_PRIMARY_NODE_URL")
+CP_FALLBACK_NODE_URL = os.environ.get("CP_FALLBACK_NODE_URL")
+CP_NODE_POOL = os.environ.get("CP_NODE_POOL")
+
+# Parse node pool if provided
+parsed_nodes = []
+if CP_NODE_POOL:
+    # Parse format: node1::url1,node2::url2,node3::url3
+    for node_spec in CP_NODE_POOL.split(","):
+        node_spec = node_spec.strip()
+        if "::" in node_spec:
+            name, url = node_spec.split("::", 1)
+            parsed_nodes.append({"name": name.strip(), "url": url.strip()})
+        else:
+            logger.warning(f"Invalid node specification in CP_NODE_POOL: {node_spec}")
+    if parsed_nodes:
+        logger.info(f"Using CP_NODE_POOL with {len(parsed_nodes)} nodes")
+
+# Fall back to primary/fallback URLs if no pool
+if not parsed_nodes and (CP_PRIMARY_NODE_URL or CP_FALLBACK_NODE_URL):
+    if CP_PRIMARY_NODE_URL:
+        parsed_nodes.append({"name": "counterparty-primary", "url": CP_PRIMARY_NODE_URL})
+        logger.info(f"Using configured CP_PRIMARY_NODE_URL: {CP_PRIMARY_NODE_URL}")
+    if CP_FALLBACK_NODE_URL:
+        parsed_nodes.append({"name": "counterparty-backup", "url": CP_FALLBACK_NODE_URL})
+        logger.info(f"Using configured CP_FALLBACK_NODE_URL: {CP_FALLBACK_NODE_URL}")
+
+# Fall back to legacy CP_RPC_URL if no other config
+if not parsed_nodes and CP_RPC_URL:
+    parsed_nodes.append({"name": "counterparty-primary", "url": CP_RPC_URL})
+    logger.info(f"Using legacy CP_RPC_URL: {CP_RPC_URL}")
+    # Auto-add a fallback based on primary
+    if "127.0.0.1" in CP_RPC_URL or "localhost" in CP_RPC_URL:
+        parsed_nodes.append({"name": "counterparty-backup", "url": "https://api.counterparty.io:4000"})
+    else:
+        parsed_nodes.append({"name": "counterparty-backup", "url": "http://127.0.0.1:4000"})
+
+# Use defaults if nothing is configured
+if not parsed_nodes:
+    if os.environ.get("TESTING") != "1":
+        logger.warning("No Counterparty node URLs configured, using defaults")
+    parsed_nodes = [
+        {"name": "counterparty-public", "url": "https://api.counterparty.io:4000/"},
+        {"name": "counterparty-local", "url": "http://127.0.0.1:4000/"},
+    ]
+
+# Store the final parsed nodes for later use
+_CP_NODE_CONFIG = parsed_nodes
+
+# Set CP_RPC_URL for backward compatibility if not already set
+if not CP_RPC_URL and parsed_nodes:
+    # Use the first node's URL
+    CP_RPC_URL = parsed_nodes[0]["url"]
+
 CP_RPC_USER = os.environ.get("CP_RPC_USER", "rpc")
 CP_RPC_PASSWORD = os.environ.get("CP_RPC_PASSWORD", "rpc")
 CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
@@ -23,45 +236,165 @@ CP_AUTH = HTTPBasicAuth(CP_RPC_USER, CP_RPC_PASSWORD)
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", None)
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", None)
 
-AWS_S3_CLIENT = boto3.client(
-    "s3",
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-)
+try:
+    if boto3:
+        _s3_client_kwargs: Dict[str, str] = {}
+        if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+            _s3_client_kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
+            _s3_client_kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
+        # boto3's overloaded client() can't be resolved through **kwargs unpack;
+        # the call is valid (keys passed only when set, else default chain).
+        AWS_S3_CLIENT = boto3.client("s3", **_s3_client_kwargs)  # type: ignore[call-overload]
+    else:
+        AWS_S3_CLIENT = None
+except Exception:
+    AWS_S3_CLIENT = None
+
+# StampScan API configuration
+STAMPSCAN_BASE_URL = os.environ.get("STAMPSCAN_BASE_URL", "https://api.stampscan.xyz")
+
+# Kucoin API configuration. Default off: KuCoin delisted the SRC20 trading
+# pairs (STAMP-USDT, KEVIN-USDT) so live calls return "Unsupported trading
+# pair" and only pollute source_data with all-None entries. Set
+# ENABLE_KUCOIN_API=true to re-enable if KuCoin relists.
+ENABLE_KUCOIN_API = os.getenv("ENABLE_KUCOIN_API", "false").lower() == "true"
+
+# BitMart API configuration
+ENABLE_BITMART_API = os.getenv("ENABLE_BITMART_API", "false").lower() == "true"
 
 AWS_CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("AWS_CLOUDFRONT_DISTRIBUTION_ID", None)
 AWS_S3_BUCKETNAME = os.environ.get("AWS_S3_BUCKETNAME", None)
 AWS_S3_IMAGE_DIR = os.environ.get("AWS_S3_IMAGE_DIR", None)
+# S3 is enabled when storage is on and the bucket/dir targets are configured.
+# Credentials may come from explicit AWS_* keys OR the boto3 default chain
+# (EC2 instance role / ECS task role / SSO), so we DO NOT gate on key presence.
+AWS_S3_ENABLED = bool(STORE_FILES and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR)
 S3_OBJECTS: Dict[str, Dict[str, str]] = {}
-AWS_INVALIDATE_CACHE = os.environ.get("AWS_INVALIDATE_CACHE", None)
+AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
+USE_ASYNC_UPLOADS = os.environ.get("USE_ASYNC_UPLOADS", "1") == "1"
 
 # Define for Quicknode or similar remote nodes which use a token
-QUICKNODE_URL = os.environ.get("QUICKNODE_URL", None)
-RPC_TOKEN = os.environ.get("RPC_TOKEN", None)
-if QUICKNODE_URL and RPC_TOKEN:
-    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{QUICKNODE_URL}/{RPC_TOKEN}"
-elif RPC_TLS:
-    RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
-else:
-    RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_URL", None)  # Fallback to old URL for compatibility
+QUICKNODE_API_KEY: Optional[str] = os.environ.get("QUICKNODE_API_KEY", None)  # Used for Bearer token auth
 
-RPC_BATCH_SIZE = 50  # A 1 MB block can hold about 4200 transactions.
+# Strip any surrounding quotes from the URL if present
+if QUICKNODE_ENDPOINT:
+    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip("'\"")
+
+
+def _has_valid_standard_rpc() -> bool:
+    """Check if all standard RPC credentials are properly set."""
+    # Just check if all required values are present
+    return all(x is not None for x in [RPC_USER, RPC_PASSWORD, RPC_IP, RPC_PORT])
+
+
+# First check if Quicknode credentials are provided
+if QUICKNODE_ENDPOINT or QUICKNODE_API_KEY:
+    if not (QUICKNODE_ENDPOINT and QUICKNODE_API_KEY):
+        raise ConfigurationError(
+            "Both QUICKNODE_ENDPOINT and QUICKNODE_API_KEY must be set to use Quicknode. "
+            f"Got QUICKNODE_ENDPOINT={'set' if QUICKNODE_ENDPOINT else 'not set'}, "
+            f"QUICKNODE_API_KEY={'set' if QUICKNODE_API_KEY else 'not set'}"
+        )
+    # Log credential presence without exposing sensitive data
+    logger.info("Checking Quicknode credentials:")
+    logger.info(f"- QUICKNODE_URL/ENDPOINT present: {'Yes' if QUICKNODE_ENDPOINT else 'No'}")
+    logger.info(f"- QUICKNODE_API_KEY present: {'Yes' if QUICKNODE_API_KEY else 'No'}")
+    logger.info(f"- QUICKNODE_API_KEY length: {len(QUICKNODE_API_KEY) if QUICKNODE_API_KEY else 0}")
+
+    # Clean and format the URL
+    QUICKNODE_ENDPOINT = QUICKNODE_ENDPOINT.strip().rstrip("/")
+
+    # Ensure URL has proper scheme
+    if not QUICKNODE_ENDPOINT.startswith(("http://", "https://")):
+        QUICKNODE_ENDPOINT = f"https://{QUICKNODE_ENDPOINT}"
+
+    # Add trailing slash for consistent path handling
+    QUICKNODE_ENDPOINT = f"{QUICKNODE_ENDPOINT}/"
+
+    logger.info(f"Using formatted Quicknode endpoint: {QUICKNODE_ENDPOINT}")
+
+    # Format: https://sample-endpoint-name.network.quiknode.pro/api-key/
+    # Clean API key and include it in URL path for Quicknode
+    clean_api_key = QUICKNODE_API_KEY.strip("'\"")  # Remove any quotes
+    if not QUICKNODE_ENDPOINT.endswith(clean_api_key):
+        RPC_URL = f"{QUICKNODE_ENDPOINT}{clean_api_key}/"
+    else:
+        RPC_URL = QUICKNODE_ENDPOINT
+
+    # Don't use standard RPC credentials with Quicknode
+    RPC_IP = None
+    RPC_PORT = None
+    RPC_USER = None
+    RPC_PASSWORD = None
+
+    logger.debug("Using Quicknode URL format with API key in path")
+    logger.debug("Configuration values:")
+    logger.debug(f"- RPC_URL: {RPC_URL}")  # No need to mask URL since auth is via Bearer token
+    logger.debug(f"- RPC_IP: {RPC_IP}")
+    logger.debug(f"- RPC_PORT: {RPC_PORT}")
+    logger.debug(f"- RPC_USER: {RPC_USER}")
+    logger.debug("Quicknode configuration validated")
+else:
+    # If not using Quicknode, validate standard RPC credentials
+    if not _has_valid_standard_rpc():
+        raise ConfigurationError(
+            "Must provide either valid Quicknode credentials (QUICKNODE_ENDPOINT and QUICKNODE_API_KEY) "
+            "or valid standard RPC credentials (non-default values for RPC_USER, RPC_PASSWORD, "
+            "RPC_IP, and RPC_PORT). Using default values is not allowed."
+        )
+
+    # Construct RPC URL based on TLS setting
+    if RPC_TLS:
+        RPC_URL = f"https://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+        logger.debug(f"Using TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
+    else:
+        RPC_URL = f"http://{RPC_USER}:{RPC_PASSWORD}@{RPC_IP}:{RPC_PORT}"
+        logger.debug(f"Using non-TLS RPC URL: {RPC_URL.replace(RPC_PASSWORD or '', '****')}")
+    logger.info("Standard RPC configuration validated")
+
+# Modified URL masking that works for both authentication types
+if QUICKNODE_ENDPOINT and QUICKNODE_API_KEY:
+    # Mask API key in URL path using regex
+    masked_url = re.sub(r"(https?://[^/]+/)([^/]+)(/?)", r"\1****\3", RPC_URL)
+else:
+    # Standard credential masking
+    masked_url = RPC_URL.replace(RPC_PASSWORD or "", "****")
+
+logger.info(f"Final RPC URL format: {masked_url}")
+
+# RPC Tuning - can be overridden via environment variables to handle node overload
+RPC_BATCH_SIZE = int(os.environ.get("RPC_BATCH_SIZE", 75))  # Batch size for RPC calls (reduce if getting 503s)
 
 # Add new constants for the V2 CP API endpoints
-XCP_V2_NODES = [
-    {
-        "name": "stampchain.io",
-        "url": "https://k6e0ufzq8h.execute-api.us-east-1.amazonaws.com/beta/counterpartyproxy/v2",
-    },
-    {
-        "name": "counterparty.io",
-        "url": "https://api.counterparty.io:4000/v2",
-    },
-]
+# Build XCP_V2_NODES from the parsed node configuration
+XCP_V2_NODES = []
+for node in _CP_NODE_CONFIG:
+    # Ensure URL ends with /v2 for the V2 API
+    url = node["url"].rstrip("/").replace("/api/", "/")
+    if not url.endswith("/v2"):
+        url = f"{url}/v2"
+
+    XCP_V2_NODES.append(
+        {
+            "name": node["name"],
+            "url": url,
+        }
+    )
+
+# Also create NODES for compatibility with check_node_versions
+NODES = XCP_V2_NODES.copy()
+
+# TODO(reinamora137): check versions of both endpoints, add tracking for validated indexes or reparses on each.
+
+logger.info("XCP V2 Node Configuration:")
+for node in XCP_V2_NODES:
+    logger.info(f"  - {node['name']}: {node['url']}")
 
 TRANSACTIONS_TABLE = "transactions"
 BLOCKS_TABLE = "blocks"
 STAMP_TABLE = "StampTableV4"
+STAMP_VIEWS_TABLE = "stamp_views"
 SRC20_TABLE = "SRC20"
 SRC20_VALID_TABLE = "SRC20Valid"
 SRC20_BALANCES_TABLE = "balances"
@@ -72,9 +405,19 @@ SRC101_PRICE_TABLE = "src101price"
 SRC101_OWNERS_TABLE = "owners"
 SRC101_RECIPIENTS_TABLE = "recipients"
 
+# Market Data Cache Tables
+STAMP_MARKET_DATA_TABLE = "stamp_market_data"
+STAMP_HOLDER_CACHE_TABLE = "stamp_holder_cache"
+MARKET_DATA_SOURCES_TABLE = "market_data_sources"
+SRC20_MARKET_DATA_TABLE = "src20_market_data"
+COLLECTION_MARKET_DATA_TABLE = "collection_market_data"
+
 DOMAINNAME = os.environ.get("DOMAINNAME", "stampchain.io")
 SUPPORTED_SUB_PROTOCOLS = ["SRC-721", "SRC-20", "SRC-101"]
 INVALID_BTC_STAMP_SUFFIX = ["plain", "octet-stream", "js", "css", "x-empty", "json"]
+
+# Pipeline Configuration
+CP_FALLBACK_MODE = os.environ.get("CP_FALLBACK_MODE", "true").lower() == "true"  # Enable fallback mode when CP nodes fail
 
 CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transaction on counterparty
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty
@@ -82,30 +425,34 @@ BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP
 BTC_SRC20_OLGA_BLOCK: int = 865000  # block height of first SRC-20 with P2WSH OLGA encoding
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 
-CP_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101
+BTC_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101
 BTC_SRC101_IMG_OPTIONAL_BLOCK: int = 872200
+BTC_SRC101_OLGA_BLOCK: int = 940000  # P2WSH/OLGA encoding for SRC-101 (~March 2026)
 
-CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - IGNORE ALL SRC-20 on CP AFTER THIS BLOCK
+CP_SRC20_END_BLOCK: int = 796000  # The last SRC-20 on CP  - We IGNORE ALL SRC-20 on counterparty AFTER THIS BLOCK
 CP_BMN_FEAT_BLOCK_START: int = 815130  # BMN audio file support
-CP_P2WSH_FEAT_BLOCK_START: int = 833000  # OLGA / P2WSH transactions
+CP_P2WSH_FEAT_BLOCK_START: int = 833000  # OLGA / P2WSH transactions enabled on stamps
 CP_SUBASSET_FEAT_BLOCK_START: int = 866000  # Subasset no longer require XCP fees
 
 # Consensus changes
 STRIP_WHITESPACE: int = 797200
 STOP_BASE64_REPAIR: int = 784550
+SVG_GZIP_DETECTION_V2: int = 999999  # Block height where new SVG gzip detection method activates
+ENHANCED_MIME_DETECTION: int = 999999  # Block height where enhanced MIME detection for SVG activates
 
-VERSION_MAJOR: int
-VERSION_MINOR: int
-VERSION_REVISION: int
-VERSION_RELEASE: str
-VERSION_BUILD: int
+
+VERSION_MAJOR: Optional[int]
+VERSION_MINOR: Optional[int]
+VERSION_REVISION: Optional[int]
+VERSION_RELEASE: Optional[str]
+VERSION_BUILD: Optional[int]
 BACKEND_NAME: str = "bitcoincore"
 BACKEND_CONNECT: str = "localhost"
 BACKEND_PORT: int = 8332
-BACKEND_SSL: bool = False
+BACKEND_SSL: bool = True
 BACKEND_SSL_NO_VERIFY: bool = False
 BACKEND_POLL_INTERVAL: float = 2.0
-FORCE: bool = False
+FORCE: bool = os.environ.get("FORCE", "false").lower() == "true"
 PREFIX: bytes = b"stamp:"
 CP_PREFIX: bytes = b"CNTRPRTY"
 BLOCK_FIRST: int = 0
@@ -115,7 +462,7 @@ LOG: Optional[str] = None
 REGTEST: bool = False
 CUSTOMNET: bool = False
 CHECKDB: bool = False
-TESTNET = os.environ.get("TESTNET", None)
+TESTNET: Optional[str] = os.environ.get("TESTNET", None)
 
 # Define additional constants used in server.py
 DEFAULT_BACKEND_PORT: int = 8332
@@ -129,11 +476,56 @@ BLOCK_FIRST_REGTEST: int = 0
 STAMPS_NAME: str = "stamps"
 APP_NAME: str = "app"
 
+# Load retry and rate limit settings from environment with validation - optimized for production
+CP_RPC_RETRY_COUNT = int(os.environ.get("CP_RPC_RETRY_COUNT", "5"))  # Increased for RDS resilience
+CP_RPC_RETRY_DELAY = int(os.environ.get("CP_RPC_RETRY_DELAY", "3"))  # Increased for RDS resilience
+CP_RPC_TIMEOUT = int(os.environ.get("CP_RPC_TIMEOUT", "45"))  # Increased for RDS latency
+CP_MAX_RETRIES = int(os.environ.get("CP_MAX_RETRIES", "5"))
+CP_BASE_DELAY = int(os.environ.get("CP_BASE_DELAY", "1"))
+CP_BATCH_SIZE = int(os.environ.get("CP_BATCH_SIZE", "75"))  # Increased for better throughput
+
+# Per-node request budgets (requests/second). The public Counterparty
+# endpoint's actual rate-limit policy isn't published, and the 429s we
+# observe appear to originate at the CDN/edge layer (HTML response bodies,
+# no JSON error envelope). Defaults are intentionally conservative; tune
+# up in prod after observing 429 rates and Retry-After header values.
+CP_PUBLIC_API_LIMIT = float(os.environ.get("CP_PUBLIC_API_LIMIT", "5"))  # req/s when hitting api.counterparty.io
+CP_LOCAL_NODE_LIMIT = float(os.environ.get("CP_LOCAL_NODE_LIMIT", "50"))  # req/s when hitting a local CP node
+# Cap on concurrent in-flight CP requests across all worker tasks. Without
+# this, asyncio.gather() in _fetch_blocks_range_async can burst 100+
+# simultaneous fetches during initial sync.
+CP_MAX_CONCURRENT = int(os.environ.get("CP_MAX_CONCURRENT", "4"))
+# Testing override: when true, force-route every CP call to the public
+# api.counterparty.io endpoint regardless of local-node health. Used to
+# validate rate-limit behavior in non-prod environments.
+FORCE_PUBLIC_CP_API = os.environ.get("FORCE_PUBLIC_CP_API", "false").lower() == "true"
+
+
 SRC_VALIDATION_API1 = "https://www.okx.com/fullnode/src20/src/rpc/api/v1/reconciliation/balances_hash?block_height="
 SRC_VALIDATION_API2 = (
     "https://pkizh327c7.execute-api.us-west-2.amazonaws.com/prod/external/balanceHash?blockIndex={block_index}&secret={secret}"
 )
-SRC_VALIDATION_SECRET_API2 = os.environ.get("SRC_VALIDATION_SECRET_API2", None)
+SRC_VALIDATION_SECRET_API2: Optional[str] = os.environ.get("SRC_VALIDATION_SECRET_API2", None)
+
+# HTTP timeout (seconds) for each stampscan request inside fetch_api_ledger_data.
+try:
+    STAMPSCAN_REQUEST_TIMEOUT = int(os.environ.get("STAMPSCAN_REQUEST_TIMEOUT", "15"))
+except ValueError:
+    STAMPSCAN_REQUEST_TIMEOUT = 15
+
+# Depth of the startup chain-integrity check (issue #779). On every indexer
+# start, the last N stored block_hash values are compared against bitcoind's
+# canonical chain. If any mismatch is found the indexer rolls back to the
+# divergence point - 1 and resumes from there. Set to 0 to disable (not
+# recommended in production — this is defense in depth against post-crash
+# stale-row scenarios like the 945,189 incident from 2026-04-15).
+try:
+    STARTUP_CHAIN_INTEGRITY_DEPTH = int(os.environ.get("STARTUP_CHAIN_INTEGRITY_DEPTH", "100"))
+except ValueError:
+    STARTUP_CHAIN_INTEGRITY_DEPTH = 100
+
+# Enable background validation of SRC-20 blocks processed with FORCE=True
+ENABLE_SRC20_BACKGROUND_VALIDATION = bool(os.environ.get("ENABLE_SRC20_BACKGROUND_VALIDATION", "true").lower() == "true")
 
 BURNKEYS = [
     "022222222222222222222222222222222222222222222222222222222222222222",
@@ -235,7 +627,7 @@ TICK_PATTERN_SET = UNICODE_SET.union(CHAR_SET)
 
 
 # Versions
-VERSION_STRING = "1.8.26+canary.6"
+VERSION_STRING = "1.8.26+canary.354"
 
 
 def update_version_globals(version_string: str):
@@ -262,9 +654,7 @@ def update_version_globals(version_string: str):
 update_version_globals(VERSION_STRING)
 
 
-def software_version():
-    logger.warning("Software version: {}.".format(VERSION_STRING))
-
+VERSION_CHECK_INTERVAL = int(os.environ.get("VERSION_CHECK_INTERVAL", "300"))  # 5 min default
 
 BTC_NAME = "Bitcoin"
 STAMPS_NAME = "btc_stamps"
@@ -282,10 +672,8 @@ BLOCK_FIRST_REGTEST = 0
 
 DEFAULT_REQUESTS_TIMEOUT = 20  # 20 seconds
 
-BACKEND_RAW_TRANSACTIONS_CACHE_SIZE = 20000
-BACKEND_RPC_BATCH_NUM_WORKERS = 6
-
-from typing import Dict, List, Union
+# Number of concurrent workers for RPC batch processing (reduce if getting 503s)
+BACKEND_RPC_BATCH_NUM_WORKERS = int(os.environ.get("BACKEND_RPC_BATCH_NUM_WORKERS", 6))
 
 LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[bool]]]] = [
     {
@@ -407,3 +795,12 @@ LEGACY_COLLECTIONS: List[Dict[str, Union[str, List[str], List[int], Optional[boo
         "stamps": [8, 9, 10, 11, 31, 32, 33, 34, 35, 36, 38, 39, 40, 329, 330, 330, 16690, 16691, 16692],
     },
 ]
+
+# Bootstrap file GitHub URLs - allows loading bootstrap data directly from GitHub
+BOOTSTRAP_GITHUB_BASE_URL = os.environ.get(
+    "BOOTSTRAP_GITHUB_BASE_URL", "https://raw.githubusercontent.com/stampchain-io/btc_stamps/dev/indexer/bootstrap"
+)
+BOOTSTRAP_CREATOR_CSV_URL = os.environ.get("BOOTSTRAP_CREATOR_CSV_URL", f"{BOOTSTRAP_GITHUB_BASE_URL}/creator.csv")
+BOOTSTRAP_SRCBACKGROUND_CSV_URL = os.environ.get(
+    "BOOTSTRAP_SRCBACKGROUND_CSV_URL", f"{BOOTSTRAP_GITHUB_BASE_URL}/srcbackground.csv"
+)

@@ -33,19 +33,19 @@ def get_s3_objects(db, bucket_name, s3_client):
                 md5 = obj["ETag"].strip('"')
                 results[key] = {"key": key, "md5": md5}
 
-    logger.warning(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
+    logger.info(f"Checking for existing S3 objects in database: {bucket_name}/{config.AWS_S3_IMAGE_DIR}...")
     cursor = db.cursor()
     cursor.execute("SELECT path_key, md5 FROM s3objects")
-    results = cursor.fetchall() or {}
-    results = {row[0]: {"key": row[0], "md5": row[1]} for row in results}
+    db_results = cursor.fetchall() or []
+    results = {row[0]: {"key": row[0], "md5": row[1]} for row in db_results}
     cursor.close()
     if results:
-        logger.warning(f"Found {len(results)} existing S3 objects from database")
+        logger.info(f"Found {len(results)} existing S3 objects from database")
     else:
         logger.warning("No existing S3 objects found in database")
         paginator = s3_client.get_paginator("list_objects_v2")
 
-        logger.warning(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
+        logger.info(f"Fetching S3 objects from bucket: {bucket_name}/{config.AWS_S3_IMAGE_DIR}... please wait...")
 
         start_time = time.time()
         pages = list(
@@ -58,7 +58,7 @@ def get_s3_objects(db, bucket_name, s3_client):
         total_pages = len(pages)
         end_time = time.time()
         execution_time = end_time - start_time
-        print(f"Execution time: {execution_time} seconds for {total_pages} pages")
+        logger.info(f"Execution time: {execution_time} seconds for {total_pages} pages")
 
         results = {}
 
@@ -97,12 +97,18 @@ def update_s3_db_objects(db, filename, file_obj_md5):
 
         # Insert the new object
         cursor.execute(
-            "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)",
+            "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) "
+            "AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5",
             (id, s3_file_path, file_obj_md5),
         )
 
         cursor.close()
+        db.commit()  # IMPORTANT: Commit the transaction to release locks
+
+        # Update the in-memory cache
+        config.S3_OBJECTS[s3_file_path] = {"md5": file_obj_md5}
     except Exception as e:
+        db.rollback()  # Rollback on error
         logger.warning(f"ERROR: Unable to update the s3objects table. Error: {e}")
 
 
@@ -123,16 +129,18 @@ def add_s3_objects_to_db(db, s3_objects):
     try:
         cursor = db.cursor()
 
-        query = "INSERT IGNORE INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s)"
+        query = "INSERT INTO s3objects (id, path_key, md5) VALUES (%s, %s, %s) AS new_row ON DUPLICATE KEY UPDATE md5 = new_row.md5"
         values = [(key + obj["md5"], key, obj["md5"]) for key, obj in s3_objects.items()]
 
         # Execute the multi-insert operation
         cursor.executemany(query, values)
 
         cursor.close()
+        db.commit()  # IMPORTANT: Commit the transaction to release locks
 
         logger.info("S3 objects added to the database successfully")
     except Exception as e:
+        db.rollback()  # Rollback on error
         logger.warning(f"ERROR: Unable to add S3 objects to the database. Error: {e}")
 
 

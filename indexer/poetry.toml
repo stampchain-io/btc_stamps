@@ -1,0 +1,10 @@
+# Poetry configuration for Bitcoin Stamps project
+# This ensures consistent behavior across environments
+
+[virtualenvs]
+in-project = true
+
+# Documentation for Poetry version in use
+# Keep this value in sync with Dockerfile and CI configs
+[tool]
+poetry-version = "2.1.1" 

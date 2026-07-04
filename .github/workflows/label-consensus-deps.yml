@@ -1,0 +1,128 @@
+# Auto-label consensus-critical dependency PRs.
+#
+# WHY: Dependabot cannot set a per-group label (see .github/dependabot.yml, the
+# `consensus-critical` pip group + the `cargo` rust_parser ecosystem). Bumps on
+# the decode/filter/parse path can move the rolling consensus hashes
+# (txlist_hash / ledger_hash / messages_hash), so they must ride the Reparse
+# Consensus Validation gate and are never auto-merged or merged mid-release.
+# This workflow flags those PRs with the `consensus` label automatically.
+#
+# SECURITY: uses `pull_request_target`, which runs with the BASE branch's token
+# (able to write labels) — unlike the restricted token on Dependabot's own
+# `pull_request` runs. Because that token is privileged, this job NEVER checks
+# out or executes PR head code. It only inspects PR metadata (actor / head ref /
+# title) and the changed-file list via the API, then calls the labels API.
+name: Label consensus-critical deps
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+# Minimal privileges. `pull-requests: write` covers adding labels to a PR.
+# (Creating a brand-new repo label needs `issues: write`; the `consensus` label
+# already exists in the repo, so the create step below is best-effort only.)
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: label-consensus-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout of PR code. Metadata + labels API only.
+      - name: Evaluate PR and apply consensus label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const LABEL = 'consensus';
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+            const actor = (pr.user && pr.user.login) || '';
+            const headRef = (pr.head && pr.head.ref) || '';
+            const title = pr.title || '';
+
+            const isDependabot = actor === 'dependabot[bot]';
+
+            // Primary path: the isolated Dependabot `consensus-critical` pip
+            // group. Its branch is `dependabot/pip/indexer/consensus-critical-*`
+            // and its title reads `... bump the consensus-critical group ...`.
+            const isConsensusGroup =
+              /consensus-critical/i.test(headRef) ||
+              /consensus-critical group/i.test(title);
+
+            // Safety net: any PR (Dependabot or human) that touches the Rust
+            // parse core is consensus-adjacent by definition.
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: prNumber, per_page: 100,
+            });
+            const touchesRustParser = files.some((f) =>
+              f.filename.startsWith('indexer/src/rust_parser/'));
+
+            const shouldLabel =
+              (isDependabot && isConsensusGroup) || touchesRustParser;
+
+            core.info(
+              `actor=${actor} headRef=${headRef} ` +
+              `isDependabot=${isDependabot} isConsensusGroup=${isConsensusGroup} ` +
+              `touchesRustParser=${touchesRustParser} -> shouldLabel=${shouldLabel}`,
+            );
+
+            if (!shouldLabel) {
+              core.info('No consensus-critical signal; leaving PR unlabeled.');
+              return;
+            }
+
+            // Best-effort ensure the label exists. It already lives in the repo,
+            // so this normally short-circuits at getLabel. createLabel needs
+            // `issues: write`; if that is unavailable we warn rather than fail,
+            // since addLabels below still works for an existing label.
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: LABEL });
+            } catch (err) {
+              if (err.status === 404) {
+                try {
+                  await github.rest.issues.createLabel({
+                    owner, repo, name: LABEL, color: 'B60205',
+                    description:
+                      'Consensus-adjacent change — must pass the Reparse ' +
+                      'Consensus gate; never auto-merged or merged mid-release.',
+                  });
+                  core.info(`Created missing "${LABEL}" label.`);
+                } catch (createErr) {
+                  core.warning(
+                    `Could not create "${LABEL}" label ` +
+                    `(needs issues:write): ${createErr.message}`,
+                  );
+                }
+              } else {
+                throw err;
+              }
+            }
+
+            // Was the label already on the PR at event time? Drives idempotency
+            // of the one-time reminder comment (addLabels itself is a no-op for
+            // an already-applied label).
+            const already = (pr.labels || []).some((l) => l.name === LABEL);
+
+            await github.rest.issues.addLabels({
+              owner, repo, issue_number: prNumber, labels: [LABEL],
+            });
+            core.info(`Applied "${LABEL}" to PR #${prNumber}.`);
+
+            // Optional one-time reminder on newly-labeled Dependabot PRs.
+            if (!already && isDependabot) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: prNumber,
+                body:
+                  'Consensus-critical dependency — must pass the Reparse ' +
+                  'Consensus gate (txlist + ledger identical) before merge. ' +
+                  'Do not auto-merge or merge mid-release. See CONTRIBUTING.md ' +
+                  '"The consensus rule".',
+              });
+              core.info(`Posted one-time reminder comment on PR #${prNumber}.`);
+            }

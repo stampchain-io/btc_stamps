@@ -53,10 +53,33 @@ class DBSimulator:
             return self.simulation_data.get("transactions", [])
         elif "blocks" in query:
             return self.simulation_data.get("blocks", [])
-        elif "SRC20Valid" in query and "DEPLOY" in query:
-            self.src20valid_results = self.simulation_data.get("SRC20Valid", [])
-            self.src20valid_query = query
-            self.src20valid_params = params
+        elif "SRC20Valid" in query:
+            if params and len(params) >= 1:
+                tick = params[0]
+                # First check if token is deployed
+                deployed = False
+                deploy_data = None
+                for entry in self.simulation_data.get("SRC20Valid", []):
+                    if entry["tick"].lower() == tick.lower() and entry["op"] == "DEPLOY":
+                        deployed = True
+                        deploy_data = entry
+                        break
+
+                if "DEPLOY" in query:
+                    # Handle deployment query
+                    if not deployed:
+                        return []
+                    return [(deploy_data["lim"], deploy_data["max"], deploy_data.get("deci", 18))]
+                elif "SUM(amt)" in query and "MINT" in query:
+                    # Handle total minted query - only calculate if token is deployed
+                    if not deployed:
+                        return []
+                    total_minted = 0
+                    for entry in self.simulation_data.get("SRC20Valid", []):
+                        if entry["tick"].lower() == tick.lower() and entry["op"] == "MINT" and entry.get("valid", 1) == 1:
+                            total_minted += entry["amt"] if entry["amt"] else 0
+                    return [(total_minted,)]
+            return []
         elif "srcbackground" in query:
             return None
         elif "MAX(stamp)" in query:
@@ -65,6 +88,17 @@ class DBSimulator:
                 return [(1000,)]
             else:
                 return [(max_stamp,)]
+        elif "balances" in query:
+            # Handle balance queries
+            if params and len(params) >= 2:
+                tick = params[0]
+                addresses = params[1:]
+                balances = []
+                for balance in self.simulation_data.get("balances", []):
+                    if balance["tick"].upper() == tick.upper() and balance["address"] in addresses:
+                        balances.append((balance["address"], balance["total_balance"], balance.get("locked_amt", 0)))
+                return balances
+            return []
         else:
             self.logger.info(f"Unsupported SELECT query in simulation: {query}")
             return None
@@ -82,11 +116,12 @@ class DBSimulator:
 
                 self.logger.info(f"fetchone db results: {self.execute_results}")
                 if caller_name == "get_src20_deploy_in_db":
-                    if self.src20valid_params[0] is not None:
-                        for result in self.src20valid_results:
-                            if result["tick"].upper() == self.src20valid_params[0].upper():
-                                return (result["lim"], result["max"], result["deci"])
-                    return (0, 0, 18)
+                    # For deployment queries, we need to check if the token exists and return None if it doesn't
+                    if not self.execute_results or len(self.execute_results) == 0:
+                        return None
+                    # Return the first result as a tuple
+                    result = self.execute_results[0]
+                    return result if isinstance(result, tuple) else (result,)
 
                 if self.execute_results:
                     result = self.execute_results.pop(0)
@@ -128,8 +163,8 @@ class DBSimulator:
                     self.logger.info(f"filtered_balances: {filtered_balances}")
                     return filtered_balances
 
-        result = self.simulation_data
-        self.simulation_data = []
+        result = self.execute_results if self.execute_results else []
+        self.execute_results = []
         return result
 
     def fetchmany(self, size):

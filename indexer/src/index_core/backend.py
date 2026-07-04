@@ -1,292 +1,677 @@
-import binascii
 import collections
 import concurrent.futures
-import hashlib
+import functools
+import gc
+import importlib
 import json
 import logging
+import os
+import threading
 import time
+from typing import Any, Dict, List, Optional
 
-import bitcoin as bitcoinlib
+import psutil
 import requests
-from bitcoin.core import CBlock
+from bitcoin.core import CBlock, CTransaction, x
+from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError, Timeout
+from urllib3.util.retry import Retry
+from urllib3.util.ssl_ import create_urllib3_context
 
 import config
 import index_core.util as util
+from exceptions import BackendRPCError
+from index_core.caching import LRUCache, cache_manager
+from index_core.memory_manager import memory_manager
+from index_core.parser import RUST_PARSER_AVAILABLE, Parser
 
+# Configure garbage collection for better performance
+gc.set_threshold(25000, 10, 10)  # Adjust primary threshold for less frequent collections
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
-raw_transactions_cache = util.DictCache(size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)  # used in getrawtransaction_batch()
 
+class Backend:
+    """Backend interface for Bitcoin RPC and transaction parsing."""
 
-class BackendRPCError(Exception):
-    pass
+    # Singleton instance
+    _instance = None
 
+    # Optional drop-in replacement. When set, every ``Backend()`` call returns
+    # this object instead of the real bitcoind-RPC singleton. This is the
+    # injection seam used by CI/tests to validate consensus against public
+    # endpoints with no local bitcoind (see indexer/ci/public_backend.py).
+    #
+    # In production this is always None and the branch below is a no-op, so the
+    # real singleton is returned exactly as before. The override is resolved
+    # lazily from the BTC_STAMPS_BACKEND_OVERRIDE env var ("module:ClassName")
+    # on the FIRST instantiation, so even import-time module-level
+    # ``backend_instance = Backend()`` globals pick it up — no import-order
+    # fragility and no per-module monkey-patching. Production code never imports
+    # the override module unless the env var explicitly points at it.
+    _override = None
 
-def rpc_call(payload):
-    """Calls to bitcoin core and returns the response"""
-    url = config.RPC_URL
-    response = None
-    TRIES = 12
+    def __new__(cls):
+        """Return the override if one is installed, else the real singleton."""
+        if cls._override is None:
+            spec = os.environ.get("BTC_STAMPS_BACKEND_OVERRIDE")
+            if spec:
+                mod_name, _, cls_name = spec.partition(":")
+                if not cls_name:
+                    raise ValueError(f"BTC_STAMPS_BACKEND_OVERRIDE must be 'module:ClassName', got {spec!r}")
+                cls._override = getattr(importlib.import_module(mod_name), cls_name)()
+        if cls._override is not None:
+            # Returning a non-Backend instance means __init__ is NOT invoked on
+            # it (CPython contract), so the override is used as-is.
+            return cls._override
+        if cls._instance is None:
+            cls._instance = super(Backend, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
-    for i in range(TRIES):
+    def __init__(self):
+        """Initialize the backend with caches and parser."""
+        # Only initialize once
+        if hasattr(self, "_initialized") and self._initialized:
+            return
+
+        # Initialize caches
+        self.raw_transactions_cache = LRUCache[Any](max_size=config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
+        self.deserialized_tx_cache = LRUCache[Any](max_size=config.DESERIALIZED_TX_CACHE_SIZE)
+
+        # Block count cache with small size (we only need the latest)
+        self.blockcount_cache = LRUCache[Any](max_size=1)
+        self.blockcount_cache_ttl = 5.0  # 5 seconds TTL
+        self.last_blockcount_time = 0.0
+
+        self.monotonic_call_id = 0
+
+        # Memory management settings
+        self._process = psutil.Process()
+        self._memory_threshold = 85.0  # Memory threshold percentage
+        self._last_gc_time = 0
+        self._gc_interval = 30  # Minimum seconds between full GC
+        self._batch_chunk_size = 100
+        self._gc_chunk_interval = 5
+
+        # Register caches with cache manager
+        cache_manager.register_cache("raw_transactions", self.raw_transactions_cache)
+        cache_manager.register_cache("deserialized_tx", self.deserialized_tx_cache)
+        cache_manager.register_cache("blockcount", self.blockcount_cache)
+
+        # Initialize parser
+        self._parser = None
+        if RUST_PARSER_AVAILABLE and not config.DISABLE_RUST_PARSER:
+            try:
+                self._parser = Parser()
+                logger.info("Using high-performance Rust parser with optimized GC")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Rust parser: {e}. Falling back to Python parser")
+
+        # Initialize memory manager
+        self.memory_manager = memory_manager
+
+        # Initialize optimized SSL session.
+        # ``_session_lock`` guards rotation of the pooled session so that a
+        # bitcoind restart (which leaves stale CLOSE-WAIT sockets in the
+        # keep-alive pool) is healed by exactly one reconnect rather than every
+        # concurrent batch worker tearing the pool down at once.
+        self._session_lock = threading.Lock()
+        self._session = self._create_optimized_session()
+
+        self._initialized = True
+
+    @staticmethod
+    def _get_rpc_timeout():
+        """Return the (connect, read) timeout tuple for every bitcoind RPC call.
+
+        A bounded read timeout is what lets a wedged/half-open socket raise
+        instead of blocking the indexer indefinitely. Both bounds are
+        configurable via env (``RPC_CONNECT_TIMEOUT`` / ``RPC_TIMEOUT``) with the
+        previous hard-coded ``(5, 30)`` as the safe default.
+        """
+        connect_timeout = float(os.environ.get("RPC_CONNECT_TIMEOUT", 5))
+        read_timeout = float(os.environ.get("RPC_TIMEOUT", 30))
+        return (connect_timeout, read_timeout)
+
+    def _reset_session(self, stale_session=None):
+        """Drop the current RPC session and reconnect on a fresh connection pool.
+
+        After a bitcoind/backend restart the keep-alive pool can hold stale,
+        half-open (CLOSE-WAIT) sockets; reusing one makes the next RPC call hang.
+        Closing the session reaps those sockets and the replacement pool dials
+        brand-new connections, so the indexer self-heals without a manual
+        restart.
+
+        ``stale_session`` lets a caller pass the exact session it failed on so
+        that, under concurrent batch workers, only the first observer rotates the
+        pool and later threads (already holding the fresh session) skip the redundant reset.
+        """
+        with self._session_lock:
+            if stale_session is not None and stale_session is not self._session:
+                # Another worker already rotated the pool; nothing stale to drop.
+                return
+            old_session = getattr(self, "_session", None)
+            if old_session is not None:
+                try:
+                    old_session.close()
+                except Exception as e:
+                    logger.debug(f"Error closing stale RPC session: {e}")
+            self._session = self._create_optimized_session()
+            logger.warning("Reset bitcoind RPC session: dropped stale pooled connections and reconnecting.")
+
+    def _should_collect_garbage(self, force_check: bool = False) -> bool:
+        """
+        Determine if garbage collection should be performed based on memory usage
+        and time since last collection.
+        """
         try:
-            response = requests.post(
-                url,
-                data=json.dumps(payload),
-                headers={"content-type": "application/json"},
-                verify=(not config.BACKEND_SSL_NO_VERIFY),
-                timeout=config.REQUESTS_TIMEOUT,
-            )
-            if i > 0:
-                logger.debug("Successfully connected.")
-            break
-        except (Timeout, ConnectionError):
-            logger.debug("Could not connect to backend at `{}`. (Try {}/{})".format(util.clean_url_for_log(url), i + 1, TRIES))
-            time.sleep(5)
-    if response is None:
-        if config.TESTNET:
-            network = "testnet"
-        elif config.REGTEST:
-            network = "regtest"
+            current_time = time.time()
+            if current_time - self._last_gc_time < self._gc_interval and not force_check:
+                return False
+
+            current_memory = self._process.memory_percent()
+            if current_memory > self._memory_threshold or force_check:
+                counts = gc.get_count()
+                if counts[0] > 10000 or counts[1] > 1000 or counts[2] > 100:
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Memory check failed: {e}")
+            return force_check
+
+    def _perform_garbage_collection(self):
+        """Perform optimized garbage collection."""
+        try:
+            mem_before = self._process.memory_percent()
+
+            # Perform generational garbage collection
+            gen2_count = gc.get_count()[2]
+            if gen2_count > 100:
+                # Full collection needed
+                gc.collect()
+            else:
+                # Collect only younger generations
+                gc.collect(0)
+                if gc.get_count()[1] > 1000:
+                    gc.collect(1)
+
+            self._last_gc_time = time.time()
+
+            # Log memory change if significant
+            mem_after = self._process.memory_percent()
+            if mem_before - mem_after > 5.0:
+                logger.debug(f"GC freed memory: {mem_before:.1f}% -> {mem_after:.1f}%")
+
+        except Exception as e:
+            logger.warning(f"Garbage collection error: {e}")
+            gc.collect()  # Fallback to full collection
+
+    def _create_optimized_session(self):
+        """Create a requests session with optimized SSL configuration"""
+        session = requests.Session()
+
+        # Configure SSL context with modern settings
+        ssl_context = create_urllib3_context()
+        ssl_options = ssl_context.options
+        ssl_options |= 0x4  # OP_LEGACY_SERVER_CONNECT
+        ssl_context.options = ssl_options
+
+        # Optimized cipher suite and TLS settings
+        ssl_context.set_ciphers("ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:TLS_AES_128_GCM_SHA256")
+        ssl_context.post_handshake_auth = True
+
+        # Enhanced connection pooling configuration
+        # Default to 1.5x multiplier for better performance with single indexer
+        pool_multiplier = float(os.environ.get("RPC_POOL_MULTIPLIER", 1.5))
+        pool_max_size = int(os.environ.get("RPC_POOL_MAX_SIZE", 75))
+
+        adapter = HTTPAdapter(
+            max_retries=Retry(
+                total=2,
+                backoff_factor=1.0,
+                status_forcelist=[500, 502, 504],
+                allowed_methods=frozenset(["GET", "POST"]),
+                # Removed 503 from auto-retry list - handled manually in rpc_call
+            ),
+            pool_connections=int(config.BACKEND_RPC_BATCH_NUM_WORKERS * pool_multiplier),
+            pool_maxsize=pool_max_size,
+            pool_block=True,  # Wait for connections instead of failing
+        )
+
+        # Mount adapters for both HTTP and HTTPS
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        # Configure SSL verification
+        session.verify = not config.BACKEND_SSL_NO_VERIFY
+        if config.BACKEND_SSL_NO_VERIFY:
+            logger.warning("WARNING: SSL certificate verification is DISABLED for Bitcoin RPC connections!")
+            logger.warning("This exposes the application to man-in-the-middle attacks.")
+            logger.warning("Only disable SSL verification in secure development environments.")
+
+            # Additional security check for production-like environments
+            rpc_url = getattr(config, "RPC_URL", "")
+            if "localhost" not in rpc_url and "127.0.0.1" not in rpc_url and not getattr(config, "DEBUG", False):
+                logger.error("SECURITY RISK: SSL verification disabled for remote Bitcoin RPC endpoint!")
+                logger.error(f"Remote endpoint detected: {rpc_url.split('@')[-1] if '@' in rpc_url else rpc_url}")
+                logger.error("This configuration is strongly discouraged for production deployments.")
+
+            session.ssl_context = None
         else:
-            network = "mainnet"
-        raise BackendRPCError(
-            """
-            Cannot communicate with backend at `{}`.
-            (server is set to run on {}, is backend?
-            """.format(
-                util.clean_url_for_log(url), network
-            )
-        )
-    elif response.status_code in (401,):
-        raise BackendRPCError(
-            "Authorization error connecting to {}: {} {}".format(
-                util.clean_url_for_log(url), response.status_code, response.reason
-            )
-        )
-    elif response.status_code not in (200, 500, 503):
-        raise BackendRPCError(f"{response.status_code} {response.reason}")
+            session.ssl_context = ssl_context
 
-    # Handle json decode errors
-    try:
-        response_json = response.json()
-    except json.decoder.JSONDecodeError as e:
-        raise BackendRPCError(
-            f"""
-            Received invalid JSON from backend with a response of:
-            {response.status_code} {response.reason} {e}
-            """
-        )
+        # Configure session-wide timeout (bounded so a stale socket raises
+        # instead of hanging the indexer forever)
+        session.request = functools.partial(session.request, timeout=self._get_rpc_timeout())
 
-    # Batch query returns a list
-    if isinstance(response_json, list):
-        return response_json
-    if "error" not in response_json.keys() or response_json["error"] is None:
-        return response_json["result"]
-    elif response_json["error"]["code"] == -5:  # RPC_INVALID_ADDRESS_OR_KEY
-        raise BackendRPCError("{} Is `txindex` enabled in {} Core?".format(response_json["error"], config.BTC_NAME))
-    elif response_json["error"]["code"] in [-28, -8, -2]:
-        # “Verifying blocks...” or “Block height out of range” or “The network does not appear to fully agree!“
-        logger.debug("Backend not ready. Sleeping for ten seconds.")
-        # If Bitcoin Core takes more than `sys.getrecursionlimit() * 10 = 9970`
-        # seconds to start, this’ll hit the maximum recursion depth limit.
-        time.sleep(10)
-        return rpc_call(payload)
-    else:
-        raise BackendRPCError("Error connecting to {}: {}".format(util.clean_url_for_log(url), response_json["error"]))
+        logger.debug("Created optimized session handling both HTTP/HTTPS with connection pooling")
+        return session
 
+    def rpc_call(self, payload):
+        """Calls to bitcoin core and returns the response"""
+        url = config.RPC_URL
+        response = None
+        TRIES = int(os.environ.get("RPC_MAX_RETRIES", 6))  # Configurable retry attempts
 
-def rpc(method, params):
-    payload = {
-        "method": method,
-        "params": params,
-        "jsonrpc": "2.0",
-        "id": 0,
-    }
-    return rpc_call(payload)
+        # Add validation and debug logging for Quicknode
+        if config.QUICKNODE_ENDPOINT and config.QUICKNODE_API_KEY:
+            logger.debug(f"Making Quicknode RPC call to: {util.clean_url_for_log(url)}")
+        else:
+            logger.debug(f"Making RPC call to: {util.clean_url_for_log(url)}")
 
+        if isinstance(payload, list):
+            logger.debug(f"Batch request with {len(payload)} payload={payload}")
+        else:
+            logger.debug(f"Method: {payload.get('method')}")
+            logger.debug(f"Params: {payload.get('params')}")
 
-def rpc_batch(request_list):
-    responses = collections.deque()
+        for i in range(TRIES):
+            try:
+                headers = {"content-type": "application/json"}
 
-    def make_call(chunk):
-        # send a list of requests to bitcoind to be executed
-        # note that this is list executed serially, in the same thread in bitcoind
-        # e.g. see: https://github.com/bitcoin/bitcoin/blob/master/src/rpcserver.cpp#L939
-        responses.extend(rpc_call(chunk))
+                # Authentication is handled via API key in URL path
+                logger.debug(f"Attempt {i + 1}/{TRIES} to connect to {util.clean_url_for_log(url)}")
 
-    chunks = util.chunkify(request_list, config.RPC_BATCH_SIZE)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=config.BACKEND_RPC_BATCH_NUM_WORKERS) as executor:
-        for chunk in chunks:
-            executor.submit(make_call, chunk)
-    return list(responses)
-
-
-def getblockcount():
-    return rpc("getblockcount", [])
-
-
-def getblockhash(blockcount):
-    return rpc("getblockhash", [blockcount])
-
-
-def getblock(block_hash, verbosity=False):
-    return rpc("getblock", [block_hash, verbosity])
-
-
-def getcblock(block_hash):
-    block_hex = getblock(block_hash)
-    return CBlock.deserialize(bytes.fromhex(block_hex))
-
-
-def getblockheader(block_hash):
-    """Fetches the block header for a given block hash."""
-    return rpc("getblockheader", [block_hash])
-
-
-def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
-    return getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing)[tx_hash]
-
-
-def deserialize(tx_hex):
-    return bitcoinlib.core.CTransaction.deserialize(binascii.unhexlify(tx_hex))
-
-
-def serialize(ctx):
-    return bitcoinlib.core.CTransaction.serialize(ctx)
-
-
-def get_tx_list(block_hash):
-    block_data = getblock(block_hash, 2)
-
-    tx_hash_list = []
-    raw_transactions = {}
-    for tx in block_data["tx"]:
-        tx_hash = tx["txid"]
-        tx_hash_list.append(tx_hash)
-        raw_transactions[tx_hash] = tx["hex"]
-
-    block_time = block_data["time"]
-    previous_block_hash = block_data.get("previousblockhash", None)
-    difficulty = block_data.get("difficulty", None)
-
-    return tx_hash_list, raw_transactions, block_time, previous_block_hash, difficulty
-
-
-GETRAWTRANSACTION_MAX_RETRIES = 2
-monotonic_call_id = 0
-
-
-def getrawtransaction_batch(txhash_list, verbose=False, skip_missing=False, _retry=0):
-    _logger = logger.getChild("getrawtransaction_batch")
-
-    if len(txhash_list) > config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE:
-        # don't try to load in more than BACKEND_RAW_TRANSACTIONS_CACHE_SIZE entries in a single call
-        txhash_list_chunks = util.chunkify(txhash_list, config.BACKEND_RAW_TRANSACTIONS_CACHE_SIZE)
-        txes = {}
-        for txhash_list_chunk in txhash_list_chunks:
-            txes.update(getrawtransaction_batch(txhash_list_chunk, verbose=verbose, skip_missing=skip_missing))
-        return txes
-
-    tx_hash_call_id = {}
-    payload = []
-    noncached_txhashes = set()
-
-    txhash_list = set(txhash_list)
-
-    # payload for transactions not in cache
-    for tx_hash in txhash_list:
-        if tx_hash not in raw_transactions_cache:
-            # call_id = binascii.hexlify(os.urandom(5)).decode('utf8') # Don't drain urandom
-            global monotonic_call_id
-            monotonic_call_id = monotonic_call_id + 1
-            call_id = "{}".format(monotonic_call_id)
-            payload.append(
-                {
-                    "method": "getrawtransaction",
-                    "params": [tx_hash, 1],
-                    "jsonrpc": "2.0",
-                    "id": call_id,
-                }
-            )
-            noncached_txhashes.add(tx_hash)
-            tx_hash_call_id[call_id] = tx_hash
-    # refresh any/all cache entries that already exist in the cache,
-    # so they're not inadvertently removed by another thread before we can consult them
-    # (this assumes that the size of the working set for any given workload doesn't exceed the max size of the cache)
-    for tx_hash in txhash_list.difference(noncached_txhashes):
-        raw_transactions_cache.refresh(tx_hash)
-
-    _logger.debug(
-        "getrawtransaction_batch: txhash_list size: {} / raw_transactions_cache size: {} / # getrawtransaction calls: {}".format(
-            len(txhash_list), len(raw_transactions_cache), len(payload)
-        )
-    )
-
-    # populate cache
-    if payload:
-        batch_responses = rpc_batch(payload)
-        for response in batch_responses:
-            if "error" not in response or response["error"] is None:
-                tx_hex = response["result"]
-                tx_hash = tx_hash_call_id[response["id"]]
-                raw_transactions_cache[tx_hash] = tx_hex
-            elif skip_missing and "error" in response and response["error"]["code"] == -5:
-                raw_transactions_cache[tx_hash] = None
-                logging.debug(
-                    "Missing TX with no raw info skipped (txhash: {}): {}".format(
-                        tx_hash_call_id.get(response.get("id", "??"), "??"),
-                        response["error"],
-                    )
+                # Capture the session used for this attempt so that, on a
+                # connection failure, we only rotate this exact (stale) pool.
+                session = self._session
+                response = session.post(
+                    url,
+                    data=json.dumps(payload),
+                    headers=headers,
+                    timeout=self._get_rpc_timeout(),  # Bounded connect/read timeouts
                 )
+                if response.status_code == 200:
+                    if i > 0:
+                        logger.debug("Successfully connected.")
+                    break
+                elif response.status_code == 503:
+                    # 503 Service Unavailable - node is overloaded, need longer delay
+                    logger.warning(f"Bitcoin node temporarily unavailable (503), waiting before retry {i + 1}/{TRIES}")
+                    if i < TRIES - 1:
+                        # Exponential backoff with configurable initial delay for 503
+                        initial_delay = int(os.environ.get("RPC_503_INITIAL_DELAY", 10))
+                        max_delay = int(os.environ.get("RPC_MAX_RETRY_DELAY", 60))
+                        wait_time = min(initial_delay * (2**i), max_delay)
+                        logger.info(f"Waiting {wait_time}s before retry due to node overload")
+                        time.sleep(wait_time)
+                        continue
+                else:
+                    logger.debug(f"Response status code: {response.status_code}")
+                    # logger.debug(f"Response text: {response.text}")
+                    if i < TRIES - 1:  # Don't sleep on the last attempt
+                        # Exponential backoff for other errors
+                        wait_time = min(2 * (2**i), 30)  # Start at 2s, cap at 30s
+                        time.sleep(wait_time)
+                        continue  # Retry on non-200 status codes
+                    # Last attempt failed, will exit loop and handle error below
+            except (Timeout, ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+                logger.debug(
+                    f"Could not connect to backend at `{util.clean_url_for_log(url)}`. Error: {str(e)} (Try {i + 1}/{TRIES})"
+                )
+                # A timeout / dropped or half-open (CLOSE-WAIT) connection means
+                # the pooled socket is unusable — e.g. after a bitcoind restart.
+                # Drop the stale pool and reconnect on a fresh session so the
+                # next attempt dials a brand-new socket and self-heals.
+                self._reset_session(stale_session=session)
+                # Exponential backoff for connection errors
+                wait_time = min(3 * (2**i), 30)  # Start at 3s, cap at 30s
+                time.sleep(wait_time)
+            except requests.exceptions.InvalidURL as e:
+                logger.error(f"Invalid URL format: {str(e)}")
+                logger.error(f"URL being used: {util.clean_url_for_log(url)}")
+                raise BackendRPCError(f"Invalid URL format for RPC connection: {str(e)}")
+
+        if response is None:
+            if config.TESTNET:
+                network = "testnet"
+            elif config.REGTEST:
+                network = "regtest"
             else:
-                # TODO: this seems to happen for bogus transactions? Maybe handle it more gracefully than just erroring out?
-                raise BackendRPCError(
-                    "{} (txhash:: {})".format(
-                        response["error"],
-                        tx_hash_call_id.get(response.get("id", "??"), "??"),
-                    )
+                network = "mainnet"
+            raise BackendRPCError(
+                f"Cannot communicate with backend at `{util.clean_url_for_log(url)}`. (server is set to run on {network})"
+            )
+        elif response.status_code in (401,):
+            raise BackendRPCError(
+                "Authorization error connecting to {}: {} {}".format(
+                    util.clean_url_for_log(url), response.status_code, response.reason
                 )
+            )
+        elif response.status_code not in (200, 500, 503):
+            raise BackendRPCError(f"{response.status_code} {response.reason}")
 
-    # get transactions from cache
-    result = {}
-    for tx_hash in txhash_list:
+        # Handle json decode errors
         try:
-            if verbose:
-                result[tx_hash] = raw_transactions_cache[tx_hash]
-            else:
-                result[tx_hash] = (
-                    raw_transactions_cache[tx_hash]["hex"] if raw_transactions_cache[tx_hash] is not None else None
-                )
-        except (
-            KeyError
-        ) as e:  # shows up most likely due to finickyness with addrindex not always returning results that we need...
-            print("Key error in addrindexrs still exists!!!!!")
-            _logger.warning(
-                "tx missing in rawtx cache: {} -- txhash_list size: {}, hash: {} / raw_transactions_cache size: {} / # rpc_batch calls: {} / txhash in noncached_txhashes: {} / txhash in txhash_list: {} -- list {}".format(
-                    e,
-                    len(txhash_list),
-                    hashlib.md5(json.dumps(list(txhash_list)).encode(), usedforsecurity=False).hexdigest(),
-                    len(raw_transactions_cache),
-                    len(payload),
-                    tx_hash in noncached_txhashes,
-                    tx_hash in txhash_list,
-                    list(txhash_list.difference(noncached_txhashes)),
-                )
+            response_json = response.json()
+        except json.decoder.JSONDecodeError as e:
+            raise BackendRPCError(
+                f"Received invalid JSON from backend with a response of: {response.status_code} {response.reason} {e}"
             )
-            if _retry < GETRAWTRANSACTION_MAX_RETRIES:  # try again
-                time.sleep(
-                    0.05 * (_retry + 1)
-                )  # Wait a bit, hitting the index non-stop may cause it to just break down... TODO: Better handling
-                r = getrawtransaction_batch(
-                    [tx_hash],
-                    verbose=verbose,
-                    skip_missing=skip_missing,
-                    _retry=_retry + 1,
-                )
-                result[tx_hash] = r[tx_hash]
-            else:
-                raise  # already tried again, give up
 
-    return result
+        # For batch requests, return the full response array
+        if isinstance(payload, list):
+            if not isinstance(response_json, list):
+                raise BackendRPCError("Expected array response for batch request")
+            return response_json
+
+        # For single requests, process as before
+        if "error" not in response_json.keys() or response_json["error"] is None:
+            return response_json["result"]
+        elif response_json["error"]["code"] == -5:  # RPC_INVALID_ADDRESS_OR_KEY
+            raise BackendRPCError("{} Is `txindex` enabled in {} Core?".format(response_json["error"], config.BTC_NAME))
+        elif response_json["error"]["code"] in [-28, -8, -2]:
+            # "Verifying blocks..." or "Block height out of range" or "The network does not appear to fully agree!"
+            logger.debug("Backend not ready. Sleeping for ten seconds.")
+            time.sleep(10)
+            return self.rpc_call(payload)
+        else:
+            raise BackendRPCError("Error connecting to {}: {}".format(util.clean_url_for_log(url), response_json["error"]))
+
+    def rpc(self, method, params):
+        payload = {
+            "method": method,
+            "params": params,
+            "jsonrpc": "2.0",
+            "id": 0,
+        }
+        return self.rpc_call(payload)
+
+    def rpc_batch(self, request_list):
+        responses = collections.deque()
+
+        def make_call(chunk):
+            try:
+                logger.debug(f"Making RPC batch call with {len(chunk)} requests")
+                batch_responses = self.rpc_call(chunk)  # This will now return the full response array
+
+                if not batch_responses:
+                    logger.error("Received empty response from RPC batch call")
+                    return
+
+                logger.debug(f"Received {len(batch_responses)} responses")
+
+                for response in batch_responses:
+                    if not isinstance(response, dict):
+                        logger.error(f"Invalid response format: {type(response)}")
+                        continue
+
+                    if "error" in response and response["error"] is not None:
+                        logger.error(f"RPC error in response: {response['error']}")
+                        continue
+
+                    if "result" not in response:
+                        logger.error(f"Missing 'result' in response: {response}")
+                        continue
+
+                    responses.append(response)
+
+                logger.debug(f"Successfully processed {len(batch_responses)} responses")
+
+            except Exception as e:
+                logger.error(f"Error in RPC batch call: {str(e)}")
+                logger.debug("Exception details:", exc_info=True)
+                raise
+
+        chunks = util.chunkify(request_list, config.RPC_BATCH_SIZE)
+        logger.debug(f"Split {len(request_list)} requests into {len(chunks)} chunks")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=config.BACKEND_RPC_BATCH_NUM_WORKERS) as executor:
+            try:
+                futures = [executor.submit(make_call, chunk) for chunk in chunks]
+                concurrent.futures.wait(futures)
+
+                # Check for exceptions in futures
+                for future in futures:
+                    if future.exception():
+                        logger.error(f"Thread pool error: {future.exception()}")
+                        raise future.exception()
+            except Exception as e:
+                logger.error(f"Thread pool execution error: {str(e)}")
+                logger.debug("Thread pool exception details:", exc_info=True)
+                raise
+
+        logger.debug(f"Completed batch RPC calls. Got {len(responses)} total responses")
+        return list(responses)
+
+    def getblockcount(self):
+        """Get current block count with caching to reduce RPC calls"""
+        current_time = time.time()
+
+        # Check cache freshness
+        if current_time - self.last_blockcount_time < self.blockcount_cache_ttl:
+            cached_count = self.blockcount_cache.get("current")
+            if cached_count is not None:
+                return cached_count
+
+        # Cache expired or not set, make actual RPC call
+        block_count = self.rpc("getblockcount", [])
+
+        # Update cache and timestamp
+        self.blockcount_cache.set("current", block_count)
+        self.last_blockcount_time = current_time
+
+        return block_count
+
+    def invalidate_blockcount_cache(self):
+        """Force invalidation of the blockcount cache"""
+        self.blockcount_cache.invalidate("current")
+        self.last_blockcount_time = 0
+
+    def getnetworkinfo(self) -> Optional[Dict]:
+        """Fetch Bitcoin Core network info including version."""
+        try:
+            return self.rpc("getnetworkinfo", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch getnetworkinfo: {e}")
+            return None
+
+    def getblockhash(self, blockcount):
+        return self.rpc("getblockhash", [blockcount])
+
+    def getblock(self, block_hash, verbosity=False):
+        return self.rpc("getblock", [block_hash, verbosity])
+
+    def getcblock(self, block_hash):
+        block_hex = self.getblock(block_hash)
+        return CBlock.deserialize(bytes.fromhex(block_hex))
+
+    def getblockheader(self, block_hash):
+        """Fetches the block header for a given block hash."""
+        return self.rpc("getblockheader", [block_hash])
+
+    def getrawtransaction(self, tx_hash, verbose=False, skip_missing=False, current_block=None):
+        """Get raw transaction data for a single transaction."""
+        return self.getrawtransaction_batch(
+            [tx_hash], verbose=verbose, skip_missing=skip_missing, current_block=current_block
+        )[tx_hash]
+
+    def deserialize(self, tx_hex):
+        """
+        Deserialize a transaction hex string into a CTransaction object.
+        Uses Rust parser if available for better performance.
+        """
+        # Check cache first, get() will track both hits and misses
+        cached_tx = self.deserialized_tx_cache.get(tx_hex)
+        if cached_tx is not None:
+            return cached_tx
+
+        if self._parser is not None:
+            try:
+                # Use Rust parser for better performance
+                tx = self._parser.deserialize_transaction(tx_hex)
+                self.deserialized_tx_cache.set(tx_hex, tx)
+                return tx
+            except Exception as e:
+                logger.warning(f"Rust parser failed: {e}. Falling back to Python parser")
+
+        # Fallback to Python parser
+        ctx = CTransaction.deserialize(x(tx_hex))
+        self.deserialized_tx_cache.set(tx_hex, ctx)
+        return ctx
+
+    def serialize(self, ctx):
+        return CTransaction.serialize(ctx)
+
+    def get_tx_list(self, block_hash):
+        """Get transaction list from block using Rust parser if available."""
+        if self._parser is not None:
+            try:
+                block_data = self.rpc("getblock", [block_hash, 0])  # Get raw block hex
+                # The Rust parser now returns a tuple directly
+                tx_hash_list, raw_transactions, timestamp, prev_block_hash, bits = self._parser.parse_block(block_data)
+                return (
+                    tx_hash_list,
+                    raw_transactions,
+                    timestamp,
+                    prev_block_hash,
+                    bits,  # This will be None from the Rust parser
+                )
+            except Exception as e:
+                logger.warning(f"Rust block parser failed: {e}. Falling back to Python parser")
+
+        # Fallback to original implementation
+        block_data = self.rpc("getblock", [block_hash, 2])
+
+        tx_hash_list = []
+        raw_transactions = {}
+
+        for tx in block_data["tx"]:
+            tx_hash = tx["txid"]
+            tx_hash_list.append(tx_hash)
+            raw_transactions[tx_hash] = tx["hex"]
+
+        return (
+            tx_hash_list,
+            raw_transactions,
+            block_data["time"],
+            block_data.get("previousblockhash"),
+            block_data.get("difficulty"),
+        )
+
+    def getrawtransaction_batch(
+        self,
+        txhash_list: List[str],
+        verbose: bool = False,
+        skip_missing: bool = False,
+        _retry: int = 0,
+        max_retries: int = 3,
+        current_block: Optional[int] = None,
+    ) -> Dict[str, Optional[dict]]:
+        """Fetch raw transactions in batches with optimized memory management."""
+        txhash_list = list(dict.fromkeys(txhash_list))
+
+        # Check cache first
+        noncached_txhashes = []
+        cached_results = {}
+        for tx_hash in txhash_list:
+            cached_tx = self.raw_transactions_cache.get(tx_hash)
+            if cached_tx is not None:
+                cached_results[tx_hash] = cached_tx
+            else:
+                noncached_txhashes.append(tx_hash)
+
+        if noncached_txhashes:
+            try:
+                chunks = util.chunkify(noncached_txhashes, self._batch_chunk_size)
+                total_chunks = len(chunks)
+
+                for i, chunk in enumerate(chunks):
+                    payload = []
+                    tx_hash_call_id = {}
+
+                    for tx_hash in chunk:
+                        self.monotonic_call_id += 1
+                        call_id = self.monotonic_call_id
+                        tx_hash_call_id[call_id] = tx_hash
+                        payload.append(
+                            {"method": "getrawtransaction", "params": [tx_hash, verbose], "jsonrpc": "2.0", "id": call_id}
+                        )
+
+                    response = self.rpc_batch(payload)
+
+                    for result in response:
+                        if "error" in result and result["error"] is not None:
+                            if not skip_missing and _retry < max_retries:
+                                logger.warning(f"Error in batch, retrying: {result['error']}")
+                                time.sleep(1 * (2**_retry))
+                                return self.getrawtransaction_batch(
+                                    txhash_list,
+                                    verbose=verbose,
+                                    skip_missing=skip_missing,
+                                    _retry=_retry + 1,
+                                    max_retries=max_retries,
+                                    current_block=current_block,
+                                )
+                            elif not skip_missing:
+                                raise BackendRPCError(f"Error fetching transaction: {result['error']}")
+                        else:
+                            tx_hash = tx_hash_call_id[result["id"]]
+                            tx_result = result["result"]
+                            self.raw_transactions_cache.set(tx_hash, tx_result)
+                            cached_results[tx_hash] = tx_result
+
+                    # Check if garbage collection is needed
+                    if i > 0 and (i % self._gc_chunk_interval == 0):
+                        if self._should_collect_garbage(force_check=(i / total_chunks > 0.5)):
+                            self._perform_garbage_collection()
+
+                    # Check memory usage and clear caches if needed
+                    self.memory_manager.clear_caches_if_needed()
+
+            except Exception as e:
+                if not skip_missing and _retry < max_retries:
+                    logger.warning(f"Error in batch, retrying: {str(e)}")
+                    time.sleep(1 * (2**_retry))
+                    return self.getrawtransaction_batch(
+                        txhash_list,
+                        verbose=verbose,
+                        skip_missing=skip_missing,
+                        _retry=_retry + 1,
+                        max_retries=max_retries,
+                        current_block=current_block,
+                    )
+                elif not skip_missing:
+                    raise BackendRPCError(f"Error fetching transactions: {str(e)}")
+
+        return {tx_hash: cached_results.get(tx_hash) for tx_hash in txhash_list}
+
+
+def set_backend_override(obj: Any) -> None:
+    """Install a drop-in replacement returned by every subsequent ``Backend()``.
+
+    Intended for CI/tests that need to substitute a non-bitcoind backend (e.g.
+    the public-endpoint reparse shim). Prefer the BTC_STAMPS_BACKEND_OVERRIDE
+    env var when import order is not controlled — it resolves lazily on first
+    instantiation and so also reaches import-time ``backend_instance = Backend()``
+    module globals. This setter is for callers that construct the backend after
+    all index_core modules are imported. Pass None to clear.
+    """
+    Backend._override = obj
+
+
+def clear_backend_override() -> None:
+    """Remove any installed backend override (restores the real singleton)."""
+    Backend._override = None

@@ -27,6 +27,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      pull-requests: write
     env:
       GIT_USER_NAME: GitHub Action
       GIT_USER_EMAIL: action@github.com
@@ -36,7 +37,7 @@ jobs:
       
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -77,7 +78,7 @@ jobs:
 
       - name: Set up Python
         if: env.SKIP == 'false'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
@@ -110,7 +111,11 @@ jobs:
           
           # If version is in canary format, convert to prod
           if [[ "$PR_VERSION" == *"+canary"* ]]; then
-            bump2version release --new-version prod --verbose --allow-dirty
+            # First remove the build number
+            TEMP_VERSION=${PR_VERSION%.*}
+            # Then convert to prod format
+            NEW_VERSION=${TEMP_VERSION%+*}
+            bump2version --new-version "${NEW_VERSION}" --allow-dirty release
           fi
           
           # Handle version bumping based on PR title
@@ -129,9 +134,15 @@ jobs:
       - name: Handle PR merge to dev
         if: env.SKIP == 'false' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'dev'
         run: |
-          # If merging from main to dev, convert to canary
+          # If merging from main to dev, convert production version to canary format
           if [[ "${{ github.head_ref }}" == "main" ]]; then
-            bump2version release --new-version canary --verbose --allow-dirty
+            CURRENT_VERSION=$(cat VERSION)
+            if [[ "$CURRENT_VERSION" != *"+canary"* ]]; then
+              # Convert production version (e.g., 1.9.0) to canary (1.9.0+canary.1)
+              CANARY_VERSION="${CURRENT_VERSION}+canary.1"
+              echo "Converting ${CURRENT_VERSION} to canary: ${CANARY_VERSION}"
+              bump2version --new-version "${CANARY_VERSION}" --no-tag --verbose --allow-dirty release
+            fi
             printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
           fi
 
@@ -139,8 +150,9 @@ jobs:
         if: env.SKIP == 'false' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
         run: |
           # Only bump build number if already in canary format
+          # Use --no-tag to avoid tag collisions — canary tags are not consumed downstream
           if [[ "$(cat VERSION)" == *"+canary"* ]]; then
-            bump2version build --verbose --allow-dirty
+            bump2version build --no-tag --verbose --allow-dirty
             printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
           fi
 
@@ -149,15 +161,18 @@ jobs:
         run: |
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
             git push origin HEAD:${{ github.ref }}
-            git push origin --tags
+            # Only push tags for production releases (main branch)
+            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+              git push origin --tags
+            fi
           else
             echo "No new commit created, so no push."
           fi
 
       - name: Create Release
-        if: env.SKIP == 'false' && env.NEW_VERSION
+        if: env.SKIP == 'false' && env.NEW_VERSION && github.ref == 'refs/heads/main'
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -165,7 +180,28 @@ jobs:
           name: Release ${{ env.NEW_VERSION }}
           generate_release_notes: true
           draft: false
-          prerelease: ${{ github.ref == 'refs/heads/dev' }}
+          prerelease: false
+
+      - name: Sync version back to dev
+        if: env.SKIP == 'false' && env.NEW_VERSION && github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          # Check if a PR from main to dev already exists
+          EXISTING_PR=$(gh pr list --base dev --head main --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "PR #${EXISTING_PR} from main to dev already exists, skipping creation"
+          else
+            echo "Creating PR to sync v${NEW_VERSION} back to dev"
+            PR_URL=$(gh pr create \
+              --base dev \
+              --head main \
+              --title "chore: sync v${NEW_VERSION} to dev" \
+              --body "Automated version sync after release v${NEW_VERSION}. When merged, the workflow converts the version to canary format (\`${NEW_VERSION}+canary.1\`) for continued development.")
+            echo "Created PR: $PR_URL"
+            # Enable auto-merge so it merges once required checks pass
+            gh pr merge "$PR_URL" --merge --auto 2>/dev/null || echo "Auto-merge not available — merge manually to restore canary versioning on dev"
+          fi
 
   manual-versioning:
     runs-on: ubuntu-latest
@@ -179,12 +215,12 @@ jobs:
       NEW_VERSION: ''
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
       
@@ -221,7 +257,7 @@ jobs:
       - name: Create Release
         if: env.NEW_VERSION
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
