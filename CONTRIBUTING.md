@@ -47,6 +47,17 @@ and proven by **Reparse Consensus Validation green (txlist + ledger identical)**
 `poetry run python ci/ci_reparse_subprocess.py --limit 5`. Cross-block SRC-20 `ledger_hash`
 is owned by the full from-genesis reindex (maintainer-triggered).
 
+**Consensus-adjacent dependency bumps.** Some dependencies sit on the parse path and
+can move the hashes: pip `msgpack` / `cryptography` / `ecdsa` / `pycryptodome` /
+`pybase64` / `python-bitcoinlib` / `bitcoinlib`, and the entire cargo `rust_parser`
+tree (`pyo3`, `rand`, `bitcoin`). Dependabot isolates these into their own PRs (the
+`consensus-critical` pip group and the `cargo` entry in
+[`.github/dependabot.yml`](.github/dependabot.yml)). **Do not auto-merge them** — they
+must pass the Reparse Consensus gate first, get the `consensus` label, and are never
+merged mid-release (they change release scope). A pip bump that touches
+`indexer/poetry.lock` also needs `./indexer/ci/refresh-freeze.sh` re-run, or Freeze
+Drift CI fails.
+
 ## Pull requests
 
 - **Branch off `dev`; PRs target `dev`** (not `main`). `v1.9.0` cuts via long-running
