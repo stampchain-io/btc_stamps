@@ -6,10 +6,35 @@ Official Docker image for the Bitcoin Stamps Indexer - the reference implementat
 
 ## Available Tags
 
-- `latest` - Built automatically from the `main` branch
-- `dev` - Built automatically from the `dev` branch
+- `latest` - The most recent stable release (published on an `X.Y.Z` release tag)
+- `X.Y.Z` - Stable release versions (no `v` prefix), e.g. `1.9.0`
+- `dev` - Built automatically from the `dev` branch (canary / unstable)
 - `<sha>` - Built from specific commits (first 7 characters of commit hash)
-- `vX.Y.Z` - Stable release versions
+
+Only clean `X.Y.Z` release tags and `latest` are signed (see below). `dev`,
+`<sha>`, and staging tags are development builds and are not signed.
+
+## Verifying this image
+
+Release images are **signed keyless** with [Sigstore/cosign](https://www.sigstore.dev/)
+(GitHub Actions OIDC — no private keys) and carry an SPDX SBOM attestation. The
+matching [GitHub Release](https://github.com/stampchain-io/btc_stamps/releases)
+records the exact `btcstamps/indexer@sha256:…` digest. Verify provenance before
+running:
+
+```bash
+# Verify the signature (substitute the release version and digest):
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/stampchain-io/btc_stamps/.github/workflows/docker-auto-publish.yml@refs/tags/X.Y.Z$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  btcstamps/indexer@sha256:<digest>
+
+# Verify the SPDX SBOM attestation:
+cosign verify-attestation --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/stampchain-io/btc_stamps/.github/workflows/docker-auto-publish.yml@refs/tags/X.Y.Z$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  btcstamps/indexer@sha256:<digest>
+```
 
 ## Quick Start
 

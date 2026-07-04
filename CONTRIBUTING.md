@@ -60,8 +60,11 @@ Drift CI fails.
 
 ## Pull requests
 
-- **Branch off `dev`; PRs target `dev`** (not `main`). `v1.9.0` cuts via long-running
-  PR #495 (dev→main).
+- **Branch off `dev`; PRs target `dev`** (not `main`). Every PR is reviewed by two
+  code owners (see [`.github/CODEOWNERS`](.github/CODEOWNERS)). **Releases are cut by
+  maintainers** via the automated **Cut Release** workflow (PR-then-tag → signed
+  `X.Y.Z` Docker image + GitHub Release → version-only sync-back to `dev`); do not
+  open release PRs to `main` yourself. See [`docs/dev/versioning.md`](docs/dev/versioning.md).
 - Title convention: `type(#NNN): summary` (e.g. `fix(#812): ...`, `chore: ...`).
 - Set a **milestone** (e.g. `v1.9.0`) and **labels**
   (`consensus` / `ci` / `perf` / `supply-chain` / `documentation`).

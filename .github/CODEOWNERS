@@ -1,1 +1,11 @@
-*	@reinamora137
+# Code owners for btc_stamps.
+#
+# Every PR requests review from BOTH owners below (two-reviewer governance).
+#
+# @reinamora137  - repo maintainer / admin.
+# @btcopenstamp  - required *second reviewer* only. This adds a governance
+#                  second-set-of-eyes on every change; it does NOT grant
+#                  admin/maintainer rights. For CODEOWNERS review to be
+#                  requestable, @btcopenstamp needs at least write (collaborator)
+#                  access to the repo, but should NOT be made an org/repo admin.
+*	@reinamora137 @btcopenstamp

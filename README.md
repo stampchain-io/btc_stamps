@@ -105,9 +105,31 @@ Full roadmap and gating criteria: [bitcoinstamps.xyz/en/protocols/sips](https://
 
 ## 🤝 Contributions
 
-The Bitcoin Stamps protocol is open source and community-driven. 
+The Bitcoin Stamps protocol is open source and community-driven.
 If you have ideas, improvements, or bug fixes, please submit
 a pull request or open an issue.
+
+**Branch off `dev` and open PRs against `dev`** (not `main`). Every PR is
+reviewed by two code owners. Releases are cut by maintainers via the automated
+**Cut Release** workflow. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full
+workflow and [`docs/dev/versioning.md`](docs/dev/versioning.md) for versioning
+and the release process.
+
+## 🔏 Signed Releases
+
+Release images published to Docker Hub (`btcstamps/indexer`) are **signed
+keyless with [Sigstore/cosign](https://www.sigstore.dev/)** (GitHub Actions OIDC —
+no private keys) and carry an SPDX SBOM attestation. Each
+[GitHub Release](https://github.com/stampchain-io/btc_stamps/releases) records the
+exact `btcstamps/indexer@sha256:…` digest and the `cosign verify` command. To
+verify provenance before running an image:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/stampchain-io/btc_stamps/.github/workflows/docker-auto-publish.yml@refs/tags/X.Y.Z$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  btcstamps/indexer@sha256:<digest>
+```
 
 ## 💎 Donate
 
