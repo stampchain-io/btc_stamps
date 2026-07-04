@@ -3,6 +3,7 @@
 #
 # Ecosystems covered:
 #   - pip            Poetry-managed indexer/pyproject.toml
+#   - cargo          indexer/src/rust_parser (Rust parse core)
 #   - docker         indexer/Dockerfile (python base image)
 #   - github-actions .github/workflows/*
 #
@@ -10,6 +11,28 @@
 # after-publish compromised packages (npm shai-hulud / nx / @ctrl/tinycolor,
 # tj-actions/changed-files). Per Dependabot spec, security advisory updates
 # BYPASS cooldown, so CVE-driven bumps still flow through immediately.
+#
+# ============================================================================
+# CONSENSUS-ADJACENT DEPENDENCY POLICY (load-bearing — read before merging)
+# ============================================================================
+# A subset of deps sit on the decode/filter/parse path and can change the three
+# rolling consensus hashes (txlist_hash / ledger_hash / messages_hash):
+#   pip   : msgpack, cryptography, ecdsa, pycryptodome, pybase64,
+#           python-bitcoinlib, bitcoinlib
+#   cargo : the ENTIRE indexer/src/rust_parser tree (pyo3, rand, bitcoin, ...)
+#
+# These are isolated below into a dedicated `consensus-critical` group (pip) and
+# a separate cargo ecosystem entry, so their bumps land in their OWN PR rather
+# than mixed into routine dev/runtime batches.
+#
+# RULE: A consensus-adjacent bump MUST NOT be auto-merged. It must pass the
+# Reparse Consensus Validation gate (txlist + ledger identical) before merge —
+# see CONTRIBUTING.md "The consensus rule". Reviewers: add the `consensus` label
+# and hold the PR until the reparse gate is green. Any pip PR that changes
+# indexer/poetry.lock also needs the freeze baseline regenerated
+# (./indexer/ci/refresh-freeze.sh) or Freeze Drift CI fails; grouping keeps this
+# churn batched.
+# ============================================================================
 
 version: 2
 updates:
@@ -32,6 +55,20 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 7
     groups:
+      # Consensus-adjacent deps — see policy header. Listed FIRST so these
+      # packages are peeled into their OWN isolated PR (never mixed into the
+      # routine minor-and-patch batch). This PR must ride the Reparse Consensus
+      # gate before merge; do NOT auto-merge. Dependabot cannot set a per-group
+      # label, so reviewers add the `consensus` label manually on this PR.
+      consensus-critical:
+        patterns:
+          - "msgpack"
+          - "cryptography"
+          - "ecdsa"
+          - "pycryptodome*"
+          - "pybase64"
+          - "python-bitcoinlib"
+          - "bitcoinlib"
       # Group Python tooling updates together (black/flake8/mypy/bandit/pytest stack)
       python-tooling:
         patterns:
@@ -71,6 +108,41 @@ updates:
       semver-major-days: 30
       semver-minor-days: 7
       semver-patch-days: 7
+
+  # Cargo — the Rust parse core (indexer/src/rust_parser). EVERY dep here is
+  # consensus-adjacent: pyo3, rand and bitcoin can change parse output, so any
+  # bump must pass the Reparse Consensus gate before merge (do NOT auto-merge).
+  # The `consensus` label is applied so these PRs are obvious. Previously only
+  # grouped SECURITY updates (repo-level) reached cargo — e.g. the #729 rand
+  # bump; without this entry, routine cargo version updates were NOT tracked.
+  # All crates are grouped into a single PR to minimise reparse-gate cycles.
+  - package-ecosystem: "cargo"
+    directory: "/indexer/src/rust_parser"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "consensus"
+    commit-message:
+      prefix: "deps(cargo)"
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      rust-parser:
+        patterns:
+          - "*"
+    ignore:
+      # Major version bumps need manual review (breaking-change risk); pyo3
+      # majors especially require a reparse-gated migration.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions — tj-actions/changed-files compromise (March 2025) made this
   # a real supply-chain vector; cooldown is essential here.
