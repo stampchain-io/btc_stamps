@@ -42,13 +42,13 @@ Bitcoin Stamps are stored directly in Bitcoin's Unspent Transaction Output (UTXO
 
 ### P2WSH Migration
 
-**Efficiency Gains**: Pay-to-Witness-Script-Hash (P2WSH) outputs store data in the witness field, which receives a 75% discount under SegWit rules:
-- Base block data: 4 weight units per byte
-- Witness data: 1 weight unit per byte
+**Efficiency Gains**: Pay-to-Witness-Script-Hash (P2WSH) lets Stamps pack raw data into **output scriptPubKeys** (32 data bytes per `OP_0 <32-byte>` output) instead of bare-multisig fake public keys. This data lives in the **output (base) block** — weighted at 4 weight units per byte under SegWit — and does **not** receive the witness discount (Stamps never spend these outputs, so no witness is ever revealed). The savings come from **eliminating Base64 (~33% overhead) and packing data more densely**, not from a witness discount:
+- Bare multisig: ~31 usable data bytes per 33-byte fake pubkey, then Base64-inflated
+- P2WSH (OLGA): 32 raw data bytes per 34-byte output scriptPubKey, no Base64
 
-**Cost Reduction**: P2WSH-based Stamps pay ~25% of bare multisig fees for equivalent data size.
+**Cost Reduction**: P2WSH/OLGA Stamps cost roughly **50% less in size and ~60–70% less to mint** than equivalent bare-multisig Stamps — from denser packing and dropping Base64, not a witness discount.
 
-**Pruning Concern**: Witness data is technically prunable by nodes that don't serve historical blocks. However, archival nodes and blockchain explorers retain witness data, ensuring practical permanence.
+**Permanence (not a pruning concern)**: Because Stamp data lives in **output scriptPubKeys (the UTXO set / base block)**, every validating node must retain it and it is **not** subject to witness pruning. This UTXO-set persistence is the core property distinguishing Stamps from witness-based inscriptions.
 
 **Stamps P2WSH Variant**: Stamps protocol adopted P2WSH for certain formats while maintaining UTXO set references, balancing cost efficiency with permanence goals.
 
@@ -62,7 +62,7 @@ Bitcoin Stamps are stored directly in Bitcoin's Unspent Transaction Output (UTXO
 - Achieves 50% transaction size reduction vs. OP_MULTISIG
 - Reduces minting costs by 60-70%
 
-**Size Expansion**: Maximum file size increased to 64KB, enabling higher-fidelity artwork and larger datasets.
+**Size Expansion**: Maximum file size is ~64KB — a hard cap set by the encoding's **2-byte length prefix** (65,535 bytes; ~65,529 after the `stamp:` marker), not by Bitcoin's block weight. Because Stamp data occupies output (base) bytes with no witness discount, this ceiling holds regardless of the ~4MB block-weight limit; larger sizes would require widening the length prefix (a coordinated, activation-gated consensus change across all indexers).
 
 **Adoption**: OLGA became the standard for new Stamps due to dramatic cost savings without compromising immutability.
 
