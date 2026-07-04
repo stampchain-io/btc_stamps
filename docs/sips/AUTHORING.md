@@ -184,9 +184,11 @@ Copy into the SIP's **Activation** section:
 - **Participating indexers at activation**: stampchain (reference) + <other indexer(s)>.
 - **Fail-safe behavior (non-upgraded indexers)**: Describe exactly what an indexer that has NOT
   upgraded does when it encounters the new operation. It MUST fail safe — i.e., ignore the
-  operation and NOT mutate balances/state — never fail open (guess and diverge). Example
-  (SIP-0005): "Indexers that haven't upgraded will not recognize the `stamp:` prefix → the
-  transfer is ignored (tokens not debited). This is fail-safe, not fail-open."
+  operation and NOT mutate balances/state — never fail open (guess and diverge). Example: "A
+  pre-upgrade indexer does not treat the new op's marker as a valid operation, so it skips it —
+  the transfer is ignored, no tokens are debited, and no stamp number is assigned. This is
+  fail-safe, not fail-open." (If your op reuses the existing `stamp:` prefix rather than a new
+  marker, see the caveat below — that is *not* automatically fail-safe.)
 - **No-balance-divergence check**: State how an upgraded and a not-yet-upgraded indexer avoid
   diverging on *existing* stamps/tokens before the activation height. Confirm that below the
   activation block the new op is a no-op for all indexers.
@@ -197,6 +199,17 @@ Copy into the SIP's **Activation** section:
 **Fail-safe is the cardinal rule.** The classic safe pattern is a new prefix/marker or op-code that
 old indexers simply do not recognize and therefore skip. Avoid any design where a non-upgraded
 indexer would *partially* process the operation.
+
+**Verify the fail-safe claim against the reference indexer's real classification path, not intent.**
+A common trap: `stamp:` is the *universal* stamp-detection prefix (`config.PREFIX`), so an op that
+merely reuses it is **not** skipped by a pre-upgrade indexer. The prefix is recognized, the new
+(e.g. binary) body fails to parse as a known operation, and the payload falls through to being
+classified as an ordinary stamp (`ident = "STAMP"` in `index_core/models.py`) and assigned a stamp
+number. That diverges stamp numbering *and* the `txlist_hash` — which is fail-**open**, the opposite
+of the intended behavior. So a design that reuses `stamp:` for a new operation (e.g. a binary SRC-20
+encoding) must additionally prove that pre-upgrade indexers cleanly *reject* the new body — not
+render it as a stamp — below the activation height, or else use a distinct marker they ignore
+outright.
 
 ---
 
