@@ -5,6 +5,11 @@ on:
     branches:
       - main
       - dev
+    # Release version tags (X.Y.Z, no v-prefix, no +canary). A release commit
+    # always bumps indexer/pyproject.toml (indexer/**), so the paths filter below
+    # is satisfied for the tagged commit and the release build runs.
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
     paths:
       - 'indexer/**'
       - 'docker/**'
@@ -39,22 +44,31 @@ jobs:
       - name: Set Docker tag
         id: set-tag
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "TAG=latest" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=dev" >> $GITHUB_OUTPUT
-          fi
           echo "SHA_TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-          # Set branch name for tag
-          BRANCH_NAME=${GITHUB_REF#refs/heads/}
-          # Sanitize version for Docker tag (replace + with -)
-          SANITIZED_VERSION=$(echo "${{ steps.get-version.outputs.VERSION }}" | sed 's/+/-/g')
-          
-          if [[ "$BRANCH_NAME" != "main" ]]; then
-            # For non-main branches, add branch name to version
-            echo "VERSION_TAG=${SANITIZED_VERSION}-${BRANCH_NAME}" >> $GITHUB_OUTPUT
+
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Release build (triggered by an X.Y.Z tag push): this is the ONLY
+            # path that publishes the moving :latest pointer and the clean
+            # :X.Y.Z release image, and the only path that rewrites the Docker
+            # Hub description. A plain push to main must never overwrite these.
+            RELEASE_VERSION="${GITHUB_REF#refs/tags/}"
+            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+            echo "VERSION_TAG=${RELEASE_VERSION}" >> $GITHUB_OUTPUT
           else
-            echo "VERSION_TAG=${SANITIZED_VERSION}" >> $GITHUB_OUTPUT
+            # Branch push: publish a staging pointer only (never :latest, never a
+            # clean X.Y.Z tag). main -> :edge, dev -> :dev.
+            BRANCH_NAME=${GITHUB_REF#refs/heads/}
+            echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
+            if [[ "$BRANCH_NAME" == "main" ]]; then
+              echo "TAG=edge" >> $GITHUB_OUTPUT
+            else
+              echo "TAG=dev" >> $GITHUB_OUTPUT
+            fi
+            # Sanitize version for Docker tag (replace + with -). Branch versions
+            # carry +canary, so this can never collide with a clean X.Y.Z tag.
+            SANITIZED_VERSION=$(echo "${{ steps.get-version.outputs.VERSION }}" | sed 's/+/-/g')
+            echo "VERSION_TAG=${SANITIZED_VERSION}-${BRANCH_NAME}" >> $GITHUB_OUTPUT
           fi
       
       - name: Log in to Docker Hub
@@ -121,7 +135,7 @@ jobs:
 
       - name: Update Docker Hub Description
         uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4
-        if: github.ref == 'refs/heads/main'
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
         with:
           username: btcstamps
           password: ${{ secrets.DOCKERHUB_TOKEN }}
