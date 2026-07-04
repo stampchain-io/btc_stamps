@@ -127,7 +127,7 @@ as the primary funding source for this experimental project.
 
 - 🔗 Local full BTC Node or an account with [Quicknode.com](https://www.quicknode.com/) (free tier is sufficient)
 - 🗄️ MySQL Database or default MySQL installation from the provided Docker setup
-- 🐍 Python 3.10 or higher
+- 🐍 Python 3.10–3.12 (3.12 recommended) — **do not use Python 3.13**, it diverges from consensus (tracked in [#871](https://github.com/stampchain-io/btc_stamps/issues/871))
 - 💡 RECOMMENDED: Local Counterparty Node (optional but recommended for production)
 
 For a simple Docker-based installation of the Bitcoin Node and Counterparty stack, see:
@@ -198,7 +198,7 @@ cd indexer
 ./run-container.sh --build
 
 # Run specific Docker Hub version with local MySQL
-./run-container.sh --image 1.8.26  # or --image dev
+./run-container.sh --image 1.9.1  # or --image dev
 
 # Run with logs to stdout (ideal for testing)
 ./run-container.sh --image dev --prod
