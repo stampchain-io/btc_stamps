@@ -9,7 +9,7 @@ manifest-path = "src/rust_parser/Cargo.toml"
 
 [tool.poetry]
 name = "indexer"
-version = "1.9.0+canary.2"
+version = "1.9.0+canary.3"
 description = "Bitcoin Stamps Indexer"
 authors = ["reinamora <reinamora@stampchain.io>"]
 homepage = "https://stampchain.io"
