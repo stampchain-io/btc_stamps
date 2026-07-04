@@ -16,10 +16,12 @@ operations like `OPTIMIZE TABLE` don't hit a quiet behavioral gap.
 
 - **Production (RDS)**: parameter group `stamps-mysql-8-4`. Both parameters
   are dynamic; `ApplyMethod=immediate` works, no reboot required.
-- **Local / dev**: passed as MySQL command-line flags in:
+- **Local / dev**: passed as MySQL command-line flags in the canonical root
+  compose set:
+  - `docker-compose.yml`
+  - `docker-compose.override.yml`
+  - `docker-compose.prod.yml`
   - `docker-compose.local.yml`
-  - `indexer/docker-compose.local.yml`
-  - `docker/docker-compose.yml`
 
 ## Operational alarms
 

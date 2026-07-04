@@ -24,7 +24,6 @@ htmlcov/
 env/
 venv/
 ENV/
-tools_priv/
 
 # IDE
 .idea

@@ -151,7 +151,7 @@ mypy_path = "src"
 ignore_missing_imports = true
 explicit_package_bases = false
 namespace_packages = true
-exclude = ['tools_priv/*', 'build/*', 'tools/*']
+exclude = ['build/*', 'tools/*']
 # Don't fail on untyped functions
 check_untyped_defs = false
 disallow_untyped_defs = false
@@ -164,10 +164,6 @@ disable_error_code = [
 # Per-module configuration
 [[tool.mypy.overrides]]
 module = "tools.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tools_priv.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
