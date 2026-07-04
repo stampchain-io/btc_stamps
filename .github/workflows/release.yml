@@ -81,19 +81,30 @@ jobs:
       - name: Compute release version and create release branch
         id: version
         run: |
-          # main carries a clean prod version (X.Y.Z). bump2version reads the
-          # current version from .bumpversion.cfg and, because the `release` part
-          # has optional_value = prod, serializes back to a clean X.Y.Z. Bumping
-          # commits the 4 version files (commit = True) onto the new branch.
+          # A release must ship dev's ACCUMULATED code, not re-version stale main
+          # content. main is a SQUASH of dev, so we base the release branch on main
+          # (keeps the PR to main conflict-free) but populate it with dev's tree,
+          # then stamp the new clean prod version.
+          git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev
           git checkout -B release/staging main
-          bump2version "${{ github.event.inputs.bump }}" \
-            --no-tag --allow-dirty --verbose \
-            --message 'chore: release {new_version} [skip-version]'
-          NEW_VERSION=$(cat VERSION)
-          if [[ "$NEW_VERSION" == *"+canary"* ]]; then
-            echo "::error::Refusing to release a canary version ($NEW_VERSION); main must carry a clean X.Y.Z version"
+          # 1) compute the target clean X.Y.Z from main's current prod version
+          #    (the `release` part's optional_value = prod serializes to clean form).
+          NEW_VERSION=$(bump2version "${{ github.event.inputs.bump }}" \
+            --no-tag --allow-dirty --dry-run --list | sed -n 's/^new_version=//p')
+          if [[ -z "$NEW_VERSION" || "$NEW_VERSION" == *"+canary"* ]]; then
+            echo "::error::Failed to compute a clean release version (got '${NEW_VERSION}')"
             exit 1
           fi
+          # 2) populate the branch with dev's full tree (the code being released).
+          git read-tree -u --reset origin/dev
+          # 3) overwrite dev's canary version with the prod release version across
+          #    the 4 version files (literal replace — no regex-escaping surprises).
+          CANARY=$(cat VERSION)
+          for f in VERSION indexer/pyproject.toml indexer/src/config.py .bumpversion.cfg; do
+            python3 -c "import sys;f,o,n=sys.argv[1:];open(f,'w').write(open(f).read().replace(o,n))" "$f" "$CANARY" "$NEW_VERSION"
+          done
+          git add -A
+          git commit -m "chore: release ${NEW_VERSION} [skip-version]"
           RELEASE_BRANCH="release/v${NEW_VERSION}"
           git branch -m "release/staging" "${RELEASE_BRANCH}"
           git push origin "${RELEASE_BRANCH}"
