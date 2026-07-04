@@ -115,7 +115,13 @@ jobs:
             TEMP_VERSION=${PR_VERSION%.*}
             # Then convert to prod format
             NEW_VERSION=${TEMP_VERSION%+*}
-            bump2version --new-version "${NEW_VERSION}" --allow-dirty release
+            # --no-tag: this strip lands on the PREVIOUS release version
+            # (e.g. 1.8.26+canary.N -> 1.8.26), whose tag already exists.
+            # Tagging here would collide (fatal: tag 'X' already exists) and
+            # abort the whole release. The real new-version tag is created by
+            # the [major|minor|patch] bump immediately below. This mirrors the
+            # --no-tag already used in the "Handle PR merge to dev" step.
+            bump2version --new-version "${NEW_VERSION}" --allow-dirty --no-tag release
           fi
           
           # Handle version bumping based on PR title
