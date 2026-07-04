@@ -1,14 +1,25 @@
 name: Version Format Check
 
+# Trunk model (main is the single primary branch): the VERSION file must always
+# be either a clean release version `X.Y.Z` or the between-releases development
+# marker `X.Y.Z+dev.N`. There is no more dev/canary branch, so the old
+# per-branch (canary vs prod) validation is gone.
+#
+#   X.Y.Z         a release commit / freshly-cut release on main
+#   X.Y.Z+dev.N   the normal between-releases state on main (default: +dev.0)
+#
+# `X.Y.Z+dev.N` matches indexer/src/config.py's VERSION_STRING parser regex
+# (release="dev", build=N), so update_version_globals() and the check.py
+# minimum-version comparison (which only look at MAJOR/MINOR/REVISION) are
+# unaffected.
+
 on:
   push:
     branches:
       - main
-      - dev
   pull_request:
     branches:
       - main
-      - dev
 
 jobs:
   version-check:
@@ -19,25 +30,20 @@ jobs:
 
       - name: Validate version format
         run: |
-          # On pull_request events GITHUB_REF is refs/pull/N/merge, which matches
-          # neither "dev" nor "main" and made this check a silent no-op on PRs.
-          # Use the PR's base branch for pull_request events so dev PRs are
-          # validated as canary and main PRs as prod; keep push behavior as-is.
+          # On pull_request events GITHUB_REF is refs/pull/N/merge, which is not
+          # a branch ref; use the PR base branch so PRs are actually validated
+          # (kept from the previous base_ref fix). For push events use the ref.
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BRANCH="${{ github.base_ref }}"
           else
-            BRANCH=${GITHUB_REF#refs/heads/}
+            BRANCH="${GITHUB_REF#refs/heads/}"
           fi
-          VERSION=$(cat VERSION)
-          
-          if [[ "$BRANCH" == "dev" && "$VERSION" != *"+canary"* ]]; then
-            echo "::error::Dev branch must use canary version format (e.g., 1.0.0+canary.1)"
+          VERSION="$(cat VERSION)"
+
+          # Accept a clean release version or the between-releases dev marker.
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\+dev\.[0-9]+)?$ ]]; then
+            echo "::error::VERSION '$VERSION' is invalid for branch '$BRANCH'. Expected a clean 'X.Y.Z' or the development marker 'X.Y.Z+dev.N'."
             exit 1
           fi
 
-          if [[ "$BRANCH" == "main" && "$VERSION" == *"+canary"* ]]; then
-            echo "::error::Main branch cannot use canary version format (e.g., 1.0.0)"
-            exit 1
-          fi
-
-          echo "Version format is correct for branch $BRANCH" 
+          echo "Version format OK for branch '$BRANCH': $VERSION"
