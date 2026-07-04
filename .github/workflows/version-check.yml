@@ -19,7 +19,15 @@ jobs:
 
       - name: Validate version format
         run: |
-          BRANCH=${GITHUB_REF#refs/heads/}
+          # On pull_request events GITHUB_REF is refs/pull/N/merge, which matches
+          # neither "dev" nor "main" and made this check a silent no-op on PRs.
+          # Use the PR's base branch for pull_request events so dev PRs are
+          # validated as canary and main PRs as prod; keep push behavior as-is.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH="${{ github.base_ref }}"
+          else
+            BRANCH=${GITHUB_REF#refs/heads/}
+          fi
           VERSION=$(cat VERSION)
           
           if [[ "$BRANCH" == "dev" && "$VERSION" != *"+canary"* ]]; then

@@ -100,42 +100,12 @@ jobs:
         id: get_commit
         run: printf 'hash=%s\n' "$(git rev-parse HEAD)" >> $GITHUB_ENV
 
-      - name: Handle PR merge to main
-        if: env.SKIP == 'false' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'main'
-        run: |
-          # Get the PR title
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          
-          # Get the version from the PR branch
-          PR_VERSION=$(cat VERSION)
-          
-          # If version is in canary format, convert to prod
-          if [[ "$PR_VERSION" == *"+canary"* ]]; then
-            # First remove the build number
-            TEMP_VERSION=${PR_VERSION%.*}
-            # Then convert to prod format
-            NEW_VERSION=${TEMP_VERSION%+*}
-            # --no-tag: this strip lands on the PREVIOUS release version
-            # (e.g. 1.8.26+canary.N -> 1.8.26), whose tag already exists.
-            # Tagging here would collide (fatal: tag 'X' already exists) and
-            # abort the whole release. The real new-version tag is created by
-            # the [major|minor|patch] bump immediately below. This mirrors the
-            # --no-tag already used in the "Handle PR merge to dev" step.
-            bump2version --new-version "${NEW_VERSION}" --allow-dirty --no-tag release
-          fi
-          
-          # Handle version bumping based on PR title
-          if [[ "$PR_TITLE" == *"[major]"* ]]; then
-            bump2version major --verbose --allow-dirty
-          elif [[ "$PR_TITLE" == *"[minor]"* ]]; then
-            bump2version minor --verbose --allow-dirty
-          else
-            # Default behavior: bump patch version
-            bump2version patch --verbose --allow-dirty
-          fi
-          
-          # Store the new version
-          printf 'NEW_VERSION=%s\n' "$(cat VERSION)" >> $GITHUB_ENV
+      # NOTE: Cutting a production release (prod version bump on main, tag,
+      # GitHub Release, and version-only sync-back to dev) is owned by the
+      # dedicated release.yml "Cut Release" workflow, which releases via a PR to
+      # main + tag (never a direct push to main, which the `main-req` ruleset
+      # rejects with GH013). This workflow now only manages canary versions on
+      # dev. See release.yml for the release runbook.
 
       - name: Handle PR merge to dev
         if: env.SKIP == 'false' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'dev'
@@ -165,61 +135,14 @@ jobs:
       - name: Commit and push changes if new version
         if: env.SKIP == 'false' && env.NEW_VERSION
         run: |
+          # Canary bumps only ever land on dev here; the release path (main tag +
+          # Release + sync-back) lives in release.yml. Never push tags from this
+          # step — production tags are pushed by release.yml using the PAT.
           if [ "$(git rev-parse HEAD)" != "${{ env.hash }}" ]; then
             git push origin HEAD:${{ github.ref }}
-            # Only push tags for production releases (main branch)
-            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-              git push origin --tags
-            fi
           else
             echo "No new commit created, so no push."
           fi
-
-      - name: Create Release
-        if: env.SKIP == 'false' && env.NEW_VERSION && github.ref == 'refs/heads/main'
-        id: create_release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.NEW_VERSION }}
-          name: Release ${{ env.NEW_VERSION }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-
-      - name: Sync version back to dev
-        if: env.SKIP == 'false' && env.NEW_VERSION && github.event_name == 'pull_request' && github.base_ref == 'main'
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          # Version-only sync-back. This repo squash-merges dev->main, so main is
-          # a single squashed commit while dev keeps full history: a `main -> dev`
-          # PR phantom-conflicts on every squashed commit and can never merge.
-          # dev already contains all of main's CODE, so we only need to advance
-          # its version. Branch off dev, set the new canary version, PR to dev.
-          CANARY_VERSION="${NEW_VERSION}+canary.1"
-          SYNC_BRANCH="chore/sync-${NEW_VERSION}-canary"
-          EXISTING_PR=$(gh pr list --base dev --head "${SYNC_BRANCH}" --json number --jq '.[0].number' 2>/dev/null || echo "")
-          if [[ -n "$EXISTING_PR" ]]; then
-            echo "Sync PR #${EXISTING_PR} already exists, skipping creation"
-            exit 0
-          fi
-          git fetch origin dev
-          git checkout -B "${SYNC_BRANCH}" origin/dev
-          # bump2version (commit=True in .bumpversion.cfg) commits the version
-          # files itself; --no-tag because canary versions are never tagged.
-          bump2version --new-version "${CANARY_VERSION}" --no-tag --allow-dirty release
-          git push origin "${SYNC_BRANCH}"
-          # [skip-version] in the PR title => the dev-push bump step skips, leaving
-          # dev exactly at canary.1 (the next real dev push increments to canary.2).
-          PR_URL=$(gh pr create \
-            --base dev \
-            --head "${SYNC_BRANCH}" \
-            --title "chore: sync dev to ${CANARY_VERSION} after v${NEW_VERSION} release [skip-version]" \
-            --body "Automated post-release version sync. dev already has all of main's code (main is a squash of dev), so this updates only the version number to \`${CANARY_VERSION}\`, resuming canary development on the v${NEW_VERSION} line.")
-          echo "Created sync PR: $PR_URL"
-          gh pr merge "$PR_URL" --squash --auto 2>/dev/null || echo "Auto-merge unavailable — merge ${PR_URL} manually to restore canary versioning on dev"
 
   manual-versioning:
     runs-on: ubuntu-latest
