@@ -193,21 +193,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          # Check if a PR from main to dev already exists
-          EXISTING_PR=$(gh pr list --base dev --head main --json number --jq '.[0].number' 2>/dev/null || echo "")
+          # Version-only sync-back. This repo squash-merges dev->main, so main is
+          # a single squashed commit while dev keeps full history: a `main -> dev`
+          # PR phantom-conflicts on every squashed commit and can never merge.
+          # dev already contains all of main's CODE, so we only need to advance
+          # its version. Branch off dev, set the new canary version, PR to dev.
+          CANARY_VERSION="${NEW_VERSION}+canary.1"
+          SYNC_BRANCH="chore/sync-${NEW_VERSION}-canary"
+          EXISTING_PR=$(gh pr list --base dev --head "${SYNC_BRANCH}" --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "$EXISTING_PR" ]]; then
-            echo "PR #${EXISTING_PR} from main to dev already exists, skipping creation"
-          else
-            echo "Creating PR to sync v${NEW_VERSION} back to dev"
-            PR_URL=$(gh pr create \
-              --base dev \
-              --head main \
-              --title "chore: sync v${NEW_VERSION} to dev" \
-              --body "Automated version sync after release v${NEW_VERSION}. When merged, the workflow converts the version to canary format (\`${NEW_VERSION}+canary.1\`) for continued development.")
-            echo "Created PR: $PR_URL"
-            # Enable auto-merge so it merges once required checks pass
-            gh pr merge "$PR_URL" --merge --auto 2>/dev/null || echo "Auto-merge not available — merge manually to restore canary versioning on dev"
+            echo "Sync PR #${EXISTING_PR} already exists, skipping creation"
+            exit 0
           fi
+          git fetch origin dev
+          git checkout -B "${SYNC_BRANCH}" origin/dev
+          # bump2version (commit=True in .bumpversion.cfg) commits the version
+          # files itself; --no-tag because canary versions are never tagged.
+          bump2version --new-version "${CANARY_VERSION}" --no-tag --allow-dirty release
+          git push origin "${SYNC_BRANCH}"
+          # [skip-version] in the PR title => the dev-push bump step skips, leaving
+          # dev exactly at canary.1 (the next real dev push increments to canary.2).
+          PR_URL=$(gh pr create \
+            --base dev \
+            --head "${SYNC_BRANCH}" \
+            --title "chore: sync dev to ${CANARY_VERSION} after v${NEW_VERSION} release [skip-version]" \
+            --body "Automated post-release version sync. dev already has all of main's code (main is a squash of dev), so this updates only the version number to \`${CANARY_VERSION}\`, resuming canary development on the v${NEW_VERSION} line.")
+          echo "Created sync PR: $PR_URL"
+          gh pr merge "$PR_URL" --squash --auto 2>/dev/null || echo "Auto-merge unavailable — merge ${PR_URL} manually to restore canary versioning on dev"
 
   manual-versioning:
     runs-on: ubuntu-latest
