@@ -446,6 +446,12 @@ Transaction outputs:
 
 ## 6.4 SIP Process Best Practices
 
+> **Authoring guide.** A detailed, reusable SIP authoring guide — full section-by-section template,
+> a Security Considerations checklist, cross-indexer coordination requirements, an Activation
+> template, a terminology guide ("stamps" not "inscriptions"), and the SIP-0110 split pattern for
+> large SIPs — lives at [`docs/sips/AUTHORING.md`](../sips/AUTHORING.md). The summary below is the
+> quick-reference; AUTHORING.md is the working checklist for authors.
+
 ### 6.4.1 Proposal Template
 
 **Title**: [SIP-XXXX] Brief descriptive title
