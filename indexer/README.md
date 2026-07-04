@@ -13,6 +13,12 @@ Official Docker image for the Bitcoin Stamps Indexer - the reference implementat
 
 ## Quick Start
 
+The snippet below is a minimal, self-contained example for running the
+published image directly. If you have cloned the repository, prefer the
+canonical root Compose files (`docker-compose.yml` + `docker-compose.override.yml`,
+with `docker-compose.prod.yml` / `docker-compose.local.yml` overlays) and the
+`make` targets instead of maintaining a separate per-indexer compose.
+
 ```yml
 services:
   db:
