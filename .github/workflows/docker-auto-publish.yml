@@ -1,13 +1,27 @@
 name: Docker Auto-Publish
 
+# Trunk model (main-primary). Two publish paths, strictly separated:
+#
+#   * main branch push  -> staging only: :edge (moving pointer) + :sha-<short>.
+#                          NEVER :latest, NEVER a clean :X.Y.Z. Pre-release
+#                          images are distinguished by :edge / :sha-<short>,
+#                          not by version (no git describe -> no PEP440 /
+#                          shallow-checkout traps).
+#   * X.Y.Z tag push    -> release: :X.Y.Z + :latest, then cosign keyless sign
+#                          the image digest, SBOM attest, record the signed
+#                          digest in the GitHub Release, and prune old staging
+#                          tags. Release tags are pushed by release.yml (Cut
+#                          Release) with the PAT so this workflow fires.
+#
+# The old `dev` branch trigger is removed (dev is being archived).
+
 on:
   push:
     branches:
       - main
-      - dev
-    # Release version tags (X.Y.Z, no v-prefix, no +canary). A release commit
-    # always bumps indexer/pyproject.toml (indexer/**), so the paths filter below
-    # is satisfied for the tagged commit and the release build runs.
+    # Release version tags (X.Y.Z, no v-prefix). A release commit always bumps
+    # indexer/pyproject.toml (indexer/**), so the paths filter below is satisfied
+    # for the tagged commit and the release build runs.
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
     paths:
@@ -19,115 +33,220 @@ jobs:
   build_and_push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write so the release path can append the signed image digest
+      # + cosign verify instructions to the GitHub Release notes.
+      contents: write
       packages: write
-    
+      # id-token: write is REQUIRED for keyless (OIDC) cosign signing/attest on
+      # the release path. It is harmless on branch pushes (no signing runs there).
+      id-token: write
+
     steps:
       - name: Check out the repo
         uses: actions/checkout@v5
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-      
-      - name: Extract version from pyproject.toml
-        id: get-version
-        run: |
-          if [ -f "indexer/pyproject.toml" ]; then
-            VERSION=$(grep -m 1 'version = ' indexer/pyproject.toml | sed -E 's/version = "([^"]+)"/\1/')
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-            echo "Found version: $VERSION"
-          else
-            echo "VERSION=unknown" >> $GITHUB_OUTPUT
-            echo "pyproject.toml not found"
-          fi
 
-      - name: Set Docker tag
+      - name: Set Docker tags
         id: set-tag
+        env:
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
         run: |
-          echo "SHA_TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          SHA_TAG="sha-$(echo "$SHA" | cut -c1-7)"
 
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # Release build (triggered by an X.Y.Z tag push): this is the ONLY
-            # path that publishes the moving :latest pointer and the clean
-            # :X.Y.Z release image, and the only path that rewrites the Docker
+          if [[ "$REF" == refs/tags/* ]]; then
+            # Release build (triggered by an X.Y.Z tag push): the ONLY path that
+            # publishes the moving :latest pointer and the clean :X.Y.Z release
+            # image, and the only path that signs/attests and rewrites the Docker
             # Hub description. A plain push to main must never overwrite these.
-            RELEASE_VERSION="${GITHUB_REF#refs/tags/}"
-            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
-            echo "TAG=latest" >> $GITHUB_OUTPUT
-            echo "VERSION_TAG=${RELEASE_VERSION}" >> $GITHUB_OUTPUT
+            RELEASE_VERSION="${REF#refs/tags/}"
+            {
+              echo "SHA_TAG=${SHA_TAG}"
+              echo "IS_RELEASE=true"
+              echo "PRIMARY_TAG=latest"
+              echo "VERSION_TAG=${RELEASE_VERSION}"
+              echo "TAGS<<EOF"
+              echo "btcstamps/indexer:latest"
+              echo "btcstamps/indexer:${RELEASE_VERSION}"
+              echo "btcstamps/indexer:${SHA_TAG}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           else
-            # Branch push: publish a staging pointer only (never :latest, never a
-            # clean X.Y.Z tag). main -> :edge, dev -> :dev.
-            BRANCH_NAME=${GITHUB_REF#refs/heads/}
-            echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
-            if [[ "$BRANCH_NAME" == "main" ]]; then
-              echo "TAG=edge" >> $GITHUB_OUTPUT
-            else
-              echo "TAG=dev" >> $GITHUB_OUTPUT
-            fi
-            # Sanitize version for Docker tag (replace + with -). Branch versions
-            # carry +canary, so this can never collide with a clean X.Y.Z tag.
-            SANITIZED_VERSION=$(echo "${{ steps.get-version.outputs.VERSION }}" | sed 's/+/-/g')
-            echo "VERSION_TAG=${SANITIZED_VERSION}-${BRANCH_NAME}" >> $GITHUB_OUTPUT
+            # main branch push: staging pointer only -> :edge + :sha-<short>.
+            # Never :latest, never a clean X.Y.Z tag, never a version-derived tag.
+            {
+              echo "SHA_TAG=${SHA_TAG}"
+              echo "IS_RELEASE=false"
+              echo "PRIMARY_TAG=edge"
+              echo "TAGS<<EOF"
+              echo "btcstamps/indexer:edge"
+              echo "btcstamps/indexer:${SHA_TAG}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           fi
-      
+
       - name: Log in to Docker Hub
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: btcstamps
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      - name: Clean up old Docker images
+
+      - name: Clean up old staging Docker tags
         run: |
           # Generate a temporary access token
           TOKEN=$(curl -s -H "Content-Type: application/json" -X POST \
             -d '{"username": "btcstamps", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
             https://hub.docker.com/v2/users/login/ | jq -r .token)
-          
-          # Get list of SHA tags (excluding latest and dev)
-          echo "Listing tags to prune..."
+
+          # Staging tags are the per-commit build markers :sha-<short>. They
+          # accumulate on every main push; keep only the 5 most recent.
+          #
+          # HARD SAFETY: this selection can NEVER touch a clean release tag
+          # (^X.Y.Z$) or the moving pointers (:latest / :edge) — it matches ONLY
+          # names shaped exactly like "sha-<7 hex>".
+          echo "Listing sha- staging tags to prune..."
           TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
                 "https://hub.docker.com/v2/repositories/btcstamps/indexer/tags?page_size=100" | \
-                jq -r '.results[] | select(.name | test("^[a-f0-9]{7}$")) | .name' | \
-                sort)
-          
-          # Count tags
-          TAG_COUNT=$(echo "$TAGS" | wc -l)
-          
-          # Keep only 5 most recent SHA tags
+                jq -r '.results[]
+                        | select(.name | test("^sha-[0-9a-f]{7}$"))
+                        | "\(.last_updated)\t\(.name)"' | \
+                sort -r | \
+                cut -f2)
+
+          TAG_COUNT=$(echo "$TAGS" | grep -c . || true)
           if [ "$TAG_COUNT" -gt 5 ]; then
-            # Calculate how many to delete
-            DELETE_COUNT=$((TAG_COUNT - 5))
-            TAGS_TO_DELETE=$(echo "$TAGS" | head -n "$DELETE_COUNT")
-            
-            echo "Found $TAG_COUNT SHA tags, deleting $DELETE_COUNT older tags"
-            
-            # Delete old tags
+            TAGS_TO_DELETE=$(echo "$TAGS" | tail -n +6)
+            echo "Found $TAG_COUNT sha- tags, deleting $((TAG_COUNT - 5)) older ones (keeping newest 5)"
             for TAG in $TAGS_TO_DELETE; do
-              echo "Deleting tag: $TAG"
+              echo "Deleting staging tag: $TAG"
               curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
                 "https://hub.docker.com/v2/repositories/btcstamps/indexer/tags/$TAG/"
             done
           else
-            echo "Only $TAG_COUNT SHA tags found, no pruning needed"
+            echo "Only $TAG_COUNT sha- tags found, no pruning needed"
           fi
-      
+
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: ./indexer
           push: true
-          tags: |
-            btcstamps/indexer:${{ steps.set-tag.outputs.TAG }}
-            btcstamps/indexer:${{ steps.set-tag.outputs.SHA_TAG }}
-            btcstamps/indexer:${{ steps.set-tag.outputs.VERSION_TAG }}
+          tags: ${{ steps.set-tag.outputs.TAGS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
+      # ---- Release supply-chain integrity (RELEASE path only) ----------------
+      # Everything below is gated on IS_RELEASE == 'true', so main branch pushes
+      # (:edge / :sha-<short>) are untouched. We pin the release image by its
+      # immutable digest (from the build step) for signing, SBOM and attestation
+      # so the exact bytes that were pushed are the exact bytes that get signed.
+
+      - name: Resolve release image digest
+        id: digest
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
+        run: |
+          DIGEST="${{ steps.build.outputs.digest }}"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::No image digest available from build step; cannot sign release"
+            exit 1
+          fi
+          IMAGE_REF="btcstamps/indexer@${DIGEST}"
+          echo "IMAGE_REF=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Release image pinned by digest: ${IMAGE_REF}"
+
+      - name: Install cosign
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign release image (keyless / OIDC)
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
+        env:
+          # Keyless signing: identity comes from the GitHub Actions OIDC token
+          # (id-token: write). No private keys are stored anywhere. The signature
+          # is stored alongside the image on Docker Hub.
+          COSIGN_YES: "true"
+        run: |
+          cosign sign --yes "${{ steps.digest.outputs.IMAGE_REF }}"
+          echo "Signed ${{ steps.digest.outputs.IMAGE_REF }} (keyless)"
+
+      - name: Generate SBOM (SPDX JSON)
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.digest.outputs.IMAGE_REF }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          # Also publish the SBOM as a workflow artifact for auditors.
+          upload-artifact: true
+          artifact-name: sbom-${{ steps.set-tag.outputs.VERSION_TAG }}.spdx.json
+
+      - name: Attest SBOM to release image (keyless / OIDC)
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign attest --yes \
+            --predicate sbom.spdx.json \
+            --type spdxjson \
+            "${{ steps.digest.outputs.IMAGE_REF }}"
+          echo "Attached SPDX SBOM attestation to ${{ steps.digest.outputs.IMAGE_REF }}"
+
+      - name: Record signed image digest in GitHub Release
+        if: steps.set-tag.outputs.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.set-tag.outputs.VERSION_TAG }}"
+          IMAGE_REF="${{ steps.digest.outputs.IMAGE_REF }}"
+
+          # release.yml's finalize job creates the "Release X.Y.Z" Release in
+          # parallel with this (much longer) build. Wait briefly for it to exist.
+          for _ in $(seq 1 24); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for GitHub Release $TAG to be created..."
+            sleep 5
+          done
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::warning::GitHub Release $TAG not found after waiting; skipping digest note (image is still signed on Docker Hub)"
+            exit 0
+          fi
+
+          # Keyless verification identity is the signing workflow ref: this file
+          # running on the release tag. Consumers pass it to cosign verify.
+          IDENTITY="^https://github.com/${{ github.repository }}/.github/workflows/docker-auto-publish.yml@refs/tags/${TAG}\$"
+          ISSUER="https://token.actions.githubusercontent.com"
+
+          # Build the appended note with printf (avoids embedding an un-indented
+          # heredoc inside this YAML block scalar). 4-space indents => code blocks.
+          gh release view "$TAG" --json body --jq '.body' > current_notes.md || true
+          {
+            printf '\n---\n\n## Signed release image\n\n'
+            printf 'This release is published to Docker Hub as an immutable digest and signed\n'
+            printf 'keyless (Sigstore/cosign, GitHub Actions OIDC - no private keys):\n\n'
+            printf '    %s\n\n' "$IMAGE_REF"
+            printf '**Verify the signature:**\n\n'
+            printf '    cosign verify \\\n'
+            printf '      --certificate-identity-regexp %s \\\n' "'$IDENTITY'"
+            printf '      --certificate-oidc-issuer %s \\\n' "$ISSUER"
+            printf '      %s\n\n' "$IMAGE_REF"
+            printf '**Verify the SPDX SBOM attestation:**\n\n'
+            printf '    cosign verify-attestation --type spdxjson \\\n'
+            printf '      --certificate-identity-regexp %s \\\n' "'$IDENTITY'"
+            printf '      --certificate-oidc-issuer %s \\\n' "$ISSUER"
+            printf '      %s\n' "$IMAGE_REF"
+          } >> current_notes.md
+          gh release edit "$TAG" --notes-file current_notes.md
+          echo "Recorded ${IMAGE_REF} in GitHub Release $TAG"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: 'btcstamps/indexer:${{ steps.set-tag.outputs.TAG }}'
+          image-ref: 'btcstamps/indexer:${{ steps.set-tag.outputs.PRIMARY_TAG }}'
           format: 'table'
           exit-code: '0'  # Don't fail the build, just report
           severity: 'HIGH,CRITICAL'
@@ -141,4 +260,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: btcstamps/indexer
           short-description: "Bitcoin Stamps Indexer - Official docker image"
-          readme-filepath: ./indexer/README.md 
+          readme-filepath: ./indexer/README.md

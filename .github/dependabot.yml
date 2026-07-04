@@ -1,5 +1,5 @@
 # Dependabot configuration for stampchain-io/btc_stamps
-# PRs flow: dependabot -> dev (with branch protection review)
+# PRs flow: dependabot -> main (trunk; with branch protection + CODEOWNERS review)
 #
 # Ecosystems covered:
 #   - pip            Poetry-managed indexer/pyproject.toml
@@ -39,7 +39,7 @@ updates:
   # Python dependencies — Poetry-managed under indexer/
   - package-ecosystem: "pip"
     directory: "/indexer"
-    target-branch: "dev"
+    target-branch: "main"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -93,7 +93,7 @@ updates:
   # Dependabot tracks the ARG and proposes minor/patch bumps to the python tag.
   - package-ecosystem: "docker"
     directory: "/indexer"
-    target-branch: "dev"
+    target-branch: "main"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -118,7 +118,7 @@ updates:
   # All crates are grouped into a single PR to minimise reparse-gate cycles.
   - package-ecosystem: "cargo"
     directory: "/indexer/src/rust_parser"
-    target-branch: "dev"
+    target-branch: "main"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -157,7 +157,7 @@ updates:
   # at tags by convention. When adding a new third-party action, SHA-pin it.
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "dev"
+    target-branch: "main"
     schedule:
       interval: "weekly"
       day: "monday"
