@@ -92,4 +92,6 @@ The `--test` option is ideal for CI pipelines and pre-commit validation.
 
 ## More Information
 
-For complete documentation, visit [Github Repository](https://github.com/stampchain-io/btc_stamps) 
+- **Protocol documentation:** [bitcoinstamps.xyz](https://bitcoinstamps.xyz) — the core Bitcoin Stamps protocol site
+- **Source & issues:** [GitHub repository](https://github.com/stampchain-io/btc_stamps)
+- **Explorer & API:** [stampchain.io](https://stampchain.io/) · [API docs](https://stampchain.io/docs)

@@ -22,12 +22,12 @@ This project evolved from a meta-protocol design created by Mikeinspace
 Reinamora137 developed this implementation, which has since become the foundation for the
 entire Bitcoin Stamps ecosystem. You can view the [initial commit here](https://github.com/mikeinspace/stamps/commit/a04461c541cd3eb3c0fcc59eff0f16c24911c014).
 
-- 💬 Join the community in the [Bitcoin Stamps Telegram chat](https://t.me/BitcoinStamps)
-- 🌐 Explore the protocol at [stampchain.io](https://stampchain.io/)
+- 📄 Read the full protocol documentation at [bitcoinstamps.xyz](https://bitcoinstamps.xyz) — the core Bitcoin Stamps protocol site
+- 🌐 Explore stamps, tokens, and transactions at [stampchain.io](https://stampchain.io/)
 - 📚 Find developer API docs at [stampchain.io/docs](https://stampchain.io/docs)
 - 📖 Read the [Technical Whitepaper](docs/whitepaper/index.md) for protocol architecture and specifications
 - 🗺️ View the [SIP Roadmap & Registry](https://bitcoinstamps.xyz/en/protocols/sips) for protocol improvement proposals
-- 📄 Browse the full [Protocol Documentation](https://bitcoinstamps.xyz) site
+- 💬 Join the community in the [Bitcoin Stamps Telegram chat](https://t.me/BitcoinStamps)
 
 ## 🔶 Bitcoin Stamps - Immutable Digital Assets on Bitcoin
 
