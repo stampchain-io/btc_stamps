@@ -767,7 +767,7 @@ impl FastTransactionParser {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct TransactionInfo {
     #[pyo3(get)]
@@ -793,7 +793,7 @@ pub struct TransactionInfo {
     pub has_counterparty_data: bool,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct InputInfo {
     #[pyo3(get)]
@@ -804,7 +804,7 @@ pub struct InputInfo {
     pub sequence: u32,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct OutputInfo {
     #[pyo3(get)]
@@ -1175,7 +1175,7 @@ impl OutputInfo {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct BlockInfo {
     #[pyo3(get)]
@@ -1199,8 +1199,8 @@ impl BlockInfo {
         Ok(slf.into())
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
-        Python::with_gil(|py| {
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<Py<PyAny>>> {
+        Python::attach(|py| {
             match slf.current_index {
                 0 => {
                     slf.current_index += 1;
