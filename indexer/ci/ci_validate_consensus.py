@@ -14,8 +14,19 @@ For each block:
      verification is the next layer once the workflow is proven on CI.
 
 Exit codes:
-  0 — every block fetched, hash-verified
-  1 — any block missing, fetched-but-wrong-hash, or fetch failed
+  0 — every block fetched & hash-verified, OR only transient fetch failures
+      (network/public-node flake) remained after retries. A fetch failure is
+      NOT a consensus signal, so — for a required gate (#907) — it must not go
+      red; it is surfaced as a ::warning:: instead.
+  1 — any block fetched-but-hash-MISMATCH. This IS a genuine consensus signal
+      (content-addressed bytes diverged from the baseline) and always goes red.
+
+Rationale (#907): this gate is being promoted from advisory (continue-on-error)
+to required. A blockstream.info read timeout is transient infra, not parser
+drift — treating it as red would block consensus PRs on public-node flakiness
+(the exact "blocks PRs for non-consensus reasons" trap #907 exists to avoid).
+Retries absorb the common single-timeout case; a genuine HASH MISMATCH still
+fails hard. Tier 1 (checkpoints cross-check, no network) and Tier 3 still run.
 """
 
 from __future__ import annotations
@@ -25,8 +36,34 @@ import hashlib
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
+
+# Bounded retry for the network fetch. Absorbs transient public-node timeouts
+# without masking a genuine wrong-bytes response (that surfaces as a HASH
+# MISMATCH after a successful fetch, which is never retried away).
+FETCH_ATTEMPTS = 3
+FETCH_BACKOFF_SECONDS = 3
+
+
+def _fetch_with_retries(fetch, block_hash: str):
+    """Call fetch(block_hash) with bounded retries + linear backoff.
+
+    Retries only the FETCH (network) layer. Re-raises the last error if every
+    attempt fails so the caller can classify it as a (non-fatal) fetch failure.
+    """
+    last_err: Exception | None = None
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            return fetch(block_hash)
+        except (urllib.error.URLError, TimeoutError, RuntimeError, OSError) as e:
+            last_err = e
+            if attempt < FETCH_ATTEMPTS:
+                print(f"    fetch attempt {attempt}/{FETCH_ATTEMPTS} failed ({e}); retrying...")
+                time.sleep(FETCH_BACKOFF_SECONDS * attempt)
+    assert last_err is not None
+    raise last_err
 
 
 def fetch_via_rpc(url: str, user: str, secret: str, block_hash: str) -> bytes:
@@ -88,24 +125,27 @@ def main() -> int:
     source = "bitcoind RPC" if rpc_url else "blockstream.info"
     print(f"Validating {len(blocks)} consensus boundary blocks via {source}\n")
 
-    failures = 0
+    # Classify outcomes: HASH MISMATCH is a genuine consensus signal (fatal,
+    # red); FETCH FAILED is transient infra (non-fatal warning). See #907.
+    hash_mismatches = 0
+    fetch_failures = 0
+    verified = 0
     for block_index in sorted(blocks, key=int):
         entry = blocks[block_index]
         block_hash = entry["block_hash"]
         reason = entry.get("reason", "")
+        fetch = (lambda h: fetch_via_rpc(rpc_url, rpc_user, rpc_secret, h)) if rpc_url else fetch_via_blockstream
         try:
-            if rpc_url:
-                raw = fetch_via_rpc(rpc_url, rpc_user, rpc_secret, block_hash)
-            else:
-                raw = fetch_via_blockstream(block_hash)
-        except (urllib.error.URLError, RuntimeError) as e:
-            print(f"  block {block_index} ({reason}): FETCH FAILED — {e}")
-            failures += 1
+            raw = _fetch_with_retries(fetch, block_hash)
+        except (urllib.error.URLError, TimeoutError, RuntimeError, OSError) as e:
+            # Not a consensus signal — the node was unreachable/slow. Warn, don't fail.
+            print(f"  block {block_index} ({reason}): FETCH FAILED after {FETCH_ATTEMPTS} attempts — {e}")
+            fetch_failures += 1
             continue
 
         if not verify_block_hash(raw, block_hash):
             print(f"  block {block_index} ({reason}): HASH MISMATCH — " f"fetched bytes do not hash to {block_hash}")
-            failures += 1
+            hash_mismatches += 1
             continue
 
         # TODO: run indexer parser pipeline against `raw` and verify
@@ -113,12 +153,22 @@ def main() -> int:
         # That's the actual parser-output snapshot; this commit lands the
         # fetch+hash scaffolding so the workflow is proven on real CI.
         size_kb = len(raw) // 1024
+        verified += 1
         print(f"  block {block_index} ({reason}): {size_kb} KB, hash verified")
 
     print()
-    if failures:
-        print(f"::error::{failures} of {len(blocks)} blocks failed validation")
+    # Genuine consensus divergence — always red.
+    if hash_mismatches:
+        print(f"::error::{hash_mismatches} of {len(blocks)} blocks HASH-MISMATCHED the baseline (consensus divergence)")
         return 1
+    # Transient infra only — surface loudly but do NOT block the gate (#907).
+    if fetch_failures:
+        print(
+            f"::warning::{fetch_failures} of {len(blocks)} blocks could not be fetched "
+            f"(transient public-node/network failure after {FETCH_ATTEMPTS} attempts). "
+            f"{verified} verified, 0 mismatched — not treating infra flake as consensus failure."
+        )
+        return 0
     print(f"All {len(blocks)} blocks validated cleanly.")
     return 0
 
