@@ -26,10 +26,10 @@ if [ -z "$DEPLOY_TARGET" ] || [ ! -d "$DEPLOY_TARGET" ]; then
 fi
 
 # Protocol genesis dates (from indexer config.py)
-GENESIS_DATE="March 29, 2023"        # Block 779,652 — First Bitcoin Stamp
-SRC20_DATE="April 20, 2023"          # Block 788,041 — First SRC-20 (KEVIN)
-NATIVE_DATE="April 20, 2023"         # Block 793,068 — Native encoding
-OLGA_DATE="October 15, 2023"         # Block 865,000 — OLGA activation
+GENESIS_DATE="March 7, 2023"         # Block 779,652 — First Bitcoin Stamp
+SRC20_DATE="May 3, 2023"             # Block 788,041 — First SRC-20 (KEVIN)
+NATIVE_DATE="June 6, 2023"           # Block 793,068 — Native encoding
+OLGA_DATE="October 10, 2024"         # Block 865,000 — OLGA activation
 
 # Section files in order
 SECTIONS=(
@@ -156,7 +156,7 @@ VHISTORY
     echo "| $VERSION | $BUILD_DATE | Current release — factual corrections, OLGA clarifications, condensed future roadmap |"
     cat <<'VHISTORY'
 | 0.9 | 2026-02-16 | Initial whitepaper draft — full protocol specification |
-| — | March 29, 2023 | Protocol genesis — first Bitcoin Stamp at block 779,652 |
+| — | March 7, 2023 | Protocol genesis — first Bitcoin Stamp at block 779,652 |
 
 ---
 
