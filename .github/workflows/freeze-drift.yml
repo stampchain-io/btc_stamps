@@ -15,15 +15,13 @@ name: Freeze Drift Check
 # locally and commit the new indexer/ci/freeze.prod.lock in the same PR.
 # See indexer/ci/README.md.
 
+# The path filter lives on the `freeze-drift` JOB (via the `changes` detector),
+# NOT on the `on:` trigger, so the workflow still runs on every PR and the
+# `Freeze Drift Gate` status check is always reported (#907). A workflow skipped
+# by an `on: paths` filter reports NO check, which traps a required context as
+# "expected but never runs" (GH013) and blocks the PR forever.
 on:
   pull_request:
-    paths:
-      - 'indexer/pyproject.toml'
-      - 'indexer/poetry.lock'
-      - 'indexer/Dockerfile'
-      - 'indexer/ci/freeze.prod.lock'
-      - 'indexer/ci/freeze-filter.sh'
-      - '.github/workflows/freeze-drift.yml'
   workflow_dispatch:
 
 permissions:
@@ -31,8 +29,37 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Detect whether freeze-relevant files changed. Keeps the heavy Docker build
+  # off unrelated PRs while the workflow still runs (so the gate reports).
+  changes:
+    name: Detect freeze-relevant changes
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      freeze: ${{ steps.filter.outputs.freeze }}
+    steps:
+      - name: Filter freeze-relevant paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            freeze:
+              - 'indexer/pyproject.toml'
+              - 'indexer/poetry.lock'
+              - 'indexer/Dockerfile'
+              - 'indexer/ci/freeze.prod.lock'
+              - 'indexer/ci/freeze-filter.sh'
+              - '.github/workflows/freeze-drift.yml'
+
   freeze-drift:
     name: Freeze Drift Check
+    needs: changes
+    # Heavy Docker build only when freeze-relevant files change (or a manual run).
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.freeze == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -129,3 +156,27 @@ jobs:
       - name: Fail on drift
         if: steps.diff.outputs.drift == 'true'
         run: exit 1
+
+  # Stable, always-present status check (#907). Keep this job's name FIXED — it is
+  # the requireable ruleset context. Green when freeze-drift passed OR was skipped
+  # (freeze-irrelevant PR); red only when freeze-drift actually failed/cancelled.
+  freeze-drift-gate:
+    name: Freeze Drift Gate
+    needs: [changes, freeze-drift]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve gate from freeze-drift result
+        env:
+          RESULT: ${{ needs.freeze-drift.result }}
+        run: |
+          echo "freeze-drift job result: $RESULT"
+          case "$RESULT" in
+            success|skipped)
+              echo "Gate PASS: freeze-drift $RESULT (no unresolved drift)."
+              ;;
+            *)
+              echo "::error::Freeze Drift Gate failed (freeze-drift result: $RESULT)."
+              exit 1
+              ;;
+          esac
