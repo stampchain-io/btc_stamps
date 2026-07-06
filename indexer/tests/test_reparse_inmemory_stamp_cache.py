@@ -26,14 +26,19 @@ def test_stamp_counter_initial_and_single_increment():
     fake = make_fake_result("tx1", 1, 100)
     proc.process_transaction_results([fake])
 
-    # Counter should start at 1
+    # With no prior stamps seeded, the first stamp number is 0 — matching
+    # production's get_next_stamp_number default_value. The "counter" cache holds
+    # the LAST-USED number, so after one stamp it is 0.
     counter = reparse_caching.cache_manager.get_cache_value("stamp", "counter")
-    assert counter == 1
+    assert counter == 0
 
-    # valid_stamps_in_block should include stamp 1
+    # valid_stamps_in_block should include stamp 0, keyed by the production
+    # ValidStamp field name (stamp_number); the non-production "stamp" alias is
+    # intentionally NOT present so str(dict) is byte-identical to production.
     assert len(proc.valid_stamps_in_block) == 1
     record = proc.valid_stamps_in_block[0]
-    assert record["stamp"] == 1
+    assert record["stamp_number"] == 0
+    assert "stamp" not in record
     assert record["tx_hash"] == "tx1"
 
 
@@ -45,21 +50,21 @@ def test_stamp_counter_multiple_increments():
     proc.process_transaction_results([f1])
     proc.process_transaction_results([f2, f3])
 
-    # Counter should be 3 after three stamps
+    # Counter (last-used) should be 2 after three stamps numbered 0, 1, 2
     counter = reparse_caching.cache_manager.get_cache_value("stamp", "counter")
-    assert counter == 3
+    assert counter == 2
 
     # Check stamps assigned in order
-    stamps = [rec["stamp"] for rec in proc.valid_stamps_in_block]
-    assert stamps == [1, 2, 3]
+    stamps = [rec["stamp_number"] for rec in proc.valid_stamps_in_block]
+    assert stamps == [0, 1, 2]
 
 
 def test_cache_cleared_under_memory_pressure(monkeypatch):
     proc = InMemoryBlockProcessor()
     fake = make_fake_result("tx1", 1, 100)
     proc.process_transaction_results([fake])
-    # Ensure counter set
-    assert reparse_caching.cache_manager.get_cache_value("stamp", "counter") == 1
+    # Ensure counter set (last-used == 0 after the first stamp)
+    assert reparse_caching.cache_manager.get_cache_value("stamp", "counter") == 0
 
     # Simulate memory pressure: monkey-patch memory_manager to clear all caches
     monkeypatch.setattr(mm, "clear_caches_if_needed", lambda: reparse_caching.cache_manager.clear_all())
