@@ -8,7 +8,7 @@ import sys
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 os.environ["TESTING"] = "1"
-from typing import TYPE_CHECKING, Dict, Iterator, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Union
 from unittest.mock import MagicMock
 
 if TYPE_CHECKING:
@@ -196,7 +196,6 @@ class InMemoryBlockProcessor:
         import base64
 
         from config import CP_P2WSH_FEAT_BLOCK_START
-
         from index_core.stamp import create_valid_stamp_dict, decode_base64, get_src_or_img_from_data
 
         for result in tx_results:
@@ -358,10 +357,10 @@ class ReparseValidator:
         self.db = db  # Optional DB connection for creating reference hashes
         # Lazily-opened read-only connection to the authoritative dev DB, used
         # only to prime the global stamp counter (see _seed_stamp_counter).
-        self._ref_db_conn = None
+        self._ref_db_conn: Optional[Any] = None
         self._ref_db_unavailable = False
 
-    def _ref_conn(self):
+    def _ref_conn(self) -> Optional[Any]:
         """Return a cached read-only connection to the authoritative dev DB (or None).
 
         Shared by the two consensus-NEUTRAL, best-effort seeders that need the same
@@ -442,7 +441,6 @@ class ReparseValidator:
             from decimal import Decimal as D
 
             from config import CP_SRC20_GENESIS_BLOCK
-
             from index_core.src20 import process_balance_updates
 
             if block_index <= CP_SRC20_GENESIS_BLOCK:
@@ -646,7 +644,7 @@ class ReparseValidator:
             # NOT the raw ``processed_src20_in_block`` list. Reconstruct that string
             # so ledger_hash matches for native SRC-20 blocks; see
             # ``_reconstruct_valid_src20_str``.
-            src20_ledger_content = block_processor.processed_src20_in_block
+            src20_ledger_content: Any = block_processor.processed_src20_in_block
             if isinstance(block_processor, InMemoryBlockProcessor):
                 src20_ledger_content = self._reconstruct_valid_src20_str(block_index)
             try:
