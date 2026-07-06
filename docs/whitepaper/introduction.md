@@ -37,7 +37,7 @@ Counterparty proved account-based asset tracking works at scale on Bitcoin. Rath
 
 **Critical insight**: SRC-20 tokens inherit Counterparty's account model. Token ownership is tracked per address in indexer state, NOT embedded in specific UTXOs. This is foundational to Bitcoin Stamps architecture.
 
-### 1.2.2 Genesis: Block 779,652 (March 29, 2023)
+### 1.2.2 Genesis: Block 779,652 (March 7, 2023)
 
 Mikeinspace created the first Bitcoin Stamp—a laser-eyes pixel art embedded via Counterparty transaction. This stamp used traditional OP_RETURN encoding but sparked recognition: Bitcoin could permanently store visual art, not just monetary metadata.
 
@@ -47,13 +47,13 @@ Mikeinspace created the first Bitcoin Stamp—a laser-eyes pixel art embedded vi
 
 ### 1.2.3 Cultural Milestone: KEVIN (Blocks 783,718 & 788,041)
 
-**Block 783,718** (March 15, 2023): Arwyn created KEVIN (Stamp #4258) as homage to Rare Pepe culture. The artwork unexpectedly exhibited "ghost-like" behavior—appearing in unexpected system locations, inspiring organic derivative works. KEVIN evolved from artistic experiment to community symbol.
+**Block 783,718** (April 3, 2023): Arwyn created KEVIN (Stamp #4258) as homage to Rare Pepe culture. The artwork unexpectedly exhibited "ghost-like" behavior—appearing in unexpected system locations, inspiring organic derivative works. KEVIN evolved from artistic experiment to community symbol.
 
-**Block 788,041** (April 20, 2023): Arwyn deployed KEVIN as first SRC-20 token (Stamp #18,516), formalizing fungible token standard atop Bitcoin Stamps. This dual nature (unique stamp #4258 + fungible token) established pattern: stamps provide non-fungible foundation, SRC-20 adds fungible layer.
+**Block 788,041** (May 3, 2023): Arwyn deployed KEVIN as first SRC-20 token (Stamp #18,516), formalizing fungible token standard atop Bitcoin Stamps. This dual nature (unique stamp #4258 + fungible token) established pattern: stamps provide non-fungible foundation, SRC-20 adds fungible layer.
 
 **Cultural impact**: KEVIN demonstrated fair launch principles—no pre-mine, equal minting access, community-driven distribution. These values became protocol philosophy: "we are all Kevin" (echoing Mayan "In Lak'ech Ala K'in"—"I am you, you are me"). Over 2,300 holders grew organically without marketing or speculation.
 
-### 1.2.4 Technical Evolution: Block 793,068 (April 20, 2023)
+### 1.2.4 Technical Evolution: Block 793,068 (June 6, 2023)
 
 First stamp using native Bitcoin bare multisig encoding rather than Counterparty OP_RETURN. This transition marked protocol independence—stamps no longer required Counterparty infrastructure, only Bitcoin itself.
 
@@ -79,7 +79,7 @@ Each "pubkey" is 32 bytes of image/data. A 2-of-3 multisig provides 64 bytes usa
 
 **Counterparty cutoff** (block 796,000): Community consensus rule—SRC-20 tokens on Counterparty only valid until block 796,000. After this, only Bitcoin-native encoded tokens recognized. Ensures protocol independence while honoring early adopters.
 
-### 1.2.6 Optimization: OLGA at Block 865,000 (October 15, 2023)
+### 1.2.6 Optimization: OLGA at Block 865,000 (October 10, 2024)
 
 Reinamora introduced OLGA (Octet Linked Graphical Artifacts)—P2WSH encoding replacing bare multisig for 30-95% cost reduction.
 

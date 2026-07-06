@@ -8,13 +8,12 @@ import sys
 os.environ["USE_TEST_DB"] = "1"
 os.environ["MOCK_DB"] = "1"
 os.environ["TESTING"] = "1"
-from typing import TYPE_CHECKING, Dict, Iterator, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Union
 from unittest.mock import MagicMock
 
 if TYPE_CHECKING:
     from index_core.database_manager import DatabaseManager
 
-import ast
 import importlib.util
 import json  # for debug dump of hash dicts
 import logging
@@ -188,18 +187,46 @@ class InMemoryBlockProcessor:
 
     def process_transaction_results(self, tx_results: list) -> None:
         """Process transaction results and update in-memory state."""
-        # Lazy import to avoid pulling heavy dependencies at module import time
+        # Reuse the SAME production helpers the real indexer uses so the
+        # validator's ValidStamp dicts are byte-identical to production and the
+        # two paths cannot drift. ``get_src_or_img_from_data`` performs the exact
+        # base64 parse/decode ``StampData.get_base_64_data_from_trx`` runs, and
+        # ``create_valid_stamp_dict`` builds the exact ValidStamp TypedDict that
+        # feeds ``str(sorted_valid_stamps)`` in ``create_check_hashes``.
+        import base64
+
+        from config import CP_P2WSH_FEAT_BLOCK_START
+        from index_core.stamp import create_valid_stamp_dict, decode_base64, get_src_or_img_from_data
+
         for result in tx_results:
             if not getattr(result, "data", None):
                 continue
             data = result.data
-            # Parse data string into dict if necessary
-            if isinstance(data, str):
+            # Parse data string into dict if necessary. Use the SAME production
+            # converter (``convert_to_dict_or_string``) the real indexer uses:
+            # issuance ``data`` is a JSON string (``json.dumps(stamp_issuance)``
+            # in ``list_tx``) containing JSON literals (``false``/``true``/
+            # ``null``) that ``ast.literal_eval`` cannot parse — so the previous
+            # code silently dropped EVERY stamp, emitting an empty valid-stamp
+            # list whose txlist_hash only matched for stamp-free blocks.
+            # NOTE: native SRC-20/721/101 (P2WSH witness, no CP issuance) arrive as
+            # RAW BYTES from ``get_tx_info`` (``data = data_chunk_without_prefix``),
+            # NOT a str — ``list_tx`` only json.dumps()es the data for CP issuances.
+            # The previous ``isinstance(data, str)``-only guard let those bytes fall
+            # straight through to ``if not isinstance(data, dict): continue`` and be
+            # DROPPED, so every native SRC-20 stamp vanished from both
+            # ``valid_stamps_in_block`` (breaking txlist_hash + mis-numbering any
+            # image stamp sharing the block) and ``processed_src20_in_block``.
+            # ``convert_to_dict_or_string`` already handles bytes exactly as
+            # production's ``process_and_store_stamp_data`` does.
+            if isinstance(data, (str, bytes)):
                 try:
-                    data = ast.literal_eval(data)
-                except (ValueError, SyntaxError):
-                    logging.getLogger(__name__).debug(f"Could not parse transaction data string: {data}")
+                    data = util.convert_to_dict_or_string(data, output_format="dict")
+                except Exception:
+                    logging.getLogger(__name__).debug(f"Could not parse transaction data: {data!r}")
                     continue
+            if not isinstance(data, dict):
+                continue
             # CPID reissuance exclusion via cache
             cpid = data.get("cpid")
             if cpid:
@@ -207,22 +234,68 @@ class InMemoryBlockProcessor:
                 if reparse_caching.cache_manager.get_cache_value("reissue", cpid):
                     continue
                 reparse_caching.cache_manager.set_cache_value("reissue", cpid, True)
-            # Track valid stamps with in-memory numbering and mirror production ValidStamp structure
-            prev_stamp_num = reparse_caching.cache_manager.get_cache_value("stamp", "counter") or 0
+            # Assign the global stamp number using production's semantics
+            # (``get_next_stamp_number`` = last-used + 1). The "counter" cache
+            # holds the LAST-USED number; it is primed per block from the
+            # authoritative dev DB by ``_seed_stamp_counter`` so a standalone /
+            # resumed single-block validation reproduces production's global
+            # numbering. When unseeded (no prior stamps anywhere), -1 makes the
+            # first stamp number 0 — production's ``default_value`` for stamp.
+            prev_stamp_num = reparse_caching.cache_manager.get_cache_value("stamp", "counter")
+            if prev_stamp_num is None:
+                prev_stamp_num = -1
             new_stamp_num = prev_stamp_num + 1
             reparse_caching.cache_manager.set_cache_value("stamp", "counter", new_stamp_num)
-            valid_stamp = {
-                "stamp_number": new_stamp_num,
-                "tx_hash": result.tx_hash,
-                "cpid": data.get("cpid", ""),
-                "is_btc_stamp": True,
-                "is_valid_base64": False,
-                "stamp_base64": "",
-                "is_cursed": False,
-                "src_data": "",  # empty to match production ValidStamp src_data
-            }
-            # Backward compatibility: alias 'stamp' to stamp_number
-            valid_stamp["stamp"] = new_stamp_num
+            # Derive the real base64 fields exactly as production's
+            # ``StampData.determine_stamp_data_type`` does, so the ValidStamp is
+            # byte-identical. Two mutually-exclusive branches, keyed the same way
+            # production keys them:
+            #   * OLGA / P2WSH (p2wsh_data present and block >= P2WSH feature
+            #     start): the image bytes live in the witness, NOT the CP
+            #     description — ``stamp_base64`` is ``b64encode(p2wsh_data)`` and
+            #     ``is_valid_base64`` comes from decoding that (mirrors
+            #     ``process_p2wsh_data``).
+            #   * MULTISIG / description: ``get_src_or_img_from_data`` parses the
+            #     base64 out of the CP issuance description and decodes it
+            #     (mirrors ``get_base_64_data_from_trx``). For SRC protocols it
+            #     returns ``(stamp, None, None, 1)``.
+            # create_valid_stamp_dict normalises None -> "" / False, matching
+            # production's ValidStamp exactly.
+            p2wsh_data = getattr(result, "p2wsh_data", None)
+            try:
+                if p2wsh_data is not None and result.block_index >= CP_P2WSH_FEAT_BLOCK_START:
+                    stamp_base64 = base64.b64encode(p2wsh_data).decode()
+                    _decoded_base64, is_valid_base64 = decode_base64(stamp_base64, result.block_index)
+                else:
+                    _decoded_base64, stamp_base64, _stamp_mimetype, is_valid_base64 = get_src_or_img_from_data(
+                        data, result.block_index
+                    )
+            except Exception:
+                # Mirror production: an invalid ``p`` (or other decode failure)
+                # yields no usable base64; fall back to empty/false so the dict
+                # is still well-formed.
+                stamp_base64, is_valid_base64 = None, None
+            # Native SRC-20/721/101 issuances carry no CP ``cpid``; production
+            # backfills it with the stamp_hash in ``update_cpid_and_stamp_url``
+            # (``self.cpid = self.cpid if self.cpid else self.stamp_hash``, where
+            # ``stamp_hash = create_base62_hash(tx_hash, str(block_index), 20)``).
+            # Reuse that exact production helper so the hashed ValidStamp ``cpid``
+            # is byte-identical (e.g. block 800175 -> "Aq2PmdeKENTlmafYo9j7") instead
+            # of the empty string the old code emitted.
+            cpid_value = data.get("cpid") or util.create_base62_hash(result.tx_hash, str(result.block_index), 20)
+            valid_stamp = create_valid_stamp_dict(
+                new_stamp_num,
+                result.tx_hash,
+                cpid_value,
+                True,
+                # Mirror production's ``bool(stamp_data.is_valid_base64)``: the SRC
+                # branch of ``get_src_or_img_from_data`` returns the int ``1``, which
+                # must render as ``True`` in the hashed ValidStamp, not ``1``.
+                bool(is_valid_base64) if is_valid_base64 is not None else False,
+                stamp_base64 if not isinstance(stamp_base64, dict) else None,
+                False,
+                "",  # empty to match production ValidStamp src_data
+            )
             self.valid_stamps_in_block.append(valid_stamp)
             # Protocol operations
             protocol = data.get("protocol")
@@ -282,6 +355,186 @@ class ReparseValidator:
         Path(self.snapshot_path).parent.mkdir(parents=True, exist_ok=True)
         self.snapshot_manager = SnapshotManager(self.snapshot_path)
         self.db = db  # Optional DB connection for creating reference hashes
+        # Lazily-opened read-only connection to the authoritative dev DB, used
+        # only to prime the global stamp counter (see _seed_stamp_counter).
+        self._ref_db_conn: Optional[Any] = None
+        self._ref_db_unavailable = False
+
+    def _ref_conn(self) -> Optional[Any]:
+        """Return a cached read-only connection to the authoritative dev DB (or None).
+
+        Shared by the two consensus-NEUTRAL, best-effort seeders that need the same
+        dev DB the reference hashes were snapshotted from (``_seed_stamp_counter``
+        for global stamp numbering, ``_reconstruct_valid_src20_str`` for the SRC-20
+        balance ledger). On any connection failure it flips ``_ref_db_unavailable``
+        so DB-less / off-host runs degrade gracefully instead of raising.
+        """
+        if self._ref_db_unavailable:
+            return None
+        conn = self._ref_db_conn
+        if conn is not None and getattr(conn, "open", False):
+            return conn
+        try:
+            import pymysql
+
+            conn = pymysql.connect(
+                host=os.environ.get("RDS_HOSTNAME", "localhost"),
+                user=os.environ.get("RDS_USER") or os.environ.get("MYSQL_USER", "admin"),
+                password=os.environ.get("RDS_PASSWORD") or os.environ.get("MYSQL_PASSWORD", "password"),
+                database=os.environ.get("RDS_DATABASE", "btc_stamps"),
+                port=int(os.environ.get("RDS_PORT", 3306)),
+                charset="utf8mb4",
+                connect_timeout=30,
+            )
+            self._ref_db_conn = conn
+            return conn
+        except Exception as e:
+            self._ref_db_unavailable = True
+            logger.debug(f"Reference dev DB unavailable ({e}); DB-backed seeding disabled")
+            return None
+
+    def _last_nonempty_ledger_hash(self, block_index: int) -> str:
+        """Return the most recent NON-empty ledger hash strictly before ``block_index``.
+
+        The SRC-20 ledger hash chains only across blocks that carry SRC-20 activity;
+        every other block stores an empty ledger hash. Production reproduces the
+        chain via ``check.consensus_hash``'s DB walk-back; here we resolve it from
+        the already-loaded snapshot so single-block validation feeds
+        ``create_check_hashes`` a correct, truthy previous hash. Returns "" if none
+        exists (pre-first-SRC-20 history).
+        """
+        hashes = self.snapshot_manager.load_snapshot().get("hashes", {})
+        b = block_index - 1
+        while b > 0:
+            entry = hashes.get(str(b))
+            if entry and entry.get("ledger_hash"):
+                return entry["ledger_hash"]
+            b -= 1
+        return ""
+
+    def _reconstruct_valid_src20_str(self, block_index: int) -> str:
+        """Reconstruct production's ``valid_src20_str`` (the ledger_hash content).
+
+        ``finalize_block`` builds this string from ``update_src20_balances`` ->
+        ``process_balance_updates`` = for every (tick, address) touched by a valid
+        MINT/TRANSFER in the block, the address's POST-BLOCK balance, formatted
+        ``tick,address,amt`` and sorted/joined by ``process_balance_updates``.
+
+        Reproducing that in-memory for a standalone block would require the SRC-20
+        balance state as of ``block_index - 1`` (not stored anywhere queryable), so
+        instead — mirroring ``_seed_stamp_counter``'s "read the authoritative answer
+        from the dev DB" approach — we read the effective per-op amounts from the
+        authoritative ``SRC20Valid`` table (which stores ONLY valid ops, with the
+        post-ODL/OMA-reduction ``amt``) and compute each touched address's post-block
+        balance as the cumulative signed sum of those amts (credit destination,
+        debit TRANSFER creator) up to and including this block. The byte-exact
+        formatting/sorting is delegated to the PRODUCTION ``process_balance_updates``
+        helper so the output cannot drift.
+
+        Consensus-NEUTRAL and best-effort: on any DB failure returns "" (the block's
+        ledger check then degrades like a DB-less run) rather than raising.
+        """
+        conn = self._ref_conn()
+        if conn is None:
+            return ""
+        try:
+            from decimal import Decimal as D
+
+            from config import CP_SRC20_GENESIS_BLOCK
+            from index_core.src20 import process_balance_updates
+
+            if block_index <= CP_SRC20_GENESIS_BLOCK:
+                return ""
+            with conn.cursor() as cursor:
+                # Distinct (tick, tick_hash, address) pairs touched by a valid
+                # MINT/TRANSFER in THIS block — exactly the balance_updates keys
+                # production's update_src20_balances would build.
+                cursor.execute(
+                    """
+                    SELECT DISTINCT tick, tick_hash, addr FROM (
+                        SELECT tick, tick_hash, destination AS addr FROM SRC20Valid
+                            WHERE block_index = %s AND op IN ('MINT', 'TRANSFER')
+                        UNION
+                        SELECT tick, tick_hash, creator AS addr FROM SRC20Valid
+                            WHERE block_index = %s AND op = 'TRANSFER'
+                    ) t
+                    """,  # nosec B608
+                    (block_index, block_index),
+                )
+                touched = cursor.fetchall()
+                if not touched:
+                    return ""
+                balance_updates = []
+                for tick, tick_hash, addr in touched:
+                    # Post-block balance = cumulative signed amt across all valid ops
+                    # up to and including this block: destinations credited, TRANSFER
+                    # creators debited. (SRC20Valid's *_bal columns are written during
+                    # threaded validation and are NOT a reliable sequential running
+                    # balance, so they are intentionally not used here.)
+                    cursor.execute(
+                        """
+                        SELECT COALESCE(SUM(delta), 0) FROM (
+                            SELECT amt AS delta FROM SRC20Valid
+                                WHERE block_index <= %s AND op IN ('MINT', 'TRANSFER')
+                                  AND tick = %s AND tick_hash = %s AND destination = %s
+                            UNION ALL
+                            SELECT -amt AS delta FROM SRC20Valid
+                                WHERE block_index <= %s AND op = 'TRANSFER'
+                                  AND tick = %s AND tick_hash = %s AND creator = %s
+                        ) x
+                        """,  # nosec B608
+                        (block_index, tick, tick_hash, addr, block_index, tick, tick_hash, addr),
+                    )
+                    bal = cursor.fetchone()[0]
+                    balance_updates.append(
+                        {"tick": tick, "tick_hash": tick_hash, "address": addr, "net_change": D(0), "original_amt": D(bal)}
+                    )
+            return process_balance_updates(balance_updates)
+        except Exception as e:
+            logger.debug(f"Could not reconstruct valid_src20_str for block {block_index} ({e}); skipping SRC-20 ledger")
+            return ""
+
+    def _seed_stamp_counter(self, block_index: int) -> None:
+        """Prime the in-memory stamp counter from the authoritative dev DB.
+
+        Global Bitcoin-Stamp numbers are monotonic across the entire chain, so a
+        standalone (or resumed) single-block in-memory validation cannot know how
+        many stamps precede ``block_index`` on its own. Production assigns numbers
+        via ``get_next_stamp_number`` == ``MAX(stamp) + 1``; we reproduce that
+        anchor by reading ``MAX(stamp)`` over all EARLIER blocks from the same dev
+        DB the reference hashes were snapshotted from, and priming the "counter"
+        cache (which holds the LAST-USED number) with it — so the next stamp is
+        ``MAX + 1``. NULL (no prior stamps) leaves the cache unset so the first
+        stamp becomes number 0, matching production's ``default_value``.
+
+        Best-effort and consensus-NEUTRAL: this only fixes stamp NUMBERING, never
+        the decoded stamp fields. On any DB failure the in-memory accumulation is
+        left untouched so DB-less / off-host runs still work (correct for
+        stamp-free blocks and full genesis->tip sequences).
+        """
+        conn = self._ref_conn()
+        if conn is None:
+            return
+        from config import STAMP_TABLE
+
+        try:
+            with conn.cursor() as cursor:
+                # Only non-cursed (>= 0) stamps: the CP-era validator numbers
+                # positive btc_stamps; cursed (negative) numbering is out of scope.
+                cursor.execute(
+                    f"SELECT MAX(stamp) FROM {STAMP_TABLE} WHERE block_index < %s AND stamp >= 0",  # nosec
+                    (block_index,),
+                )
+                row = cursor.fetchone()
+            max_stamp = row[0] if row else None
+            if max_stamp is not None:
+                reparse_caching.cache_manager.set_cache_value("stamp", "counter", int(max_stamp))
+            logger.debug(f"Seeded stamp counter for block {block_index}: last-used = {max_stamp}")
+        except Exception as e:
+            # Never let numbering-seed failure halt validation; fall back to the
+            # in-memory counter (accurate for stamp-free blocks / full sequences).
+            self._ref_db_unavailable = True
+            logger.debug(f"Could not seed stamp counter from dev DB for block {block_index} ({e}); using in-memory counter")
 
     def compute_block_hashes(
         self,
@@ -320,6 +573,9 @@ class ReparseValidator:
             # Process transactions using BlockProcessor if not provided
             # Initialize an in-memory processor if none provided
             if block_processor is None:
+                # Prime the global stamp counter from the authoritative dev DB so
+                # in-memory numbering matches production for standalone blocks.
+                self._seed_stamp_counter(block_index)
                 block_processor = InMemoryBlockProcessor()
                 tx_results = []
                 # Pre-warm the raw-transaction cache so each candidate's vin[0]
@@ -331,6 +587,13 @@ class ReparseValidator:
                     if getattr(result, "data", None) is not None:
                         result = result._replace(block_index=block_index, block_hash=block_hash, block_time=block_data["time"])
                         tx_results.append(result)
+                # Number stamps in on-chain (block) order, exactly as production does:
+                # ``blocks.py`` sorts tx_results by ``txhash_list.index`` before
+                # ``process_transaction_results`` (global stamp numbers are assigned in
+                # that order). ``filter_block_transactions`` returns raw_transactions
+                # with ALL CP issuances first and native SRC-20 after, so for a mixed
+                # SRC-20 + image block the unsorted order would mis-number every stamp.
+                tx_results = sorted(tx_results, key=lambda r: txhash_list.index(r.tx_hash))
                 block_processor.process_transaction_results(tx_results)
             # Ensure block_processor is not None for type checking
             assert block_processor is not None
@@ -367,12 +630,29 @@ class ReparseValidator:
             prev_ledger_hash = prev_hashes["ledger_hash"]
             if block_index == _cfg.CP_SRC20_GENESIS_BLOCK + 1:
                 prev_ledger_hash = ""
+            elif not prev_ledger_hash:
+                # The SRC-20 ledger hash only chains across blocks that carry SRC-20
+                # activity; ``check.consensus_hash`` walks the DB back to the most
+                # recent NON-empty ledger hash when the immediate predecessor's is
+                # empty. Standalone / resumed single-block validation feeds a mock DB
+                # that cannot answer that walk-back, so resolve it from the snapshot
+                # and pass a truthy previous hash (consensus_hash then skips its own
+                # DB lookup). Blocks with empty ledger content are unaffected.
+                prev_ledger_hash = self._last_nonempty_ledger_hash(block_index)
+            # Production's ``finalize_block`` feeds ``create_check_hashes`` the
+            # ``valid_src20_str`` (post-block SRC-20 balances) as the ledger content,
+            # NOT the raw ``processed_src20_in_block`` list. Reconstruct that string
+            # so ledger_hash matches for native SRC-20 blocks; see
+            # ``_reconstruct_valid_src20_str``.
+            src20_ledger_content: Any = block_processor.processed_src20_in_block
+            if isinstance(block_processor, InMemoryBlockProcessor):
+                src20_ledger_content = self._reconstruct_valid_src20_str(block_index)
             try:
                 new_ledger_hash, new_txlist_hash, new_messages_hash = create_check_hashes(
                     mock_db,
                     block_index,
                     block_processor.valid_stamps_in_block,
-                    block_processor.processed_src20_in_block,
+                    src20_ledger_content,
                     txhash_list,
                     prev_ledger_hash,
                     prev_hashes["txlist_hash"],

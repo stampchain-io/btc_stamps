@@ -62,10 +62,10 @@ This whitepaper consists of multiple sections:
 
 ## Quick Reference
 
-**Genesis Block**: 779,652 (March 29, 2023) — First Bitcoin Stamp by Mikeinspace
-**Native Encoding**: 793,068 (April 20, 2023) — Direct Bitcoin encoding begins
-**Counterparty Cutoff**: 796,000 (August 15, 2023) — SRC-20 consensus rule
-**OLGA Activation**: 865,000 (October 15, 2023) — P2WSH optimization available
+**Genesis Block**: 779,652 (March 7, 2023) — First Bitcoin Stamp by Mikeinspace
+**Native Encoding**: 793,068 (June 6, 2023) — Direct Bitcoin encoding begins
+**Counterparty Cutoff**: 796,000 (June 26, 2023) — SRC-20 consensus rule
+**OLGA Activation**: 865,000 (October 10, 2024) — P2WSH optimization available
 
 **Foundation**: Built on Counterparty protocol (est. 2014) for proven account-based asset tracking
 **Storage Model**: UTXO-based (consensus-critical, unprunable)

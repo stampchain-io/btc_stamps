@@ -31,29 +31,58 @@ name: Reparse Consensus Validation
 # This is advisory on first land (does not block merge). Promote to required
 # after one bake cycle confirms zero false positives.
 
+# The path filter lives on the `reparse-validate` JOB (via the `changes`
+# detector), NOT on the `on:` trigger, so the workflow runs on every PR and the
+# `Reparse Consensus Validation Gate` status check is always reported (#907). A
+# workflow skipped by an `on: paths` filter reports NO check, trapping a required
+# context as "expected but never runs" (GH013) and blocking the PR forever.
 on:
   pull_request:
-    paths:
-      - 'indexer/src/index_core/**'
-      - 'indexer/src/rust_parser/**'
-      - 'indexer/pyproject.toml'
-      - 'indexer/poetry.lock'
-      - 'indexer/snapshots/ci_consensus_hashes.json'
-      - 'indexer/snapshots/reference_hashes.json'
-      - 'indexer/src/config.py'
-      - 'indexer/ci/**'
-      - '.github/workflows/reparse-validate.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # Detect whether consensus-surface files changed. Keeps the heavy reparse off
+  # unrelated PRs while the workflow still runs (so the gate reports).
+  changes:
+    name: Detect reparse-relevant changes
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      reparse: ${{ steps.filter.outputs.reparse }}
+    steps:
+      - name: Filter reparse-relevant paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            reparse:
+              - 'indexer/src/index_core/**'
+              - 'indexer/src/rust_parser/**'
+              - 'indexer/pyproject.toml'
+              - 'indexer/poetry.lock'
+              - 'indexer/snapshots/ci_consensus_hashes.json'
+              - 'indexer/snapshots/reference_hashes.json'
+              - 'indexer/src/config.py'
+              - 'indexer/ci/**'
+              - '.github/workflows/reparse-validate.yml'
+
   reparse-validate:
     name: Reparse Consensus Validation (${{ matrix.python-version }})
+    needs: changes
+    # Heavy reparse only when consensus-surface files change (or a manual run).
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.reparse == 'true'
     runs-on: ubuntu-latest
-    # Advisory on first land — promote to required after one bake cycle.
-    continue-on-error: true
+    # NOTE (#907): continue-on-error removed — a genuine reparse failure must go
+    # red so this gate can be made required. The deliberate scope exclusions
+    # (TIER3_CROSS_BLOCK_LEDGER) remain SKIPS inside ci_reparse_subprocess.py
+    # (dropped from the block list), not failures, so they never turn the gate red.
     strategy:
       fail-fast: false
       matrix:
@@ -140,3 +169,28 @@ jobs:
           poetry run python ci/ci_reparse_subprocess.py \
             --baseline snapshots/ci_consensus_hashes.json \
             --timeout 120
+
+  # Stable, always-present status check (#907). Keep this job's name FIXED — it is
+  # the requireable ruleset context. Green when the reparse matrix passed OR was
+  # skipped (consensus-irrelevant PR); red only when a matrix leg actually
+  # failed/cancelled.
+  reparse-validate-gate:
+    name: Reparse Consensus Validation Gate
+    needs: [changes, reparse-validate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve gate from reparse matrix result
+        env:
+          RESULT: ${{ needs.reparse-validate.result }}
+        run: |
+          echo "reparse-validate matrix result: $RESULT"
+          case "$RESULT" in
+            success|skipped)
+              echo "Gate PASS: reparse-validate $RESULT (consensus surface OK or untouched)."
+              ;;
+            *)
+              echo "::error::Reparse Consensus Validation Gate failed (result: $RESULT)."
+              exit 1
+              ;;
+          esac
