@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import os
@@ -9,7 +8,7 @@ import pybase64
 
 import index_core.log as log
 from config import CP_P2WSH_FEAT_BLOCK_START, STOP_BASE64_REPAIR
-from index_core.base64_utils import parse_base64_from_description
+from index_core.base64_utils import lenient_b64decode, parse_base64_from_description
 from index_core.database import check_reissue, get_next_stamp_number
 from index_core.exceptions import DataConversionError, InvalidInputDataError
 from index_core.files import store_files
@@ -174,7 +173,11 @@ def decode_base64(base64_string, block_index):
             is_valid_base64_string = None
         return image_data, is_valid_base64_string
     try:
-        image_data = base64.b64decode(base64_string)
+        # CONSENSUS-CRITICAL (#871): decode via the version-independent lenient
+        # decoder that reproduces CPython 3.10 ``base64.b64decode`` byte-for-byte
+        # on every interpreter. Using the stdlib decoder here would fork on Python
+        # 3.13 (which rejects non-canonical base64 that 3.10-3.12 decoded).
+        image_data = lenient_b64decode(base64_string)
         return image_data, is_valid_base64_string
     except Exception as e1:
         try:
@@ -218,7 +221,8 @@ def decode_base64_with_repair(base64_string):
         if missing_padding:
             base64_string += "=" * (4 - missing_padding)
 
-        image_data = base64.b64decode(base64_string)
+        # CONSENSUS-CRITICAL (#871): version-independent 3.10-equivalent decode.
+        image_data = lenient_b64decode(base64_string)
         return image_data
 
     except Exception as e:
