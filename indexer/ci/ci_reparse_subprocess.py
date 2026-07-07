@@ -107,6 +107,29 @@ TIER3_CROSS_BLOCK_LEDGER: Set[int] = {
     872000,
 }
 
+# Baseline blocks whose consensus depends on cross-block REISSUE state — a cpid
+# that was already stamped in an EARLIER block. Production drops the later
+# issuance via ``check_reissue`` -> ``check_reissue_in_db`` (a ``StampTableV4``
+# lookup over prior blocks), so the block stamps FEWER (often zero) than its raw
+# issuances. The DB-free, per-block Tier 3 runner has no prior-block state and
+# thus cannot know a cpid was previously stamped, so it over-counts and diverges
+# on ``txlist_hash`` — the SAME structural "needs cross-block DB state" limit as
+# ``TIER3_CROSS_BLOCK_LEDGER`` above, just for reissue rather than SRC-20 ledger.
+# These are EXCLUDED FROM TIER 3 BY DESIGN, not because they are broken: the
+# full DB-backed reparse (``ReparseValidator._is_cross_block_reissue``, #775
+# reindex) reproduces them exactly, and Tiers 1-2 still cover their block bytes.
+#
+#   784549 — 4 image issuances re-issue cpids first stamped in blocks 784122 /
+#            784125 / 784133 / 784546; production stamps 0, DB-free run stamps 4.
+TIER3_CROSS_BLOCK_REISSUE: Set[int] = {
+    784549,
+}
+
+# Union of every block the DB-free Tier 3 runner cannot reproduce (ledger- or
+# reissue-cross-block). Excluded together below; audited together under
+# ``--include-cross-block``.
+TIER3_DB_FREE_UNREPRODUCIBLE: Set[int] = TIER3_CROSS_BLOCK_LEDGER | TIER3_CROSS_BLOCK_REISSUE
+
 
 def _load_baseline(path: str) -> List[int]:
     """Return the sorted list of block_index values from the curated baseline."""
@@ -194,8 +217,9 @@ def main() -> int:
     ap.add_argument(
         "--include-cross-block",
         action="store_true",
-        help="also run blocks in TIER3_CROSS_BLOCK_LEDGER (excluded by design; expected to "
-        "mismatch ledger_hash without a seeded DB). Default: exclude them.",
+        help="also run blocks in TIER3_DB_FREE_UNREPRODUCIBLE (cross-block ledger + reissue; "
+        "excluded by design — they need prior-block DB state a DB-free per-block run lacks). "
+        "Default: exclude them.",
     )
     args = ap.parse_args()
 
@@ -208,13 +232,13 @@ def main() -> int:
     if args.include_cross_block:
         blocks = all_blocks
         if not args.json:
-            print(f"Including {len(TIER3_CROSS_BLOCK_LEDGER)} cross-block-ledger blocks (audit mode; #775).")
+            print(f"Including {len(TIER3_DB_FREE_UNREPRODUCIBLE)} cross-block (ledger + reissue) blocks (audit mode; #775).")
     else:
-        blocks = [b for b in all_blocks if b not in TIER3_CROSS_BLOCK_LEDGER]
+        blocks = [b for b in all_blocks if b not in TIER3_DB_FREE_UNREPRODUCIBLE]
         if not args.json:
             excluded = len(all_blocks) - len(blocks)
             print(
-                f"Excluding {excluded} cross-block-ledger blocks (covered by Tier 1/2 + full reindex; #775). "
+                f"Excluding {excluded} cross-block (ledger + reissue) blocks (covered by Tier 1/2 + full reindex; #775). "
                 "Use --include-cross-block to audit them."
             )
 
@@ -230,7 +254,7 @@ def main() -> int:
     if args.json:
         summary = {
             "baseline": args.baseline,
-            "excluded_cross_block_ledger": sorted(TIER3_CROSS_BLOCK_LEDGER) if not args.include_cross_block else [],
+            "excluded_cross_block_ledger": sorted(TIER3_DB_FREE_UNREPRODUCIBLE) if not args.include_cross_block else [],
             "total_run": len(results),
             "passed": sum(1 for r in results if r["ok"]),
             "failed": sum(1 for r in results if not r["ok"]),

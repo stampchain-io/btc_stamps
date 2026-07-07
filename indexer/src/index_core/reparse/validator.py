@@ -167,6 +167,42 @@ class InMemoryBlockProcessor:
         self.ledger_updates: dict = {}
         # Collection operations
         self.collection_operations: list = []
+        # Optional cross-block reissue lookup, injected by ``ReparseValidator`` from
+        # the authoritative dev DB (``cpid`` stamped in an EARLIER block -> reissue).
+        # ``None`` for DB-less runs: in-block reissue detection via the cache still works.
+        self._reissue_lookup: Optional[Any] = None
+
+    def _next_positive_number(self) -> int:
+        """Return the next POSITIVE stamp number, mirroring ``get_next_stamp_number('stamp')``.
+
+        The "counter" cache holds the LAST-USED positive number (seeded per block
+        from ``MAX(stamp)`` of earlier blocks by ``_seed_stamp_counter``); the next
+        is last-used + 1, and an unseeded counter yields 0 (production's default).
+        """
+        prev = reparse_caching.cache_manager.get_cache_value("stamp", "counter")
+        if prev is None:
+            prev = -1
+        new = prev + 1
+        reparse_caching.cache_manager.set_cache_value("stamp", "counter", new)
+        return new
+
+    def _next_cursed_number(self) -> int:
+        """Return the next CURSED (negative) number, mirroring ``get_next_stamp_number('cursed')``.
+
+        Symmetric to the positive counter: the "cursed_counter" cache holds the
+        LAST-USED cursed number (seeded from ``MIN(stamp)`` of earlier blocks by
+        ``_seed_cursed_counter``); the next is last-used - 1. When unseeded (no
+        prior stamps at all) the last-used defaults to 0 so the first cursed number
+        is -1 — exactly production's ``get_next_stamp_number`` ``default_value``.
+        EVERY cursed stamp consumes one of these, even the A-cpid ones production
+        does not emit, so the emitted (non-A) cursed stamps get production's numbers.
+        """
+        prev = reparse_caching.cache_manager.get_cache_value("stamp", "cursed_counter")
+        if prev is None:
+            prev = 0
+        new = prev - 1
+        reparse_caching.cache_manager.set_cache_value("stamp", "cursed_counter", new)
+        return new
 
     def _update_ledger(self, operation_data: dict) -> None:
         """Update in-memory ledger state for src-20 operations."""
@@ -184,6 +220,113 @@ class InMemoryBlockProcessor:
             receiver = operation_data.get("to")
             holders[sender] = holders.get(sender, 0) - amt
             holders[receiver] = holders.get(receiver, 0) + amt
+
+    def _classify_stamp(self, result: Any, data: dict) -> Union[str, tuple, None]:
+        """Classify a stamp tx exactly as production does, reusing ``StampData``.
+
+        Returns one of:
+          * ``(is_btc_stamp, src_data, cpid)`` — production's verdict for the tx.
+            ``is_btc_stamp=True`` => a valid Bitcoin Stamp (positive number);
+            ``False`` => CURSED (negative number; emitted as a ValidStamp only when
+            ``cpid`` does not start with "A"). ``cpid`` is production's FINAL cpid
+            (``process_stamps_with_asset_longname`` rewrites POSH cpids to the
+            asset_longname) so the caller can apply ``stamp.py``'s create-valid gate.
+          * ``"drop"`` — production DROPS the tx entirely (no stamp number, no
+            ValidStamp): a SRC-20/SRC-101 whose pure-format pre-check fails
+            (``check_format`` / ``check_src101_inputs`` return ``None`` ->
+            ``src20/101_pre_validation`` raises -> ``process_stamp`` swallows it),
+            e.g. the empty-``tick`` SRC-20 mints in block 792853.
+          * ``None`` — classification could not be completed; caller applies its
+            default (treat as a valid stamp) handling.
+
+        Verdicts come straight from the production pipeline, so they cannot drift:
+        we drive the SAME ``StampData`` methods ``blocks.py`` drives
+        (``get_base_64_data_from_trx`` -> ``determine_stamp_data_type`` ->
+        ``update_stamp_data_rows_from_cp_asset``) and then production's OWN dispatch
+        functions (``valid_src20`` / ``valid_src721`` / ``valid_src101`` /
+        ``process_src721`` / ``process_all_stamps`` / ``process_cursed_*``). The only
+        adaptation is that the DB-only SRC-20/SRC-101 SVG build in
+        ``src20/101_pre_validation`` is replaced by its pure-format gate
+        (``check_format`` / ``check_src101_inputs``, both DB-free) plus the two
+        consensus-relevant field writes it performs (``is_btc_stamp = True``,
+        ``file_suffix = "svg"``) — so the whole classifier is DB-less/off-host safe
+        and a ``MagicMock`` DB (only the discarded SRC-721 SVG render would touch it)
+        suffices. Any unexpected failure degrades to ``None``.
+
+        Cursing (``is_btc_stamp=False``) happens when ``process_all_stamps`` rejects a
+        cpid stamp — most commonly an INVALID ``file_suffix``
+        (``json``/``octet-stream``/``plain``/``js``/``css``/``x-empty``), an
+        ``asset_longname``, or an OP_RETURN: SRC-721 mints failing ``valid_src721``
+        keep ``"json"``; cursed images sniff to ``octet-stream``; POSH/named assets
+        curse via ``asset_longname``.
+        """
+        import threading
+
+        from index_core.models import StampData
+        from index_core.stamp import decode_base64, get_src_or_img_from_data
+
+        try:
+            stamp_data = StampData(
+                tx_hash=result.tx_hash,
+                source=getattr(result, "source", None),
+                prev_tx_hash=getattr(result, "prev_tx_hash", None),
+                destination=getattr(result, "destination", None),
+                destination_nvalue=getattr(result, "destination_nvalue", None),
+                btc_amount=getattr(result, "btc_amount", None),
+                fee=getattr(result, "fee", None),
+                fee_rate_sat_vb=getattr(result, "fee_rate_sat_vb", None),
+                data=result.data,
+                decoded_tx=getattr(result, "decoded_tx", None),
+                keyburn=getattr(result, "keyburn", None),
+                tx_index=getattr(result, "tx_index", None),
+                block_index=result.block_index,
+                block_time=getattr(result, "block_time", None),
+                is_op_return=getattr(result, "is_op_return", None),
+                p2wsh_data=getattr(result, "p2wsh_data", None),
+            )
+            # process_src721 guards its collection work with ``with self._lock``.
+            stamp_data._lock = threading.Lock()
+            # Mirror production's ``process_and_store_stamp_data``: seed the base64
+            # fields, run the real decode/ident dispatch, then the CP-issuance fields
+            # (supply/cpid/asset_longname) the validity gates read.
+            stamp_data.get_base_64_data_from_trx(get_src_or_img_from_data, data)
+            stamp_data.determine_stamp_data_type(decode_base64)
+            stamp_data.update_stamp_data_rows_from_cp_asset(data)
+
+            ident_known = stamp_data.ident != "UNKNOWN"
+            cpid_starts_with_A = bool(stamp_data.cpid and stamp_data.cpid.startswith("A"))
+            # Reproduce ``validate_and_process_stamp_data``'s dispatch, swapping the
+            # DB-only SRC-20/101 SVG build for the pure-format gate so we stay DB-free
+            # AND can observe production's "invalid pre-check -> DROP" outcome (which
+            # otherwise surfaces as a swallowed exception in ``process_stamp``).
+            if stamp_data.valid_src20():
+                from index_core.src20 import check_format
+
+                if check_format(stamp_data.decoded_base64, stamp_data.tx_hash, stamp_data.block_index) is None:
+                    return "drop"  # src20_pre_validation raises -> tx dropped
+                stamp_data.is_btc_stamp = True
+                stamp_data.file_suffix = "svg"
+            elif stamp_data.valid_src721():
+                stamp_data.process_src721(self.valid_stamps_in_block, MagicMock())
+            elif stamp_data.valid_src101():
+                from index_core.src101 import check_src101_inputs
+
+                if check_src101_inputs(stamp_data.decoded_base64, stamp_data.tx_hash, stamp_data.block_index) is None:
+                    return "drop"  # src101_pre_validation raises -> tx dropped
+                stamp_data.is_btc_stamp = True
+            # Shared post-classification tail (identical to production's).
+            if stamp_data.cpid:
+                stamp_data.process_all_stamps(ident_known, cpid_starts_with_A)
+            else:
+                stamp_data.process_cursed_with_other_conditions(cpid_starts_with_A, ident_known)
+
+            src_data = stamp_data.src_data if stamp_data.src_data is not None else ""
+            return (bool(stamp_data.is_btc_stamp), src_data, stamp_data.cpid)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                f"Could not classify stamp for tx {getattr(result, 'tx_hash', '?')}; using default handling"
+            )
+            return None
 
     def process_transaction_results(self, tx_results: list) -> None:
         """Process transaction results and update in-memory state."""
@@ -227,25 +370,63 @@ class InMemoryBlockProcessor:
                     continue
             if not isinstance(data, dict):
                 continue
-            # CPID reissuance exclusion via cache
+            # CPID reissuance exclusion. Production's ``check_reissue`` treats a cpid
+            # as a reissue if it is already stamped: in the reissue cache, earlier in
+            # THIS block's valid_stamps, or in the DB from an EARLIER block. The
+            # in-memory cache covers the first two; ``_reissue_lookup`` (seeded by the
+            # validator from the authoritative dev DB, ``cpid`` present at
+            # ``block_index < N``) covers the cross-block DB case a single-block
+            # reparse cannot otherwise see — e.g. block 792853, whose reissued cpids
+            # were first stamped in earlier blocks. Best-effort: ``None`` off-host.
             cpid = data.get("cpid")
-            if cpid:
-                # Use pre-existing 'reissue' cache
-                if reparse_caching.cache_manager.get_cache_value("reissue", cpid):
+            if cpid and reparse_caching.cache_manager.get_cache_value("reissue", cpid):
+                continue
+            if cpid and self._reissue_lookup is not None and self._reissue_lookup(cpid, result.block_index):
+                continue
+            # Reuse production's cursed-vs-valid verdict BEFORE committing this tx to
+            # a stamp number / the valid-stamp list. A tx production CURSES (an
+            # INVALID file_suffix such as SRC-721's un-processed "json" or an image's
+            # "octet-stream", an asset_longname, an OP_RETURN, ...) is given a NEGATIVE
+            # number from a separate cursed counter; SRC-20/SRC-101 return ``None``
+            # (DB-touching pre-validation) and fall through to the unchanged per-type
+            # handling as a valid stamp.
+            src_data_value = ""
+            prod_cpid = None
+            is_cursed_stamp = False
+            classification = self._classify_stamp(result, data)
+            if classification == "drop":
+                # Production drops this tx entirely (invalid SRC-20/SRC-101 pre-check):
+                # no stamp number of EITHER kind is consumed and no ValidStamp emitted.
+                continue
+            if isinstance(classification, tuple):
+                is_btc_stamp_cls, src_data_value, prod_cpid = classification
+                is_cursed_stamp = not is_btc_stamp_cls
+            # Assign the stamp number from the matching monotonic counter, each
+            # advancing in on-chain order exactly like production's
+            # ``get_next_stamp_number``: VALID stamps take the positive counter
+            # (last-used + 1, seeded from ``MAX(stamp)``); CURSED stamps take the
+            # negative cursed counter (last-used - 1, seeded from ``MIN(stamp)``).
+            if is_cursed_stamp:
+                new_stamp_num = self._next_cursed_number()
+                # Production emits a ValidStamp for a cursed stamp ONLY when its final
+                # cpid is truthy and does NOT start with "A" (``stamp.py`` create-valid
+                # gate: ``is_cursed and cpid and not cpid.startswith("A")``). Every
+                # SRC-721 and every cursed image is A-cpid: it consumed a cursed
+                # number above (so later emitted cursed stamps get the right numbers)
+                # but produces NO ValidStamp and never advances the positive counter.
+                # Cursed NON-A stamps (POSH/named assets, e.g. 784013 WARBONDS.ONE)
+                # ARE emitted, with the negative number, below.
+                if not prod_cpid or str(prod_cpid).startswith("A"):
                     continue
+            else:
+                new_stamp_num = self._next_positive_number()
+            # In-block reissue tracking: mark the cpid as seen for stamps we actually
+            # emit (production finds a same-block repeat via the reissue cache for
+            # btc_stamps and via valid_stamps for cursed), so a later dup in the same
+            # block is excluded. Skipped A-cpid cursed stamps intentionally do NOT
+            # populate it (production emits nothing for them).
+            if cpid:
                 reparse_caching.cache_manager.set_cache_value("reissue", cpid, True)
-            # Assign the global stamp number using production's semantics
-            # (``get_next_stamp_number`` = last-used + 1). The "counter" cache
-            # holds the LAST-USED number; it is primed per block from the
-            # authoritative dev DB by ``_seed_stamp_counter`` so a standalone /
-            # resumed single-block validation reproduces production's global
-            # numbering. When unseeded (no prior stamps anywhere), -1 makes the
-            # first stamp number 0 — production's ``default_value`` for stamp.
-            prev_stamp_num = reparse_caching.cache_manager.get_cache_value("stamp", "counter")
-            if prev_stamp_num is None:
-                prev_stamp_num = -1
-            new_stamp_num = prev_stamp_num + 1
-            reparse_caching.cache_manager.set_cache_value("stamp", "counter", new_stamp_num)
             # Derive the real base64 fields exactly as production's
             # ``StampData.determine_stamp_data_type`` does, so the ValidStamp is
             # byte-identical. Two mutually-exclusive branches, keyed the same way
@@ -282,19 +463,33 @@ class InMemoryBlockProcessor:
             # Reuse that exact production helper so the hashed ValidStamp ``cpid``
             # is byte-identical (e.g. block 800175 -> "Aq2PmdeKENTlmafYo9j7") instead
             # of the empty string the old code emitted.
-            cpid_value = data.get("cpid") or util.create_base62_hash(result.tx_hash, str(result.block_index), 20)
+            # The ValidStamp cpid: a CURSED stamp uses production's FINAL cpid — POSH
+            # assets are rewritten to their asset_longname (e.g. "WARBONDS.ONE") by
+            # ``process_stamps_with_asset_longname`` — while a VALID stamp uses the CP
+            # cpid, backfilling native SRC issuances with the stamp_hash exactly as
+            # production's ``update_cpid_and_stamp_url`` does (e.g. block 800175 ->
+            # "Aq2PmdeKENTlmafYo9j7") instead of the empty string the old code emitted.
+            if is_cursed_stamp:
+                cpid_value = prod_cpid
+            else:
+                cpid_value = data.get("cpid") or util.create_base62_hash(result.tx_hash, str(result.block_index), 20)
+            # ``src_data_value`` was already computed above by ``_classify_stamp``
+            # (production's ``json.dumps`` of the symbol->tick-mutated deploy/mint JSON
+            # for a valid JSON SRC-721; "" for every other stamp type). Feed it and the
+            # cursed flags straight into the ValidStamp so txlist_hash matches
+            # production byte-for-byte.
             valid_stamp = create_valid_stamp_dict(
                 new_stamp_num,
                 result.tx_hash,
                 cpid_value,
-                True,
+                not is_cursed_stamp,  # is_btc_stamp: False for an emitted cursed stamp
                 # Mirror production's ``bool(stamp_data.is_valid_base64)``: the SRC
                 # branch of ``get_src_or_img_from_data`` returns the int ``1``, which
                 # must render as ``True`` in the hashed ValidStamp, not ``1``.
                 bool(is_valid_base64) if is_valid_base64 is not None else False,
                 stamp_base64 if not isinstance(stamp_base64, dict) else None,
-                False,
-                "",  # empty to match production ValidStamp src_data
+                is_cursed_stamp,  # is_cursed
+                src_data_value,
             )
             self.valid_stamps_in_block.append(valid_stamp)
             # Protocol operations
@@ -536,6 +731,72 @@ class ReparseValidator:
             self._ref_db_unavailable = True
             logger.debug(f"Could not seed stamp counter from dev DB for block {block_index} ({e}); using in-memory counter")
 
+    def _seed_cursed_counter(self, block_index: int) -> None:
+        """Prime the in-memory CURSED counter from the authoritative dev DB.
+
+        The mirror image of ``_seed_stamp_counter``: cursed (negative) Bitcoin-Stamp
+        numbers are also monotonic across the chain, assigned by production's
+        ``get_next_stamp_number('cursed')`` == ``MIN(stamp) - 1``. We prime the
+        "cursed_counter" cache (LAST-USED cursed number) with ``MIN(stamp)`` over all
+        EARLIER blocks so the next cursed stamp is ``MIN - 1`` (e.g. block 784013's
+        WARBONDS.ONE gets ``-123`` from a prior ``MIN`` of ``-122``). ``MIN(stamp)``
+        is taken over ALL stamps (cursed are negative, so it is the most-negative
+        cursed number, or ``0`` when only positives precede — matching production's
+        unfiltered ``SELECT MIN(stamp)``). NULL (empty history) leaves the cache
+        unset so the first cursed number becomes ``-1`` (production's ``default_value``).
+
+        Best-effort and consensus-NEUTRAL, exactly like ``_seed_stamp_counter``.
+        """
+        conn = self._ref_conn()
+        if conn is None:
+            return
+        from config import STAMP_TABLE
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT MIN(stamp) FROM {STAMP_TABLE} WHERE block_index < %s",  # nosec
+                    (block_index,),
+                )
+                row = cursor.fetchone()
+            min_stamp = row[0] if row else None
+            if min_stamp is not None:
+                reparse_caching.cache_manager.set_cache_value("stamp", "cursed_counter", int(min_stamp))
+            logger.debug(f"Seeded cursed counter for block {block_index}: last-used = {min_stamp}")
+        except Exception as e:
+            self._ref_db_unavailable = True
+            logger.debug(f"Could not seed cursed counter from dev DB for block {block_index} ({e}); using in-memory counter")
+
+    def _is_cross_block_reissue(self, cpid: str, block_index: int) -> bool:
+        """Return True if ``cpid`` was already stamped in an EARLIER block (a reissue).
+
+        Reproduces production's ``check_reissue`` -> ``check_reissue_in_db`` (``SELECT
+        ... WHERE cpid = %s``) for the single-block case: production processes blocks
+        sequentially so at block N its DB holds only blocks < N, but the authoritative
+        dev DB holds the WHOLE chain, so we must scope the lookup to ``block_index < N``
+        to mean "stamped before this block". The in-block/same-block repeats are
+        already handled by the reissue cache; this only adds the cross-block case
+        (e.g. block 792853, whose reissued cpids first appear in earlier blocks).
+
+        Consensus-NEUTRAL and best-effort: returns False on no connection / any DB
+        error so DB-less / off-host runs degrade to cache-only reissue detection.
+        """
+        conn = self._ref_conn()
+        if conn is None:
+            return False
+        from config import STAMP_TABLE
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT 1 FROM {STAMP_TABLE} WHERE cpid = %s AND block_index < %s LIMIT 1",  # nosec
+                    (cpid, block_index),
+                )
+                return cursor.fetchone() is not None
+        except Exception as e:
+            logger.debug(f"Cross-block reissue lookup failed for cpid {cpid} at block {block_index} ({e})")
+            return False
+
     def compute_block_hashes(
         self,
         block_index: int,
@@ -573,10 +834,16 @@ class ReparseValidator:
             # Process transactions using BlockProcessor if not provided
             # Initialize an in-memory processor if none provided
             if block_processor is None:
-                # Prime the global stamp counter from the authoritative dev DB so
-                # in-memory numbering matches production for standalone blocks.
+                # Prime BOTH global counters from the authoritative dev DB so
+                # in-memory numbering matches production for standalone blocks: the
+                # positive counter (valid stamps) and the cursed counter (negative
+                # numbers for cursed non-"A"/POSH stamps that production emits).
                 self._seed_stamp_counter(block_index)
+                self._seed_cursed_counter(block_index)
                 block_processor = InMemoryBlockProcessor()
+                # Inject the cross-block reissue lookup so a cpid first stamped in an
+                # earlier block is excluded (dev-DB backed; None-safe off-host).
+                block_processor._reissue_lookup = self._is_cross_block_reissue
                 tx_results = []
                 # Pre-warm the raw-transaction cache so each candidate's vin[0]
                 # source lookup in get_tx_info is a cache hit (one batched RPC per
