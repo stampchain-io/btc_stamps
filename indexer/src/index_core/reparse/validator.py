@@ -185,6 +185,82 @@ class InMemoryBlockProcessor:
             holders[sender] = holders.get(sender, 0) - amt
             holders[receiver] = holders.get(receiver, 0) + amt
 
+    def _reconstruct_src721_src_data(self, result: Any, data: dict) -> str:
+        """Reproduce production's ``ValidStamp.src_data`` for a JSON SRC-721 stamp.
+
+        For every stamp type EXCEPT JSON SRC-721 the consensus ``src_data`` is the
+        empty string (``StampData.src_data`` is never set — see
+        ``models.StampData.src20_pre_validation`` / image handling), which the
+        caller already passes. JSON SRC-721 is the sole exception: production sets
+        ``self.src_data = self.decoded_base64`` then, after
+        ``validate_src721_and_process`` mutates that dict in place (``symbol`` ->
+        ``tick`` pop-and-append, ``models.process_src721``), stores
+        ``json.dumps(self.src_data)``. That string — NOT the tx alone and NOT the
+        DB's MySQL-JSON-normalised copy (which re-sorts keys by length) — is what
+        feeds ``str(sorted_valid_stamps)`` in ``block_validation`` and therefore the
+        ``txlist_hash``.
+
+        Rather than re-derive that transform (which is exactly what kept drifting),
+        run the SAME production ``StampData`` pipeline the real indexer runs in
+        ``blocks.py``: seed ``decoded_base64`` via ``get_base_64_data_from_trx``,
+        decode/normalise it with ``determine_stamp_data_type``, then — only for a
+        genuine JSON SRC-721 (``ident == "SRC-721"`` and NOT an OLGA html/svg mint,
+        mirroring ``StampData.valid_src721``'s own exclusion) — call the real
+        ``process_src721`` and return its ``src_data``. ``validate_src721_and_process``
+        performs the ``symbol`` -> ``tick`` mutation BEFORE any collection/SVG DB
+        lookup and wraps everything in its own try/except, so the returned
+        ``src_data`` is byte-identical to production regardless of whether the
+        (discarded) SVG rendering can reach a database — keeping this consensus
+        NEUTRAL and DB-less/off-host safe. Any failure degrades to "" so a non-721
+        stamp or an oddly-formed tx can never raise here.
+        """
+        import threading
+
+        from index_core.models import StampData
+        from index_core.stamp import decode_base64, get_src_or_img_from_data
+
+        try:
+            stamp_data = StampData(
+                tx_hash=result.tx_hash,
+                source=getattr(result, "source", None),
+                prev_tx_hash=getattr(result, "prev_tx_hash", None),
+                destination=getattr(result, "destination", None),
+                destination_nvalue=getattr(result, "destination_nvalue", None),
+                btc_amount=getattr(result, "btc_amount", None),
+                fee=getattr(result, "fee", None),
+                fee_rate_sat_vb=getattr(result, "fee_rate_sat_vb", None),
+                data=result.data,
+                decoded_tx=getattr(result, "decoded_tx", None),
+                keyburn=getattr(result, "keyburn", None),
+                tx_index=getattr(result, "tx_index", None),
+                block_index=result.block_index,
+                block_time=getattr(result, "block_time", None),
+                is_op_return=getattr(result, "is_op_return", None),
+                p2wsh_data=getattr(result, "p2wsh_data", None),
+            )
+            # process_src721 guards its collection work with ``with self._lock``.
+            stamp_data._lock = threading.Lock()
+            # Mirror production's ``process_and_store_stamp_data``: seed the base64
+            # fields, then run the real decode/ident dispatch.
+            stamp_data.get_base_64_data_from_trx(get_src_or_img_from_data, data)
+            stamp_data.determine_stamp_data_type(decode_base64)
+            # Only JSON SRC-721 carries a non-empty consensus src_data. OLGA
+            # (html/svg) recursive mints are flagged SRC-721 but excluded by
+            # ``valid_src721`` and processed as images, so their src_data is "".
+            if stamp_data.ident != "SRC-721" or stamp_data.stamp_mimetype in ("text/html", "image/svg+xml"):
+                return ""
+            # Reuse the production side-effecting method: it applies the exact
+            # symbol->tick transform and the json.dumps that lands in the ValidStamp.
+            # A MagicMock DB is sufficient — the SVG it would build is discarded and
+            # the src_data mutation happens before (and independently of) any DB read.
+            stamp_data.process_src721(self.valid_stamps_in_block, MagicMock())
+            return stamp_data.src_data if stamp_data.src_data is not None else ""
+        except Exception:
+            logging.getLogger(__name__).debug(
+                f"Could not reconstruct SRC-721 src_data for tx {getattr(result, 'tx_hash', '?')}; using empty"
+            )
+            return ""
+
     def process_transaction_results(self, tx_results: list) -> None:
         """Process transaction results and update in-memory state."""
         # Reuse the SAME production helpers the real indexer uses so the
@@ -195,7 +271,7 @@ class InMemoryBlockProcessor:
         # feeds ``str(sorted_valid_stamps)`` in ``create_check_hashes``.
         import base64
 
-        from config import CP_P2WSH_FEAT_BLOCK_START
+        from config import CP_P2WSH_FEAT_BLOCK_START, CP_SRC721_GENESIS_BLOCK
         from index_core.stamp import create_valid_stamp_dict, decode_base64, get_src_or_img_from_data
 
         for result in tx_results:
@@ -283,6 +359,16 @@ class InMemoryBlockProcessor:
             # is byte-identical (e.g. block 800175 -> "Aq2PmdeKENTlmafYo9j7") instead
             # of the empty string the old code emitted.
             cpid_value = data.get("cpid") or util.create_base62_hash(result.tx_hash, str(result.block_index), 20)
+            # JSON SRC-721 is the only stamp type whose ValidStamp carries a
+            # non-empty ``src_data`` (production's ``process_src721`` sets it to
+            # ``json.dumps`` of the symbol->tick-mutated deploy/mint JSON); every
+            # other type leaves it "". Reconstruct it via the real production
+            # pipeline so the txlist_hash matches byte-for-byte, but only bother for
+            # blocks that can actually contain a SRC-721 (>= its genesis) — this
+            # keeps the whole pre-792370 image history on the cheap empty path.
+            src_data_value = ""
+            if result.block_index >= CP_SRC721_GENESIS_BLOCK:
+                src_data_value = self._reconstruct_src721_src_data(result, data)
             valid_stamp = create_valid_stamp_dict(
                 new_stamp_num,
                 result.tx_hash,
@@ -294,7 +380,7 @@ class InMemoryBlockProcessor:
                 bool(is_valid_base64) if is_valid_base64 is not None else False,
                 stamp_base64 if not isinstance(stamp_base64, dict) else None,
                 False,
-                "",  # empty to match production ValidStamp src_data
+                src_data_value,
             )
             self.valid_stamps_in_block.append(valid_stamp)
             # Protocol operations
