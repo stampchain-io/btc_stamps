@@ -1,17 +1,12 @@
 name: Version Format Check
 
 # Trunk model (main is the single primary branch): the VERSION file must always
-# be either a clean release version `X.Y.Z` or the between-releases development
-# marker `X.Y.Z+dev.N`. There is no more dev/canary branch, so the old
-# per-branch (canary vs prod) validation is gone.
+# be a clean release version `X.Y.Z`. main sits on the last shipped release and
+# is bumped in place by the "Cut Release" workflow — there is NO `+dev.N`
+# development marker. There is no dev/canary branch, so the old per-branch
+# (canary vs prod) validation is gone.
 #
-#   X.Y.Z         a release commit / freshly-cut release on main
-#   X.Y.Z+dev.N   the normal between-releases state on main (default: +dev.0)
-#
-# `X.Y.Z+dev.N` matches indexer/src/config.py's VERSION_STRING parser regex
-# (release="dev", build=N), so update_version_globals() and the check.py
-# minimum-version comparison (which only look at MAJOR/MINOR/REVISION) are
-# unaffected.
+#   X.Y.Z   the last shipped release; main stays here until the next release cut
 
 on:
   push:
@@ -40,9 +35,9 @@ jobs:
           fi
           VERSION="$(cat VERSION)"
 
-          # Accept a clean release version or the between-releases dev marker.
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\+dev\.[0-9]+)?$ ]]; then
-            echo "::error::VERSION '$VERSION' is invalid for branch '$BRANCH'. Expected a clean 'X.Y.Z' or the development marker 'X.Y.Z+dev.N'."
+          # main must always carry a clean release version X.Y.Z (no +dev marker).
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION '$VERSION' is invalid for branch '$BRANCH'. Expected a clean release version 'X.Y.Z' (no '+dev' marker)."
             exit 1
           fi
 

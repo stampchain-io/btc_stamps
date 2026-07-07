@@ -2,25 +2,23 @@ name: Cut Release
 
 # Hands-off production release for btc_stamps — TRUNK model (main is the single
 # primary branch). There is no dev branch and no content sync: main already IS
-# the trunk, so a release is just "freeze a clean version, tag it, then reopen
-# the +dev.0 development marker for the next cycle".
+# the trunk, so a release is just "bump the version, tag it, publish it".
 #
 # Versioning model:
-#   * Between releases, main carries `X.Y.Z+dev.0` where X.Y.Z is the LAST
-#     shipped release (e.g. after shipping 1.9.1, main is `1.9.1+dev.0`).
-#   * Cutting a release strips `+dev.0`, applies the requested bump level, and
-#     freezes a clean `X.Y.Z` (e.g. patch -> 1.9.2, minor -> 1.10.0,
-#     major -> 2.0.0).
-#   * After the release lands, main is reopened at `X.Y.Z+dev.0` (the just
-#     released X.Y.Z) for the next development cycle.
+#   * main ALWAYS sits on a clean release version `X.Y.Z` — the last shipped
+#     release (e.g. after shipping 1.9.2, main stays at `1.9.2`). There is NO
+#     `+dev.N` development marker; main is not reopened after a release.
+#   * Cutting a release applies the requested bump level to main's current
+#     `X.Y.Z` and freezes the new clean `X.Y.Z` (e.g. patch 1.9.2 -> 1.9.3,
+#     minor -> 1.10.0, major -> 2.0.0). main then stays there until the next cut.
 #
 # The `main-req` ruleset requires status checks on refs/heads/main with an empty
 # bypass list, so a direct `git push origin HEAD:main` of a version commit is
-# rejected (GH013). Those checks CAN pass on a pull request, so every version
-# change here goes through a PR to main + auto-merge, never a direct push.
+# rejected (GH013). Those checks CAN pass on a pull request, so the version
+# change goes through a PR to main + auto-merge, never a direct push.
 #
 #   prepare  (manual "Cut Release", input: bump=major|minor|patch)
-#     -> compute clean X.Y.Z from main's `<last>+dev.0` + bump level
+#     -> compute the next clean X.Y.Z from main's current X.Y.Z + bump level
 #     -> create release/vX.Y.Z off main with the 4 version files set to X.Y.Z
 #     -> open a [skip-version] PR to main and enable squash auto-merge
 #        (merges once the required checks are green)
@@ -29,7 +27,7 @@ name: Cut Release
 #     -> tag X.Y.Z (no v-prefix) on the merge commit, pushed with the PAT so
 #        tag-triggered workflows (docker-auto-publish release build) fire
 #     -> create the "Release X.Y.Z" GitHub Release
-#     -> open a [skip-version] follow-up PR reopening main at X.Y.Z+dev.0
+#     (no reopen step — main remains on the clean X.Y.Z it was just bumped to)
 #
 # Tags are pushed with secrets.PAT on purpose: tags pushed with GITHUB_TOKEN do
 # not trigger downstream Actions. Rulesets target refs/heads/main, not tags, so
@@ -38,13 +36,11 @@ name: Cut Release
 #
 # The version files are the 4 mirrored version carriers (VERSION,
 # indexer/pyproject.toml, indexer/src/config.py VERSION_STRING, and
-# .bumpversion.cfg current_version). We drive them with bump2version's explicit
-# `--new-version` (NOT a semantic part bump): main's release-part value is `dev`,
-# which is intentionally outside .bumpversion.cfg's bumpable `values`
-# (canary/prod), so a semantic `release`/`build` bump would fail. Passing the
-# fully-computed target with an inert `patch` carrier writes all 4 files
-# consistently (bump2version updates current_version in .bumpversion.cfg too)
-# without relying on part-increment semantics.
+# .bumpversion.cfg current_version). prepare computes the target with plain bash
+# and writes all 4 with bump2version's explicit `--new-version` + an inert
+# `patch` carrier, so all carriers stay consistent (bump2version updates
+# current_version in .bumpversion.cfg too) without relying on part-increment
+# semantics.
 
 on:
   workflow_dispatch:
@@ -102,8 +98,8 @@ jobs:
       - name: Compute release version and create release branch
         id: version
         run: |
-          # main carries `<last>+dev.0`. Strip the +dev.N marker to get the last
-          # released X.Y.Z base, then apply the requested bump level.
+          # main carries a clean `<last>` X.Y.Z; apply the requested bump level.
+          # (The `%%+*` strip is a harmless no-op safeguard if a marker slips in.)
           CURRENT="$(cat VERSION)"
           BASE="${CURRENT%%+*}"
           if [[ ! "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -153,12 +149,12 @@ jobs:
             --title "chore: release ${NEW_VERSION} [skip-version]" \
             --body "Automated production release cut by the Cut Release workflow.
 
-          Freezes the version files to a clean \`${NEW_VERSION}\`. Once the required checks pass and this squash-merges, the finalize job tags \`${NEW_VERSION}\` on main, publishes the \"Release ${NEW_VERSION}\" GitHub Release (which triggers the signed Docker release build), and opens the follow-up PR reopening main at \`${NEW_VERSION}+dev.0\`.")
+          Freezes the version files to a clean \`${NEW_VERSION}\`. Once the required checks pass and this squash-merges, the finalize job tags \`${NEW_VERSION}\` on main and publishes the \"Release ${NEW_VERSION}\" GitHub Release (which triggers the signed Docker release build). main then stays on \`${NEW_VERSION}\`.")
           echo "Opened release PR: $PR_URL"
           gh pr merge "$PR_URL" --squash --auto \
             || echo "Auto-merge unavailable — merge ${PR_URL} manually (admin) once checks are green"
 
-  # Runs when a release/* PR is merged into main: tag, release, reopen +dev.0.
+  # Runs when a release/* PR is merged into main: tag + publish the release.
   finalize:
     if: >-
       github.event_name == 'pull_request'
@@ -176,16 +172,6 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install bump2version
 
       - name: Configure Git
         run: |
@@ -222,40 +208,3 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
-
-      - name: Reopen main at the next development marker (+dev.0)
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          NEW_VERSION="${{ steps.tag.outputs.NEW_VERSION }}"
-          DEV_VERSION="${NEW_VERSION}+dev.0"
-          DEV_BRANCH="chore/reopen-${NEW_VERSION}-dev"
-          EXISTING_PR=$(gh pr list --base main --head "${DEV_BRANCH}" --json number --jq '.[0].number' 2>/dev/null || echo "")
-          if [[ -n "$EXISTING_PR" ]]; then
-            echo "Follow-up PR #${EXISTING_PR} already exists, skipping creation"
-            exit 0
-          fi
-          git fetch origin main
-          git checkout -B "${DEV_BRANCH}" origin/main
-          # Explicit --new-version + inert `patch` carrier (see file header): sets
-          # all 4 version files to X.Y.Z+dev.0 and commits.
-          bump2version --new-version "${DEV_VERSION}" \
-            --no-tag --allow-dirty --verbose \
-            --message 'chore: reopen development at {new_version} [skip-version]' \
-            patch
-          FROZEN="$(cat VERSION)"
-          if [[ "$FROZEN" != "$DEV_VERSION" ]]; then
-            echo "::error::Version files were set to '$FROZEN', expected '$DEV_VERSION'"
-            exit 1
-          fi
-          git push origin "${DEV_BRANCH}"
-          # head branch is chore/* (not release/*), so this PR does NOT re-trigger
-          # finalize. [skip-version] documents no version automation should fire.
-          PR_URL=$(gh pr create \
-            --base main \
-            --head "${DEV_BRANCH}" \
-            --title "chore: reopen development at ${DEV_VERSION} [skip-version]" \
-            --body "Automated post-release step. Reopens main at the development marker \`${DEV_VERSION}\` for the next cycle after the \`${NEW_VERSION}\` release.")
-          echo "Created follow-up PR: $PR_URL"
-          gh pr merge "$PR_URL" --squash --auto \
-            || echo "Auto-merge unavailable — merge ${PR_URL} manually to reopen development on main"

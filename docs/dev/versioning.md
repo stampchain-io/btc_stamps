@@ -8,20 +8,19 @@ hand.
 
 ## Version format
 
-`main` carries one of two states in its `VERSION` file (and its three mirrors —
-see [Files the automation updates](#files-the-automation-updates)):
+`main` **always** carries a clean release version `MAJOR.MINOR.PATCH` in its
+`VERSION` file (and its three mirrors — see
+[Files the automation updates](#files-the-automation-updates)) — e.g. `1.9.2`.
 
-- **Between releases (normal state):** `MAJOR.MINOR.PATCH+dev.N` — e.g.
-  `1.9.1+dev.0`. The base `X.Y.Z` is the **last shipped release**; `+dev.N` marks
-  it as in-development. There is **no per-push version bump**, so `main` normally
-  sits at `+dev.0` for the whole cycle.
-- **A freshly cut release (momentary):** `MAJOR.MINOR.PATCH` — e.g. `1.10.0`.
-  A release commit carries a clean `X.Y.Z` (**no `v` prefix**; the git tag is
-  also `1.10.0`, not `v1.10.0`). Immediately after the release lands, `main` is
-  reopened at `X.Y.Z+dev.0` for the next cycle.
+- The version is the **last shipped release**, and `main` stays on it for the
+  whole cycle. There is **no per-push bump** and **no `+dev.N` development
+  marker** — `main` is the clean release version at all times.
+- Cutting a release bumps `main` in place to the next clean `X.Y.Z` (**no `v`
+  prefix**; the git tag is also `1.10.0`, not `v1.10.0`), and `main` then stays
+  there until the next release is cut.
 
 `Version Format Check` CI (`.github/workflows/version-check.yml`) enforces that
-`VERSION` is always either a clean `X.Y.Z` or the `X.Y.Z+dev.N` marker.
+`VERSION` is always a clean `X.Y.Z` (no `+dev` marker).
 
 ## Golden rules
 
@@ -41,10 +40,9 @@ see [Files the automation updates](#files-the-automation-updates)):
 
 `[skip-version]` in a PR title documents that a PR must **not** trigger any
 version automation. In the trunk model there is no per-push bump, so the only
-version-changing PRs are the two automated ones the Cut Release workflow opens
-(the release freeze and the reopen-at-`+dev.0` follow-up) — both are tagged
-`[skip-version]` so no other automation acts on them. You do not normally add it
-by hand.
+version-changing PR is the automated release-freeze PR the Cut Release workflow
+opens — it is tagged `[skip-version]` so no other automation acts on it. You do
+not normally add it by hand.
 
 ## Cutting a release (the **Cut Release** workflow)
 
@@ -57,29 +55,26 @@ maintainer triggers it manually:
 
 What happens, hands-off, from there:
 
-1. **`prepare`** — reads `main`'s `X.Y.Z+dev.0`, strips the `+dev.N` marker to
-   recover the last released base, and applies the chosen bump to compute the
-   clean target (`patch → 1.9.2`, `minor → 1.10.0`, `major → 2.0.0`). It creates
-   `release/vX.Y.Z` off `main` with all version files frozen to `X.Y.Z`, opens a
-   `[skip-version]` PR to `main`, and enables squash auto-merge. The PR merges
-   once the required checks (including code-owner review) are green.
+1. **`prepare`** — reads `main`'s current clean `X.Y.Z` and applies the chosen
+   bump to compute the next clean target (`patch → 1.9.3`, `minor → 1.10.0`,
+   `major → 2.0.0`). It creates `release/vX.Y.Z` off `main` with all version
+   files frozen to `X.Y.Z`, opens a `[skip-version]` PR to `main`, and enables
+   squash auto-merge. The PR merges once the required checks (including
+   code-owner review) are green.
 2. **`finalize`** (runs when that `release/*` PR squash-merges into `main`):
    - **tags `X.Y.Z`** (no `v` prefix) on the merge commit, pushed with the `PAT`
      so tag-triggered workflows fire (a tag pushed with the default token would
      not trigger downstream Actions);
-   - creates the **`Release X.Y.Z`** GitHub Release (auto-generated notes);
-   - opens a follow-up `[skip-version]` PR (branch `chore/reopen-X.Y.Z-dev`)
-     that **reopens `main` at `X.Y.Z+dev.0`** for the next cycle, and
-     auto-merges it. This PR's head is `chore/*` (not `release/*`), so it does
-     not re-trigger `finalize`.
+   - creates the **`Release X.Y.Z`** GitHub Release (auto-generated notes).
+   `main` then **stays on the clean `X.Y.Z`** it was just bumped to — there is no
+   reopen step and no development marker.
 3. **`docker-auto-publish.yml`** — the `X.Y.Z` tag push triggers the release
    image build, which publishes `btcstamps/indexer:X.Y.Z` + `:latest` to Docker
    Hub, then **signs the image keyless and attaches an SPDX SBOM** (see
    [Verifying a signed release image](#verifying-a-signed-release-image)).
 
-Example: a `minor` bump from `1.9.1+dev.0` produces tag `1.10.0`, Release
-`1.10.0`, Docker `btcstamps/indexer:1.10.0` + `:latest`, and reopens `main` at
-`1.10.0+dev.0`.
+Example: a `minor` bump from `1.9.2` produces tag `1.10.0`, Release `1.10.0`,
+Docker `btcstamps/indexer:1.10.0` + `:latest`, and `main` stays on `1.10.0`.
 
 There is **no** manual "push a bump to main", "sync branches", or "force-push"
 step — the trunk model has none of those.
@@ -130,36 +125,33 @@ carriers in lockstep:
 - `indexer/src/config.py` (`VERSION_STRING`)
 - `.bumpversion.cfg` (`current_version`)
 
-The `X.Y.Z+dev.N` marker matches `config.py`'s `VERSION_STRING` parser
-(`release="dev"`, `build=N`), so the minimum-version comparison in `check.py`
-(which only looks at `MAJOR.MINOR.PATCH`) is unaffected.
+`config.py`'s `VERSION_STRING` parser reads `MAJOR.MINOR.PATCH` (it still
+tolerates an optional `+dev.N` suffix for backward compatibility), so the
+minimum-version comparison in `check.py` (which only looks at
+`MAJOR.MINOR.PATCH`) is unaffected.
 
 ## `bump2version` reference (maintainers / manual recovery only)
 
-The Cut Release workflow uses an explicit `--new-version` (not a semantic part
-bump) because `main`'s release-part value is `dev`, which is intentionally
-outside `.bumpversion.cfg`'s bumpable set. You should not need these by hand.
+The Cut Release workflow computes the target with plain bash and writes it with
+an explicit `--new-version` (not a semantic part bump). You should not need this
+by hand.
 
 ```bash
 bump2version --new-version X.Y.Z --no-tag --allow-dirty patch   # freeze a release
-bump2version --new-version X.Y.Z+dev.0 --no-tag --allow-dirty patch   # reopen dev marker
 
 # Options:
-#   --new-version   set an exact version (e.g. 1.10.0 or 1.10.0+dev.0)
+#   --new-version   set an exact version (e.g. 1.10.0)
 #   --no-tag        do NOT create a git tag (finalize tags separately)
 #   --allow-dirty   allow uncommitted changes in the working tree
 ```
 
 ## Troubleshooting
 
-- **Version format error in CI.** `VERSION` must be a clean `X.Y.Z` or the
-  `X.Y.Z+dev.N` marker. If `main` is ever wrong, open a small `[skip-version]` PR
-  that sets the four version carriers correctly.
+- **Version format error in CI.** `VERSION` must be a clean `X.Y.Z` (no `+dev`
+  marker). If `main` is ever wrong, open a small `[skip-version]` PR that sets the
+  four version carriers correctly.
 - **Release didn't tag / publish.** Confirm the `release/*` PR actually
   squash-merged into `main` (that is what triggers `finalize`), then check the
   Cut Release run for the `finalize` job and the Docker Auto-Publish run for the
   tag build. Release tags must be pushed with the `PAT` for the downstream build
   to fire.
-- **Reopen PR didn't auto-merge.** If auto-merge is unavailable, merge the
-  one-file `chore: reopen development at X.Y.Z+dev.0 [skip-version]` PR by hand to
-  restore the development marker on `main`.
