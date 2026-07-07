@@ -31,6 +31,10 @@ import sys
 
 import pytest
 
+# The 3.13 gate runs this test in a bare env (pytest only, no project install),
+# so make indexer/src importable before importing the stdlib-only decoder.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
 from index_core.base64_utils import lenient_b64decode
 
 # Real fixture: the base64 payload of the block-783775 stamp (Counterparty asset
