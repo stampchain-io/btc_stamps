@@ -185,34 +185,47 @@ class InMemoryBlockProcessor:
             holders[sender] = holders.get(sender, 0) - amt
             holders[receiver] = holders.get(receiver, 0) + amt
 
-    def _reconstruct_src721_src_data(self, result: Any, data: dict) -> str:
-        """Reproduce production's ``ValidStamp.src_data`` for a JSON SRC-721 stamp.
+    def _classify_stamp(self, result: Any, data: dict) -> Optional[tuple]:
+        """Classify a stamp tx exactly as production does, reusing ``StampData``.
 
-        For every stamp type EXCEPT JSON SRC-721 the consensus ``src_data`` is the
-        empty string (``StampData.src_data`` is never set — see
-        ``models.StampData.src20_pre_validation`` / image handling), which the
-        caller already passes. JSON SRC-721 is the sole exception: production sets
-        ``self.src_data = self.decoded_base64`` then, after
-        ``validate_src721_and_process`` mutates that dict in place (``symbol`` ->
-        ``tick`` pop-and-append, ``models.process_src721``), stores
-        ``json.dumps(self.src_data)``. That string — NOT the tx alone and NOT the
-        DB's MySQL-JSON-normalised copy (which re-sorts keys by length) — is what
-        feeds ``str(sorted_valid_stamps)`` in ``block_validation`` and therefore the
-        ``txlist_hash``.
+        Returns ``(is_btc_stamp, src_data)`` for a SRC-721 or image (``STAMP`` /
+        ``UNKNOWN``) tx, or ``None`` for SRC-20 / SRC-101 (whose pre-validation
+        touches the DB — left on the caller's existing, already-correct path).
 
-        Rather than re-derive that transform (which is exactly what kept drifting),
-        run the SAME production ``StampData`` pipeline the real indexer runs in
-        ``blocks.py``: seed ``decoded_base64`` via ``get_base_64_data_from_trx``,
-        decode/normalise it with ``determine_stamp_data_type``, then — only for a
-        genuine JSON SRC-721 (``ident == "SRC-721"`` and NOT an OLGA html/svg mint,
-        mirroring ``StampData.valid_src721``'s own exclusion) — call the real
-        ``process_src721`` and return its ``src_data``. ``validate_src721_and_process``
-        performs the ``symbol`` -> ``tick`` mutation BEFORE any collection/SVG DB
-        lookup and wraps everything in its own try/except, so the returned
-        ``src_data`` is byte-identical to production regardless of whether the
-        (discarded) SVG rendering can reach a database — keeping this consensus
-        NEUTRAL and DB-less/off-host safe. Any failure degrades to "" so a non-721
-        stamp or an oddly-formed tx can never raise here.
+        Both returned fields come straight from the real production pipeline, so
+        they cannot drift from consensus:
+
+        * ``is_btc_stamp`` — production's cursed-vs-valid verdict. A tx is CURSED
+          (negative number from a separate counter, and — because its cpid starts
+          with ``"A"`` — NOT emitted as a ``ValidStamp``) whenever
+          ``process_all_stamps`` rejects it: most commonly its ``file_suffix`` is in
+          ``INVALID_BTC_STAMP_SUFFIX`` (``json`` / ``octet-stream`` / ``plain`` /
+          ``js`` / ``css`` / ``x-empty``), or it carries an ``asset_longname`` /
+          is an OP_RETURN. Two big families hit this:
+            - SRC-721 mints/deploys where ``valid_src721`` fails (no ``keyburn``, or
+              ``supply > 1``): ``process_src721`` never runs so ``file_suffix``
+              stays the INVALID ``"json"`` (~30 blocks, e.g. 792478).
+            - image ``STAMP`` issuances whose bytes sniff to ``octet-stream`` /
+              other invalid suffix (~498 blocks, e.g. 781751/782215).
+          The previous in-memory validator skipped this entirely, counting EVERY
+          data-bearing tx as a positive valid stamp — corrupting both the global
+          stamp numbering and the txlist_hash for those blocks.
+        * ``src_data`` — production's ``json.dumps`` of the ``symbol``->``tick``-
+          mutated deploy/mint JSON for a valid JSON SRC-721 (empty for images and
+          for cursed/OLGA SRC-721). This is the consensus string that feeds
+          ``str(sorted_valid_stamps)`` / txlist_hash — NOT the DB's
+          MySQL-JSON-normalised (length-sorted) copy.
+
+        Reuse (not re-implementation) is the whole point: we drive the SAME
+        ``StampData`` methods ``blocks.py`` drives — ``get_base_64_data_from_trx``,
+        ``determine_stamp_data_type``, ``update_stamp_data_rows_from_cp_asset`` and
+        ``validate_and_process_stamp_data`` (which internally runs ``valid_src721``
+        / ``process_src721`` / ``process_all_stamps`` / ``process_cursed_*``). For a
+        SRC-721 or image the SRC-20/SRC-101 pre-validation branches are inert (ident
+        mismatch), so the only DB touch is the discarded SVG render on the valid
+        SRC-721 path — a ``MagicMock`` DB suffices and keeps this consensus-NEUTRAL
+        and DB-less/off-host safe. Any failure degrades to ``None`` so an oddly
+        formed tx can never raise here (caller then applies its default handling).
         """
         import threading
 
@@ -241,25 +254,30 @@ class InMemoryBlockProcessor:
             # process_src721 guards its collection work with ``with self._lock``.
             stamp_data._lock = threading.Lock()
             # Mirror production's ``process_and_store_stamp_data``: seed the base64
-            # fields, then run the real decode/ident dispatch.
+            # fields, then run the real decode/ident dispatch to learn the ident.
             stamp_data.get_base_64_data_from_trx(get_src_or_img_from_data, data)
             stamp_data.determine_stamp_data_type(decode_base64)
-            # Only JSON SRC-721 carries a non-empty consensus src_data. OLGA
-            # (html/svg) recursive mints are flagged SRC-721 but excluded by
-            # ``valid_src721`` and processed as images, so their src_data is "".
-            if stamp_data.ident != "SRC-721" or stamp_data.stamp_mimetype in ("text/html", "image/svg+xml"):
-                return ""
-            # Reuse the production side-effecting method: it applies the exact
-            # symbol->tick transform and the json.dumps that lands in the ValidStamp.
-            # A MagicMock DB is sufficient — the SVG it would build is discarded and
-            # the src_data mutation happens before (and independently of) any DB read.
-            stamp_data.process_src721(self.valid_stamps_in_block, MagicMock())
-            return stamp_data.src_data if stamp_data.src_data is not None else ""
+            if stamp_data.ident in ("SRC-20", "SRC-101"):
+                # SRC-20 / SRC-101 pre-validation (``build_src20_svg_string`` /
+                # ``check_src101_inputs``) reads the DB; leave these on the caller's
+                # existing path (which already reproduces production for them).
+                return None
+            # SRC-721 or image (STAMP/UNKNOWN): populate the CP-issuance fields the
+            # validity gate reads (supply/cpid/asset_longname), then run production's
+            # exact validity + processing to get the cursed-vs-valid verdict (and,
+            # for a valid JSON SRC-721, the ``src_data`` string).
+            stamp_data.update_stamp_data_rows_from_cp_asset(data)
+            stamp_data.validate_and_process_stamp_data(decode_base64, MagicMock(), self.valid_stamps_in_block)
+            src_data = stamp_data.src_data if stamp_data.src_data is not None else ""
+            # Return production's FINAL cpid (``process_stamps_with_asset_longname``
+            # rewrites POSH cpids to the asset_longname) so the caller can apply
+            # ``stamp.py``'s create-valid gate on the exact value production uses.
+            return (bool(stamp_data.is_btc_stamp), src_data, stamp_data.cpid)
         except Exception:
             logging.getLogger(__name__).debug(
-                f"Could not reconstruct SRC-721 src_data for tx {getattr(result, 'tx_hash', '?')}; using empty"
+                f"Could not classify stamp for tx {getattr(result, 'tx_hash', '?')}; using default handling"
             )
-            return ""
+            return None
 
     def process_transaction_results(self, tx_results: list) -> None:
         """Process transaction results and update in-memory state."""
@@ -271,7 +289,7 @@ class InMemoryBlockProcessor:
         # feeds ``str(sorted_valid_stamps)`` in ``create_check_hashes``.
         import base64
 
-        from config import CP_P2WSH_FEAT_BLOCK_START, CP_SRC721_GENESIS_BLOCK
+        from config import CP_P2WSH_FEAT_BLOCK_START
         from index_core.stamp import create_valid_stamp_dict, decode_base64, get_src_or_img_from_data
 
         for result in tx_results:
@@ -305,10 +323,41 @@ class InMemoryBlockProcessor:
                 continue
             # CPID reissuance exclusion via cache
             cpid = data.get("cpid")
-            if cpid:
-                # Use pre-existing 'reissue' cache
-                if reparse_caching.cache_manager.get_cache_value("reissue", cpid):
+            if cpid and reparse_caching.cache_manager.get_cache_value("reissue", cpid):
+                continue
+            # Reuse production's cursed-vs-valid verdict BEFORE committing this tx to
+            # a stamp number / the valid-stamp list. A tx production CURSES (an
+            # INVALID file_suffix such as SRC-721's un-processed "json" or an image's
+            # "octet-stream", an asset_longname, an OP_RETURN, ...) is given a
+            # negative number from the separate cursed counter and — since these all
+            # have "A" cpids — is NOT emitted as a ValidStamp. So it must neither
+            # enter ``valid_stamps_in_block`` nor advance the positive stamp counter;
+            # skipping it reproduces production for the ~30 keyburn-cursed SRC-721
+            # blocks (e.g. 792478) and the ~498 cursed-image blocks (e.g. 781751).
+            # SRC-20/SRC-101 return ``None`` (DB-touching pre-validation) and fall
+            # through to the unchanged per-type handling.
+            src_data_value = ""
+            classification = self._classify_stamp(result, data)
+            if classification is not None:
+                is_btc_stamp_cls, src_data_value, prod_cpid = classification
+                # Production emits a ValidStamp for a CURSED stamp ONLY when its
+                # (final) cpid does NOT start with "A" (``stamp.py`` create-valid
+                # gate: ``is_cursed and cpid and not cpid.startswith("A")`` -> a
+                # NEGATIVE number). For an A-cpid cursed stamp — every SRC-721 and
+                # every cursed image this fix targets — production emits nothing and
+                # advances only the separate cursed counter, so we skip it here (no
+                # ValidStamp, no positive-counter advance). Cursed NON-A stamps
+                # (POSH/named assets, e.g. block 784013's WARBONDS.ONE; ~199 blocks)
+                # would need the negative cursed counter reproduced to match; that is
+                # out of scope, so we deliberately fall through and leave them on the
+                # pre-existing handling (still a known mismatch) rather than
+                # partially handling them.
+                if not is_btc_stamp_cls and (not prod_cpid or str(prod_cpid).startswith("A")):
                     continue
+            # Mark reissue cache only for stamps we actually keep — production sets
+            # it solely for btc_stamps (``if self.is_btc_stamp: set_cache_value(...)``),
+            # so a cursed/skipped SRC-721 above must not populate it.
+            if cpid:
                 reparse_caching.cache_manager.set_cache_value("reissue", cpid, True)
             # Assign the global stamp number using production's semantics
             # (``get_next_stamp_number`` = last-used + 1). The "counter" cache
@@ -359,16 +408,11 @@ class InMemoryBlockProcessor:
             # is byte-identical (e.g. block 800175 -> "Aq2PmdeKENTlmafYo9j7") instead
             # of the empty string the old code emitted.
             cpid_value = data.get("cpid") or util.create_base62_hash(result.tx_hash, str(result.block_index), 20)
-            # JSON SRC-721 is the only stamp type whose ValidStamp carries a
-            # non-empty ``src_data`` (production's ``process_src721`` sets it to
-            # ``json.dumps`` of the symbol->tick-mutated deploy/mint JSON); every
-            # other type leaves it "". Reconstruct it via the real production
-            # pipeline so the txlist_hash matches byte-for-byte, but only bother for
-            # blocks that can actually contain a SRC-721 (>= its genesis) — this
-            # keeps the whole pre-792370 image history on the cheap empty path.
-            src_data_value = ""
-            if result.block_index >= CP_SRC721_GENESIS_BLOCK:
-                src_data_value = self._reconstruct_src721_src_data(result, data)
+            # ``src_data_value`` was already computed above by
+            # ``_classify_json_src721`` (production's ``json.dumps`` of the
+            # symbol->tick-mutated deploy/mint JSON for a valid JSON SRC-721; "" for
+            # every other stamp type). Feed it straight into the ValidStamp so the
+            # txlist_hash matches production byte-for-byte.
             valid_stamp = create_valid_stamp_dict(
                 new_stamp_num,
                 result.tx_hash,
