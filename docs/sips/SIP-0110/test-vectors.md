@@ -2,6 +2,15 @@
 
 > Non-normative supporting material for **SIP-0110: Ordinals Provenance Preservation (PRESERVE)**. Illustrative JSON test vectors (TV-01–TV-15). See the SIP issue for the normative specification. An accepted SIP MUST ship concrete testnet vectors per SIP-0000.
 
+> ✅ **Revised per Option A (2026-07-08).** Provenance/canonicity moved **OFF consensus** (see
+> `DIRECTION-DECISION.md`). The **consensus** vectors now assert only the raw-claim **parse**,
+> the **`content_verified`** byte-hash, and **drop-on-malformed** — there is no in-consensus
+> `canonical_flag` or `migration_hash` to assert. Where a vector previously asserted a consensus
+> `canonical_flag` (competing/same-block/multi-owner ordering), the consensus expectation is now
+> "**both recorded as raw claims**"; the canonicity outcome is restated as a **verifier-side
+> (non-consensus) test vector**, since canonicity is a verifier determination (spec §3.6.2). An
+> `anchor` record is never `verified`/`canonical` at the verifier.
+
 > **Revision note (2026-07 — applies the #878 code-grounded technical review).** Vectors updated
 > for: the **2-tx reference model** (full-mode content is a separate, ordinary OLGA stamp
 > referenced by `stamp_tx`; rule 3 hashes its **raw on-wire OLGA payload bytes**); the reduced
@@ -55,7 +64,7 @@ outcome.
     "content_stamp_payload_sha256_recomputed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stamp_confirmation_block": 900050
   },
-  "expected": { "v110_scope": "DEFERRED — Method A ships in a follow-up SIP; under v1.10 rules this op is dropped (unknown proof.type)", "if_method_a_active": { "indexed_as": "migration_stamp", "content_verified": true, "canonical_flag": true }, "reason": "well-formed; declared hash matches the content stamp's raw on-wire payload bytes; valid BIP-322 sig over canonical message; 0 <= 900050-900000 <= 144" }
+  "expected": { "v110_scope": "DEFERRED — Method A ships in a follow-up SIP; under v1.10 rules this op is dropped (unknown proof.type)", "if_method_a_active": { "indexed_as": "migration_stamp", "content_verified": true }, "canonicity": "verifier-side, non-consensus (spec §3.6.2) — not a consensus flag", "reason": "well-formed; declared hash matches the content stamp's raw on-wire payload bytes; valid BIP-322 sig over canonical message; 0 <= 900050-900000 <= 144" }
 }
 ```
 
@@ -77,7 +86,7 @@ outcome.
     "inscribed_sat_returned_to_owner": true,
     "content_stamp_payload_sha256_recomputed": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
   },
-  "expected": { "indexed_as": "migration_stamp", "content_verified": true, "canonical_flag": true, "reason": "well-formed; declared hash matches the content stamp's raw on-wire payload bytes; the PRESERVE tx spends the claimed proof.utxo (pure input-set match, §3.4 rule 5); inscribed sat preserved to owner output; no window applies to Method B" }
+  "expected": { "indexed_as": "migration_stamp", "content_verified": true, "canonicity": "verifier-side, non-consensus (§3.6.2) — the indexer emits NO canonical_flag", "reason": "well-formed; declared hash matches the content stamp's raw on-wire payload bytes; the PRESERVE tx spends the claimed proof.utxo (pure input-set match, §3.5 rule 5); inscribed sat preserved to owner output; no window applies to Method B; consensus records the raw claim + content_verified only" }
 }
 ```
 
@@ -96,7 +105,7 @@ outcome.
     "tx_spends_proof_utxo": true,
     "stamp_confirmation_block": 901010
   },
-  "expected": { "indexed_as": "migration_stamp", "content_verified": false, "canonical_flag": true, "reason": "anchor mode: no content stamp and no stamp_tx; hash recorded as unverified claim; proof.utxo spent by this tx; verification-layer must confirm against ord" }
+  "expected": { "indexed_as": "migration_stamp", "content_verified": false, "verifier_floor": "anchor record MUST render provenance_state != verified and MUST NOT be canonical (spec §3.6.2, OQ#12 resolved)", "reason": "anchor mode: no content stamp and no stamp_tx; hash recorded as unverified claim; proof.utxo spent by this tx; consensus emits content_verified=false + the raw claim; the verifier must confirm against ord and can never mark an anchor verified/canonical" }
 }
 ```
 
@@ -183,7 +192,7 @@ outcome.
       "tx_spends_proof_utxo": true,
       "stamp_confirmation_block": 904110 }
   ],
-  "expected": { "indexed_as": ["migration_stamp", "migration_stamp"], "canonical_flag": [true, false], "reason": "§3.4 rule 6: both valid, both recorded; first valid (lower block/tx-index) is canonical; non-uniqueness prevents griefing" }
+  "expected": { "indexed_as": ["migration_stamp", "migration_stamp"], "content_verified": [true, true], "consensus": "§3.5 rule 6: both valid, both recorded as raw claims; non-uniqueness prevents griefing; the indexer emits NO canonical_flag", "verifier_vector": "NON-CONSENSUS (§3.6.2): a first-valid canonicity policy would pick the lower-(block,tx_index) claim as canonical; under the recommended current-owner-wins policy canonicity is re-derived live and may flip. This is a verifier test, not a consensus assertion." }
 }
 ```
 
@@ -208,7 +217,7 @@ outcome.
       "tx_spends_proof_utxo": true,
       "stamp_confirmation_block": 950004 }
   ],
-  "expected": { "indexed_as": ["migration_stamp", "migration_stamp"], "canonical_flag": "OPEN QUESTION #4 — recommended: record both with timestamps; if first-valid rule, canonical=[true,false]; if most-recent-owner rule, consumer decides at display", "reason": "§3.8 edge 8: legitimate multi-owner-over-time; both valid and retained" }
+  "expected": { "indexed_as": ["migration_stamp", "migration_stamp"], "content_verified": [true, true], "consensus": "§3.8 edge 8: legitimate multi-owner-over-time; both valid and retained as raw claims; the indexer emits NO canonical_flag", "verifier_vector": "NON-CONSENSUS (§3.6.2, VERIFIER-CANONICITY): under the recommended current-owner-wins/mutable policy the NEW owner's claim (block 950000) becomes canonical after the sale, and the original owner's claim moves to superseded — canonicity flips live. A first-valid policy would instead pin canonical to the original. This is the exact case that motivated moving canonicity off consensus." }
 }
 ```
 
@@ -231,7 +240,7 @@ outcome.
     "content_stamp_payload_sha256_recomputed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stamp_confirmation_block": 906003
   },
-  "expected": { "indexed_as": "migration_stamp", "content_verified": true, "canonical_flag": true, "reason": "§3.8 edge 3: cursed inscriptions have normal ID form; regex passes; no special handling at consensus" }
+  "expected": { "indexed_as": "migration_stamp", "content_verified": true, "reason": "§3.8 edge 3: cursed inscriptions have normal ID form; regex passes; no special handling at consensus; consensus records the raw claim + content_verified only (no canonical_flag)" }
 }
 ```
 
@@ -315,7 +324,7 @@ outcome.
       "tx_spends_proof_utxo": true,
       "block_index": 912000, "tx_index": 41 }
   ],
-  "expected": { "indexed_as": ["migration_stamp", "migration_stamp"], "canonical_flag": [true, false], "reason": "§3.4 rule 6: canonical is ordered by (block height, then in-block tx_index) — 912000/7 beats 912000/41; deterministic from the confirmed chain, never from mempool/observation order" }
+  "expected": { "indexed_as": ["migration_stamp", "migration_stamp"], "content_verified": [true, true], "consensus": "§3.5 rule 6: both valid, both recorded as raw claims with their (block_index, tx_index) = (912000, 7) and (912000, 41); the indexer emits NO canonical_flag", "verifier_vector": "NON-CONSENSUS (§3.6.2): a chain-order canonicity policy is reproducible from the stored (block, tx_index) — 912000/7 precedes 912000/41, deterministic from the confirmed chain, never mempool/observation order — but the canonical verdict itself is the verifier's, not the indexer's" }
 }
 ```
 
@@ -346,16 +355,24 @@ Concrete testnet blocks with expected per-block hashes are REQUIRED before Accep
 §4: shared vectors are the contract between implementations). This placeholder fixes the
 *shape*; every value is TBD until the testnet campaign produces real blocks.
 
-| testnet block | contains | expected `txlist_hash` | expected `migration_hash` | expected `ledger_hash` |
+**Option A: there is no `migration_hash` column.** The consensus surface is the three existing
+streams (`txlist_hash` / `ledger_hash` / `messages_hash`) plus the per-record **`content_verified`**
+bit and the stored raw claim — no dedicated PRESERVE hash stream (spec §5). The cross-indexer
+contract is therefore: identical `txlist_hash` (the sidecar is a stamp), identical raw claims, and
+identical `content_verified`, with `ledger_hash`/`messages_hash` unchanged (isolation).
+
+| testnet block | contains | expected `txlist_hash` | raw claim + `content_verified` | expected `ledger_hash` |
 |---|---|---|---|---|
-| TBD (pre-activation) | one `p:"SRC-ORD"` PRESERVE | TBD — MUST equal the no-op baseline (op dropped pre-activation) | TBD (empty/absent) | TBD — unchanged (isolation) |
-| TBD (post-activation) | TV-02-shaped valid full-mode pair | TBD — includes content stamp + PRESERVE sidecar | TBD — one provenance record | TBD — unchanged (isolation) |
-| TBD (post-activation) | TV-04-shaped hash mismatch | TBD — includes content stamp only (sidecar dropped) | TBD (no record) | TBD — unchanged (isolation) |
-| TBD (post-activation) | TV-13-shaped same-block duplicate | TBD | TBD — canonical by (block, tx_index) | TBD — unchanged (isolation) |
+| TBD (pre-activation) | one `p:"SRC-ORD"` PRESERVE | TBD — MUST equal the no-op baseline (op dropped pre-activation) | none (dropped) | TBD — unchanged (isolation) |
+| TBD (post-activation) | TV-02-shaped valid full-mode pair | TBD — includes content stamp + PRESERVE sidecar | one raw claim; `content_verified = true` | TBD — unchanged (isolation) |
+| TBD (post-activation) | TV-04-shaped hash mismatch | TBD — includes content stamp only (sidecar dropped) | none (sidecar dropped) | TBD — unchanged (isolation) |
+| TBD (post-activation) | TV-13-shaped same-block duplicate | TBD | two raw claims; both `content_verified = true`; **no** canonical_flag (canonicity is verifier-side) | TBD — unchanged (isolation) |
 
 Notes: `ledger_hash` (`str(processed_src20_in_block)`, SRC-20-only) and `messages_hash` MUST be
 byte-identical with and without SIP-0110 enabled on every vector block — the verified isolation
 property. A full genesis→tip reparse proving byte-identical pre-activation hashes (via the
 existing `validate_block_against_reference` infrastructure) is also required before activation.
+Canonicity/`verified` are **verifier-side** vectors (spec §3.6.2), tested separately from these
+consensus-hash vectors.
 
 ---
