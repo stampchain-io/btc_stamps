@@ -263,9 +263,7 @@ class DispenseProcessor:
 
                 # Get dispenses for this dispenser/asset combination
                 rate_limiter.acquire()
-                dispense_response = fetch_xcp(
-                    f"/addresses/{source}/dispenses", {"asset": cpid, "verbose": "true"}
-                )
+                dispense_response = fetch_xcp(f"/addresses/{source}/dispenses", {"asset": cpid, "verbose": "true"})
 
                 if dispense_response and "result" in dispense_response:
                     dispenses = dispense_response["result"]
