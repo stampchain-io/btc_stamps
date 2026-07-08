@@ -139,7 +139,7 @@ class TestSalesHistoryProcessorIntegration:
     def test_counterparty_api_dispense_fetch(self):
         """Test fetching dispenses from Counterparty API directly"""
         # Test the actual API endpoint
-        response = fetch_xcp("/blocks/800000/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+        response = fetch_xcp("/blocks/800000/dispenses", {"verbose": "true"})
 
         # Validate response structure
         assert response is not None

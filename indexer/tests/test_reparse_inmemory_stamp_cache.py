@@ -17,8 +17,20 @@ def clear_stamp_cache():
 
 
 def make_fake_result(tx_hash: str, block_index: int, block_time: int, cpid=None):
-    # data must be non-empty dict to be processed
-    return SimpleNamespace(data={"cpid": cpid}, tx_hash=tx_hash, block_index=block_index, block_time=block_time)
+    # ``process_transaction_results`` now runs the production ``StampData``
+    # classifier (``_classify_stamp``) to reproduce production's cursed-vs-valid /
+    # drop verdict, so a result only advances the positive stamp counter / enters
+    # ``valid_stamps_in_block`` if it classifies as a VALID stamp. A bare
+    # ``{"cpid": ...}`` decodes to ident UNKNOWN (non-valid), so these counter tests
+    # use a minimal but genuinely VALID native SRC-20 deploy: ``keyburn=1`` makes
+    # ``valid_src20`` true and the deploy passes the DB-free ``check_format`` gate.
+    return SimpleNamespace(
+        data={"p": "src-20", "op": "deploy", "tick": "UNIT", "max": "1000", "lim": "1000", "cpid": cpid},
+        tx_hash=tx_hash,
+        block_index=block_index,
+        block_time=block_time,
+        keyburn=1,
+    )
 
 
 def test_stamp_counter_initial_and_single_increment():

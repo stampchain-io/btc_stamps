@@ -21,7 +21,7 @@ charset-normalizer==3.4.1
 ckzg==2.1.1
 colorlog==6.9.0
 colour-runner==0.1.1
-cryptography==48.0.1
+cryptography==49.0.0
 cytoolz==1.0.1
 ecdsa==0.19.2
 eth-account==0.13.7

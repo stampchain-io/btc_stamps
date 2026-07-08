@@ -1,4 +1,3 @@
-import base64
 import copy
 import json
 import logging
@@ -6,6 +5,7 @@ import re
 from typing import Any
 
 import config
+from index_core.base64_utils import lenient_b64decode
 from index_core.caching import cache_manager
 from index_core.database import get_srcbackground_data
 
@@ -315,7 +315,8 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
         if base64_string.startswith("data:image/"):
             # Verify the base64 part is valid
             content = base64_string.split("base64,", 1)[1]
-            base64.b64decode(content)
+            # CONSENSUS-CRITICAL (#871): version-independent 3.10-equivalent validate.
+            lenient_b64decode(content)
             return True, base64_string
 
         # Handle case where string starts with mimetype but no data: prefix
@@ -324,8 +325,8 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
             if len(parts) == 2:
                 mimetype = parts[0].split("/")[1]
                 content = parts[1]
-                # Try to decode to validate it's proper base64
-                base64.b64decode(content)
+                # Try to decode to validate it's proper base64 (#871: version-independent).
+                lenient_b64decode(content)
                 return True, f"data:{parts[0]};base64,{content}"
 
         # Remove any existing data URL prefix
@@ -342,8 +343,8 @@ def validate_base64_image(base64_string: str) -> tuple[bool, str]:
         else:
             mimetype = "png"  # Default to PNG for raw base64
 
-        # Try to decode to validate it's proper base64
-        base64.b64decode(base64_string)
+        # Try to decode to validate it's proper base64 (#871: version-independent).
+        lenient_b64decode(base64_string)
 
         # If we got here, it's valid base64
         return True, f"data:image/{mimetype};base64,{base64_string}"
