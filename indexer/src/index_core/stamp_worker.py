@@ -131,8 +131,11 @@ class StampWorker:
             # Fallback to old individual API call logic
             try:
                 self.rate_limiter.acquire()
+                # FIXME(v11.2): the top-level /dispensers endpoint also dropped the
+                # `asset` param under CP v11.2 strict validation — this fallback should
+                # migrate to /assets/{cpid}/dispensers. Tracked in the v11.2 API audit.
                 endpoint = "/dispensers"
-                params = {"asset": cpid, "limit": MAX_DISPENSERS_PER_REQUEST, "show_unconfirmed": "false"}
+                params = {"asset": cpid, "limit": MAX_DISPENSERS_PER_REQUEST}
 
                 logger.debug(f"Fetching dispensers for {cpid} from endpoint (fallback): {endpoint}")
                 response = fetch_xcp(endpoint, params)
@@ -178,7 +181,7 @@ class StampWorker:
             self.rate_limiter.acquire()
 
             endpoint = f"/assets/{cpid}/dispenses"
-            params = {"limit": MAX_DISPENSES_PER_REQUEST, "show_unconfirmed": "false", "verbose": "true"}
+            params = {"limit": MAX_DISPENSES_PER_REQUEST, "verbose": "true"}
 
             logger.debug(f"Fetching dispenses for {cpid}")
             response = fetch_xcp(endpoint, params)
@@ -213,7 +216,7 @@ class StampWorker:
             self.rate_limiter.acquire()
 
             endpoint = f"/assets/{cpid}/balances"
-            params = {"limit": MAX_BALANCES_PER_REQUEST, "show_unconfirmed": "false"}
+            params = {"limit": MAX_BALANCES_PER_REQUEST}
 
             logger.debug(f"Fetching balances for {cpid}")
             response = fetch_xcp(endpoint, params)

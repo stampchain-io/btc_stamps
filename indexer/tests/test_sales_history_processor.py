@@ -190,7 +190,7 @@ class TestSalesHistoryProcessor:
         assert count == 1
 
         # Verify API was called correctly
-        mock_fetch.assert_called_once_with("/blocks/800000/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+        mock_fetch.assert_called_once_with("/blocks/800000/dispenses", {"verbose": "true"})
 
     @pytest.mark.skip(reason="Expects fetch_xcp API that doesn't exist")
     def test_process_block_before_genesis(self, processor):
@@ -501,7 +501,7 @@ class TestSalesHistoryProcessor:
 
         # Should process the dispense and make API call
         assert count == 1
-        mock_fetch.assert_called_once_with("/blocks/850000/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+        mock_fetch.assert_called_once_with("/blocks/850000/dispenses", {"verbose": "true"})
 
     def test_catchup_mode_start_stop(self, processor, mock_cursor):
         """Test starting and stopping catchup mode"""

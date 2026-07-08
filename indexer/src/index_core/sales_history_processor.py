@@ -132,7 +132,9 @@ class SalesHistoryProcessor:
             # Fetch dispenses from Counterparty API
             from index_core.fetch_utils import fetch_xcp
 
-            response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+            # No show_unconfirmed: CP v11.2 rejects it on the dispenses endpoint
+            # (confirmed-only dispenses table); harmless on v11.1.x too.
+            response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true"})
 
             if not response or "result" not in response:
                 logger.debug(f"No dispenses found in block {block_index}")
