@@ -95,8 +95,10 @@ class DispenseProcessor:
         rate_limiter.acquire()
 
         try:
-            # Fetch all dispenses in the block with verbose data
-            response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true", "show_unconfirmed": "false"})
+            # Fetch all dispenses in the block with verbose data.
+            # NB: no show_unconfirmed here — CP v11.2 strict-validates params and the
+            # dispenses endpoints reject it (they read the confirmed-only dispenses table).
+            response = fetch_xcp(f"/blocks/{block_index}/dispenses", {"verbose": "true"})
 
             if not response or "result" not in response:
                 return 0
@@ -246,7 +248,7 @@ class DispenseProcessor:
         try:
             # Step 1: Get all dispensers for this CPID
             rate_limiter.acquire()
-            response = fetch_xcp(f"/assets/{cpid}/dispensers", {"show_unconfirmed": "false"})
+            response = fetch_xcp(f"/assets/{cpid}/dispensers", {})
 
             if not response or "result" not in response:
                 return 0
@@ -262,7 +264,7 @@ class DispenseProcessor:
                 # Get dispenses for this dispenser/asset combination
                 rate_limiter.acquire()
                 dispense_response = fetch_xcp(
-                    f"/addresses/{source}/dispenses", {"asset": cpid, "verbose": "true", "show_unconfirmed": "false"}
+                    f"/addresses/{source}/dispenses", {"asset": cpid, "verbose": "true"}
                 )
 
                 if dispense_response and "result" in dispense_response:
