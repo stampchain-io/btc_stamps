@@ -8,14 +8,16 @@
 **Related**: SIP-0000 (#686, process), SIP-0002 (#484, superseded UTXO binding), SIP-0005
 (#688, binary transfer format), #878 (SIP issue), #880 (verifier tool)
 
-> ⚠️ **DIRECTION UPDATE (2026-07-08).** Independent community-alignment reviews (Anthropic
-> Opus + xAI Grok) and the stampchain.io frontend team have converged on **Option A: move all
-> provenance/canonicity OFF consensus into the verifier + frontend; the indexer emits only the
-> raw claim + `content_verified` (byte-hash) — no `migration_hash` stream, no in-consensus
-> `canonical_flag`.** This supersedes the in-consensus tradeable-canonical shape below. See
-> **[`DIRECTION-DECISION.md`](./DIRECTION-DECISION.md)** for the reconciliation, revision plan,
-> and the demand gate. The §5 `migration_hash` / §3.5 `canonical_flag` sections below are being
-> revised accordingly.
+> ✅ **DIRECTION: revised per Option A (2026-07-08).** Independent community-alignment reviews
+> (Anthropic Opus + xAI Grok) and the stampchain.io frontend team converged on **Option A: all
+> provenance/canonicity lives OFF consensus, in the verifier (#880) + frontend; the indexer emits
+> only the immutable raw `p:"SRC-ORD"` claim record + `content_verified` (the full-mode byte-hash)
+> — no `migration_hash` consensus stream, no in-consensus `canonical_flag`, no consensus
+> `verified`.** This body **has been revised to that shape**; the earlier in-consensus
+> tradeable-canonical design is superseded. See
+> **[`DIRECTION-DECISION.md`](./DIRECTION-DECISION.md)** for the reconciliation; the applied
+> revisions live in §3.6 (verifier + frontend UX contract), §3.9 (creator consent), §5 (no
+> consensus-hash stream), and §10 (ratification ledger + demand gate).
 
 > **Normative status of this file.** This is the **committed normative specification** for
 > SIP-0110. It consolidates the §3.x consensus rules that previously lived only in the body of
@@ -55,7 +57,7 @@ Two modes are supported:
   large to embed economically. The hash is an **unverified-at-consensus claim** (§3.4 rule 4).
 
 "Migration" is a convenience label, **not** a literal claim: the source inscription is not moved,
-spent (except optionally as an ownership proof), pruned, or invalidated. `full`-mode content
+spent (except optionally as a one-time **spend attestation**, §3.5.1), pruned, or invalidated. `full`-mode content
 gains Bitcoin's **structural** UTXO-set persistence guarantee (every validating node must retain
 the UTXO set), whereas inscription content lives in **witness** data whose retention is a
 **social** guarantee. Migration-Stamp ownership follows normal account/address-based Stamps
@@ -94,11 +96,18 @@ The keywords MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted a
 - **Content stamp** — in `full` mode, the ordinary OLGA stamp transaction that carries the
   preserved content bytes and is referenced by the sidecar's `stamp_tx` (§3.3).
 - **Provenance attestation** — the one-time, creation-time claim binding the Migration Stamp to
-  the source inscription (inscription ID + genesis txid + content hash + ownership proof).
+  the source inscription (inscription ID + genesis txid + content hash + spend attestation).
+- **Spend attestation** — the one-time, creation-time *fact* that the `PRESERVE` transaction spent
+  a named UTXO (§3.5.1, Method B). It is **not** an ownership proof and is **not**
+  consensus-authoritative; whether that UTXO actually held the inscription is checked off consensus
+  by the verifier.
 - **Consensus layer** — validation performed by the Stamps indexer using only data derivable
-  from the Bitcoin chain and the rules in this SIP.
-- **Verification layer** — a separate, non-consensus service (#880) that checks the attestation
-  against an external Ordinals index (§3.6, Option 2).
+  from the Bitcoin chain and the rules in this SIP. Under Option A it emits exactly two things per
+  `PRESERVE`: the immutable raw claim record and `content_verified` (§5).
+- **Verification / verifier layer** — a separate, non-consensus service (#880) that checks the
+  attestation against a live Ordinals (`ord`) index and **owns** `provenance_state`, `canonicity`,
+  `attestation`, competing-claim resolution, and the "verified" badge (§3.6). These are
+  re-checkable live and explicitly **mutable**; the indexer never emits them.
 
 ### 3.2 One-time proof is NOT persistent UTXO binding (read this first)
 
@@ -183,7 +192,8 @@ any, is an ordinary OLGA stamp and is **unaffected** on every indexer.
 4. **Content hash (mode = `anchor`).** There is **no** embedded content to check.
    `src.content_sha256` is recorded as an **unverified-at-consensus claim**; the indexer MUST set
    `content_verified = false`. Verification against the real inscription is possible **only** at
-   the verification layer (§3.6). This `full`/`anchor` asymmetry MUST be surfaced to consumers.
+   the verification layer (§3.6). This `full`/`anchor` asymmetry MUST be surfaced to consumers, and
+   per §3.6.2 an anchor record MUST NOT be presented as `canonical` or `verified`.
 
 5. **Proof validation (v1.10 = Method B only).** For `proof.type == "utxo-spend"`: the
    `PRESERVE` transaction MUST spend, as one of its inputs, the UTXO named in `proof.utxo`
@@ -193,17 +203,17 @@ any, is an ordinary OLGA stamp and is **unaffected** on every indexer.
    address/UTXO actually held the inscription — that binding is an attestation (§3.6).
 
 6. **Multiplicity.** Multiple `PRESERVE` ops referencing the same `src.inscription_id` are
-   **allowed**; the indexer records **all** valid ones. The **first valid** op receives
-   `canonical_flag = true`, ordered by **(block height, then in-block tx_index)**. Uniqueness is
-   deliberately **not** enforced (enforcing it creates griefing/front-running incentives).
+   **allowed**; the indexer records **all** valid ones as immutable raw claim records. Uniqueness
+   is deliberately **not** enforced (enforcing it creates griefing/front-running incentives).
 
-   **Reorg determinism (normative).** `canonical_flag` MUST be computed **purely from the
-   canonical Bitcoin chain** (block height + in-block tx index), never from mempool state or
-   observation order, so any two conformant indexers on the same tip agree. An indexer SHOULD only
-   surface `canonical_flag` as stable after the winning op's block has **≥ 6 confirmations**, and
-   MUST recompute it deterministically after a reorg. `TODO(ratify)`: the canonical-flag *policy*
-   for the legitimate multi-owner-over-time case (first-valid vs. most-recent-owner) is Open
-   Question #4; the anchor-mode canonicity gate is Open Question #12.
+   **No in-consensus canonicity (Option A).** The consensus layer does **NOT** designate a
+   canonical claim — there is **no** in-consensus `canonical_flag`. Selecting which competing claim
+   (if any) is "canonical" is a **verifier / frontend** determination made off consensus (§3.6.2),
+   re-checkable against a live `ord` index and explicitly **mutable** over time. The indexer stores
+   each claim's `(block_index, tx_index)` so that any off-consensus canonicity policy (e.g.
+   first-valid, owner-designated) is reproducible from confirmed-chain order, but the indexer emits
+   no canonicity verdict of its own. (The verifier-canonicity *policy* is the load-bearing open
+   item; see §3.6.2 and §10.)
 
 7. **No ordinary-stamp fallback for the sidecar (corrected).** A `PRESERVE` op that fails any of
    rules 1–6 is **dropped**, byte-identically to how a pre-activation (or non-upgraded) indexer
@@ -212,7 +222,15 @@ any, is an ordinary OLGA stamp and is **unaffected** on every indexer.
    earlier "fallback to ordinary stamp" wording in the #878 issue body, which predated the 2-tx
    model; the **content** transaction remains an ordinary stamp regardless.)
 
-### 3.5.1 Ownership proof detail (Method B normative; Method A deferred)
+### 3.5.1 Spend attestation detail (Method B normative; Method A deferred)
+
+The `proof` field records a **spend attestation**, not an ownership proof. At consensus the indexer
+verifies only the **self-contained fact** that the `PRESERVE` transaction spent the named UTXO (a
+pure input-set match, §3.5 rule 5). It does **not** — and cannot, without an external `ord` index —
+verify that the spent UTXO actually held the source inscription. That binding is **not
+consensus-authoritative**; it is checked off consensus by the verifier (§3.6), which can also
+detect that it has since gone stale. Calling this an "ownership proof" would overclaim: it is a
+one-time historical spend fact.
 
 **Method B — UTXO spend (`proof.type == "utxo-spend"`).** The Stamp-creating transaction spends,
 as one of its inputs, the UTXO holding the source inscription. Outputs MUST be constructed so the
@@ -250,8 +268,69 @@ follow-up SIP, not v1.10.
   verifier, never from the indexer.
 - **Option 3 — Pure attestation.** No proof field. Rejected as too weak.
 
-The consensus layer never emits `verified`; it emits `content_verified` (the self-contained
-full-mode hash result) and the raw attestation.
+The consensus layer never emits `verified`, never emits `canonical_flag`, and never emits any
+`provenance_state`. It emits exactly two things: `content_verified` (the self-contained full-mode
+hash result, §5) and the immutable raw claim record. **Everything else — `provenance_state`,
+`canonicity`, `attestation`, competing-claim resolution, and the "verified" badge — is owned by
+the verifier + frontend, off consensus** (§3.6.1, §3.6.2).
+
+### 3.6.1 Frontend ⇄ verifier UX contract (normative for the app; non-consensus)
+
+This section is **normative for the application** — the verifier and any frontend/marketplace
+consuming it — and **non-consensus**: nothing here affects indexer determinism. Frontend
+implementation guidance: see [`FRONTEND-IMPLEMENTATION.md`](./FRONTEND-IMPLEMENTATION.md). The
+straw-man endpoint the stampchain.io frontend is building against (to be finalized with the
+verifier/frontend teams):
+
+```
+GET {verifier}/provenance/{stamp_id}
+{
+  "content_verified":  bool,        // mirrored from the indexer for convenience (the only consensus bit)
+  "provenance_state":  "verified" | "unverified" | "disputed" | "unverifiable",
+  "canonicity":        "canonical" | "superseded" | "contested" | null,
+  "attestation":       "owner_attested" | "unilateral" | null,
+  "source_inscription_url": "<link-out to the original inscription>",   // MANDATORY
+  "competing_claims":  [ ... ],     // populated for "disputed"
+  "verifier":          { ...attester identity + timestamp... },
+  "ttl_seconds":       <cache model>
+}
+```
+
+Trust taxonomy and UI rules (normative for the app):
+
+- **Badges are verifier-sourced, never indexer-sourced.** A frontend MUST NOT synthesize a
+  "verified"/"canonical" badge from indexer data. The indexer emits only `content_verified` and the
+  raw claim; everything else is a live verifier determination.
+- **`verified` vs. `unverified`.** `provenance_state == "verified"` requires the verifier to
+  confirm — against a live `ord` index — that the attested UTXO/address actually held the source
+  inscription. This is **mutable**: a state that verifies today MAY become `unverified`/`disputed`
+  later; consumers MUST re-check and MUST NOT cache it as permanent.
+- **`full` vs. `anchor`.** The frontend MUST surface the mode distinction. A `full` record has
+  on-chain content the indexer byte-verified (`content_verified == true`); an `anchor` record has
+  only a hash claim (`content_verified == false`) — see §3.6.2 for its canonicity floor.
+- **Graceful degradation.** When the verifier is unavailable, the frontend MUST degrade to
+  `unverified` (never fabricate `verified`) and MAY still show `content_verified` (the indexer bit)
+  with clear "content byte-hash only; provenance unchecked" labelling.
+- **Mandatory link-out.** Every provenance display MUST link out to the original inscription
+  (`source_inscription_url`) so a viewer can see the source and its creator. This is non-negotiable
+  (attribution; §3.9).
+- **Competing claims.** For `provenance_state == "disputed"`, the frontend MUST show the competing
+  claims rather than silently picking one.
+
+### 3.6.2 Verifier canonicity policy (off consensus)
+
+Because canonicity is off consensus, choosing which of several competing claims for one inscription
+is `canonical` is a **verifier policy**, not a consensus rule. The recommended policy (see the §10
+open item) is **owner-designated / current-owner-wins / explicitly mutable** — the honest model the
+word "provenance" implies: canonicity MAY flip when the inscription legitimately changes hands. The
+verifier MUST document its policy and SHOULD make it reproducible across operators from
+chain-derivable inputs (each claim's `(block_index, tx_index)`, plus live `ord` ownership state).
+
+**Anchor-mode floor (Open Question #12 — RESOLVED).** An `anchor` record (no on-chain content,
+`content_verified == false`) MUST render `provenance_state != "verified"` and MUST NOT be presented
+as `canonical` by any verifier or frontend. An unverifiable claim can never outrank a byte-verified
+`full` claim for the same inscription. This is a verifier/frontend rule; at consensus the indexer
+simply records the anchor claim with `content_verified = false`.
 
 ### 3.7 Encoding (RESOLVED — direct, non-Counterparty transaction)
 
@@ -260,9 +339,10 @@ full-mode hash result) and the raw attestation.
 content uses the **existing OLGA P2WSH encoding**. The Counterparty/SRC-721 route was rejected
 (it carries a Counterparty consensus dependency; `PRESERVE` mirrors the modern direct SRC-20
 substrate instead). Because modern SRC-20 is JSON-only, `full`-mode `PRESERVE` is **new
-plumbing**: a new `preserve.py` processor (mirroring `Src20Processor`), a new `stamp_migrations`
-table (§6), and records folded into a dedicated **`migration_hash`** (§5) — **never**
-`ledger_hash` (which is SRC-20-specific).
+plumbing**: a new `preserve.py` processor (mirroring `Src20Processor`) and a new `stamp_migrations`
+table (§6) that stores the immutable raw claim records and their `content_verified` bit. Under
+Option A, `PRESERVE` records are **not** folded into any dedicated consensus-hash stream — there is
+no `migration_hash` (§5) — and **never** into `ledger_hash` (which is SRC-20-specific).
 
 ### 3.8 Edge-case handling (normative)
 
@@ -283,8 +363,33 @@ table (§6), and records folded into a dedicated **`migration_hash`** (§5) — 
    `PRESERVE_MAX_FULL_CONTENT_BYTES = 65535` (§4.4). Above the cap, only `anchor` mode is
    permitted; an over-cap `full` op is **dropped** (TV-10).
 7. **Hash mismatch in `full` mode.** Dropped (rule 3; TV-04).
-8. **Same inscription migrated by two different owners over time.** Allowed; both retained.
-   `TODO(ratify)`: canonical-flag semantics (Open Question #4; TV-08).
+8. **Same inscription migrated by two different owners over time.** Allowed; both retained as raw
+   claims. Which (if either) is `canonical` is a **verifier** determination (§3.6.2, off
+   consensus), not a consensus flag; the recommended policy is current-owner-wins/mutable (§10).
+
+### 3.9 Inscription-creator consent, attribution & link-out (position)
+
+Even though creator consent is "out of consensus scope," this SIP cannot be silent on it. The
+content-preservation mechanic copies an inscription's bytes onto the UTXO set; the original creator
+may not have consented. Option A's position:
+
+- **Mandatory attribution / link-out.** Every provenance display MUST link out to the original
+  inscription and its creator (§3.6.1). Preservation presents as "a preserved copy of `<source>`,"
+  never as an original or a replacement.
+- **No tokenization of the provenance claim.** The frontend does not mint or DEX-list a
+  "the-canonical" provenance asset; there is no in-consensus canonical asset to trade. (A preserved
+  `full`-mode content stamp is an ordinary OLGA stamp and MAY be traded like any stamp; the
+  financialization-values question about *that* is a community call — §10.)
+- **Takedown / attribution requests.** The consensus record is immutable and permissionless (it
+  cannot be redacted on-chain), but the **verifier + frontend** SHOULD honor a documented
+  creator-attribution / takedown-from-display process (e.g. suppressing or annotating a disputed
+  claim in the verifier's `provenance_state`), and MUST clearly attribute the source creator.
+- **Unilateral vs. owner-attested.** The verifier's `attestation` field (§3.6.1) distinguishes an
+  `owner_attested` claim from a `unilateral` one; a unilateral claim over someone else's
+  inscription MUST NOT render as `verified` or `canonical`.
+
+This, together with the spend attestation being explicitly *not* an ownership proof (§3.5.1), is
+the main blunting of the "an ordinals artist's work is captured without consent" objection.
 
 ---
 
@@ -388,86 +493,45 @@ touch consensus-adjacent files and are deferred to the implementation PR.
 
 ---
 
-## 5. `migration_hash` serialization (normative — canonical & Python-version-invariant)
+## 5. No dedicated consensus-hash stream (Option A)
 
-PRESERVE records MUST be folded into a **dedicated fourth per-block consensus hash,
-`migration_hash`** (Open Question #10, resolved), **never** into `ledger_hash` (SRC-20-specific)
-and **never** into `txlist_hash` (which already numbers the sidecar as a stamp; see §8).
-`migration_hash` mirrors the existing `check.consensus_hash` chaining
-(`dhash_string(previous_hash + "{version}{content}")`), differing only in how `content` is built.
+**There is no `migration_hash`.** The earlier draft folded PRESERVE records into a dedicated fourth
+per-block consensus hash whose entire justification was carrying the in-consensus `canonical_flag`
+(and a consensus `verified`). Under Option A both are gone — canonicity and verification live off
+consensus in the verifier (§3.6) — so the dedicated stream is **removed** (Open Question #10,
+resolved by removal).
 
-### 5.1 The hazard being avoided
+The indexer's consensus surface for `PRESERVE` is therefore minimal:
 
-The existing `txlist_hash`/`ledger_hash` build `content` via `str(list_of_dicts)` /
-`str(processed_src20_in_block)` (see `block_validation.py:72,77`). `str()`/`repr()` of Python
-dicts/containers is **NOT** a safe consensus serialization — insertion order, `Decimal` vs `int`
-`repr`, and cross-version container formatting can all diverge (the #803/#871 hazard class).
-`migration_hash` MUST NOT rely on `str()`/`repr()` of any dict, list, `Decimal`, or object.
+- **Parse + store** the immutable raw `p:"SRC-ORD"` claim record (§3.4, §4), and
+- **Compute `content_verified`** — the full-mode byte-hash of §3.5 rule 3 (does the declared
+  `content_sha256` match the referenced content stamp's raw on-wire OLGA payload bytes). This is
+  the **only** consensus-emitted verification bit.
 
-### 5.2 Canonical record serialization
+Both are **deterministically derivable from Bitcoin chain data + this SIP alone**, so any two
+conformant indexers compute identical values. Note that the `PRESERVE` sidecar is itself a stamp
+and already flows through **`txlist_hash`** as an ordinary stamp (§8) — the existence and numbering
+of the claim are covered there; no PRESERVE-specific hash stream is added on top. Neither
+`content_verified` nor the raw claim is folded into `ledger_hash`
+(`str(processed_src20_in_block)`, SRC-20-only) or `messages_hash`; both remain **byte-identical**
+with and without SIP-0110 enabled — the isolation property (§8, TV-15).
 
-For each **valid** PRESERVE record in the block, build a record string by explicit field
-concatenation with a fixed field order and fixed separators — **not** by serializing a dict:
-
-```
-record = "|".join([
-    str(block_index),          # decimal, no padding
-    str(tx_index),             # decimal, no padding (in-block position)
-    inscription_id,            # lowercase hex, from src.inscription_id (already regex-validated)
-    genesis_txid,              # 64 lowercase hex
-    content_sha256,            # 64 lowercase hex
-    mode,                      # "full" | "anchor"
-    ("1" if content_verified else "0"),
-    ("1" if canonical_flag else "0"),
-    proof_type,                # "utxo-spend"
-    proof_utxo,                # "<txid>:<vout>", or "" if absent
-    (stamp_tx or ""),          # 64 lowercase hex in full mode, "" in anchor
-])
-```
-
-Rules that make this deterministic and version-invariant:
-
-- **Every field is rendered as an explicit string.** Integers via `str(int)` (base-10, no sign for
-  non-negative, no padding, no separators). Booleans via the literal `"1"`/`"0"` above — never
-  Python's `str(True)`. Absent optional fields render as the empty string `""`, never `"None"`.
-- **No JSON, no `repr`, no dict.** The `|`-join fixes field order independent of any dict insertion
-  order. `|` is safe as a separator because every field's grammar (§4.3) forbids it: hex fields,
-  the enum fields, and the `utxo`/`stamp_tx` fields cannot contain `|`.
-- **Ordering of records within a block.** Records MUST be sorted by the tuple
-  `(block_index, tx_index)` ascending before joining. Since `block_index` is constant within a
-  block, this is effectively an ascending `tx_index` sort — deterministic from the confirmed
-  chain, never observation order.
-- **Block content string.** `content = "\n".join(sorted_record_strings)`; an empty block →
-  `content = ""` (which chains forward the previous `migration_hash` unchanged, matching how the
-  other streams treat empty content).
-
-Equivalent alternative (permitted, MUST pick exactly one at ratification): a canonical JSON form
-`json.dumps(record_obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)` per record with
-integer/boolean fields pre-coerced to `int`/`bool` (never `Decimal`). `TODO(ratify)`: **pin one**
-of {explicit `|`-concat (recommended, above), sorted-key compact JSON} as *the* serialization —
-the two produce different bytes and therefore different hashes, so exactly one must be normative
-before cross-indexer vectors are frozen (Open Question #10 ratification).
-
-### 5.3 Chaining and placement
-
-`migration_hash` is computed with the same `check.consensus_hash` machinery and the same
-`CONSENSUS_HASH_VERSION_*` constants as the other streams, over the §5.2 `content`. It is a **new
-column on the `blocks` table** and a new argument threaded through
-`create_check_hashes(...)` / `update_block_hashes(...)` in `block_validation.py`. **Follow-up (not
-in this docs-only PR):** the `blocks`-table schema change, the `update_block_hashes` signature
-change, and the `create_check_hashes` fourth-stream wiring are consensus-code changes for the
-implementation PR.
-
-`ledger_hash` (`str(processed_src20_in_block)`, SRC-20-only) and `messages_hash` MUST be
-**byte-identical** with and without SIP-0110 enabled — the verified isolation property (TV-15).
+Because no PRESERVE-specific hash stream is emitted, the earlier anti-`str()`/`repr()` serialization
+guidance (a canonical, Python-version-invariant record encoding for the removed stream) is **no
+longer needed** and is dropped with the stream. If a future SIP ever reintroduces per-block hashing
+of the raw claim record, that guidance MUST be restored there: never use `str()`/`repr()` of a
+dict/list/`Decimal`/object as a consensus serialization — insertion order, `Decimal`-vs-`int`
+`repr`, and cross-version container formatting all diverge (the #803/#871 hazard class).
 
 ---
 
 ## 6. `stamp_migrations` schema (normative derivation; table is indexer-internal)
 
-Modeled on `StampTableV4` (`config.STAMP_TABLE`) and `SRC20Valid`. The table itself is
-indexer-internal, but its **contents derive from the consensus rules of §3.5**, so two conformant
-indexers MUST produce identical `content_verified` and `canonical_flag` for the same chain.
+Modeled on `StampTableV4` (`config.STAMP_TABLE`) and `SRC20Valid`. The table stores the **immutable
+raw PRESERVE claim records** and their consensus-derived `content_verified` bit. It is
+indexer-internal, but those contents **derive from the consensus rules of §3.5**, so two conformant
+indexers MUST produce identical raw claims and identical `content_verified` for the same chain. It
+stores **no** `canonical_flag` — canonicity is not an indexer field under Option A (§3.6.2).
 
 ```
 stamp_migrations(
@@ -481,29 +545,35 @@ stamp_migrations(
   proof_address     TEXT,
   proof_utxo        TEXT,     -- Method B: the claimed "<txid>:<vout>" (§3.5 rule 5)
   proof_block       INTEGER,  -- spend height (Method B) / msg_block (Method A, deferred)
-  content_verified  BOOLEAN,  -- consensus hash check: true only for a passing full-mode op
-  canonical_flag    BOOLEAN,  -- first-valid per §3.5 rule 6
+  content_verified  BOOLEAN,  -- consensus byte-hash check: true only for a passing full-mode op
   block_index       INTEGER,  -- INDEXED (needed for the reorg purge, §6.1)
+  tx_index          INTEGER,  -- in-block position; lets a verifier reproduce any chain-order canonicity policy (§3.6.2)
   block_time        <timestamp>
 )
 ```
 
+There is **no** `canonical_flag` column — canonicity is a verifier determination off consensus
+(§3.6.2). `tx_index` is retained only so the verifier can reproduce a chain-order canonicity policy
+from the raw claims; the indexer itself computes no canonicity verdict.
+
 Indexes: PK on `stamp_id`; secondary index on `inscription_id` (the `GET /migrations/{id}` path);
 `block_index` indexed for the reorg purge.
 
-### 6.1 Reorg safety (CONSENSUS-CRITICAL implementation requirement)
+### 6.1 Reorg safety (indexer-internal bookkeeping)
 
-**`stamp_migrations` MUST be added to the table list purged by `purge_block_db`**
+**`stamp_migrations` MUST still be added to the table list purged by `purge_block_db`**
 (`indexer/src/index_core/database.py`, the `tables = [...]` list at ~line 1199, alongside
 `STAMP_TABLE`, `SRC20_VALID_TABLE`, etc.). The purge deletes `WHERE block_index >= %s`, which is
-exactly why `stamp_migrations.block_index` must be a real, indexed column.
+exactly why `stamp_migrations.block_index` must be a real, indexed column. Under Option A this is
+**indexer-internal bookkeeping for reorg correctness, not a consensus-hash requirement** — there is
+no `migration_hash` to keep in sync (§5).
 
-If `stamp_migrations` is **omitted** from `purge_block_db`, a reorg leaves **stale rows** behind;
-after re-derivation on the new chain, `canonical_flag` (first-valid by `(block, tx_index)`) and
-`content_verified` diverge across indexers — a **consensus split**. This is the single
-easiest-to-miss implementation requirement in the SIP and MUST be covered by a reorg regression
-test. (Follow-up: the `purge_block_db` edit and the `CREATE TABLE` migration are consensus-code
-changes for the implementation PR.)
+If `stamp_migrations` is **omitted** from `purge_block_db`, a reorg leaves **stale raw-claim rows**
+behind; after re-derivation on the new chain the stored claims and their `content_verified` values
+no longer match what the canonical chain implies, so the indexer (and the verifier that mirrors
+`content_verified` and reads the raw claims) would serve wrong data. This MUST be covered by a
+reorg regression test. (Follow-up: the `purge_block_db` edit and the `CREATE TABLE` migration are
+implementation-PR changes.)
 
 ---
 
@@ -522,7 +592,12 @@ changes for the implementation PR.)
 6. **UTXO-set footprint & political blast radius.** PRESERVE bridges Ordinals content onto the
    UTXO set; a mass-migration wave is a real (pre-acknowledged) policy-surface cost. Keep `full`
    mode economically self-limiting; prefer `anchor` for large content.
-7. **Anchor-mode false hashes.** Unverifiable at consensus; consumers MUST treat them as claims.
+7. **Anchor-mode false hashes.** Unverifiable at consensus; consumers MUST treat them as claims,
+   and per §3.6.2 an anchor record MUST NOT render as `verified` or `canonical`.
+8. **Creator consent / unauthorized preservation.** Not a consensus control, but blunted off
+   consensus: mandatory attribution + link-out, no tokenized "canonical" asset, and a verifier
+   `attestation` distinction (`owner_attested` vs. `unilateral`) — a unilateral claim over someone
+   else's inscription never renders `verified`/`canonical` (§3.9, §3.6.2).
 
 ---
 
@@ -555,11 +630,13 @@ changes for the implementation PR.)
 
 ## 9. API surface (non-normative)
 
-- `GET /migrations/{inscription_id}` — all migration records for an inscription ID (there may be
-  several; §3.5 rule 6), each with `canonical_flag`.
-- `GET /stamps/{id}/provenance` — the provenance record for a Migration Stamp (in `full` mode,
+- `GET /migrations/{inscription_id}` — all raw migration claim records for an inscription ID (there
+  may be several; §3.5 rule 6), each with its `content_verified` bit and `(block_index, tx_index)`.
+  **No `canonical_flag`** — canonicity is not an indexer field (§3.6.2).
+- `GET /stamps/{id}/provenance` — the raw claim record for a Migration Stamp (in `full` mode,
   including the referenced content stamp's `stamp_tx`).
-- A `verified` field sourced from the **external verifier** (#880), never from the indexer.
+- **`provenance_state` / `canonicity` / `verified` are served by the external verifier (#880)** via
+  the `GET {verifier}/provenance/{stamp_id}` contract (§3.6.1), **never** by the indexer.
 
 ---
 
@@ -576,21 +653,29 @@ changes for the implementation PR.)
 | #11 | **BIP-110 34-byte boundary resolved favorably** — the cap measures the **scriptPubKey** and is **inclusive (≤ 34)**; a P2WSH scriptPubKey is exactly 34 bytes, so new OLGA stamps remain creatable. Pinned to current `bip-0110.mediawiki`; exact upstream revision MUST be recorded at Accepted. |
 | — | **Encoding = direct, non-Counterparty transaction** for the envelope (§3.7); 2-tx reference model (§3.3) |
 | — | **v1.10 scope = `full` + `anchor`, Method B only** (Method A/BIP-322 deferred) |
-| #1 | **Verification architecture = Option 2 (two-tier)** adopted |
-| #10 | **Add a dedicated `migration_hash`** (fourth stream), never `ledger_hash`/`txlist_hash` (§5) — *the stream is resolved; the exact serialization form is a `TODO(ratify)`, see below* |
+| #1 | **Verification architecture = Option 2 (two-tier)** adopted; under **Option A** all provenance/canonicity/`verified` moves to the verifier + frontend, off consensus (§3.6) |
+| #10 | **No dedicated consensus-hash stream (Option A).** The `migration_hash` fourth stream is **removed from consensus** — its only purpose was carrying the in-consensus `canonical_flag`/`verified`, both now off consensus. Consensus emits only the raw claim + `content_verified` (§5). |
+| #4, #12 | **Canonicity removed from consensus (Option A).** The in-consensus `canonical_flag` (multi-owner canonicity, #4) and the anchor-mode canonical gate (#12) are **resolved by removal**: canonicity is a verifier policy (§3.6.2). An anchor record MUST NOT render as `canonical`/`verified`. The *verifier* canonicity policy remains an open (non-consensus) item — see §10.2. |
 
 ### 10.2 Open — `TODO(ratify)` before Accepted
 
 | # | Item | Trade-off / recommendation |
 |---|------|----------------------------|
-| #4 | **Multi-owner canonicity** (TV-08): first-valid vs. most-recent-owner for `canonical_flag` when the same inscription is legitimately migrated by different owners over time. | First-valid is deterministic and griefing-resistant but pins canonicity to the earliest migrator even after a legitimate sale. Recommendation: **record all with timestamps; leave display choice to consumers**, but the on-chain `canonical_flag` value must be pinned. |
-| #10 (form) | **`migration_hash` serialization form**: explicit `|`-concat (§5.2, recommended) vs. sorted-key compact JSON. | Must pin exactly one — they hash to different bytes. Recommendation: **explicit `|`-concat** (no JSON-parser/`Decimal` surface; §5.1 hazard-free). Blocks freezing cross-indexer vectors (TV-15). |
-| #12 | **Anchor-mode canonical-flag semantics**: may an unverified anchor record be `canonical_flag = true` (TV-03 currently says yes), or should canonicity be gated on `content_verified`/verifier confirmation? | Gating on verification makes anchor canonicity depend on the non-consensus layer (undesirable at consensus); allowing it lets an unverifiable claim be "canonical." Recommendation: pin a consensus-only rule and let the verifier layer annotate. |
+| **VERIFIER-CANONICITY** | **Off-consensus canonicity policy — the load-bearing remaining design choice.** With `canonical_flag` gone from consensus, how does the verifier pick `canonical` among competing claims for one inscription — first-valid / attestation-weighted / owner-designated? Must it be reproducible across verifier operators, and may it flip over time? | Recommendation: **owner-designated, current-owner-wins, explicitly mutable** — the honest model "provenance" implies (re-check live ownership rather than freeze a one-time claim). The verifier documents its policy and makes it reproducible from chain-derivable inputs (§3.6.2). This is a **verifier/frontend** decision, not consensus. |
+| **DEMAND-GATE (go/no-go)** | **Do not build past the "optionally parse a metadata op" MVP until:** (a) **≥ 2 non-trivial teams** — at least one each from the Stamps and Ordinals sides — publicly commit to run the off-chain verifier + a frontend, **and** (b) **> 500 distinct-creator provenance attestations within 60 days** of a test deployment. | Concrete, testable gate (Grok). Anything weaker is "just another unused metadata field." Adopt into the PRD (§6-equivalent scope discipline). |
+| **COMMUNITY-VALUES** | **Financialization objection** — "plain stamps shouldn't be financialized in the Counterparty sense." Option A reduces it (no in-consensus canonical asset; the frontend doesn't tokenize) but does not eliminate it if a preserved content-stamp is ever DEX-listed. | Not engineerable; a Stamps-community values call. **Surface to community reviewers** before Accepted, do not engineer around it. |
+| **CONSENT** | **Inscription-creator consent / attribution / takedown position** (§3.9). | With the mandatory link-out, this is the main blunting of the ordinals-artist attack; the spec cannot be silent. |
 | #4-adjacent | `PRESERVE_MAX_ENVELOPE_BYTES = 4096` (§4.1) | Confirm during the testnet campaign; revisit if Method A/BIP-322 (larger signature) is folded in. |
 | #5 | **Method A acceptance window `N`** (deferred with Method A) | Proposed **N = 144** (~24h). Defers to the follow-up SIP. |
 | #6 | **SIP-0005 binary op-code** | Reserve one of `0x13`–`0x15`; define JSON normatively now, binary form conditional. |
 | #7 | **`deps` normativity** | Recommendation: **informational** in v1. |
 | #3 | **Commit/reveal** | Recommendation: **defer** to a follow-up SIP. |
+
+> **Note (Option A).** Open Questions **#4** (multi-owner canonicity), **#10** (`migration_hash`
+> serialization form), and **#12** (anchor-mode canonical-flag semantics) are **no longer
+> consensus ratification items** — canonicity and verification left consensus entirely (§10.1).
+> #4/#12 survive only as the **VERIFIER-CANONICITY** policy question above (off consensus); #10 is
+> closed with the stream.
 
 ### 10.3 External (non-doc) pre-coding blockers
 
@@ -599,8 +684,10 @@ These are outside this repo's docs and cannot be closed by specification alone:
 1. **Activation-height coordination** — a concrete activation block, fixed at Accepted, with ≥ 4
    weeks lead time, shipped by all participating indexers before it.
 2. **Cross-indexer sign-on** — at least one independent indexer (OpenStamp / stampscan) validates
-   the frozen shared test vectors (blocked on the §10.2 ratifications, since the vectors can't be
-   frozen until `migration_hash` serialization and the canonicity rules are pinned).
+   the frozen shared test vectors. Under Option A the consensus surface is only the raw-claim parse
+   + `content_verified` (§5), so these vectors are much lighter than before (no `migration_hash`
+   serialization or in-consensus canonicity to pin). Cross-**verifier** reproducibility of the
+   canonicity policy is a separate, off-consensus agreement (§3.6.2, §10.2).
 3. **Verifier (#880) co-delivery** — the open-source verifier + stampchain verification API must
    be ready to ship alongside the indexer change (Option 2 requirement).
 

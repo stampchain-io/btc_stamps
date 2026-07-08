@@ -2,6 +2,14 @@
 
 > Non-normative supporting material for **SIP-0110**. Grounds the proposed indexer changes in the actual `btc_stamps` codebase. See the SIP issue for the normative specification.
 
+> ✅ **Revised per Option A (2026-07-08).** Provenance/canonicity moved **OFF consensus** into the
+> verifier (#880) + frontend (see `DIRECTION-DECISION.md`). The indexer's consensus surface is now
+> just: **parse + store the immutable raw `p:"SRC-ORD"` claim, compute `content_verified`
+> (full-mode byte-hash), and keep the raw-claim table in `purge_block_db` for reorg safety**
+> (indexer-internal bookkeeping, **not** a consensus-hash requirement). The **`migration_hash`
+> fourth-stream** and the in-consensus **`canonical_flag`** are **removed**; canonicity and the
+> "verified" badge are relocated to the verifier. Sections below have been updated to that shape.
+
 > **Revision note (2026-07 — applies the #878 code-grounded technical review).** This revision
 > adopts the **2-tx on-wire reference model** for `full` mode (content = a plain OLGA stamp;
 > `PRESERVE` = a JSON sidecar referencing it via `stamp_tx`; rule 3 hashes the content stamp's
@@ -139,19 +147,18 @@ txhash_list, ...)` in **`block_validation.py`** (called from
 - `ledger_hash` from `str(processed_src20_in_block)`,
 - `messages_hash` from `str(txhash_list)`.
 
-To bring PRESERVE records under cross-indexer consistency, they MUST be folded deterministically
-into `txlist_hash` **or a new dedicated `migration_hash` stream — but NEVER into `ledger_hash`**,
-which is SRC-20-specific (`str(processed_src20_in_block)`) and must stay isolated from PRESERVE
-(§3.7, Open Question #10). **Recommendation:** add a dedicated **`migration_hash`** (a fourth
-hash stream) rather than overloading `txlist_hash`; it keeps PRESERVE provenance cleanly
-separable and makes the SRC-20-isolation invariant self-evident. Whatever is chosen, the
-serialization MUST be deterministic and derived only from consensus fields (§4.2). **Divergence
-note:** there is no single function literally named "ledger check-hashes"; `create_check_hashes`
-is the real equivalent, and `ledger_hash` today is specifically the SRC-20 ledger, not a general
-stamp ledger — which is exactly why PRESERVE records must not enter it. **Scope of the isolation
-(per the #878 review):** a dedicated `migration_hash` isolates the *provenance records*, but
-**not numbering** — a valid `PRESERVE` sidecar is still a stamp and still enters `txlist_hash`
-post-activation (see "Stamp numbering and the activation gate" below). What is verified in code:
+**Under Option A there is NO dedicated PRESERVE hash stream.** The earlier draft added a fourth
+`migration_hash` stream here; its only purpose was carrying the in-consensus `canonical_flag`/
+`verified`, both of which now live off consensus in the verifier (§3.6). So
+`create_check_hashes(...)` is **left unchanged** — no fourth stream, no signature change. PRESERVE
+records are **not** folded into any consensus hash of their own, and **never** into `ledger_hash`
+(SRC-20-specific, `str(processed_src20_in_block)`). Cross-indexer consistency for PRESERVE reduces
+to two deterministic, chain-derived facts — the **raw claim record** and **`content_verified`**
+(§4.2) — plus the fact that a valid `PRESERVE` sidecar is itself a stamp and therefore already
+enters `txlist_hash` (see "Stamp numbering and the activation gate" below). **Divergence note:**
+there is no single function literally named "ledger check-hashes"; `create_check_hashes` is the
+real equivalent, and `ledger_hash` today is specifically the SRC-20 ledger, not a general stamp
+ledger — which is exactly why PRESERVE records must not enter it. What is verified in code:
 `ledger_hash` (`str(processed_src20_in_block)`, SRC-20-only) and `messages_hash` (all txids)
 **cannot** be affected by PRESERVE.
 
@@ -173,20 +180,25 @@ stamp_migrations(
   proof_address       TEXT,
   proof_utxo          TEXT,        -- Method B: the claimed "<txid>:<vout>" (§3.5, review G3)
   proof_block         INTEGER,     -- spend height (Method B) / msg_block (Method A, deferred)
-  content_verified    BOOLEAN,     -- consensus-layer hash check (true only for full-mode pass)
-  canonical_flag      BOOLEAN,     -- first-valid per §3.4 rule 6
+  content_verified    BOOLEAN,     -- consensus-layer byte-hash check (true only for full-mode pass)
   block_index         INTEGER,
+  tx_index            INTEGER,     -- in-block position; lets a verifier reproduce a chain-order canonicity policy (§3.6.2)
   block_time          <timestamp>
 )
 ```
 
-The table is indexer-internal, but its contents derive from consensus rules, so the derivation
-(§3.4) is the normative part; two conformant indexers MUST produce identical `content_verified`
-and `canonical_flag` values for the same chain.
+**No `canonical_flag` column (Option A).** Canonicity is a verifier determination off consensus
+(§3.6.2); the indexer stores only the raw claims + `content_verified`. `tx_index` is retained only
+so a verifier can reproduce a chain-order canonicity policy from the raw claims. The table is
+indexer-internal, but its contents derive from consensus rules, so the derivation (§3.5) is the
+normative part; two conformant indexers MUST produce identical raw claims and identical
+`content_verified` values for the same chain.
 
-**Reorg safety (consensus-critical, easiest to miss).** `stamp_migrations` MUST be added to the
-table list purged by `purge_block_db` (`database.py:1199-1211`). Otherwise a reorg leaves stale
-rows behind and `canonical_flag` diverges across indexers after re-derivation.
+**Reorg safety (indexer-internal bookkeeping, not a consensus-hash requirement).**
+`stamp_migrations` MUST still be added to the table list purged by `purge_block_db`
+(`database.py:1199-1211`). Otherwise a reorg leaves stale raw-claim rows behind and the stored
+claims + `content_verified` no longer match the canonical chain after re-derivation. There is no
+`migration_hash` to keep in sync, so this is reorg correctness, not consensus-hash agreement.
 
 **Stamp numbering and the activation gate (corrected per the #878 review, G5).** The numbering
 *mechanism* is unchanged: a valid stamp receives its number via the existing
@@ -205,13 +217,15 @@ missed by non-upgraded indexers.
 
 ### 4.4 API surface
 
-- `GET /migrations/{inscription_id}` — all migration records referencing an inscription ID
-  (there may be several; §3.4 rule 6), each with its `canonical_flag`.
-- `GET /stamps/{id}/provenance` — the provenance record for a given Migration Stamp (including,
-  in full mode, the referenced content stamp's `stamp_tx`).
-- (Option 2) A `verified` status field on the above, sourced from the **external verifier**
-  (§3.6), NOT from the indexer. The consensus layer never emits `verified`; it emits
-  `content_verified` (the self-contained full-mode hash result) and the raw attestation.
+- `GET /migrations/{inscription_id}` — all raw migration claim records referencing an inscription
+  ID (there may be several; §3.5 rule 6), each with its `content_verified` bit and
+  `(block_index, tx_index)`. **No `canonical_flag`** — canonicity is not an indexer field (§3.6.2).
+- `GET /stamps/{id}/provenance` — the raw claim record for a given Migration Stamp (including, in
+  full mode, the referenced content stamp's `stamp_tx`).
+- **`provenance_state` / `canonicity` / `verified` are served by the external verifier (#880)**
+  via `GET {verifier}/provenance/{stamp_id}` (spec §3.6.1; see `FRONTEND-IMPLEMENTATION.md`), NOT
+  by the indexer. The consensus layer never emits `verified`/`canonical`; it emits only
+  `content_verified` (the self-contained full-mode hash result) and the raw claim.
 
 ---
 
@@ -247,11 +261,15 @@ are now **decided**, and should be read as design decisions rather than proposal
   #8 resolved — see below).
 - **BIP-110 34-byte boundary resolved favorably** (Open Question #11 resolved — see below).
 
-**Genuinely-remaining open items:** #1 (verification architecture — recommend Option 2), #3
-(commit/reveal — recommend defer), #4 (multi-owner canonicity), #6 (SIP-0005 binary-format
-alignment), #7 (`deps` normativity), #10 (add dedicated `migration_hash` — recommended), #12
-(anchor-mode canonical-flag semantics). #5 (signature acceptance window) applies to Method A
-only and **defers with it** to the follow-up SIP; the pinned form of the window inequality is
+**Genuinely-remaining open items (Option A):** #1 (verification architecture — Option 2 adopted;
+all provenance/canonicity now off consensus), #3 (commit/reveal — recommend defer), #6 (SIP-0005
+binary-format alignment), #7 (`deps` normativity), plus the **off-consensus** items: the
+**verifier canonicity policy** (recommend owner-designated / current-owner-wins / mutable) and the
+**demand gate** (≥ 2 teams running the verifier + > 500 distinct-creator attestations in 60 days) —
+see spec §10.2. **Resolved by Option A (removed from consensus):** #4 (multi-owner canonicity) and
+#12 (anchor-mode canonicity) survive only as the verifier-canonicity policy above; #10 (`migration_hash`)
+is closed with the removed stream. #5 (signature acceptance window) applies to Method A only and
+**defers with it** to the follow-up SIP; the pinned form of the window inequality is
 `0 ≤ confirmation_height − msg_block ≤ N` (proposed N = 144), with a future-dated `msg_block`
 (negative delta) invalid. #8 and #11 are now **resolved** (see the finalized-decisions list).
 
@@ -270,7 +288,9 @@ only and **defers with it** to the follow-up SIP; the pinned form of the window 
   `block_validation.py :: create_check_hashes()` (called from `BlockProcessor.finalize_block`),
   computing `txlist_hash` / `ledger_hash` / `messages_hash` via `check.consensus_hash`. Note
   `ledger_hash` today is specifically the **SRC-20** ledger (`str(processed_src20_in_block)`),
-  not a general stamp ledger — flagged as Open Question #10.
+  not a general stamp ledger — which is why PRESERVE must not enter it. Under Option A no fourth
+  stream is added at all (the drafting-era `migration_hash`, Open Question #10, is dropped):
+  `create_check_hashes()` is unchanged.
 - **`migrations` table.** Does not exist. Real precedents: `StampTableV4` (`config.STAMP_TABLE`,
   written by `insert_into_stamp_table`) and `SRC20Valid` (written by `insert_into_src20_tables`).
   §4.3 proposes a new `stamp_migrations` table modeled on these.
@@ -306,11 +326,12 @@ only and **defers with it** to the follow-up SIP; the pinned form of the window 
   On OLGA efficiency, use sourced figures — **~50% size / ~60–70% cost** improvement over bare
   multisig — not the unsourced "30–95%".
 
-**(b) Additional open questions identified during drafting.** #10 (add a dedicated
-`migration_hash`, recommended) and #12 (anchor-mode canonical-flag semantics) — see Open
-Questions above. (#9, protocol-identifier registration, is **resolved** to `p = "SRC-ORD"`;
-#11, the BIP-110 34-byte-cap boundary, is now **resolved favorably** — see the BIP-110 bullet
-in (a).)
+**(b) Additional open questions identified during drafting.** #10 (`migration_hash`) and #12
+(anchor-mode canonicity) were drafting-era consensus questions; **Option A resolves both by moving
+provenance/canonicity off consensus** — #10 is closed with the removed stream, and #12 becomes a
+verifier/frontend floor (an anchor record is never `verified`/`canonical`, §3.6.2). (#9,
+protocol-identifier registration, is **resolved** to `p = "SRC-ORD"`; #11, the BIP-110 34-byte-cap
+boundary, is now **resolved favorably** — see the BIP-110 bullet in (a).)
 
 **(c) Numbering.** The number is **decided: SIP-0110**, a deliberate, maintainer-reserved
 thematic mirror of BIP-110 (§ Numbering note). This intentionally departs from strict sequential
