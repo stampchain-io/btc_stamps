@@ -8,6 +8,15 @@
 **Related**: SIP-0000 (#686, process), SIP-0002 (#484, superseded UTXO binding), SIP-0005
 (#688, binary transfer format), #878 (SIP issue), #880 (verifier tool)
 
+> ⚠️ **DIRECTION UPDATE (2026-07-08).** Independent community-alignment reviews (Anthropic
+> Opus + xAI Grok) and the stampchain.io frontend team have converged on **Option A: move all
+> provenance/canonicity OFF consensus into the verifier + frontend; the indexer emits only the
+> raw claim + `content_verified` (byte-hash) — no `migration_hash` stream, no in-consensus
+> `canonical_flag`.** This supersedes the in-consensus tradeable-canonical shape below. See
+> **[`DIRECTION-DECISION.md`](./DIRECTION-DECISION.md)** for the reconciliation, revision plan,
+> and the demand gate. The §5 `migration_hash` / §3.5 `canonical_flag` sections below are being
+> revised accordingly.
+
 > **Normative status of this file.** This is the **committed normative specification** for
 > SIP-0110. It consolidates the §3.x consensus rules that previously lived only in the body of
 > GitHub issue **#878** into a repo file that is version-controlled, diff-able in PRs, and pinned
