@@ -29,6 +29,7 @@
 &nbsp;
 
 ## 📋 Overview
+
 `btc_stamps` is the official indexer for Bitcoin Stamps, a meta-protocol built on Bitcoin
 and dedicated to immutability and permanent data storage on the Bitcoin blockchain.
 This protocol is experimental and provided without warranty (see [LICENSE](LICENSE)).
@@ -443,6 +444,8 @@ funding source for this experimental project.
 ## 📄 License
 
 This project is experimental and provided without warranty. See [LICENSE](LICENSE) for full details.
+
+&nbsp;
 
 ---
 
