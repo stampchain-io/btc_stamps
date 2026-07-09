@@ -10,7 +10,7 @@
 [![Python Versions](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)&nbsp;&nbsp;
 [![License](https://img.shields.io/github/license/stampchain-io/btc_stamps)](LICENSE)&nbsp;&nbsp;
 [![Stars](https://img.shields.io/github/stars/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/stargazers)&nbsp;&nbsp;
-[![Forks](https://img.shields.io/github/forks/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/network/members)&nbsp;&nbsp;
+[![Forks](https://img.shields.io/github/forks/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/network/members)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=CI&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)&nbsp;&nbsp;
 [![Coverage Analysis](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/coverage.yml?label=Coverage&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/coverage.yml)&nbsp;&nbsp;
@@ -19,7 +19,7 @@
 
 [![Last Commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps)&nbsp;&nbsp;
 [![Pull Requests](https://img.shields.io/github/issues-pr/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/pulls)
-[![Issues](https://img.shields.io/github/issues/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/issues)&nbsp;&nbsp;
+[![Issues](https://img.shields.io/github/issues/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/issues)
 
 &nbsp;
 
