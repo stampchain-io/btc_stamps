@@ -1,17 +1,32 @@
 <div align="center">
-  <img src="docs/assets/stampchain-hero.jpg" alt="Bitcoin Stamps" width="100%">
+  <img src="https://raw.githubusercontent.com/stampchain-io/btc_stamps/main/docs/assets/bitcoinstamps-indexer-github-hero.png" alt="Bitcoin Stamps - Indexer" width="100%">
 
-  # Bitcoin Stamps
+### Bitcoin Stamps - Indexer
+#### Immutable digital assets stored in Bitcoin's UTXO set
+**CLASSIC / SRC-20 / SRC-721 / SRC-721r / SRC-101 / OLGA** 
 
-  ### The official indexer for the Bitcoin Stamps meta-protocol: immutable digital assets stored directly in Bitcoin's UTXO set
+&nbsp;
 
-  **SRC-20 / SRC-721 / OLGA / SRC-721r / SRC-101**
+[![Python Versions](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)&nbsp;&nbsp;
+[![License](https://img.shields.io/github/license/stampchain-io/btc_stamps)](LICENSE)&nbsp;&nbsp;
+[![Stars](https://img.shields.io/github/stars/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/stargazers)&nbsp;&nbsp;
+[![Forks](https://img.shields.io/github/forks/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/network/members)
 
-  [![CI](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=CI&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml) [![Coverage Analysis](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/coverage.yml?label=Coverage&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/coverage.yml) [![codecov](https://img.shields.io/codecov/c/github/stampchain-io/btc_stamps?branch=main&label=codecov)](https://codecov.io/gh/stampchain-io/btc_stamps)
- [![Docker Build](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/docker-auto-publish.yml?label=Docker%20Build&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/python-check.yml?label=CI&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/python-check.yml)&nbsp;&nbsp;
+[![Coverage Analysis](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/coverage.yml?label=Coverage&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/coverage.yml)&nbsp;&nbsp;
+[![Docker Build](https://img.shields.io/github/actions/workflow/status/stampchain-io/btc_stamps/docker-auto-publish.yml?label=Docker%20Build&branch=main)](https://github.com/stampchain-io/btc_stamps/actions/workflows/docker-auto-publish.yml)&nbsp;&nbsp;
+[![codecov](https://img.shields.io/codecov/c/github/stampchain-io/btc_stamps?branch=main&label=codecov)](https://codecov.io/gh/stampchain-io/btc_stamps)
 
-  [![Last Commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps) [![Python Versions](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/) [![License](https://img.shields.io/github/license/stampchain-io/btc_stamps)](LICENSE) [![Stars](https://img.shields.io/github/stars/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/stargazers) [![Forks](https://img.shields.io/github/forks/stampchain-io/btc_stamps?style=social)](https://github.com/stampchain-io/btc_stamps/network/members) [![Issues](https://img.shields.io/github/issues/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/issues) [![Pull Requests](https://img.shields.io/github/issues-pr/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/pulls)
-</div>
+[![Last Commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps)&nbsp;&nbsp;
+[![Pull Requests](https://img.shields.io/github/issues-pr/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/pulls)&nbsp;&nbsp;
+[![Issues](https://img.shields.io/github/issues/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/issues)
+
+&nbsp;
+
+---
+
+</div> 
+&nbsp;
 
 ## 📋 Overview
 
@@ -28,21 +43,21 @@ entire Bitcoin Stamps ecosystem.
 > **Core principle**: Unlike Ordinals, Bitcoin Stamps operate directly on the UTXO set to ensure true immutability.
 > This fundamental design choice makes it impossible to accidentally spend or "inscribe" a Stamp.
 
-## 🔶 Features: The Bitcoin Stamps Protocol Suite
+## ⚡ Features: The Bitcoin Stamps Protocol Suite
 
 The Bitcoin Stamps meta-protocol offers a suite of sub-protocols built on Bitcoin, all
 designed with immutability at their core:
 
 | Protocol | Purpose | Activation |
 |----------|---------|------------|
-| 🏛️ **Classic Stamps** | Immutable digital collectibles via Counterparty standards | Block 779,652 |
-| 💰 **SRC-20** | Fair-launch fungible tokens, standard BTC miner fees only | Block 788,041 |
-| 🖼️ **SRC-721** | Layered NFTs composed from multiple Stamps via JSON manifests | Block 792,370 |
-| ⚡ **OLGA** | P2WSH encoding: smaller transactions, 60-70% lower costs | Blocks 833,000 / 865,000 / 940,000 |
-| 🔄 **SRC-721r** | Recursive Stamps with JavaScript, virtually unlimited file sizes | Active |
-| 🌐 **SRC-101** | Bitcoin-native domain name system | Block 870,652 |
+| 🟩 **Classic Stamps** | Immutable digital assets | Block 779,652 |
+| 🟡 **SRC-20** | Fair-launch fungible tokens | Block 788,041 |
+| 🟦 **SRC-721** | Recursive Stamps with JSON manifests | Block 792,370 |
+| 🟪 **SRC-721r** | Recursive Stamps with HTML/CSS/JS | Active |
+| ⚪️ **SRC-101** | Bitcoin-native domain name system | Block 870,652 |
+| 🔲 **OLGA** | P2WSH encoding: optimization for all stamp protocols | Blocks 833,000 / 865,000 / 940,000 |
 
-### 🏛️ Classic Stamps
+### 🟩 Classic Stamps
 Immutable digital collectibles with built-in token functionality via Counterparty standards.
 While originally intended for 1:1 editions, creators can issue up to 4,294,967,295 editions per Stamp.
 Initially implemented using OP_MULTISIG transactions with Base64 encoded images, Classic Stamps
@@ -51,7 +66,7 @@ directly addresses the accidental spending vulnerability and prunability issues 
 
 **History**: The first Official Bitcoin Stamp (Stamp 0) was created by Mikeinspace in Block 779,652.
 
-### 💰 SRC-20 Stamps
+### 🟡 SRC-20 Stamps
 A fair, accessible fungible token protocol where users only pay standard BTC miner fees.
 Inspired by BRC-20 but enhanced with the immutability guarantees of Stamps.
 
@@ -59,28 +74,28 @@ Inspired by BRC-20 but enhanced with the immutability guarantees of Stamps.
 (on Counterparty). SRC-20 moved to direct Bitcoin transactions at Block 793,068 and adopted
 the OLGA / P2WSH encoding at Block 865,000.
 
-### 🖼️ SRC-721 Stamps
+### 🟦 SRC-721 Stamps
 An advanced NFT format that uses JSON manifests to construct complex, layered images from data
 distributed across multiple Stamps. This approach enables high-resolution artworks while
 maintaining compatibility with Counterparty's token layer.
 
 **History**: First implemented in Block 792,370.
 
-### ⚡ OLGA Stamps
+### 🟪 SRC-721r Stamps
+The next evolution of SRC-721, enabling complex recursive images created using JavaScript and
+other libraries stored directly on Stamps. By recursively combining multiple Stamps, creators
+can build experiences with virtually unlimited file sizes.
+
+### ⚪️ SRC-101 Stamps
+A domain name system native to Bitcoin Stamps, developed by Bitname.
+
+### 🔲 OLGA Stamps
 A technical breakthrough that eliminates Base64 encoding overhead, reducing transaction size
 by 50% and lowering costs by 60-70% compared to the original OP_MULTISIG format. OLGA
 maintains full functionality while being significantly more efficient.
 
 **History**: OLGA activated per-protocol: Classic Stamps at Block 833,000, SRC-20 at Block
 865,000, and SRC-101 at Block 940,000. It is now the standard for new Classic Stamps.
-
-### 🔄 SRC-721r Stamps
-The next evolution of SRC-721, enabling complex recursive images created using JavaScript and
-other libraries stored directly on Stamps. By recursively combining multiple Stamps, creators
-can build experiences with virtually unlimited file sizes.
-
-### 🌐 SRC-101 Stamps
-A domain name system native to Bitcoin Stamps, developed by [bitname.pro](https://bitname.pro/).
 
 ## 🚀 Quick Start (Docker)
 
@@ -429,3 +444,13 @@ funding source for this experimental project.
 ## 📄 License
 
 This project is experimental and provided without warranty. See [LICENSE](LICENSE) for full details.
+
+&nbsp;
+
+---
+
+<div align="center">
+
+Built with Bitcoin 🧡 Permanent by design
+
+</div>
