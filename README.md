@@ -18,7 +18,7 @@
 [![codecov](https://img.shields.io/codecov/c/github/stampchain-io/btc_stamps?branch=main&label=codecov)](https://codecov.io/gh/stampchain-io/btc_stamps)
 
 [![Last Commit](https://img.shields.io/github/last-commit/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps)&nbsp;&nbsp;
-[![Pull Requests](https://img.shields.io/github/issues-pr/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/pulls)
+[![Pull Requests](https://img.shields.io/github/issues-pr/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/pulls)&nbsp;&nbsp;
 [![Issues](https://img.shields.io/github/issues/stampchain-io/btc_stamps)](https://github.com/stampchain-io/btc_stamps/issues)
 
 &nbsp;
