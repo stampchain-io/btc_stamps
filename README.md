@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/stampchain-io/btc_stamps/main/docs/assets/bitcoinstamps-indexer-github-hero.png" alt="Bitcoin Stamps Indexer" width="100%">
+  <img src="https://raw.githubusercontent.com/stampchain-io/btc_stamps/main/docs/assets/bitcoinstamps-indexer-github-hero.png" alt="Bitcoin Stamps - Indexer" width="100%">
 
 ### Bitcoin Stamps - Indexer
 #### Immutable digital assets stored in Bitcoin's UTXO set
