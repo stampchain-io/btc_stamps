@@ -68,6 +68,25 @@ def create_check_hashes(
     block_results = cursor.fetchall()
     block_row = block_results[0] if block_results else None
 
+    # Prev-block hashes for the txlist/messages chains both come from block_index-1.
+    # Fetch that row once here and pass the values in, instead of letting each
+    # consensus_hash call re-SELECT block_index-1 (previously done twice: once for
+    # txlist_hash, once for messages_hash). The ledger_hash chain uses a different
+    # lookup (last non-null ledger_hash) and is intentionally left to consensus_hash.
+    # Only override when a real previous hash is found; otherwise leave the arg as-is
+    # so consensus_hash's existing missing-previous handling (reparse guidance) is
+    # preserved. Output-neutral: same previous hash, fetched once. #858
+    if block_index > config.BLOCK_FIRST and (previous_txlist_hash is None or previous_messages_hash is None):
+        cursor.execute("""SELECT * FROM blocks WHERE block_index = %s""", (block_index - 1,))
+        prev_results = cursor.fetchall()
+        prev_row = prev_results[0] if prev_results else None
+        if prev_row is not None:
+            fp = config.BLOCK_FIELDS_POSITION
+            if previous_txlist_hash is None:
+                previous_txlist_hash = prev_row[fp["txlist_hash"]] or None
+            if previous_messages_hash is None:
+                previous_messages_hash = prev_row[fp["messages_hash"]] or None
+
     # Filter out None values before sorting
     filtered_stamps = [stamp for stamp in valid_stamps_in_block if stamp is not None]
     sorted_valid_stamps = sorted(filtered_stamps, key=lambda x: x.get("stamp_number", 0))
