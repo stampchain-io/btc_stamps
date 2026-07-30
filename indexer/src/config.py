@@ -527,6 +527,23 @@ except ValueError:
 # Enable background validation of SRC-20 blocks processed with FORCE=True
 ENABLE_SRC20_BACKGROUND_VALIDATION = bool(os.environ.get("ENABLE_SRC20_BACKGROUND_VALIDATION", "true").lower() == "true")
 
+# Issue #877: move the per-block SRC-20 ledger-hash cross-check against stampscan
+# OFF the block-processing critical path. When True (and the background validator
+# is enabled), finalize_block enqueues the block to the already-running background
+# validator instead of making a synchronous stampscan HTTPS GET (STAMPSCAN_REQUEST_TIMEOUT
+# seconds, up to 5 retries) inside each SRC-20-bearing block's DB transaction. The
+# background validator performs the identical fetch + hash comparison and fires the
+# identical ops_alerter critical alert on a real mismatch -- just off the hot path.
+#
+# Consensus-neutral by construction: the inline validation is purely observational
+# (on a mismatch it only alerts and continues; it never changes what is computed,
+# written, or hashed). Defaults to False to preserve current inline behavior
+# byte-for-byte; flip to True only after confirming output-neutrality via the
+# Reparse Consensus Validation gate. Has effect only when
+# ENABLE_SRC20_BACKGROUND_VALIDATION is also True (otherwise enqueued blocks would
+# never be validated, so the code falls back to the inline path).
+SRC20_LEDGER_VALIDATION_ASYNC = bool(os.environ.get("SRC20_LEDGER_VALIDATION_ASYNC", "false").lower() == "true")
+
 BURNKEYS = [
     "022222222222222222222222222222222222222222222222222222222222222222",
     "033333333333333333333333333333333333333333333333333333333333333333",

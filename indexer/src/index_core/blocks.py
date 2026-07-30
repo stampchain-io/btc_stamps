@@ -86,6 +86,7 @@ from index_core.signal_handlers import setup_signal_handler
 from index_core.src20 import (
     Src20Dict,
     clear_zero_balances,
+    enqueue_src20_ledger_validation,
     parse_src20,
     process_balance_updates,
     update_src20_balances,
@@ -134,6 +135,56 @@ TxResult = namedtuple(
 
 
 _sales_catchup_started = False
+
+
+def _alert_src20_ledger_mismatch(block_index: int) -> None:
+    """Fire the high-signal ops alert for a real SRC-20 ledger-hash divergence.
+
+    Called when stampscan returned data for the exact requested block AND the
+    ledger hashes differ. We alert and keep indexing -- crashing here would block
+    recovery, and the divergence is investigated out of band. Alert failure must
+    NOT crash the main loop, so the import + notify are wrapped.
+    """
+    try:
+        from index_core.ops_alerter import notify as ops_notify
+
+        ops_notify(
+            "critical",
+            f"SRC-20 ledger mismatch at block {block_index}",
+            (
+                f"Local SRC-20 ledger_hash differs from stampscan for block {block_index}. "
+                f"This indicates a real consensus divergence in SRC-20 processing. "
+                f"Indexer is continuing; investigate the affected block immediately."
+            ),
+            dedup_key=f"src20-mismatch-{block_index}",
+        )
+    except Exception as alert_err:
+        logger.error(f"ops_alerter notify failed for block {block_index}: {alert_err}")
+    logger.error(f"SRC-20 LEDGER MISMATCH at block {block_index} — alert sent; continuing")
+
+
+def dispatch_src20_ledger_validation(block_index: int, ledger_hash: str, valid_src20_str: str) -> None:
+    """Cross-check this block's SRC-20 ledger_hash against stampscan.
+
+    Issue #877: when ``config.SRC20_LEDGER_VALIDATION_ASYNC`` is enabled (and the
+    background validator is running), the check is enqueued to the background
+    validator and runs OFF the block-processing critical path -- avoiding a
+    synchronous stampscan HTTPS GET (``STAMPSCAN_REQUEST_TIMEOUT`` seconds + retries)
+    inside each SRC-20-bearing block's DB transaction. Otherwise it runs inline
+    exactly as before.
+
+    Config is resolved at call time (never captured at import) so tests that
+    ``importlib.reload(config)`` / ``monkeypatch`` the flags observe the current
+    values. Either path is consensus-neutral: the check is observational -- on a
+    real mismatch it only alerts (``_alert_src20_ledger_mismatch``) and keeps
+    indexing; it never changes what is computed, written, or hashed.
+    """
+    if config.SRC20_LEDGER_VALIDATION_ASYNC and config.ENABLE_SRC20_BACKGROUND_VALIDATION:
+        enqueue_src20_ledger_validation(block_index, ledger_hash, valid_src20_str)
+        return
+
+    if not validate_src20_ledger_hash(block_index, ledger_hash, valid_src20_str):
+        _alert_src20_ledger_mismatch(block_index)
 
 
 class BlockProcessor:
@@ -327,28 +378,7 @@ class BlockProcessor:
 
         # Only validate ledger hash if both valid_src20_str and new_ledger_hash are non-empty
         if valid_src20_str and new_ledger_hash:
-            if not validate_src20_ledger_hash(block_index, new_ledger_hash, valid_src20_str):
-                # Real consensus divergence (stampscan returned the exact requested
-                # block with a different hash). Surface as a high-signal alert and
-                # keep indexing — crashing here would block recovery and the
-                # background validator can re-check once stampscan is consistent.
-                # Alert failure must NOT crash the main loop, so wrap the import+notify.
-                try:
-                    from index_core.ops_alerter import notify as ops_notify
-
-                    ops_notify(
-                        "critical",
-                        f"SRC-20 ledger mismatch at block {block_index}",
-                        (
-                            f"Local SRC-20 ledger_hash differs from stampscan for block {block_index}. "
-                            f"This indicates a real consensus divergence in SRC-20 processing. "
-                            f"Indexer is continuing; investigate the affected block immediately."
-                        ),
-                        dedup_key=f"src20-mismatch-{block_index}",
-                    )
-                except Exception as alert_err:
-                    logger.error(f"ops_alerter notify failed for block {block_index}: {alert_err}")
-                logger.error(f"SRC-20 LEDGER MISMATCH at block {block_index} — alert sent; continuing")
+            dispatch_src20_ledger_validation(block_index, new_ledger_hash, valid_src20_str)
 
         stamps_in_block = len(self.valid_stamps_in_block)
         src20_in_block = len(self.processed_src20_in_block)

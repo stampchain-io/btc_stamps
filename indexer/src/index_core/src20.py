@@ -1377,6 +1377,20 @@ def _enqueue_for_background_validation(block_index: int, ledger_hash: str, valid
         logger.error(f"Failed to add block {block_index} to validation queue: {e}")
 
 
+def enqueue_src20_ledger_validation(block_index: int, ledger_hash: str, valid_src20_str: str) -> None:
+    """Public entry point to defer this block's SRC-20 ledger-hash validation to the
+    background validator instead of validating inline on the block-processing critical
+    path (issue #877).
+
+    Behaviour is identical to the inline path's existing deferral route: the background
+    validator performs the same stampscan fetch (``fetch_api_ledger_data``), the same
+    ledger-hash comparison, and the same ``ops_alerter`` critical alert on a real
+    mismatch -- just off the hot path. Never raises: a queue failure must not stop the
+    indexer (``_enqueue_for_background_validation`` already swallows and logs).
+    """
+    _enqueue_for_background_validation(block_index, ledger_hash, valid_src20_str, "async_critical_path")
+
+
 def _log_balance_diff(local_str: Optional[str], api_str: Optional[str]) -> None:
     """Pretty-print SRC-20 balance differences at DEBUG level. Diagnostic aid
     for real-mismatch investigation; never raises."""
