@@ -261,9 +261,12 @@ class DispenseProcessor:
                 if not source:
                     continue
 
-                # Get dispenses for this dispenser/asset combination
+                # Get dispenses this dispenser address SENT for this asset.
+                # CP v11.2+ split /addresses/{addr}/dispenses into /sends and
+                # /receives with the asset in the path (the old ?asset= form 404s);
+                # verbose=true keeps the nested dispenser data (satoshirate).
                 rate_limiter.acquire()
-                dispense_response = fetch_xcp(f"/addresses/{source}/dispenses", {"asset": cpid, "verbose": "true"})
+                dispense_response = fetch_xcp(f"/addresses/{source}/dispenses/sends/{cpid}", {"verbose": "true"})
 
                 if dispense_response and "result" in dispense_response:
                     dispenses = dispense_response["result"]
