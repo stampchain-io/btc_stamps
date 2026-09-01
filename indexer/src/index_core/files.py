@@ -7,6 +7,7 @@ import config
 import index_core.log as log
 from index_core.async_upload import async_check_existing_and_upload_to_s3
 from index_core.aws import check_existing_and_upload_to_s3
+from index_core.r2_mirror import mirror_to_r2
 
 logger = logging.getLogger(__name__)
 log.set_logger(logger)  # set root logger
