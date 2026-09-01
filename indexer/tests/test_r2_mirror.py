@@ -154,5 +154,51 @@ class TestKvRetry(unittest.TestCase):
         self.assertEqual(put.call_count, 2)  # retried the ReadTimeout, then succeeded
 
 
+class TestStoreFilesS3WriteGate(unittest.TestCase):
+    """store_files() must honor S3_WRITE_ENABLED so the R2 cutover is a config flip.
+
+    Patches the upload/mirror callables in the index_core.files namespace (they are imported
+    there at module load) and asserts which sinks fire under each flag combination.
+    """
+
+    def _run(self, s3_write, r2_mirror_on):
+        from index_core import files as files_mod
+
+        patches = [
+            mock.patch.object(config, "STORE_FILES", True),
+            mock.patch.object(config, "AWS_S3_ENABLED", True),
+            mock.patch.object(config, "USE_ASYNC_UPLOADS", False),
+            mock.patch.object(config, "S3_WRITE_ENABLED", s3_write, create=True),
+            mock.patch.object(config, "R2_MIRROR_ENABLED", r2_mirror_on),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            with mock.patch.object(files_mod, "check_existing_and_upload_to_s3") as s3, mock.patch.object(
+                files_mod, "store_files_to_disk"
+            ) as disk, mock.patch.object(files_mod, "mirror_to_r2") as mirror:
+                files_mod.store_files(db=mock.Mock(), filename=_FILENAME, decoded_base64=b"bytes", mime_type="image/png")
+                return s3, disk, mirror
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_s3_write_disabled_skips_s3_but_mirrors(self):
+        s3, disk, mirror = self._run(s3_write=False, r2_mirror_on=True)
+        s3.assert_not_called()  # S3 write suppressed
+        disk.assert_not_called()  # and no disk fallback either
+        mirror.assert_called_once()  # R2 mirror still runs -> R2 becomes the sole sink
+
+    def test_s3_write_enabled_does_both(self):
+        s3, disk, mirror = self._run(s3_write=True, r2_mirror_on=True)
+        s3.assert_called_once()  # dual-write: S3 ...
+        mirror.assert_called_once()  # ... AND R2
+
+    def test_default_s3_only_when_mirror_off(self):
+        s3, disk, mirror = self._run(s3_write=True, r2_mirror_on=False)
+        s3.assert_called_once()
+        mirror.assert_not_called()  # today's behavior unchanged
+
+
 if __name__ == "__main__":
     unittest.main()
