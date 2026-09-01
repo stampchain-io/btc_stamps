@@ -34,7 +34,7 @@ class TestDispatchSrc20LedgerValidation(unittest.TestCase):
     def test_inline_when_async_flag_off(self):
         """Flag off -> validate inline (current behavior); never enqueue."""
         with patch("index_core.blocks.config.SRC20_LEDGER_VALIDATION_ASYNC", False), patch(
-            "config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
+            "index_core.blocks.config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
         ), patch("index_core.blocks.validate_src20_ledger_hash", return_value=True) as mock_validate, patch(
             "index_core.blocks.enqueue_src20_ledger_validation"
         ) as mock_enqueue:
@@ -46,7 +46,7 @@ class TestDispatchSrc20LedgerValidation(unittest.TestCase):
     def test_defer_when_async_and_background_enabled(self):
         """Flag on + background validator on -> enqueue; no inline HTTP call."""
         with patch("index_core.blocks.config.SRC20_LEDGER_VALIDATION_ASYNC", True), patch(
-            "config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
+            "index_core.blocks.config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
         ), patch("index_core.blocks.validate_src20_ledger_hash") as mock_validate, patch(
             "index_core.blocks.enqueue_src20_ledger_validation"
         ) as mock_enqueue:
@@ -60,7 +60,7 @@ class TestDispatchSrc20LedgerValidation(unittest.TestCase):
         inline, so a block is never enqueued into a validator that will never run.
         """
         with patch("index_core.blocks.config.SRC20_LEDGER_VALIDATION_ASYNC", True), patch(
-            "config.ENABLE_SRC20_BACKGROUND_VALIDATION", False
+            "index_core.blocks.config.ENABLE_SRC20_BACKGROUND_VALIDATION", False
         ), patch("index_core.blocks.validate_src20_ledger_hash", return_value=True) as mock_validate, patch(
             "index_core.blocks.enqueue_src20_ledger_validation"
         ) as mock_enqueue:
@@ -72,7 +72,7 @@ class TestDispatchSrc20LedgerValidation(unittest.TestCase):
     def test_inline_mismatch_triggers_alert(self):
         """Inline path: a real mismatch (validate -> False) fires the ops alert."""
         with patch("index_core.blocks.config.SRC20_LEDGER_VALIDATION_ASYNC", False), patch(
-            "config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
+            "index_core.blocks.config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
         ), patch("index_core.blocks.validate_src20_ledger_hash", return_value=False), patch(
             "index_core.blocks._alert_src20_ledger_mismatch"
         ) as mock_alert:
@@ -83,7 +83,7 @@ class TestDispatchSrc20LedgerValidation(unittest.TestCase):
     def test_inline_match_does_not_alert(self):
         """Inline path: a match (validate -> True) does not alert."""
         with patch("index_core.blocks.config.SRC20_LEDGER_VALIDATION_ASYNC", False), patch(
-            "config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
+            "index_core.blocks.config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
         ), patch("index_core.blocks.validate_src20_ledger_hash", return_value=True), patch(
             "index_core.blocks._alert_src20_ledger_mismatch"
         ) as mock_alert:
@@ -95,7 +95,7 @@ class TestDispatchSrc20LedgerValidation(unittest.TestCase):
         """Async path never runs the inline mismatch alert (that is the background
         validator's job)."""
         with patch("index_core.blocks.config.SRC20_LEDGER_VALIDATION_ASYNC", True), patch(
-            "config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
+            "index_core.blocks.config.ENABLE_SRC20_BACKGROUND_VALIDATION", True
         ), patch("index_core.blocks.enqueue_src20_ledger_validation"), patch(
             "index_core.blocks._alert_src20_ledger_mismatch"
         ) as mock_alert:
