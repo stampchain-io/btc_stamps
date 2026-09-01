@@ -69,11 +69,15 @@ PYTHONPATH=src USE_TEST_TX_HEX=1 TESTING=1 USE_TEST_DB=1 MOCK_DB=1 CI_FIXTURE_MO
   (autouse) clears it between tests.
 
 ## Conventions
-- Branch off `dev`; PRs base `dev`, set milestone (e.g. `v1.9.0`) + labels
-  (`consensus`/`ci`/`perf`/`supply-chain`/`documentation`). `v1.9.0` cuts via long-running
-  PR #495 (`dev`→`main`).
-- Version bumps are automated (`.bumpversion.cfg`, canary scheme `1.8.x+canary.N`) — do not
-  hand-edit `VERSION`/`pyproject` version/`config.py:VERSION_STRING`.
+- Branch off `main`; PRs base `main`, set milestone + labels
+  (`consensus`/`ci`/`perf`/`supply-chain`/`documentation`). `main` is the single canonical
+  integration+release line — releases cut directly on `main` via `[skip-version]` commits
+  (e.g. `1.9.3`). The old `dev`-integration flow (branch off `dev` → PR into `dev` →
+  `dev`→`main` via long-running PR #495) and the `1.8.x+canary.N` scheme are **retired**:
+  the remote `dev` branch no longer exists (only `main`, `dependabot/*`, and contributor
+  branches like `n4kashu/dev`).
+- Version bumps are automated (`.bumpversion.cfg`) — do not hand-edit
+  `VERSION`/`pyproject` version/`config.py:VERSION_STRING`.
 - Commit trailer: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
   PR body footer: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 

@@ -316,8 +316,9 @@ class TestDispenserBulkFetcherIntegration:
 
             start_time = time.time()
             for cpid in sample_cpids:
-                # Simulate individual API call
-                response = fetch_xcp("/dispensers", {"asset": cpid, "limit": 100})
+                # Simulate individual API call (asset-scoped route; CP v11.2+
+                # rejects the old /dispensers?asset= form)
+                response = fetch_xcp(f"/assets/{cpid}/dispensers", {"limit": 100})
             individual_calls_time = time.time() - start_time
 
             print(f"Individual calls time for 5 assets: {individual_calls_time:.2f}s")
