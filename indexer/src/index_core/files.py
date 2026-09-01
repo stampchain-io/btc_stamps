@@ -59,6 +59,11 @@ def store_files(db, filename, decoded_base64, mime_type):
             check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_md5)
     else:
         store_files_to_disk(filename, decoded_base64)
+    # Dual-write mirror to Cloudflare R2 (content-addressed) + resolver KV upsert. Flag-gated
+    # (default OFF), orthogonal to the S3/disk sink, and non-raising -- see index_core/r2_mirror.
+    # Fresh BytesIO so the mirror never races the async S3 worker on a shared read position.
+    if config.R2_MIRROR_ENABLED and decoded_base64 is not None:
+        mirror_to_r2(filename, mime_type, io.BytesIO(decoded_base64), file_obj_md5)
     return file_obj_md5, filename
 
 
