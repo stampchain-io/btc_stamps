@@ -272,6 +272,41 @@ AWS_S3_ENABLED = bool(STORE_FILES and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR)
 S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
 USE_ASYNC_UPLOADS = os.environ.get("USE_ASYNC_UPLOADS", "1") == "1"
+# Gates the primary S3/disk write in store_files(). Default ON. The R2 cutover (stop writing
+# S3, serve solely from R2) is then a config flip -- set S3_WRITE_ENABLED=false with
+# R2_MIRROR_ENABLED=true -- NOT a code change. Do not flip OFF until the Phase 4 cutover soak
+# proves R2 is the authoritative sink; OFF with R2_MIRROR_ENABLED=false stores nothing.
+S3_WRITE_ENABLED = os.environ.get("S3_WRITE_ENABLED", "true").lower() == "true"
+
+# --- Cloudflare R2 image mirror (content-hash dedup + resolver KV; see index_core/r2_mirror.py) ---
+# Flag-gated dual-write: when enabled, every image stored to S3 is ALSO written to R2
+# content-addressed (content/{file_hash}.{ext}, deduped) and a resolver KV entry
+# ({tx_hash}.{ext} -> {"h","e"}) is upserted, so the Cloudflare Worker resolver can serve
+# from R2 after cutover. Default OFF -- merging is a no-op until R2_MIRROR_ENABLED=true.
+# R2 speaks the S3 API, so the only structural differences vs AWS_S3_CLIENT are endpoint_url
+# and region_name="auto"; credentials are R2 API-token-derived keys (not the AWS chain).
+R2_MIRROR_ENABLED = os.environ.get("R2_MIRROR_ENABLED", "false").lower() == "true"
+R2_ACCOUNT_ID: Optional[str] = os.environ.get("R2_ACCOUNT_ID", os.environ.get("CLOUDFLARE_ACCOUNT_ID", None))
+R2_ACCESS_KEY_ID: Optional[str] = os.environ.get("R2_ACCESS_KEY_ID", None)
+R2_SECRET_ACCESS_KEY: Optional[str] = os.environ.get("R2_SECRET_ACCESS_KEY", None)
+R2_BUCKET = os.environ.get("R2_BUCKET", "stampchain-images")
+R2_CONTENT_PREFIX = os.environ.get("R2_CONTENT_PREFIX", "content/")
+R2_KV_NAMESPACE_ID: Optional[str] = os.environ.get("KV_NAMESPACE_ID", None)
+R2_KV_API_TOKEN: Optional[str] = os.environ.get("CLOUDFLARE_KV_API_TOKEN", None)
+
+try:
+    if boto3 and R2_MIRROR_ENABLED and R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
+        R2_S3_CLIENT = boto3.client(
+            "s3",
+            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            region_name="auto",
+        )  # type: ignore[call-overload]
+    else:
+        R2_S3_CLIENT = None
+except Exception:
+    R2_S3_CLIENT = None
 
 # Define for Quicknode or similar remote nodes which use a token
 QUICKNODE_ENDPOINT: Optional[str] = os.environ.get("QUICKNODE_URL", None)  # Fallback to old URL for compatibility
