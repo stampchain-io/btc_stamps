@@ -86,8 +86,7 @@ def _kv_upsert(kv_key: str, file_hash: str, ext: str, retries: int = 5) -> None:
     import requests  # lazy -- keep import cost off the non-mirror path
 
     url = (
-        f"{CF_API_BASE}/accounts/{config.R2_ACCOUNT_ID}"
-        f"/storage/kv/namespaces/{config.R2_KV_NAMESPACE_ID}/values/{kv_key}"
+        f"{CF_API_BASE}/accounts/{config.R2_ACCOUNT_ID}" f"/storage/kv/namespaces/{config.R2_KV_NAMESPACE_ID}/values/{kv_key}"
     )
     headers = {"Authorization": f"Bearer {config.R2_KV_API_TOKEN}"}
     # Value is the raw body the resolver JSON.parse()s; compact separators match the backfill.
