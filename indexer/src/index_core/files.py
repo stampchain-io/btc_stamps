@@ -50,15 +50,20 @@ def store_files(db, filename, decoded_base64, mime_type):
         return file_obj_md5, filename
 
     file_obj, file_obj_md5 = get_fileobj_and_md5(decoded_base64)
-    if config.AWS_S3_ENABLED:
-        if config.USE_ASYNC_UPLOADS:
-            # Use the asynchronous version for non-blocking uploads
-            async_check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
+    # Primary store: S3 (or local disk fallback). Gated by S3_WRITE_ENABLED (default ON) so the
+    # eventual R2 cutover -- stop writing S3, serve solely from R2 -- is a config flip, not a code
+    # change. During migration keep this ON alongside R2 (dual-write); flip OFF only after the
+    # Phase 4 cutover soak, once R2 is proven the authoritative sink.
+    if config.S3_WRITE_ENABLED:
+        if config.AWS_S3_ENABLED:
+            if config.USE_ASYNC_UPLOADS:
+                # Use the asynchronous version for non-blocking uploads
+                async_check_existing_and_upload_to_s3(filename, mime_type, file_obj, file_obj_md5)
+            else:
+                # Use the original synchronous version
+                check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_md5)
         else:
-            # Use the original synchronous version
-            check_existing_and_upload_to_s3(db, filename, mime_type, file_obj, file_obj_md5)
-    else:
-        store_files_to_disk(filename, decoded_base64)
+            store_files_to_disk(filename, decoded_base64)
     # Dual-write mirror to Cloudflare R2 (content-addressed) + resolver KV upsert. Flag-gated
     # (default OFF), orthogonal to the S3/disk sink, and non-raising -- see index_core/r2_mirror.
     # Fresh BytesIO so the mirror never races the async S3 worker on a shared read position.
