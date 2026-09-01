@@ -272,6 +272,11 @@ AWS_S3_ENABLED = bool(STORE_FILES and AWS_S3_BUCKETNAME and AWS_S3_IMAGE_DIR)
 S3_OBJECTS: Dict[str, Dict[str, str]] = {}
 AWS_INVALIDATE_CACHE: Optional[str] = os.environ.get("AWS_INVALIDATE_CACHE", None)
 USE_ASYNC_UPLOADS = os.environ.get("USE_ASYNC_UPLOADS", "1") == "1"
+# Gates the primary S3/disk write in store_files(). Default ON. The R2 cutover (stop writing
+# S3, serve solely from R2) is then a config flip -- set S3_WRITE_ENABLED=false with
+# R2_MIRROR_ENABLED=true -- NOT a code change. Do not flip OFF until the Phase 4 cutover soak
+# proves R2 is the authoritative sink; OFF with R2_MIRROR_ENABLED=false stores nothing.
+S3_WRITE_ENABLED = os.environ.get("S3_WRITE_ENABLED", "true").lower() == "true"
 
 # --- Cloudflare R2 image mirror (content-hash dedup + resolver KV; see index_core/r2_mirror.py) ---
 # Flag-gated dual-write: when enabled, every image stored to S3 is ALSO written to R2
