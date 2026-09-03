@@ -236,7 +236,7 @@ def handle_consensus_error(error_msg: str) -> None:
 _BLOCK_ROW_NOT_PROVIDED = object()
 
 
-def consensus_hash(db, block_index, field, previous_consensus_hash, content, block_row=_BLOCK_ROW_NOT_PROVIDED):
+def consensus_hash(db, block_index, field, previous_consensus_hash, content, block_row=_BLOCK_ROW_NOT_PROVIDED, persist=True):
     field_position = config.BLOCK_FIELDS_POSITION
     cursor = db.cursor()
 
@@ -322,8 +322,12 @@ def consensus_hash(db, block_index, field, previous_consensus_hash, content, blo
                 field, block_index, calculated_hash, found_hash
             )
             handle_consensus_error(error_msg)
-    else:
-        # Save new hash.
+    elif persist:
+        # Save new hash. Skipped when persist=False: the caller
+        # (create_check_hashes) writes txlist/ledger/messages together via
+        # update_block_hashes() immediately afterward, so this per-field UPDATE
+        # would be redundant (it writes the same value that the combined UPDATE
+        # then overwrites). Output-neutral; removes 3 UPDATEs/block. Issue #858.
         cursor.execute(
             """UPDATE blocks SET {} = %s WHERE block_index = %s""".format(field),
             (calculated_hash, block_index),
