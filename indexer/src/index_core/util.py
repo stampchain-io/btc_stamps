@@ -430,8 +430,12 @@ def decode_address(script_pubkey):
         return cached_result
 
     try:
-        # Handle Taproot (P2TR)
-        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51:
+        # Handle Taproot (P2TR). A witness v1 program is exactly OP_1 followed by a
+        # single 32-byte push (0x51 0x20 <32 bytes>); any other 34-byte script that
+        # happens to start with OP_1 is not a witness program and must not be read
+        # as one. python-bitcoinlib 0.12 does not recognize P2TR, so the shape is
+        # checked here before encoding.
+        if len(script_pubkey) == 34 and script_pubkey[0] == 0x51 and script_pubkey[1] == 0x20:
             witness_program = script_pubkey[2:]
             # Maintain existing network-specific behavior
             if config.TESTNET:
