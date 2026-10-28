@@ -46,8 +46,13 @@ class ReprocessingQueue:
         self.lock = threading.Lock()
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")  # Enable Write-Ahead Logging for concurrency
+        # SQLite leaves foreign keys OFF per connection unless asked. Without this the
+        # failed_blocks -> fallback_sessions ON DELETE CASCADE never fires, so clearing a
+        # session leaves its failed_blocks rows behind forever (issue #957).
+        self.conn.execute("PRAGMA foreign_keys=ON")
         self._create_table()
         self._init_fallback_table()
+        self._purge_orphan_failed_blocks()
         self.migrate_old_json()
 
     def _create_table(self) -> None:
@@ -204,6 +209,73 @@ class ReprocessingQueue:
             self.conn.commit()
             cursor.close()
 
+    def _purge_orphan_failed_blocks(self) -> int:
+        """Delete failed_blocks rows whose session no longer exists.
+
+        Issue #957: save_fallback_state used ``INSERT OR REPLACE`` on fallback_sessions,
+        which deletes and re-creates the session row with a NEW id on every save. With
+        foreign keys off, the old session's failed_blocks rows were never cascaded, so a
+        long fallback session accumulated ~N^2/2 orphan rows (12.5M rows for 7,285 blocks
+        in production). Those rows are unreachable by every reader, so dropping them is
+        lossless.
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("DELETE FROM failed_blocks WHERE session_id NOT IN (SELECT id FROM fallback_sessions)")
+                deleted = cursor.rowcount
+                self.conn.commit()
+                if deleted and deleted > 0:
+                    logger.warning(f"Purged {deleted} orphaned failed_blocks rows from the reprocessing queue")
+                return deleted if deleted and deleted > 0 else 0
+            finally:
+                cursor.close()
+
+    def _ensure_session_id(self, cursor: sqlite3.Cursor, start_block_index: int) -> int:
+        """Return the id of the session for start_block_index, creating it if needed.
+
+        Never uses INSERT OR REPLACE: REPLACE deletes the row and re-creates it with a new
+        id, which orphaned (or, with foreign keys on, cascade-deleted) every recorded block.
+        """
+        cursor.execute("INSERT OR IGNORE INTO fallback_sessions (start_block_index) VALUES (?)", (start_block_index,))
+        cursor.execute(
+            "UPDATE fallback_sessions SET updated_at = CURRENT_TIMESTAMP WHERE start_block_index = ?",
+            (start_block_index,),
+        )
+        cursor.execute("SELECT id FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
+        return cursor.fetchone()[0]
+
+    def add_failed_block(self, start_block_index: int, block_index: int) -> None:
+        """Record one fallback-processed block in a session (idempotent, O(1)).
+
+        Replaces the per-block load-whole-state + rewrite-whole-state pattern, which
+        re-inserted every block of the session on every new block (issue #957).
+        """
+        try:
+            validate_fallback_state(start_block_index, {block_index: True})
+        except ReprocessSafetyError as e:
+            logger.error(f"SAFETY VIOLATION: Cannot record fallback block: {e}")
+            raise
+
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                session_id = self._ensure_session_id(cursor, start_block_index)
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO failed_blocks (session_id, block_index, needs_reprocessing)
+                    VALUES (?, ?, TRUE)
+                    """,
+                    (session_id, block_index),
+                )
+                self.conn.commit()
+            except sqlite3.Error as e:
+                logger.error(f"Failed to record fallback block {block_index}: {e}")
+                self.conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
     def migrate_old_json(self, json_path: str = "fallback_state.json"):
         """Migrate existing JSON fallback to normalized DB structure if file exists."""
         import json
@@ -247,19 +319,8 @@ class ReprocessingQueue:
         with self.lock:
             cursor = self.conn.cursor()
             try:
-                # Create or update the fallback session
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO fallback_sessions
-                    (start_block_index, updated_at)
-                    VALUES (?, CURRENT_TIMESTAMP)
-                    """,
-                    (start_block_index,),
-                )
-
-                # Get the session ID
-                cursor.execute("SELECT id FROM fallback_sessions WHERE start_block_index = ?", (start_block_index,))
-                session_id = cursor.fetchone()[0]
+                # Create or touch the fallback session, keeping its id stable.
+                session_id = self._ensure_session_id(cursor, start_block_index)
 
                 # Clear existing failed blocks for this session
                 cursor.execute("DELETE FROM failed_blocks WHERE session_id = ?", (session_id,))
@@ -268,7 +329,7 @@ class ReprocessingQueue:
                 for block_index, needs_reprocessing in failed_blocks.items():
                     cursor.execute(
                         """
-                        INSERT INTO failed_blocks (session_id, block_index, needs_reprocessing)
+                        INSERT OR IGNORE INTO failed_blocks (session_id, block_index, needs_reprocessing)
                         VALUES (?, ?, ?)
                         """,
                         (session_id, block_index, needs_reprocessing),
