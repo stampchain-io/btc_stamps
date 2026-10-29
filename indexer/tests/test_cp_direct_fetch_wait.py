@@ -43,9 +43,7 @@ def test_ensure_returns_false_when_cp_never_reaches_the_block():
     clock = iter(range(0, 1000, 10))
     with patch("index_core.fetch_utils.get_healthy_nodes", return_value=[NODE]), patch(
         "index_core.fetch_utils.fetch_node_version_v2", return_value=_status(974675)
-    ), patch("index_core.fetch_utils.time.sleep"), patch(
-        "index_core.fetch_utils.time.time", side_effect=lambda: next(clock)
-    ):
+    ), patch("index_core.fetch_utils.time.sleep"), patch("index_core.fetch_utils.time.time", side_effect=lambda: next(clock)):
         assert fetch_utils.ensure_cp_processed(974676, max_wait=30.0) is False
     assert fetch_utils.cp_parsed_height() == 974675
 
@@ -65,9 +63,7 @@ def test_height_not_recorded_while_cp_is_not_caught_up():
     clock = iter(range(0, 1000, 10))
     with patch("index_core.fetch_utils.get_healthy_nodes", return_value=[NODE]), patch(
         "index_core.fetch_utils.fetch_node_version_v2", return_value=_status(977000, caught_up=False)
-    ), patch("index_core.fetch_utils.time.sleep"), patch(
-        "index_core.fetch_utils.time.time", side_effect=lambda: next(clock)
-    ):
+    ), patch("index_core.fetch_utils.time.sleep"), patch("index_core.fetch_utils.time.time", side_effect=lambda: next(clock)):
         assert fetch_utils.ensure_cp_processed(976000, max_wait=30.0) is False
     assert fetch_utils.cp_parsed_height() == 0
 
