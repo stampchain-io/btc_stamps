@@ -1777,6 +1777,30 @@ def is_valid_counterparty_asset(cpid: str) -> bool:
     return False
 
 
+# Highest block Counterparty has reported as parsed (with db_caught_up), as last seen by
+# wait_for_cp_block_processed. Lets callers skip the status call for blocks CP is already
+# past, so the check costs nothing during bulk catch-up.
+_cp_parsed_height = 0
+
+
+def cp_parsed_height() -> int:
+    """Highest CP-parsed block seen so far (0 before the first successful status check)."""
+    return _cp_parsed_height
+
+
+def ensure_cp_processed(block_index: int, max_wait: float = 60.0) -> bool:
+    """True once CP has parsed ``block_index``.
+
+    No network call when an earlier status check already saw CP at or past the block.
+    Otherwise waits up to ``max_wait`` via wait_for_cp_block_processed. Callers must not
+    read CP data for the block when this returns False: an unparsed block reads as a
+    block with no Counterparty transactions, and its stamps would be skipped.
+    """
+    if block_index <= _cp_parsed_height:
+        return True
+    return wait_for_cp_block_processed(block_index, max_wait=max_wait)
+
+
 def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_interval: float = 1.0) -> bool:
     """
     Wait for Counterparty to process a specific block by checking the V2 API status.
@@ -1813,6 +1837,10 @@ def wait_for_cp_block_processed(block_index: int, max_wait: float = 30.0, check_
                 if server_ready is None:
                     # Key missing - older API version, assume ready if height is good
                     server_ready = True
+
+                if cp_height and server_ready:
+                    global _cp_parsed_height
+                    _cp_parsed_height = max(_cp_parsed_height, int(cp_height))
 
                 # Check if CP has processed our target block
                 if cp_height and cp_height >= block_index and server_ready:

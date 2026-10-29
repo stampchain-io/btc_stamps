@@ -1415,6 +1415,17 @@ def follow(
                             logger.info(
                                 f"Block {block_index} not found in CP pipeline ({blocks_from_tip} blocks behind tip), falling back to direct fetch"
                             )
+                            # The direct fetch below reads an unparsed block as one with no
+                            # Counterparty transactions, which silently drops its stamps. The
+                            # node tip says nothing about CP: CP can trail it by many blocks
+                            # when blocks come fast. Wait until CP has parsed this block.
+                            from index_core.fetch_utils import ensure_cp_processed
+
+                            if not ensure_cp_processed(block_index, max_wait=60.0):
+                                logger.warning(f"CP has not parsed block {block_index} after 60s, retrying")
+                                db.rollback()
+                                time.sleep(config.BACKEND_POLL_INTERVAL)
+                                continue
 
                         try:
                             if shutdown_requested[0] or is_shutdown_requested() or server.shutdown_flag.is_set():
@@ -1441,6 +1452,10 @@ def follow(
                             # This avoids refetching too many blocks that the pipeline will get anyway
                             max_fetch_blocks = 5  # Reduced from 100 to 5 to minimize redundant fetching
                             end_block = min(block_index + max_fetch_blocks - 1, block_tip)
+                            # Never prefetch blocks CP has not parsed (they would read as empty).
+                            from index_core.fetch_utils import cp_parsed_height
+
+                            end_block = max(block_index, min(end_block, cp_parsed_height() or block_index))
 
                             # Progressive backoff for chain tip blocks
                             max_attempts = 3 if at_chain_tip else 1
