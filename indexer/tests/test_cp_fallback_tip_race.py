@@ -112,8 +112,10 @@ def _stop_worker(pipeline, thread):
 
 
 class TestTipRace:
-    def test_cp_behind_tip_waits_and_stamp_is_not_skipped(self, near_tip_backend, node_health):
+    def test_cp_behind_tip_waits_and_stamp_is_not_skipped(self, near_tip_backend, node_health, monkeypatch):
         """CP healthy but not yet at the block: the worker waits, then serves the issuance."""
+        monkeypatch.setenv("CP_BEHIND_BACKOFF_INITIAL_SEC", "0.01")  # bounded backoff between waits (#957)
+        monkeypatch.setenv("CP_BEHIND_BACKOFF_MAX_SEC", "0.02")
         cp_height = {"value": TIP - 1}
         readiness_checks = {"count": 0}
 

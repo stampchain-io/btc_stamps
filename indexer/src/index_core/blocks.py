@@ -997,6 +997,13 @@ def follow(
         # is_prev_block_parsed into an iterative destructive purge cascade).
         util.CURRENT_BLOCK_INDEX = last_db_index(db)
 
+        # Issue #957: report any persisted fallback session before the pipeline acts on
+        # it, and page ops if the session is already beyond the rollback bound (the
+        # startup rollback will refuse it and the indexer cannot proceed).
+        from index_core.fallback_monitor import report_fallback_state_at_startup
+
+        report_fallback_state_at_startup(util.CURRENT_BLOCK_INDEX)
+
         # Issue #779: startup chain-integrity check. Catches stale-row drift
         # from any post-#728 crash-during-reorg-then-restart-after-tip-moved
         # scenario (same failure mode as the 945,189 incident from 2026-04-15).
