@@ -11,6 +11,7 @@ import time
 import weakref
 
 import config
+from index_core import fallback_monitor
 from index_core.backend import Backend
 from index_core.block_validation import fetch_cp_blocks_skipping_empty
 from index_core.fetch_utils import wait_for_cp_block_processed
@@ -142,6 +143,7 @@ class CPBlocksPipeline:
 
         self.cp_nodes_healthy_again = False  # Flag for when CP nodes recover
         self._fallback_cap_logged_for = None  # Session start for which the cap warning was logged
+        self._cp_behind = fallback_monitor.CPBehindTracker()  # Paces waits while CP is reachable but behind
         self.rollback_requested = False  # Flag to signal main loop should perform rollback
         self.rollback_target_block = None  # Target block for pending rollback
         self._rollback_lock = threading.Lock()  # Thread-safe access to rollback flags
@@ -192,37 +194,43 @@ class CPBlocksPipeline:
         self.current_block = start_block
         self.running = True
 
-        # Check if we're at or near the blockchain tip before starting
+        # Check if we're at or near the blockchain tip before starting. When caught up
+        # there is nothing to prefetch, but the worker must still run: it is the only
+        # place that notices CP recovering for an open fallback session, so a pipeline
+        # (re)started at the tip without a worker could serve fallback blocks forever
+        # (issue #957). We skip the initial-blocks wait instead of skipping the worker.
+        caught_up_at_start = False
         try:
             block_tip = backend_instance.getblockcount()
             blocks_available = max(0, block_tip - start_block + 1)
 
             if blocks_available <= 0:
                 logger.debug(f"No blocks available to fetch (current block {start_block} is beyond tip {block_tip})")
-                # Set initial blocks ready flag since there's nothing to fetch
-                self.initial_blocks_ready.set()
-                return
+                caught_up_at_start = True
         except Exception as e:
             logger.warning(f"Could not check block tip before starting pipeline: {e}")
 
-        # Initialize node health with a timeout to avoid deadlocks
-        try:
-            update_healthy_nodes()
-            # Check if we have healthy nodes after update
-            initial_nodes = get_healthy_nodes()
-            if not initial_nodes and not self.fallback_mode:
-                logger.error("No healthy Counterparty nodes available and fallback mode is disabled")
-                raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
-            elif not initial_nodes and self.fallback_mode:
-                logger.warning("No healthy Counterparty nodes detected at startup - will start in fallback mode")
-                # Enter fallback mode immediately
-                self._enter_fallback_mode()
-                # Set initial blocks ready since we won't be fetching any CP data
-                self.initial_blocks_ready.set()
-        except Exception as e:
-            logger.error(f"Error initializing node health: {e}")
-            if not self.fallback_mode:
-                raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
+        # Initialize node health with a timeout to avoid deadlocks. Skipped when caught
+        # up, as before: there is nothing to fetch yet and the worker re-checks health
+        # itself, so a transient CP blip during a reset at the tip must not abort here.
+        if not caught_up_at_start:
+            try:
+                update_healthy_nodes()
+                # Check if we have healthy nodes after update
+                initial_nodes = get_healthy_nodes()
+                if not initial_nodes and not self.fallback_mode:
+                    logger.error("No healthy Counterparty nodes available and fallback mode is disabled")
+                    raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
+                elif not initial_nodes and self.fallback_mode:
+                    logger.warning("No healthy Counterparty nodes detected at startup - will start in fallback mode")
+                    # Enter fallback mode immediately
+                    self._enter_fallback_mode()
+                    # Set initial blocks ready since we won't be fetching any CP data
+                    self.initial_blocks_ready.set()
+            except Exception as e:
+                logger.error(f"Error initializing node health: {e}")
+                if not self.fallback_mode:
+                    raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
 
         # Start the worker thread
         if self.worker_thread and self.worker_thread.is_alive():
@@ -236,6 +244,11 @@ class CPBlocksPipeline:
         self.worker_thread = threading.Thread(target=self._fetch_blocks_worker, name="cp-blocks-fetch-worker", daemon=True)
         self.worker_thread.start()
         logger.debug(f"Started CP blocks pipeline from block {start_block}")
+
+        if caught_up_at_start:
+            # Nothing to wait for; the worker idles until the next block arrives.
+            self.initial_blocks_ready.set()
+            return
 
         # Wait for initial batch of blocks with proper retry logic
         max_retries = 3
@@ -750,22 +763,34 @@ class CPBlocksPipeline:
         Returns:
             The fallback block dict, or None if no session is open or the cap is reached.
         """
+        cap_reached_for = None
         with self._lock:
             if self.fallback_started_at is None:
                 return None
+            session_start = self.fallback_started_at
+            cap = self._max_fallback_session_blocks()
             if self.is_fallback_session_full(block_index):
-                if self._fallback_cap_logged_for != self.fallback_started_at:
-                    self._fallback_cap_logged_for = self.fallback_started_at
+                if self._fallback_cap_logged_for != session_start:
+                    self._fallback_cap_logged_for = session_start
+                    cap_reached_for = session_start
                     logger.error(
-                        f"Fallback session started at {self.fallback_started_at} reached its cap of "
-                        f"{self._max_fallback_session_blocks()} blocks at block {block_index}. Halting until "
+                        f"Fallback session started at {session_start} reached its cap of "
+                        f"{cap} blocks at block {block_index}. Halting until "
                         "Counterparty recovers so the session stays recoverable by rollback."
                     )
-                return None
-            fallback_block = self.create_fallback_block(block_index)
-            self.queue[block_index] = fallback_block
-            self.failed_cp_blocks.add(block_index)
-            return fallback_block
+                fallback_block = None
+            else:
+                fallback_block = self.create_fallback_block(block_index)
+                self.queue[block_index] = fallback_block
+                self.failed_cp_blocks.add(block_index)
+
+        # Alerts may publish to SNS; keep that network call outside the pipeline lock.
+        if cap_reached_for is not None:
+            fallback_monitor.on_session_cap_reached(cap_reached_for, block_index, cap)
+        elif fallback_block is not None:
+            # Loud by design: an ageing session means stamps are missing until recovery.
+            fallback_monitor.on_fallback_block(session_start, block_index)
+        return fallback_block
 
     def get_fallback_block_info(self):
         """
@@ -857,6 +882,15 @@ class CPBlocksPipeline:
         Returns:
             bool: True if rollback was performed, False if no rollback needed
         """
+        # The worker thread normally requests the rollback, but recovery must not depend
+        # on that thread being alive (issue #957: fallback blocks were served for weeks
+        # with no worker running). While a session is open, the main loop polls CP
+        # health itself; check_cp_node_recovery is rate-limited internally.
+        with self._rollback_lock:
+            session_open = self.fallback_started_at is not None and not self.rollback_requested
+        if session_open:
+            self.check_cp_node_recovery()
+
         # Thread-safe check of rollback flags
         with self._rollback_lock:
             if not self.rollback_requested or self.rollback_target_block is None:
@@ -867,6 +901,7 @@ class CPBlocksPipeline:
         logger.info(f"🔄 Main loop performing pending fallback rollback to block {target_block}")
 
         # Perform the database rollback (same as _perform_runtime_rollback but without reset)
+        recovered_block_count = len(self.failed_cp_blocks)
         rollback_success = self._perform_database_rollback(target_block)
 
         if rollback_success:
@@ -890,6 +925,7 @@ class CPBlocksPipeline:
                 self.rollback_target_block = None
                 self.cp_nodes_healthy_again = True
 
+            fallback_monitor.on_session_recovered(target_block, recovered_block_count)
             logger.info("✅ Rollback completed successfully - resuming normal operation")
             return True
         else:
@@ -1410,30 +1446,33 @@ class CPBlocksPipeline:
                     # - Node restarts or maintenance
                     # Only enter fallback mode after this extended wait to avoid unnecessary rollbacks
                     max_tip_block = max(blocks_near_tip)
-                    cp_wait_timeout = 180.0  # 3 minutes - generous buffer for CP to catch up
+                    cp_wait_timeout = fallback_monitor.tip_wait_timeout()  # CP_TIP_WAIT_TIMEOUT, default 180s
                     cp_ready = wait_for_cp_block_processed(max_tip_block, max_wait=cp_wait_timeout, check_interval=5.0)
 
                     if not cp_ready:
-                        # CP hasn't caught up after 3 minutes - likely a real outage
-                        # Enter fallback mode which will trigger rollback when CP recovers
-                        if self.fallback_mode and self.fallback_started_at is None:
+                        if self.fallback_mode and self.fallback_started_at is None and not self._cp_reachable():
+                            # No CP node answers at all: a real outage. Enter fallback mode,
+                            # which will trigger the rollback when CP recovers.
                             logger.warning(
-                                f"⚠️ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}). "
-                                f"Entering fallback mode - will rollback and reindex when CP recovers."
+                                f"⚠️ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}) "
+                                f"and no Counterparty node is reachable. Entering fallback mode - will rollback and "
+                                f"reindex when CP recovers."
                             )
                             self._enter_fallback_mode()
                             # Fallback mode will create placeholder blocks and trigger rollback later
                             continue
-                        elif not self.fallback_mode:
-                            # Fallback mode disabled - keep waiting (blocking behavior)
-                            logger.warning(
-                                f"⏳ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}). "
-                                f"Fallback mode disabled - continuing to wait..."
-                            )
-                            time.sleep(10)
+                        if self.fallback_started_at is None:
+                            # CP is reachable (or fallback is disabled) but has not parsed the block
+                            # yet. This is the #957 tip race: indexing the block without CP data
+                            # would drop its issuances, so wait with bounded backoff and alert if
+                            # the wait drags on. Never fall back while CP answers.
+                            delay = self._cp_behind.note_behind(max_tip_block)
+                            if self.shutdown_flag.wait(delay):
+                                break
                             continue
                         # If already in fallback mode, let the fallback block creation handle it
                     else:
+                        self._cp_behind.reset()
                         logger.debug(f"✅ CP ready for tip blocks up to {max_tip_block}")
 
                 with self._blocks_fetch_lock:

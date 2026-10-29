@@ -259,28 +259,23 @@ class TestPipelineCPHeightCheck:
 class TestCPHeightCheckTimeout:
     """Tests for the 3-minute timeout behavior."""
 
-    def test_three_minute_timeout_constant(self):
-        """Verify the 3-minute timeout is configured correctly in pipeline."""
-        # The pipeline uses cp_wait_timeout = 180.0 (3 minutes)
-        expected_timeout = 180.0
-
-        # Read the actual value from the source
-        import ast
+    def test_three_minute_timeout_default(self, monkeypatch):
+        """The tip readiness wait defaults to 3 minutes and is configurable via CP_TIP_WAIT_TIMEOUT (#957)."""
         import os
 
-        pipeline_path = os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "src",
-            "index_core",
-            "pipeline_utils.py",
-        )
+        from index_core import fallback_monitor
 
+        monkeypatch.delenv("CP_TIP_WAIT_TIMEOUT", raising=False)
+        assert fallback_monitor.tip_wait_timeout() == 180.0
+        monkeypatch.setenv("CP_TIP_WAIT_TIMEOUT", "240")
+        assert fallback_monitor.tip_wait_timeout() == 240.0
+
+        # The pipeline must take the value from the monitor, not a hardcoded constant.
+        pipeline_path = os.path.join(os.path.dirname(__file__), "..", "src", "index_core", "pipeline_utils.py")
         with open(pipeline_path, "r") as f:
             content = f.read()
-
-        # Check that the timeout is set to 180 seconds
-        assert "cp_wait_timeout = 180.0" in content, "Expected 3-minute (180s) timeout in pipeline"
+        assert "cp_wait_timeout = fallback_monitor.tip_wait_timeout()" in content
+        assert "cp_wait_timeout = 180.0" not in content
 
     def test_timeout_triggers_fallback_mode(self):
         """Test that timeout after 3 minutes triggers fallback mode."""

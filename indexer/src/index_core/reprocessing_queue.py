@@ -474,6 +474,34 @@ class ReprocessingQueue:
         finally:
             cursor.close()
 
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """Every open fallback session with its block count and range, oldest first."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT s.id, s.start_block_index, s.created_at, s.updated_at,
+                           COUNT(f.id), MIN(f.block_index), MAX(f.block_index)
+                    FROM fallback_sessions s
+                    LEFT JOIN failed_blocks f ON f.session_id = s.id
+                    GROUP BY s.id
+                    ORDER BY s.start_block_index
+                    """)
+                return [
+                    {
+                        "session_id": row[0],
+                        "start_block_index": row[1],
+                        "created_at": row[2],
+                        "updated_at": row[3],
+                        "block_count": row[4],
+                        "first_block": row[5],
+                        "last_block": row[6],
+                    }
+                    for row in cursor.fetchall()
+                ]
+            finally:
+                cursor.close()
+
     def get_fallback_stats(self) -> Dict[str, Any]:
         """Get comprehensive fallback state statistics."""
         with self.lock:
