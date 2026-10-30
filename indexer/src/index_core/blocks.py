@@ -997,6 +997,13 @@ def follow(
         # is_prev_block_parsed into an iterative destructive purge cascade).
         util.CURRENT_BLOCK_INDEX = last_db_index(db)
 
+        # Issue #957: report any persisted fallback session before the pipeline acts on
+        # it, and page ops if the session is already beyond the rollback bound (the
+        # startup rollback will refuse it and the indexer cannot proceed).
+        from index_core.fallback_monitor import report_fallback_state_at_startup
+
+        report_fallback_state_at_startup(util.CURRENT_BLOCK_INDEX)
+
         # Issue #779: startup chain-integrity check. Catches stale-row drift
         # from any post-#728 crash-during-reorg-then-restart-after-tip-moved
         # scenario (same failure mode as the 945,189 incident from 2026-04-15).
@@ -1324,14 +1331,13 @@ def follow(
                                     fallback_start = (
                                         cp_pipeline_instance.fallback_started_at if cp_pipeline_instance else block_index
                                     )
-                                    # Save this block as needing reprocessing
-                                    if hasattr(reprocess_queue, "save_fallback_state"):
-                                        current_state = reprocess_queue.load_fallback_state(fallback_start) or {}
-                                        current_state[block_index] = True  # Mark as needs reprocessing
-                                        reprocess_queue.save_fallback_state(fallback_start, current_state)
-                                        logger.info(
-                                            f"Saved block {block_index} to reprocessing queue for fallback session starting at {fallback_start}"
-                                        )
+                                    # Record this block as needing reprocessing. One idempotent
+                                    # insert per block: rewriting the whole session state here
+                                    # re-inserted every prior block each time (issue #957).
+                                    reprocess_queue.add_failed_block(fallback_start, block_index)
+                                    logger.info(
+                                        f"Saved block {block_index} to reprocessing queue for fallback session starting at {fallback_start}"
+                                    )
                                 except Exception as e:
                                     logger.error(f"Failed to save block {block_index} to reprocessing queue: {e}")
                         else:
@@ -1339,6 +1345,14 @@ def follow(
 
                         stamp_issuances_list = {block_index: block_data}
                     else:
+                        # A fallback session at its cap must not advance: past the cap the
+                        # recovery rollback could no longer redo these blocks with CP data
+                        # (issue #957). Wait here; the rollback check above resumes us.
+                        if cp_pipeline_instance and cp_pipeline_instance.is_fallback_session_full(block_index):
+                            db.rollback()
+                            time.sleep(config.BACKEND_POLL_INTERVAL)
+                            continue
+
                         # Check if we're at or near the chain tip - expected behavior
                         near_tip = block_index >= block_tip - 1
 

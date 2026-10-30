@@ -11,11 +11,13 @@ import time
 import weakref
 
 import config
+from index_core import fallback_monitor
 from index_core.backend import Backend
 from index_core.block_validation import fetch_cp_blocks_skipping_empty
 from index_core.fetch_utils import wait_for_cp_block_processed
 from index_core.node_health import get_healthy_nodes, is_shutdown_requested, update_healthy_nodes
 from index_core.reprocess_safety import (
+    MAX_ROLLBACK_BLOCKS,
     ReprocessSafetyError,
     log_safety_check,
     validate_block_number,
@@ -140,6 +142,8 @@ class CPBlocksPipeline:
             self.fallback_started_at = None  # Flag for when CP nodes become available again
 
         self.cp_nodes_healthy_again = False  # Flag for when CP nodes recover
+        self._fallback_cap_logged_for = None  # Session start for which the cap warning was logged
+        self._cp_behind = fallback_monitor.CPBehindTracker()  # Paces waits while CP is reachable but behind
         self.rollback_requested = False  # Flag to signal main loop should perform rollback
         self.rollback_target_block = None  # Target block for pending rollback
         self._rollback_lock = threading.Lock()  # Thread-safe access to rollback flags
@@ -190,37 +194,43 @@ class CPBlocksPipeline:
         self.current_block = start_block
         self.running = True
 
-        # Check if we're at or near the blockchain tip before starting
+        # Check if we're at or near the blockchain tip before starting. When caught up
+        # there is nothing to prefetch, but the worker must still run: it is the only
+        # place that notices CP recovering for an open fallback session, so a pipeline
+        # (re)started at the tip without a worker could serve fallback blocks forever
+        # (issue #957). We skip the initial-blocks wait instead of skipping the worker.
+        caught_up_at_start = False
         try:
             block_tip = backend_instance.getblockcount()
             blocks_available = max(0, block_tip - start_block + 1)
 
             if blocks_available <= 0:
                 logger.debug(f"No blocks available to fetch (current block {start_block} is beyond tip {block_tip})")
-                # Set initial blocks ready flag since there's nothing to fetch
-                self.initial_blocks_ready.set()
-                return
+                caught_up_at_start = True
         except Exception as e:
             logger.warning(f"Could not check block tip before starting pipeline: {e}")
 
-        # Initialize node health with a timeout to avoid deadlocks
-        try:
-            update_healthy_nodes()
-            # Check if we have healthy nodes after update
-            initial_nodes = get_healthy_nodes()
-            if not initial_nodes and not self.fallback_mode:
-                logger.error("No healthy Counterparty nodes available and fallback mode is disabled")
-                raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
-            elif not initial_nodes and self.fallback_mode:
-                logger.warning("No healthy Counterparty nodes detected at startup - will start in fallback mode")
-                # Enter fallback mode immediately
-                self._enter_fallback_mode()
-                # Set initial blocks ready since we won't be fetching any CP data
-                self.initial_blocks_ready.set()
-        except Exception as e:
-            logger.error(f"Error initializing node health: {e}")
-            if not self.fallback_mode:
-                raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
+        # Initialize node health with a timeout to avoid deadlocks. Skipped when caught
+        # up, as before: there is nothing to fetch yet and the worker re-checks health
+        # itself, so a transient CP blip during a reset at the tip must not abort here.
+        if not caught_up_at_start:
+            try:
+                update_healthy_nodes()
+                # Check if we have healthy nodes after update
+                initial_nodes = get_healthy_nodes()
+                if not initial_nodes and not self.fallback_mode:
+                    logger.error("No healthy Counterparty nodes available and fallback mode is disabled")
+                    raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
+                elif not initial_nodes and self.fallback_mode:
+                    logger.warning("No healthy Counterparty nodes detected at startup - will start in fallback mode")
+                    # Enter fallback mode immediately
+                    self._enter_fallback_mode()
+                    # Set initial blocks ready since we won't be fetching any CP data
+                    self.initial_blocks_ready.set()
+            except Exception as e:
+                logger.error(f"Error initializing node health: {e}")
+                if not self.fallback_mode:
+                    raise RuntimeError("Cannot start pipeline without healthy Counterparty nodes")
 
         # Start the worker thread
         if self.worker_thread and self.worker_thread.is_alive():
@@ -234,6 +244,11 @@ class CPBlocksPipeline:
         self.worker_thread = threading.Thread(target=self._fetch_blocks_worker, name="cp-blocks-fetch-worker", daemon=True)
         self.worker_thread.start()
         logger.debug(f"Started CP blocks pipeline from block {start_block}")
+
+        if caught_up_at_start:
+            # Nothing to wait for; the worker idles until the next block arrives.
+            self.initial_blocks_ready.set()
+            return
 
         # Wait for initial batch of blocks with proper retry logic
         max_retries = 3
@@ -255,6 +270,15 @@ class CPBlocksPipeline:
                     except Exception as e:
                         logger.error(f"Failed to update healthy nodes: {e}")
                 else:
+                    if self.fallback_mode and self._cp_reachable():
+                        # CP answers but has not served these blocks yet (typically it is
+                        # still parsing the tip). Skipping CP here would drop its issuances,
+                        # so keep the worker running and wait instead (issue #957).
+                        logger.warning(
+                            f"Initial Counterparty blocks not ready after {max_retries} attempts but CP is reachable - "
+                            "waiting for CP instead of entering fallback mode"
+                        )
+                        return
                     if self.fallback_mode:
                         logger.warning(f"Failed to get initial Counterparty blocks after {max_retries} attempts")
                         logger.warning(
@@ -659,10 +683,11 @@ class CPBlocksPipeline:
                 # CRITICAL FIX: If we're in fallback mode and the block isn't available,
                 # create a fallback block immediately for the processor to continue
                 if self.fallback_mode and self.fallback_started_at is not None:
+                    fallback_block = self._queue_fallback_block(block_index)
+                    if fallback_block is None:
+                        # Session is at its recoverable cap: halt here until CP recovers.
+                        return None
                     logger.info(f"Creating fallback block {block_index} on-demand for processor continuation")
-                    fallback_block = self.create_fallback_block(block_index)
-                    self.queue[block_index] = fallback_block
-                    self.failed_cp_blocks.add(block_index)
 
                     # Advance current_block if needed to ensure pipeline progression
                     if block_index >= self.current_block:
@@ -692,6 +717,80 @@ class CPBlocksPipeline:
             "fallback_mode": True,  # Flag to indicate this is fallback data
             "needs_cp_reprocessing": True,  # Flag for rollback tool
         }
+
+    def _cp_reachable(self) -> bool:
+        """Return True when at least one Counterparty node passes its health check.
+
+        A reachable CP that simply has not parsed a block yet is NOT an outage: fallback
+        for that block would process it without its issuances and lose them (issue #957).
+        If the check itself errors we cannot prove CP is down, so we also report
+        reachable and the caller waits instead of advancing without CP data.
+        """
+        try:
+            update_healthy_nodes()
+            return bool(get_healthy_nodes())
+        except Exception as e:
+            logger.warning(f"Could not check Counterparty reachability ({type(e).__name__}: {e}) - treating CP as reachable")
+            return True
+
+    def _max_fallback_session_blocks(self) -> int:
+        """Most blocks one fallback session may process without CP data.
+
+        The recovery rollback refuses to discard more than MAX_ROLLBACK_BLOCKS of indexed
+        state. A session longer than that can never be rolled back and redone, so its
+        blocks would stay processed without CP data forever (issue #957). Capping the
+        session keeps every fallback block recoverable.
+        """
+        try:
+            cap = int(os.environ.get("CP_FALLBACK_MAX_SESSION_BLOCKS", str(MAX_ROLLBACK_BLOCKS - 10)))
+        except ValueError:
+            cap = MAX_ROLLBACK_BLOCKS - 10
+        return max(1, min(cap, MAX_ROLLBACK_BLOCKS))
+
+    def is_fallback_session_full(self, block_index) -> bool:
+        """True when block_index is past what the open fallback session may process."""
+        with self._lock:
+            if self.fallback_started_at is None:
+                return False
+            return block_index - self.fallback_started_at >= self._max_fallback_session_blocks()
+
+    def _queue_fallback_block(self, block_index):
+        """Create, queue and track a fallback block, unless the session is at its cap.
+
+        Single entry point for every fallback-block creation site so the session cap and
+        failed_cp_blocks tracking cannot drift apart.
+
+        Returns:
+            The fallback block dict, or None if no session is open or the cap is reached.
+        """
+        cap_reached_for = None
+        with self._lock:
+            if self.fallback_started_at is None:
+                return None
+            session_start = self.fallback_started_at
+            cap = self._max_fallback_session_blocks()
+            if self.is_fallback_session_full(block_index):
+                if self._fallback_cap_logged_for != session_start:
+                    self._fallback_cap_logged_for = session_start
+                    cap_reached_for = session_start
+                    logger.error(
+                        f"Fallback session started at {session_start} reached its cap of "
+                        f"{cap} blocks at block {block_index}. Halting until "
+                        "Counterparty recovers so the session stays recoverable by rollback."
+                    )
+                fallback_block = None
+            else:
+                fallback_block = self.create_fallback_block(block_index)
+                self.queue[block_index] = fallback_block
+                self.failed_cp_blocks.add(block_index)
+
+        # Alerts may publish to SNS; keep that network call outside the pipeline lock.
+        if cap_reached_for is not None:
+            fallback_monitor.on_session_cap_reached(cap_reached_for, block_index, cap)
+        elif fallback_block is not None:
+            # Loud by design: an ageing session means stamps are missing until recovery.
+            fallback_monitor.on_fallback_block(session_start, block_index)
+        return fallback_block
 
     def get_fallback_block_info(self):
         """
@@ -727,7 +826,10 @@ class CPBlocksPipeline:
 
         # Only check periodically to avoid excessive overhead
         if current_time - self.last_health_check < recovery_check_interval:
-            return self.cp_nodes_healthy_again or self.rollback_requested
+            # Only a pending rollback should pause the worker. cp_nodes_healthy_again is
+            # informational: it stays True after a completed recovery and used to latch
+            # this method into "recovered" for the rest of the process (issue #957).
+            return self.rollback_requested
 
         self.last_health_check = current_time
 
@@ -748,7 +850,7 @@ class CPBlocksPipeline:
             if healthy_nodes:
                 # Nodes are available again! Use lock for atomic flag setting
                 with self._rollback_lock:
-                    if not self.cp_nodes_healthy_again and not self.rollback_requested:
+                    if not self.rollback_requested:
                         logger.warning("🔄 IMPORTANT: Counterparty nodes are healthy again!")
                         logger.warning(f"📦 You have {len(self.failed_cp_blocks)} blocks that were processed in fallback mode")
                         logger.warning(f"🚀 ROLLBACK REQUESTED: Main loop will rollback to block {self.fallback_started_at}")
@@ -780,6 +882,15 @@ class CPBlocksPipeline:
         Returns:
             bool: True if rollback was performed, False if no rollback needed
         """
+        # The worker thread normally requests the rollback, but recovery must not depend
+        # on that thread being alive (issue #957: fallback blocks were served for weeks
+        # with no worker running). While a session is open, the main loop polls CP
+        # health itself; check_cp_node_recovery is rate-limited internally.
+        with self._rollback_lock:
+            session_open = self.fallback_started_at is not None and not self.rollback_requested
+        if session_open:
+            self.check_cp_node_recovery()
+
         # Thread-safe check of rollback flags
         with self._rollback_lock:
             if not self.rollback_requested or self.rollback_target_block is None:
@@ -790,6 +901,7 @@ class CPBlocksPipeline:
         logger.info(f"🔄 Main loop performing pending fallback rollback to block {target_block}")
 
         # Perform the database rollback (same as _perform_runtime_rollback but without reset)
+        recovered_block_count = len(self.failed_cp_blocks)
         rollback_success = self._perform_database_rollback(target_block)
 
         if rollback_success:
@@ -813,6 +925,7 @@ class CPBlocksPipeline:
                 self.rollback_target_block = None
                 self.cp_nodes_healthy_again = True
 
+            fallback_monitor.on_session_recovered(target_block, recovered_block_count)
             logger.info("✅ Rollback completed successfully - resuming normal operation")
             return True
         else:
@@ -861,10 +974,17 @@ class CPBlocksPipeline:
             # Already in fallback mode
             return
 
-        # Set global fallback mode flag for fetch_utils
-        from index_core.fetch_utils import set_global_fallback_mode
+        # Fallback is only for a genuine CP outage. If CP answers, a missing or slow
+        # block means CP has not parsed it yet; processing it without CP data would
+        # drop its stamp issuances (issue #957). Wait for CP instead.
+        if self._cp_reachable():
+            logger.warning(
+                f"Not entering fallback mode at block {self.current_block}: Counterparty is reachable but has not "
+                "served this block yet - waiting for CP instead"
+            )
+            return
 
-        set_global_fallback_mode(True)
+        from index_core.fetch_utils import set_global_fallback_mode
 
         # Check if we're near the chain tip before entering fallback mode
         try:
@@ -888,9 +1008,15 @@ class CPBlocksPipeline:
             # If we can't check, don't enter fallback mode during initial sync
             return
 
+        # Set the global fallback flag for fetch_utils only once fallback is really
+        # entered (it used to be set before the checks above, even when they refused).
+        set_global_fallback_mode(True)
+
         # Mark the current block as the start of fallback mode
         current_block = self.current_block
         self.fallback_started_at = current_block
+        self.cp_nodes_healthy_again = False
+        self._fallback_cap_logged_for = None
 
         # Ensure fallback mode flag is set (might not be if initialized with fallback_mode=False)
         if not self.fallback_mode:
@@ -914,8 +1040,7 @@ class CPBlocksPipeline:
                 logger.info("Creating initial fallback blocks to prevent startup blocking")
                 # Create a few fallback blocks to get started
                 for i in range(5):  # Create 5 blocks ahead
-                    block_idx = current_block + i
-                    self.queue[block_idx] = self.create_fallback_block(block_idx)
+                    self._queue_fallback_block(current_block + i)
 
                 # Set the initial blocks ready flag to unblock wait_for_initial_blocks()
                 if not self.initial_blocks_ready.is_set():
@@ -940,11 +1065,17 @@ class CPBlocksPipeline:
             try:
                 validate_block_number(target_block, "rollback target")
 
-                # Get current block for distance validation
-                current_block = backend_instance.getblockcount()
-                validate_rollback_distance(current_block, target_block)
-
-                log_safety_check(f"Fallback rollback validated: current={current_block}, target={target_block}")
+                # Measure the indexed state being discarded, not the bitcoin tip: the tip
+                # keeps moving while the indexer waits, which would trip the bound for a
+                # session that is itself well inside it.
+                indexer_block = self._indexer_height_for_rollback()
+                if indexer_block <= target_block:
+                    log_safety_check(
+                        f"Rollback distance check skipped: indexer already at {indexer_block} (target={target_block})"
+                    )
+                else:
+                    validate_rollback_distance(indexer_block, target_block)
+                    log_safety_check(f"Fallback rollback validated: indexer={indexer_block}, target={target_block}")
             except ReprocessSafetyError as e:
                 logger.error(f"SAFETY VIOLATION: Cannot perform fallback rollback: {e}")
                 return False
@@ -1005,6 +1136,24 @@ class CPBlocksPipeline:
             # Don't clear state if rollback failed - will retry
             return False
 
+    def _indexer_height_for_rollback(self) -> int:
+        """Indexer's last processed block, or the bitcoin tip if the DB is unreachable."""
+        from index_core.database import last_db_index
+        from index_core.database_manager import DatabaseManager
+
+        try:
+            db_manager = DatabaseManager()
+            db = db_manager.connect()
+            try:
+                return last_db_index(db)
+            finally:
+                db.close()
+        except Exception as db_err:
+            logger.warning(
+                f"Could not read indexer height for rollback distance check, " f"falling back to bitcoin tip: {db_err}"
+            )
+            return backend_instance.getblockcount()
+
     def _perform_startup_rollback(self, target_block):
         """
         Perform database rollback at startup when fallback state is detected.
@@ -1020,21 +1169,7 @@ class CPBlocksPipeline:
                 # are discarding — bitcoin advancing while the indexer was offline is
                 # irrelevant and would spuriously trip the limit after long downtime.
                 # Fall back to the bitcoin tip only if the DB height is unavailable.
-                from index_core.database import last_db_index
-                from index_core.database_manager import DatabaseManager
-
-                try:
-                    db_manager = DatabaseManager()
-                    db = db_manager.connect()
-                    try:
-                        indexer_block = last_db_index(db)
-                    finally:
-                        db.close()
-                except Exception as db_err:
-                    logger.warning(
-                        f"Could not read indexer height for rollback distance check, " f"falling back to bitcoin tip: {db_err}"
-                    )
-                    indexer_block = backend_instance.getblockcount()
+                indexer_block = self._indexer_height_for_rollback()
 
                 # If the DB is already at or below the target, the rollback is a no-op
                 # for state purposes; skip the distance check rather than tripping it.
@@ -1166,8 +1301,8 @@ class CPBlocksPipeline:
                         created_count = 0
                         for block_idx in potential_blocks:
                             if block_idx not in self.queue:
-                                self.queue[block_idx] = self.create_fallback_block(block_idx)
-                                self.failed_cp_blocks.add(block_idx)
+                                if self._queue_fallback_block(block_idx) is None:
+                                    break  # Session cap reached; never skip past it
                                 created_count += 1
 
                         if created_count > 0:
@@ -1269,9 +1404,9 @@ class CPBlocksPipeline:
                         with self._lock:
                             for block_idx in blocks_to_fetch_now:
                                 if block_idx not in self.queue:
-                                    self.queue[block_idx] = self.create_fallback_block(block_idx)
-                                    # Track this block as needing CP data later
-                                    self.failed_cp_blocks.add(block_idx)
+                                    # Tracks the block as needing CP data later; stops at the session cap
+                                    if self._queue_fallback_block(block_idx) is None:
+                                        break
 
                             # Signal ready if initial fetch
                             if not self.initial_blocks_ready.is_set() and len(self.queue) >= self.min_blocks_ready:
@@ -1311,30 +1446,33 @@ class CPBlocksPipeline:
                     # - Node restarts or maintenance
                     # Only enter fallback mode after this extended wait to avoid unnecessary rollbacks
                     max_tip_block = max(blocks_near_tip)
-                    cp_wait_timeout = 180.0  # 3 minutes - generous buffer for CP to catch up
+                    cp_wait_timeout = fallback_monitor.tip_wait_timeout()  # CP_TIP_WAIT_TIMEOUT, default 180s
                     cp_ready = wait_for_cp_block_processed(max_tip_block, max_wait=cp_wait_timeout, check_interval=5.0)
 
                     if not cp_ready:
-                        # CP hasn't caught up after 3 minutes - likely a real outage
-                        # Enter fallback mode which will trigger rollback when CP recovers
-                        if self.fallback_mode and self.fallback_started_at is None:
+                        if self.fallback_mode and self.fallback_started_at is None and not self._cp_reachable():
+                            # No CP node answers at all: a real outage. Enter fallback mode,
+                            # which will trigger the rollback when CP recovers.
                             logger.warning(
-                                f"⚠️ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}). "
-                                f"Entering fallback mode - will rollback and reindex when CP recovers."
+                                f"⚠️ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}) "
+                                f"and no Counterparty node is reachable. Entering fallback mode - will rollback and "
+                                f"reindex when CP recovers."
                             )
                             self._enter_fallback_mode()
                             # Fallback mode will create placeholder blocks and trigger rollback later
                             continue
-                        elif not self.fallback_mode:
-                            # Fallback mode disabled - keep waiting (blocking behavior)
-                            logger.warning(
-                                f"⏳ CP not ready for block {max_tip_block} after {cp_wait_timeout}s (tip={block_tip}). "
-                                f"Fallback mode disabled - continuing to wait..."
-                            )
-                            time.sleep(10)
+                        if self.fallback_started_at is None:
+                            # CP is reachable (or fallback is disabled) but has not parsed the block
+                            # yet. This is the #957 tip race: indexing the block without CP data
+                            # would drop its issuances, so wait with bounded backoff and alert if
+                            # the wait drags on. Never fall back while CP answers.
+                            delay = self._cp_behind.note_behind(max_tip_block)
+                            if self.shutdown_flag.wait(delay):
+                                break
                             continue
                         # If already in fallback mode, let the fallback block creation handle it
                     else:
+                        self._cp_behind.reset()
                         logger.debug(f"✅ CP ready for tip blocks up to {max_tip_block}")
 
                 with self._blocks_fetch_lock:
@@ -1424,11 +1562,11 @@ class CPBlocksPipeline:
                                             f"Block {res_block_index} failed {failure_count} times (threshold: {self.fallback_failure_threshold}) - triggering fallback mode"
                                         )
                                         self._enter_fallback_mode()
-                                        # Create fallback block for this failed block
+                                        # Create fallback block for this failed block, only if
+                                        # fallback was actually entered (entry can be refused).
                                         with self._lock:
                                             if res_block_index not in self.queue:
-                                                self.queue[res_block_index] = self.create_fallback_block(res_block_index)
-                                                self.failed_cp_blocks.add(res_block_index)
+                                                self._queue_fallback_block(res_block_index)
 
                         if added_blocks:
                             added_range = (
