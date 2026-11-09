@@ -132,6 +132,7 @@ class Src20Processor:
         ),
         "UO": ("UNSUPPORTED OP {op} ", True),
         "ID": ("INVALID DECIMAL {tick} - decimal len {dec_length} > {dec}", True),
+        "BL": ("Blacklisted addresses [{blacklist_addresses}] on which operations are not permitted", True),
     }
 
     def __init__(self, db, src20_dict, processed_src20_in_block, lock=None, block_index=None, block_time=None):
@@ -456,6 +457,21 @@ class Src20Processor:
         self.src20_dict["status"] = f'New Balance: {self.src20_dict["total_balance_creator"]}'
 
     def validate_and_process_operation(self):
+        if self.block_index >= config.BTC_SRC20_NEW_DECODE_ADDRESS_BLOCK:
+            is_blacklist_creator = self.src20_dict.get("creator", "") in config.BTC_SRC20_NEW_DECODE_ADDRESS_BLACKLIST
+            is_blacklist_destination = self.src20_dict.get("destination", "") in config.BTC_SRC20_NEW_DECODE_ADDRESS_BLACKLIST
+            if is_blacklist_creator or is_blacklist_destination:
+                self.src20_dict["valid"] = 0
+                blacklist_addresses = ""
+                if is_blacklist_creator and is_blacklist_destination:
+                    blacklist_addresses = self.src20_dict.get("creator", "") + "," + self.src20_dict.get("destination", "")
+                elif is_blacklist_creator:
+                    blacklist_addresses = self.src20_dict.get("creator", "")
+                else:
+                    blacklist_addresses = self.src20_dict.get("destination", "")
+                self.set_status_and_log("BL", blacklist_addresses=blacklist_addresses)
+                return
+
         self.operation = self.src20_dict.get("op", "").upper()
         op_amt_validations = ["TRANSFER", "MINT"]
 
@@ -496,13 +512,13 @@ class Src20Processor:
         self.validate_and_process_operation()
 
 
-def parse_src20(db, src20_dict, processed_src20_in_block, lock=None):
+def parse_src20(db, src20_dict, processed_src20_in_block, lock=None, block_index=None):
     """
     Process all SRC-20 tokens that pass check_format.
     Thread-safe processing of SRC-20 transactions with proper transaction tracking.
     """
     try:
-        processor = Src20Processor(db, src20_dict, processed_src20_in_block, lock)
+        processor = Src20Processor(db, src20_dict, processed_src20_in_block, lock, block_index)
         processor.process()
 
         if not processor.is_valid:

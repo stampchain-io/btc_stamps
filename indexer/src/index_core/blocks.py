@@ -287,7 +287,7 @@ class BlockProcessor:
 
                 if prevalidated_src and stamp_data and stamp_data.pval_src20:
                     logger.debug(f"\nProcessing SRC20 for tx: {result.tx_hash}")
-                    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block, self._lock)
+                    _, src20_dict = parse_src20(self.db, prevalidated_src, self.processed_src20_in_block, self._lock, result.block_index)
                     logger.debug(f"SRC20 dict created: {src20_dict}")
                     with self._lock:
                         self.processed_src20_in_block.append(src20_dict)

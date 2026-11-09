@@ -459,6 +459,17 @@ CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterp
 BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP encoding
 BTC_SRC20_OLGA_BLOCK: int = 865000  # block height of first SRC-20 with P2WSH OLGA encoding
 BTC_SRC20_NEW_DECODE_ADDRESS_BLOCK: int = 974541  # block height of new `decode_address`
+BTC_SRC20_NEW_DECODE_ADDRESS_BLACKLIST = [
+    "bc1p6je50v9ty7hfm7vhfqzt0vfy8aznfee57q8e04nxznp454uyg5psxs6smq",
+    "bc1pj35czlupskw7vuqmggluc7enmqg659xsn3zkcndhc9jray3960lsqfq6f7",
+    "bc1qexcee9g97ggfyll6fz4qvvlm5qsehwhaj682d9",
+    "bc1qjsspxm43ucrydypxvr8shr4ph0ewrnz98ed2hy",
+    "bc1qlxuz90y9t5klzuhlj88m93979h0vc0svwe6wlq",
+    "bc1qmx22pyclf0f80elztpxqd20azhcwg5qvq3kvts",
+    "bc1qnjk728m693n6guet8qjj9frhakgx974ga8v069",
+    "bc1qpsthyfyuv8rf6r8j9q740t630k0akmr9u6suyk",
+    "bc1qthwggf4te0f03sz7e2ldny4y3fv05y4j4v2fwv"
+]  # The blacklist of addresses prohibited from conducting operations after the new decode_address takes effect at the specified block height
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 
 BTC_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101
