@@ -458,6 +458,7 @@ CP_STAMP_GENESIS_BLOCK: int = 779652  # block height of first valid stamp transa
 CP_SRC20_GENESIS_BLOCK: int = 788041  # This initial start of SRC-20 on Counterparty
 BTC_SRC20_GENESIS_BLOCK: int = 793068  # block height of first SRC-20 without CP encoding
 BTC_SRC20_OLGA_BLOCK: int = 865000  # block height of first SRC-20 with P2WSH OLGA encoding
+BTC_SRC20_NEW_DECODE_ADDRESS_BLOCK: int = 974541  # block height of new `decode_address`
 CP_SRC721_GENESIS_BLOCK: int = 792370  # block height of first SRC-721
 
 BTC_SRC101_GENESIS_BLOCK: int = 870652  # block height of first SRC-101

@@ -64,6 +64,7 @@ class CacheManager:
                 ("price", LRUCache[Optional[Dict[int, Any]]](max_size=PRICE_CACHE_SIZE)),
                 ("src101_deploy", LRUCache[SRC101DeployResult](max_size=SRC101_DEPLOY_CACHE_SIZE)),
                 ("address", LRUCache[str](max_size=ADDRESS_CACHE_SIZE)),
+                ("address_old", LRUCache[str](max_size=ADDRESS_CACHE_SIZE)),
                 ("market_data", LRUCache[Any](max_size=MARKET_DATA_CACHE_SIZE)),
             ]
 

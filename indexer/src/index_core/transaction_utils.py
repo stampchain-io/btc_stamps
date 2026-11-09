@@ -552,7 +552,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
                         keyburn = 1  # setting to keyburn since this was a requirement of msig, and validates it later
                         p2wsh_data = None
                         destination_pubkey = ctx.vout[0].scriptPubKey
-                        destinations = util.decode_address(destination_pubkey)
+                        destinations = select_decode_address(block_index, destination_pubkey)
                         src_destination_nvalue = 0
                         if config.BTC_SRC101_OLGA_BLOCK != 0 and block_index >= config.BTC_SRC101_OLGA_BLOCK:
                             src_destination_nvalue = ctx.vout[0].nValue
@@ -573,7 +573,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         elif pubkeys_compiled:
             chunk = b"".join(pubkey[1:-1] for pubkey in pubkeys_compiled)
             try:
-                src_destination, src_destination_nvalue, src_data = decode_checkmultisig(ctx, chunk)
+                src_destination, src_destination_nvalue, src_data = decode_checkmultisig(ctx, chunk, block_index)
             except Exception as e:
                 raise DecodeError(f"unrecognized output type: {e}")
             if src_destination is None or src_data is None:
@@ -600,7 +600,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         prev_vout_script_pubkey = prev_vout.scriptPubKey
 
         # Decode the address associated with the output.
-        source = util.decode_address(prev_vout_script_pubkey)
+        source = select_decode_address(block_index, prev_vout_script_pubkey)
 
         return TransactionInfo(
             str(source),
@@ -621,7 +621,7 @@ def get_tx_info(tx_hex, block_index=None, db=None, stamp_issuance=None):
         return TransactionInfo(b"", None, None, None, None, None, None, None, None, None, None, False)
 
 
-def decode_checkmultisig(ctx, chunk):
+def decode_checkmultisig(ctx, chunk, block_index):
     """
     Decode a checkmultisig transaction chunk. Decoding in ARC4 and looking for the STAMP prefix
     This also validates the length of the string with the 2 byte data length prefix
@@ -646,7 +646,7 @@ def decode_checkmultisig(ctx, chunk):
         data = chunk[2 + len(config.PREFIX) : 2 + chunk_length_int]
 
         script_pubkey = ctx.vout[0].scriptPubKey
-        destination = util.decode_address(script_pubkey)
+        destination = select_decode_address(block_index, script_pubkey)
         destination_nvalue = ctx.vout[0].nValue
         return str(destination), destination_nvalue, data
     else:
@@ -946,3 +946,9 @@ def quick_filter_src20_transaction(ctx):
     )
 
     return should_include
+
+def select_decode_address(block_index, script_pubkey):
+    if block_index < config.BTC_SRC20_NEW_DECODE_ADDRESS_BLOCK:
+        return util.decode_address_old(script_pubkey)
+    else:
+        return util.decode_address(script_pubkey)
